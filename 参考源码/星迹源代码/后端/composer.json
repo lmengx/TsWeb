@@ -1,7 +1,0 @@
-{
-    "require": {
-        "firebase/php-jwt": "^6.8",
-        "awheel/phptrie": "^0.1.0",
-        "catfan/medoo": "^2.1"
-    }
-}
