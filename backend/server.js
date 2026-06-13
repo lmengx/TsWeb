@@ -25,7 +25,7 @@ app.use((req, res, next) => {
   next()
 })
 
-const frontendDistPath = path.join(__dirname, '../frontend/dist')
+const frontendDistPath = path.join(__dirname, '/dist')
 app.use(express.static(frontendDistPath))
 
 app.use('/api/auth', authRoutes)
