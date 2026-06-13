@@ -1,0 +1,14 @@
+D:\工程\XJtool\bin\Debug\net6.0\HttpServer.dll
+D:\工程\XJtool\bin\Debug\net6.0\XJtool.deps.json
+D:\工程\XJtool\bin\Debug\net6.0\XJtool.dll
+D:\工程\XJtool\bin\Debug\net6.0\XJtool.pdb
+D:\工程\XJtool\obj\Debug\net6.0\XJtool.csproj.AssemblyReference.cache
+D:\工程\XJtool\obj\Debug\net6.0\XJtool.GeneratedMSBuildEditorConfig.editorconfig
+D:\工程\XJtool\obj\Debug\net6.0\XJtool.AssemblyInfoInputs.cache
+D:\工程\XJtool\obj\Debug\net6.0\XJtool.AssemblyInfo.cs
+D:\工程\XJtool\obj\Debug\net6.0\XJtool.csproj.CoreCompileInputs.cache
+D:\工程\XJtool\obj\Debug\net6.0\XJtool.dll
+D:\工程\XJtool\obj\Debug\net6.0\refint\XJtool.dll
+D:\工程\XJtool\obj\Debug\net6.0\XJtool.pdb
+D:\工程\XJtool\obj\Debug\net6.0\ref\XJtool.dll
+D:\工程\XJtool\obj\Debug\net6.0\XJtool.csproj.CopyComplete

@@ -1,0 +1,14 @@
+D:\工程\TShockData\bin\Debug\net6.0\HttpServer.dll
+D:\工程\TShockData\bin\Debug\net6.0\TShockData.deps.json
+D:\工程\TShockData\bin\Debug\net6.0\TShockData.dll
+D:\工程\TShockData\bin\Debug\net6.0\TShockData.pdb
+D:\工程\TShockData\obj\Debug\net6.0\TShockData.csproj.AssemblyReference.cache
+D:\工程\TShockData\obj\Debug\net6.0\TShockData.GeneratedMSBuildEditorConfig.editorconfig
+D:\工程\TShockData\obj\Debug\net6.0\TShockData.AssemblyInfoInputs.cache
+D:\工程\TShockData\obj\Debug\net6.0\TShockData.AssemblyInfo.cs
+D:\工程\TShockData\obj\Debug\net6.0\TShockData.csproj.CoreCompileInputs.cache
+D:\工程\TShockData\obj\Debug\net6.0\TShockData.csproj.CopyComplete
+D:\工程\TShockData\obj\Debug\net6.0\TShockData.dll
+D:\工程\TShockData\obj\Debug\net6.0\refint\TShockData.dll
+D:\工程\TShockData\obj\Debug\net6.0\TShockData.pdb
+D:\工程\TShockData\obj\Debug\net6.0\ref\TShockData.dll

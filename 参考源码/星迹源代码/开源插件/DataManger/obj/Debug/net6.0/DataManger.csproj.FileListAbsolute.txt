@@ -1,0 +1,13 @@
+D:\工程\DataManger\bin\Debug\net6.0\HttpServer.dll
+D:\工程\DataManger\bin\Debug\net6.0\DataManger.deps.json
+D:\工程\DataManger\bin\Debug\net6.0\DataManger.dll
+D:\工程\DataManger\bin\Debug\net6.0\DataManger.pdb
+D:\工程\DataManger\obj\Debug\net6.0\DataManger.csproj.AssemblyReference.cache
+D:\工程\DataManger\obj\Debug\net6.0\DataManger.GeneratedMSBuildEditorConfig.editorconfig
+D:\工程\DataManger\obj\Debug\net6.0\DataManger.AssemblyInfoInputs.cache
+D:\工程\DataManger\obj\Debug\net6.0\DataManger.AssemblyInfo.cs
+D:\工程\DataManger\obj\Debug\net6.0\DataManger.csproj.CoreCompileInputs.cache
+D:\工程\DataManger\obj\Debug\net6.0\DataManger.dll
+D:\工程\DataManger\obj\Debug\net6.0\refint\DataManger.dll
+D:\工程\DataManger\obj\Debug\net6.0\DataManger.pdb
+D:\工程\DataManger\obj\Debug\net6.0\ref\DataManger.dll
