@@ -1,0 +1,88 @@
+{
+  "Version": 1,
+  "WorkspaceRootPath": "C:\\Users\\lyt\\Documents\\GitHub\\TsWeb\\plugin\\",
+  "Documents": [
+    {
+      "AbsoluteMoniker": "D:0:0:{6B6CBCF6-EF6C-4D7F-9D65-CEB9C18AEB47}|TsWeb.csproj|c:\\users\\lyt\\documents\\github\\tsweb\\plugin\\queryusers.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{6B6CBCF6-EF6C-4D7F-9D65-CEB9C18AEB47}|TsWeb.csproj|solutionrelative:queryusers.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{6B6CBCF6-EF6C-4D7F-9D65-CEB9C18AEB47}|TsWeb.csproj|c:\\users\\lyt\\documents\\github\\tsweb\\plugin\\getplayerinv.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{6B6CBCF6-EF6C-4D7F-9D65-CEB9C18AEB47}|TsWeb.csproj|solutionrelative:getplayerinv.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{6B6CBCF6-EF6C-4D7F-9D65-CEB9C18AEB47}|TsWeb.csproj|c:\\users\\lyt\\documents\\github\\tsweb\\plugin\\main.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{6B6CBCF6-EF6C-4D7F-9D65-CEB9C18AEB47}|TsWeb.csproj|solutionrelative:main.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{6B6CBCF6-EF6C-4D7F-9D65-CEB9C18AEB47}|TsWeb.csproj|c:\\users\\lyt\\documents\\github\\tsweb\\plugin\\tsweb.csproj||{FA3CD31E-987B-443A-9B81-186104E8DAC1}|",
+      "RelativeMoniker": "D:0:0:{6B6CBCF6-EF6C-4D7F-9D65-CEB9C18AEB47}|TsWeb.csproj|solutionrelative:tsweb.csproj||{FA3CD31E-987B-443A-9B81-186104E8DAC1}|"
+    }
+  ],
+  "DocumentGroupContainers": [
+    {
+      "Orientation": 0,
+      "VerticalTabListWidth": 256,
+      "DocumentGroups": [
+        {
+          "DockedWidth": 200,
+          "SelectedChildIndex": 0,
+          "Children": [
+            {
+              "$type": "Document",
+              "DocumentIndex": 0,
+              "Title": "QueryUsers.cs",
+              "DocumentMoniker": "C:\\Users\\lyt\\Documents\\GitHub\\TsWeb\\plugin\\QueryUsers.cs",
+              "RelativeDocumentMoniker": "QueryUsers.cs",
+              "ToolTip": "C:\\Users\\lyt\\Documents\\GitHub\\TsWeb\\plugin\\QueryUsers.cs",
+              "RelativeToolTip": "QueryUsers.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAswOYAAAAtAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-06-13T12:54:55.956Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 1,
+              "Title": "GetPlayerInv.cs",
+              "DocumentMoniker": "C:\\Users\\lyt\\Documents\\GitHub\\TsWeb\\plugin\\GetPlayerInv.cs",
+              "RelativeDocumentMoniker": "GetPlayerInv.cs",
+              "ToolTip": "C:\\Users\\lyt\\Documents\\GitHub\\TsWeb\\plugin\\GetPlayerInv.cs",
+              "RelativeToolTip": "GetPlayerInv.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-06-13T13:02:56.847Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 3,
+              "Title": "TsWeb",
+              "DocumentMoniker": "C:\\Users\\lyt\\Documents\\GitHub\\TsWeb\\plugin\\TsWeb.csproj",
+              "RelativeDocumentMoniker": "TsWeb.csproj",
+              "ToolTip": "C:\\Users\\lyt\\Documents\\GitHub\\TsWeb\\plugin\\TsWeb.csproj",
+              "RelativeToolTip": "TsWeb.csproj",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAA4AAABPAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000758|",
+              "WhenOpened": "2026-06-13T12:18:04.521Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 2,
+              "Title": "Main.cs",
+              "DocumentMoniker": "C:\\Users\\lyt\\Documents\\GitHub\\TsWeb\\plugin\\Main.cs",
+              "RelativeDocumentMoniker": "Main.cs",
+              "ToolTip": "C:\\Users\\lyt\\Documents\\GitHub\\TsWeb\\plugin\\Main.cs",
+              "RelativeToolTip": "Main.cs",
+              "ViewState": "AgIAAA0AAAAAAAAAAAAywBoAAABiAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-06-13T11:11:48.899Z",
+              "EditorCaption": ""
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

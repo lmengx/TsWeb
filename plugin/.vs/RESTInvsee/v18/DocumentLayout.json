@@ -1,0 +1,55 @@
+{
+  "Version": 1,
+  "WorkspaceRootPath": "C:\\Users\\lyt\\Documents\\GitHub\\TsWeb\\plugin\\",
+  "Documents": [
+    {
+      "AbsoluteMoniker": "D:0:0:{6B6CBCF6-EF6C-4D7F-9D65-CEB9C18AEB47}|TsWeb.csproj|c:\\users\\lyt\\documents\\github\\tsweb\\plugin\\main.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{6B6CBCF6-EF6C-4D7F-9D65-CEB9C18AEB47}|TsWeb.csproj|solutionrelative:main.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{6B6CBCF6-EF6C-4D7F-9D65-CEB9C18AEB47}|TsWeb.csproj|c:\\users\\lyt\\documents\\github\\tsweb\\plugin\\getplayerinv.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{6B6CBCF6-EF6C-4D7F-9D65-CEB9C18AEB47}|TsWeb.csproj|solutionrelative:getplayerinv.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    }
+  ],
+  "DocumentGroupContainers": [
+    {
+      "Orientation": 0,
+      "VerticalTabListWidth": 256,
+      "DocumentGroups": [
+        {
+          "DockedWidth": 200,
+          "SelectedChildIndex": 0,
+          "Children": [
+            {
+              "$type": "Document",
+              "DocumentIndex": 0,
+              "Title": "Main.cs",
+              "DocumentMoniker": "C:\\Users\\lyt\\Documents\\GitHub\\TsWeb\\plugin\\Main.cs",
+              "RelativeDocumentMoniker": "Main.cs",
+              "ToolTip": "C:\\Users\\lyt\\Documents\\GitHub\\TsWeb\\plugin\\Main.cs",
+              "RelativeToolTip": "Main.cs",
+              "ViewState": "AgIAAAoAAAAAAAAAAAAQwCIAAABWAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-06-11T10:11:40.309Z",
+              "IsPinned": true,
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 1,
+              "Title": "GetPlayerInv.cs",
+              "DocumentMoniker": "C:\\Users\\lyt\\Documents\\GitHub\\TsWeb\\plugin\\GetPlayerInv.cs",
+              "RelativeDocumentMoniker": "GetPlayerInv.cs",
+              "ToolTip": "C:\\Users\\lyt\\Documents\\GitHub\\TsWeb\\plugin\\GetPlayerInv.cs",
+              "RelativeToolTip": "GetPlayerInv.cs",
+              "ViewState": "AgIAAFQAAAAAAAAAAAAAAF8AAAA4AAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2026-06-11T18:40:13.029Z",
+              "EditorCaption": ""
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

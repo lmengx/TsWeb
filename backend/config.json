@@ -1,0 +1,18 @@
+{
+  "database": {
+    "path": "c:\\Users\\lyt\\Documents\\GitHub\\TsWeb\\tshock.sqlite"
+  },
+  "server": {
+    "port": 3000
+  },
+  "tshock": {
+    "host": "http://43.248.3.138",
+    "port": 37878,
+    "apiKey": "8sK9pR2xQ7zA5dF1gH4jL6mN0bV3cY7wE"
+  },
+  "security": {
+    "jwtSecret": "your-secret-key-here-change-in-production",
+    "tokenExpire": "24h",
+    "challengeExpire": 120000
+  }
+}

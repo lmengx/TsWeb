@@ -1,0 +1,14 @@
+D:\工程\TrCDK\bin\Debug\net6.0\HttpServer.dll
+D:\工程\TrCDK\bin\Debug\net6.0\TrCDK.deps.json
+D:\工程\TrCDK\bin\Debug\net6.0\TrCDK.dll
+D:\工程\TrCDK\bin\Debug\net6.0\TrCDK.pdb
+D:\工程\TrCDK\obj\Debug\net6.0\TrCDK.csproj.AssemblyReference.cache
+D:\工程\TrCDK\obj\Debug\net6.0\TrCDK.GeneratedMSBuildEditorConfig.editorconfig
+D:\工程\TrCDK\obj\Debug\net6.0\TrCDK.AssemblyInfoInputs.cache
+D:\工程\TrCDK\obj\Debug\net6.0\TrCDK.AssemblyInfo.cs
+D:\工程\TrCDK\obj\Debug\net6.0\TrCDK.csproj.CoreCompileInputs.cache
+D:\工程\TrCDK\obj\Debug\net6.0\TrCDK.dll
+D:\工程\TrCDK\obj\Debug\net6.0\refint\TrCDK.dll
+D:\工程\TrCDK\obj\Debug\net6.0\TrCDK.pdb
+D:\工程\TrCDK\obj\Debug\net6.0\ref\TrCDK.dll
+D:\工程\TrCDK\obj\Debug\net6.0\TrCDK.csproj.CopyComplete
