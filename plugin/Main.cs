@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using TShockAPI;
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using TShockAPI;
 using Terraria;
 using TerrariaApi.Server;
 using Rests;
@@ -11,19 +11,22 @@ namespace TShockData
 	[ApiVersion(2, 1)]
 	public class TShockData : TerrariaPlugin
 	{
-		public override string Author => "Jonesn";
-		public override string Description => "TShockREST背包管理";
-		public override string Name => "RESTInvsee";
+		public override string Author => "lmx12330";
+		public override string Description => "TShockRESTweb管理";
+		public override string Name => "TSWeb";
 		public override Version Version => new Version(1, 0, 0, 0);
 		public TShockData(Main game) : base(game) { }
 		public override void Initialize()
 		{
-			//RuntimeHooks.Initialize();
+			RuntimeHooks.Initialize();
+
+            AutoRegister.Initialize(this);
 
 			TShock.RestApi.Register(new SecureRestCommand("/data/users/invsee", GetPlayerInv.GetInv, "data.rest.invsee"));
 			TShock.RestApi.Register(new SecureRestCommand("/data/users/editinv", GetPlayerInv.EditInv, "data.rest.invsee"));
 			TShock.RestApi.Register(new SecureRestCommand("/data/users/query_detail", QueryUsers.QueryUsersList, "data.rest.invsee"));
 			TShock.RestApi.Register(new SecureRestCommand("/data/users/duplicateips", QueryUsers.QueryDuplicateIPs, "data.rest.invsee"));
+			TShock.RestApi.Register(new SecureRestCommand("/data/users/allduplicateips", QueryUsers.QueryAllDuplicateIPs, "data.rest.invsee"));
 			TShock.RestApi.Register(new SecureRestCommand("/data/users/ban", QueryUsers.BanPlayerByNameorID, "data.rest.invsee"));
 
 			TShock.RestApi.Register(new SecureRestCommand("/data/groups/list", GroupOP.GetAllGroups, "data.groups"));
@@ -34,18 +37,67 @@ namespace TShockData
 			TShock.RestApi.Register(new SecureRestCommand("/data/groups/permission/add", GroupOP.AddPermission, "data.groups"));
 			TShock.RestApi.Register(new SecureRestCommand("/data/groups/permission/remove", GroupOP.RemovePermission, "data.groups"));
 
+            TShock.RestApi.Register(new SecureRestCommand("/data/users/getpassword", QueryPwd.GetUserPassword, "data.rest.invsee"));
+
+			TShock.RestApi.Register(new SecureRestCommand("/data/anticheat/proj-config/getprojconfig", ProjConfigHandler.GetProjConfig, "tshock.admin"));
+            TShock.RestApi.Register(new SecureRestCommand("/data/anticheat/proj-config/saveprojconfig", ProjConfigHandler.SaveProjConfig, "tshock.admin"));
+            TShock.RestApi.Register(new SecureRestCommand("/data/anticheat/item-config/getitemconfig", ItemConfigHandler.GetItemConfigApi, "tshock.admin"));
+            TShock.RestApi.Register(new SecureRestCommand("/data/anticheat/item-config/saveitemconfig", ItemConfigHandler.SaveItemConfigApi, "tshock.admin"));
+            TShock.RestApi.Register(new SecureRestCommand("/data/anticheat/item-config/scanall", ItemConfigHandler.ScanAllItemsApi, "tshock.admin"));
+
             TShockAPI.Commands.ChatCommands.Add(new Command("tools.runas", tools.runas, "runas"));
 
+			TShockAPI.Commands.ChatCommands.Add(new Command("tshock.admin.ban", tools.banp, "banp"));
 
+            TShockAPI.Commands.ChatCommands.Add(new Command("", BossProgress.GetBossInfo, "进度", "bossinfo"));
+
+            TShock.RestApi.Register(new SecureRestCommand("/data/boss/progress", BossProgress.GetBossInfoJson, ""));
+
+            TShockAPI.Commands.ChatCommands.Add(new Command("tools.planoff", PlannedOff.PlanOff, "planoff"));
+            PlannedOff.Initialize(this);
+
+            TShockAPI.Commands.ChatCommands.Add(new Command("tshock.admin", AutoRegister.HandleCommand, "autoregister", "ar"));
+
+            TShockAPI.Commands.ChatCommands.Add(new Command("tshock.admin", ExportPlayer.Export, "export", "导出"));
+
+            TShockAPI.Commands.ChatCommands.Add(new Command("", PasswordManager.ChangePassword, "pwd", "密码"));
+
+            AntiCheat.Initialize();
+            ProjDetection.Initialize();
+            ItemConfigHandler.LoadItemConfig();
+            ItemDetection.Initialize();
+
+            TShockAPI.Commands.ChatCommands.Add(new Command("tshock.admin", AntiCheat.HandleScanCommand, "scan", "扫描"));
+
+            TShockAPI.Commands.ChatCommands.Add(new Command("tshock.admin", ProjDetection.ShowRestrictedList, "projlst", "违禁弹幕"));
+            TShockAPI.Commands.ChatCommands.Add(new Command("tshock.admin", ItemDetection.ShowRestrictedList, "scanlist", "违禁物品"));
+
+            TShockAPI.Hooks.GeneralHooks.ReloadEvent += OnReload;
         }
-		protected override void Dispose(bool Disposing)
-		{
-			if (Disposing)
-			{
-				RuntimeHooks.Dispose();
-			}
-			base.Dispose(Disposing);
-		}
+
+        private void OnReload(TShockAPI.Hooks.ReloadEventArgs e)
+        {
+            AntiCheat.LoadConfig();
+            AntiCheat.LoadProjConfig();
+            ItemConfigHandler.LoadItemConfig();
+            ProjDetection.RefreshRestrictedProjectiles();
+            ItemDetection.RefreshRestrictedItems();
+            ItemDetection.StartAutoScan();
+            TShock.Log.ConsoleInfo("[TSWeb] 反作弊配置已重新加载");
+        }
+
+        protected override void Dispose(bool Disposing)
+        {
+            if (Disposing)
+            {
+                TShockAPI.Hooks.GeneralHooks.ReloadEvent -= OnReload;
+                PlannedOff.Dispose();
+                AutoRegister.Dispose(this);
+                RuntimeHooks.Dispose();
+                ItemDetection.StopAutoScan();
+            }
+            base.Dispose(Disposing);
+        }
 
 		
 	}

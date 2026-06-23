@@ -40,7 +40,12 @@ export const getInventory = async (req, res) => {
   }
 
   const result = await tshockService.getInventory(player)
-  res.send(result)
+  
+  if (result.error) {
+    return res.json({ status: 'error', error: result.error })
+  }
+  
+  res.json({ status: '200', inventory: result })
 }
 
 export const getUserList = async (req, res) => {
@@ -56,6 +61,11 @@ export const checkDuplicateIPs = async (req, res) => {
   }
   const result = await tshockService.checkDuplicateIPs(username)
   res.json(result)
+}
+
+export const getAllDuplicateIPs = async (req, res) => {
+  const result = await tshockService.getAllDuplicateIPs()
+  res.send(result)
 }
 
 export const editInventory = async (req, res) => {
@@ -147,5 +157,59 @@ export const banPlayer = async (req, res) => {
 
   const target = name || id
   const result = await tshockService.banPlayer(target, reason)
+  res.json(result)
+}
+
+
+
+export const getBossProgress = async (req, res) => {
+  const result = await tshockService.getBossProgress()
+  res.json(result)
+}
+
+export const getBanList = async (req, res) => {
+  const result = await tshockService.getBanList()
+  res.json(result)
+}
+
+export const getSelfInfo = async (req, res) => {
+  const { username } = req.user
+  
+  if (!username) {
+    return res.status(400).json({ error: 'username not found in token' })
+  }
+  
+  const [userResult, invResult, onlineResult] = await Promise.all([
+    tshockService.getUserList(username),
+    tshockService.getInventory(username),
+    tshockService.getActiveUsers()
+  ])
+  
+  const userInfo = userResult.status === '200' && userResult.users && userResult.users.length > 0 
+    ? userResult.users[0] 
+    : null
+    
+  const inventory = invResult.error ? null : invResult
+  
+  const isOnline = onlineResult && onlineResult.activeusers 
+    ? onlineResult.activeusers.split('\t').some(name => name.trim().toLowerCase() === username.toLowerCase())
+    : false
+  
+  res.json({
+    username,
+    userInfo,
+    inventory: inventory ? { status: '200', inventory } : { status: 'error', error: invResult.error },
+    isOnline,
+    success: !!userInfo
+  })
+}
+
+export const scanItems = async (req, res) => {
+  const result = await tshockService.scanItems()
+  
+  if (result.error) {
+    return res.json({ status: 'error', error: result.error })
+  }
+  
   res.json(result)
 }

@@ -1,46 +1,64 @@
 <script setup>
+import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { isAdmin } from '../utils/authHelper.js'
 
 const route = useRoute()
 const router = useRouter()
 
-const user = (() => {
-  const saved = localStorage.getItem('user')
-  if (saved) {
-    try {
-      return JSON.parse(saved)
-    } catch {
-      return null
-    }
-  }
-  return null
-})()
-
-const isAdmin = computed(() => {
-  if (!user?.usergroup) return false
-  const usergroup = user.usergroup.toLowerCase()
-  return usergroup.includes('owner') || usergroup.includes('superadmin')
-})
-
 const sidebarItems = [
-  { id: 'terminal', name: '控制台', path: '/console/terminal' },
-  { id: 'players', name: '玩家管理', path: '/console/players' },
+  { id: 'profile', name: '个人资料', path: '/console/profile' },
+  { id: 'progress', name: '世界进度', path: '/console/progress' },
+  { 
+    id: 'tools', 
+    name: '工具', 
+    path: '/console/tools',
+    children: [
+      { id: 'item-search', name: '物品查询', path: '/console/tools/item-search' },
+      { id: 'gradient-text', name: '彩色文字', path: '/console/tools/gradient-text' },
+      { id: 'resources', name: '资源下载', path: '/console/tools/resources' }
+    ]
+  },
+  { id: 'terminal', name: '控制台', path: '/console/terminal', adminOnly: true },
+  { id: 'players', name: '玩家管理', path: '/console/players', adminOnly: true },
   { id: 'groups', name: '组管理', path: '/console/groups', adminOnly: true },
-  { id: 'server', name: '服务器设置', path: '/console/server' },
-  { id: 'logs', name: '日志查看', path: '/console/logs' },
-  { id: 'plugins', name: '插件管理', path: '/console/plugins' }
+  { id: 'banlist', name: '封禁列表', path: '/console/banlist', adminOnly: true },
+  {
+    id: 'anticheat',
+    name: '反作弊',
+    path: '/console/anticheat',
+    adminOnly: true,
+    children: [
+        { id: 'item-restrict', name: '物品限制配置', path: '/console/anticheat/item-restrict' },
+        { id: 'proj-restrict', name: '弹幕限制配置', path: '/console/anticheat/proj-restrict' },
+        { id: 'duplicate-ip', name: '共享IP检测', path: '/console/anticheat/duplicate-ip' }
+      ]
+  },
+  { id: 'settings', name: '设置', path: '/console/settings', adminOnly: true }
 ]
 
 const adminSidebarItems = computed(() => {
-  return sidebarItems.filter(item => !item.adminOnly || isAdmin)
+  return sidebarItems.filter(item => !item.adminOnly || isAdmin())
 })
 
 const isActive = (path) => {
   return route.path === path
 }
 
-const goToSettings = () => {
-  router.push('/settings')
+const isActiveParent = (parentPath) => {
+  return route.path.startsWith(parentPath)
+}
+
+const isExpanded = (parentPath) => {
+  return route.path.startsWith(parentPath)
+}
+
+const handleParentClick = (item) => {
+  if (item.children && item.children.length > 0) {
+    router.push(item.children[0].path)
+  } else {
+    router.push(item.path)
+  }
 }
 </script>
 
@@ -51,24 +69,42 @@ import { computed } from 'vue'
 <template>
   <aside class="sidebar glass">
     <nav class="sidebar-nav">
-      <router-link
-        v-for="item in adminSidebarItems"
-        :key="item.id"
-        :to="item.path"
-        class="sidebar-item"
-        :class="{ active: isActive(item.path) }"
-      >
-        <span class="sidebar-name">{{ item.name }}</span>
-        <div v-if="isActive(item.path)" class="active-indicator"></div>
-      </router-link>
-
-      <div
-        v-if="isAdmin"
-        class="sidebar-item clickable"
-        @click="goToSettings"
-      >
-        <span class="sidebar-name">⚙️ 应用配置</span>
-      </div>
+      <template v-for="item in adminSidebarItems" :key="item.id">
+        <div v-if="item.children && item.children.length > 0" class="sidebar-item-group">
+          <div
+            class="sidebar-item parent-item"
+            :class="{ active: isActiveParent(item.path) }"
+            @click="handleParentClick(item)"
+          >
+            <span class="sidebar-name">{{ item.name }}</span>
+            <span class="expand-icon" :class="{ rotated: isExpanded(item.path) }">▼</span>
+            <div v-if="isActiveParent(item.path)" class="active-indicator"></div>
+          </div>
+          
+          <div v-if="isExpanded(item.path)" class="sidebar-submenu">
+            <router-link
+              v-for="child in item.children"
+              :key="child.id"
+              :to="child.path"
+              class="sidebar-item child-item"
+              :class="{ active: isActive(child.path) }"
+            >
+              <span class="sidebar-name">{{ child.name }}</span>
+              <div v-if="isActive(child.path)" class="active-indicator"></div>
+            </router-link>
+          </div>
+        </div>
+        
+        <router-link
+          v-else
+          :to="item.path"
+          class="sidebar-item"
+          :class="{ active: isActive(item.path) }"
+        >
+          <span class="sidebar-name">{{ item.name }}</span>
+          <div v-if="isActive(item.path)" class="active-indicator"></div>
+        </router-link>
+      </template>
     </nav>
   </aside>
 </template>
@@ -136,5 +172,39 @@ import { computed } from 'vue'
   height: 24px;
   background: rgba(255, 255, 255, 0.8);
   border-radius: 2px 0 0 2px;
+}
+
+.parent-item {
+  justify-content: space-between;
+}
+
+.expand-icon {
+  font-size: 0.6rem;
+  transition: transform 0.25s ease;
+  color: inherit;
+}
+
+.expand-icon.rotated {
+  transform: rotate(180deg);
+}
+
+.sidebar-submenu {
+  padding-left: 16px;
+  overflow: hidden;
+  transition: all 0.25s ease;
+}
+
+.child-item {
+  padding-left: 24px;
+  font-size: 0.85rem;
+  opacity: 0.9;
+}
+
+.child-item:hover {
+  padding-left: 28px;
+}
+
+.child-item.active {
+  background: rgba(99, 102, 241, 0.6);
 }
 </style>

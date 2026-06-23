@@ -7,7 +7,6 @@ const emit = defineEmits(['configured', 'need-setup'])
 const loading = ref(true)
 const configured = ref(false)
 const configStatus = ref({
-  databasePath: false,
   host: false,
   port: false,
   apiKey: false

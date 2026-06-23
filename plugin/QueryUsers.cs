@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿using Rests;
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using Rests;
 using System;
 using System.Collections.Generic;
 using System.Data;
@@ -98,89 +98,170 @@ namespace TShockData
             try
             {
                 IDbConnection db = TShock.DB;
-                
-                string targetUserQuery = "SELECT ID, KnownIPs FROM Users WHERE Username = @0";
-                using (QueryResult targetRes = db.QueryReader(targetUserQuery, username))
+                List<Dictionary<string, object>> allUsers = new List<Dictionary<string, object>>();
+                int targetIndex = -1;
+
+                string query = "SELECT ID, Username, UUID, KnownIPs FROM Users";
+                using (QueryResult res = db.QueryReader(query))
                 {
-                    if (!targetRes.Read())
+                    int index = 0;
+                    while (res.Read())
                     {
-                        return new RestObject("404")
+                        string userUsername = res.Get<string>("Username");
+                        Dictionary<string, object> user = new Dictionary<string, object>
                         {
-                            { "error", "User not found" }
+                            { "id", res.Get<int>("ID") },
+                            { "username", userUsername },
+                            { "uuid", res.Get<string>("UUID") ?? "" },
+                            { "knownIPs", res.Get<string>("KnownIPs") ?? "" }
                         };
+                        allUsers.Add(user);
+                        
+                        if (userUsername.Equals(username, StringComparison.OrdinalIgnoreCase))
+                        {
+                            targetIndex = index;
+                        }
+                        index++;
                     }
-                    
-                    int targetUserId = targetRes.Get<int>("ID");
-                    string targetIPsJson = targetRes.Get<string>("KnownIPs");
-                    
-                    List<string> targetIPs = new List<string>();
-                    if (!string.IsNullOrEmpty(targetIPsJson))
+                }
+
+                if (targetIndex == -1)
+                {
+                    return new RestObject("404")
+                    {
+                        { "error", "User not found" }
+                    };
+                }
+
+                Dictionary<string, List<int>> ipToUsers = new Dictionary<string, List<int>>();
+                Dictionary<string, List<int>> uuidToUsers = new Dictionary<string, List<int>>();
+
+                for (int i = 0; i < allUsers.Count; i++)
+                {
+                    var user = allUsers[i];
+                    string uuid = user["uuid"].ToString();
+                    string knownIPsJson = user["knownIPs"].ToString();
+
+                    if (!string.IsNullOrEmpty(uuid))
+                    {
+                        if (!uuidToUsers.ContainsKey(uuid))
+                            uuidToUsers[uuid] = new List<int>();
+                        uuidToUsers[uuid].Add(i);
+                    }
+
+                    List<string> ips = new List<string>();
+                    if (!string.IsNullOrEmpty(knownIPsJson))
                     {
                         try
                         {
-                            targetIPs = JsonConvert.DeserializeObject<List<string>>(targetIPsJson) ?? new List<string>();
+                            ips = JsonConvert.DeserializeObject<List<string>>(knownIPsJson) ?? new List<string>();
                         }
-                        catch
-                        {
-                            return new RestObject("500")
-                            {
-                                { "error", "Failed to parse target user IPs" }
-                            };
-                        }
+                        catch { }
                     }
-                    
-                    if (targetIPs.Count == 0)
+
+                    foreach (string ip in ips)
                     {
-                        return new RestObject()
+                        if (!string.IsNullOrEmpty(ip))
                         {
-                            { "message", "No IPs found for target user" },
-                            { "duplicates", new List<object>() }
-                        };
-                    }
-                    
-                    string allUsersQuery = "SELECT ID, Username, KnownIPs FROM Users WHERE ID != @0";
-                    List<Dictionary<string, object>> duplicates = new List<Dictionary<string, object>>();
-                    
-                    using (QueryResult res = db.QueryReader(allUsersQuery, targetUserId))
-                    {
-                        while (res.Read())
-                        {
-                            int userId = res.Get<int>("ID");
-                            string userUsername = res.Get<string>("Username");
-                            string userIPsJson = res.Get<string>("KnownIPs");
-                            
-                            List<string> userIPs = new List<string>();
-                            if (!string.IsNullOrEmpty(userIPsJson))
-                            {
-                                try
-                                {
-                                    userIPs = JsonConvert.DeserializeObject<List<string>>(userIPsJson) ?? new List<string>();
-                                }
-                                catch
-                                {
-                                    continue;
-                                }
-                            }
-                            
-                            bool hasCommonIP = targetIPs.Any(ip => userIPs.Contains(ip));
-                            if (hasCommonIP)
-                            {
-                                Dictionary<string, object> duplicate = new Dictionary<string, object>();
-                                duplicate.Add("ID", userId);
-                                duplicate.Add("Username", userUsername);
-                                duplicates.Add(duplicate);
-                            }
+                            if (!ipToUsers.ContainsKey(ip))
+                                ipToUsers[ip] = new List<int>();
+                            ipToUsers[ip].Add(i);
                         }
                     }
-                    
-                    return new RestObject()
-                    {
-                        { "targetUser", username },
-                        { "targetIPs", targetIPs },
-                        { "duplicates", duplicates },
-                        { "count", duplicates.Count }
-                    };
                 }
+
+                int[] parent = new int[allUsers.Count];
+                for (int i = 0; i < parent.Length; i++) parent[i] = i;
+
+                Func<int, int> find = null;
+                find = (int x) => {
+                    if (parent[x] != x) parent[x] = find(parent[x]);
+                    return parent[x];
+                };
+
+                Action<int, int> union = (int x, int y) => {
+                    int px = find(x);
+                    int py = find(y);
+                    if (px != py) parent[px] = py;
+                };
+
+                foreach (var kvp in ipToUsers)
+                {
+                    List<int> users = kvp.Value;
+                    for (int i = 1; i < users.Count; i++)
+                    {
+                        union(users[0], users[i]);
+                    }
+                }
+
+                foreach (var kvp in uuidToUsers)
+                {
+                    List<int> users = kvp.Value;
+                    for (int i = 1; i < users.Count; i++)
+                    {
+                        union(users[0], users[i]);
+                    }
+                }
+
+                int targetRoot = find(targetIndex);
+                List<Dictionary<string, object>> duplicates = new List<Dictionary<string, object>>();
+                HashSet<string> sharedIPs = new HashSet<string>();
+
+                for (int i = 0; i < allUsers.Count; i++)
+                {
+                    if (find(i) == targetRoot && i != targetIndex)
+                    {
+                        var user = allUsers[i];
+                        duplicates.Add(new Dictionary<string, object>
+                        {
+                            { "ID", user["id"] },
+                            { "Username", user["username"] }
+                        });
+                        
+                        string knownIPsJson = user["knownIPs"].ToString();
+                        List<string> ips = new List<string>();
+                        if (!string.IsNullOrEmpty(knownIPsJson))
+                        {
+                            try
+                            {
+                                ips = JsonConvert.DeserializeObject<List<string>>(knownIPsJson) ?? new List<string>();
+                            }
+                            catch { }
+                        }
+                        foreach (string ip in ips)
+                        {
+                            if (!string.IsNullOrEmpty(ip))
+                                sharedIPs.Add(ip);
+                        }
+                    }
+                }
+
+                var targetUser = allUsers[targetIndex];
+                string targetKnownIPsJson = targetUser["knownIPs"].ToString();
+                List<string> targetIPs = new List<string>();
+                if (!string.IsNullOrEmpty(targetKnownIPsJson))
+                {
+                    try
+                    {
+                        targetIPs = JsonConvert.DeserializeObject<List<string>>(targetKnownIPsJson) ?? new List<string>();
+                    }
+                    catch { }
+                }
+                foreach (string ip in targetIPs)
+                {
+                    if (!string.IsNullOrEmpty(ip))
+                        sharedIPs.Add(ip);
+                }
+
+                return new RestObject()
+                {
+                    { "targetUser", username },
+                    { "targetIPs", targetIPs },
+                    { "duplicates", duplicates },
+                    { "count", duplicates.Count },
+                    { "sharedIPs", sharedIPs.ToList() },
+                    { "totalAccounts", duplicates.Count + 1 }
+                };
             }
             catch (Exception ex)
             {
@@ -299,6 +380,177 @@ namespace TShockData
                     { "uuid", uuid ?? "无" },
                     { "bannedIPs", ipList.Count },
                     { "reason", reason }
+                };
+            }
+            catch (Exception ex)
+            {
+                return new RestObject("500")
+                {
+                    { "error", ex.Message }
+                };
+            }
+        }
+
+        public static object QueryAllDuplicateIPs(RestRequestArgs args)
+        {
+            try
+            {
+                IDbConnection db = TShock.DB;
+                List<Dictionary<string, object>> result = new List<Dictionary<string, object>>();
+
+                string query = "SELECT ID, Username, UUID, KnownIPs FROM Users";
+                List<Dictionary<string, object>> allUsers = new List<Dictionary<string, object>>();
+
+                using (QueryResult res = db.QueryReader(query))
+                {
+                    while (res.Read())
+                    {
+                        Dictionary<string, object> user = new Dictionary<string, object>
+                        {
+                            { "id", res.Get<int>("ID") },
+                            { "username", res.Get<string>("Username") },
+                            { "uuid", res.Get<string>("UUID") ?? "" },
+                            { "knownIPs", res.Get<string>("KnownIPs") ?? "" }
+                        };
+                        allUsers.Add(user);
+                    }
+                }
+
+                Dictionary<string, List<int>> ipToUsers = new Dictionary<string, List<int>>();
+                Dictionary<string, List<int>> uuidToUsers = new Dictionary<string, List<int>>();
+
+                for (int i = 0; i < allUsers.Count; i++)
+                {
+                    var user = allUsers[i];
+                    int userId = (int)user["id"];
+                    string uuid = user["uuid"].ToString();
+                    string knownIPsJson = user["knownIPs"].ToString();
+
+                    if (!string.IsNullOrEmpty(uuid))
+                    {
+                        if (!uuidToUsers.ContainsKey(uuid))
+                            uuidToUsers[uuid] = new List<int>();
+                        uuidToUsers[uuid].Add(i);
+                    }
+
+                    List<string> ips = new List<string>();
+                    if (!string.IsNullOrEmpty(knownIPsJson))
+                    {
+                        try
+                        {
+                            ips = JsonConvert.DeserializeObject<List<string>>(knownIPsJson) ?? new List<string>();
+                        }
+                        catch { }
+                    }
+
+                    foreach (string ip in ips)
+                    {
+                        if (!string.IsNullOrEmpty(ip))
+                        {
+                            if (!ipToUsers.ContainsKey(ip))
+                                ipToUsers[ip] = new List<int>();
+                            ipToUsers[ip].Add(i);
+                        }
+                    }
+                }
+
+                int[] parent = new int[allUsers.Count];
+                for (int i = 0; i < parent.Length; i++) parent[i] = i;
+
+                Func<int, int> find = null;
+                find = (int x) => {
+                    if (parent[x] != x) parent[x] = find(parent[x]);
+                    return parent[x];
+                };
+
+                Action<int, int> union = (int x, int y) => {
+                    int px = find(x);
+                    int py = find(y);
+                    if (px != py) parent[px] = py;
+                };
+
+                foreach (var kvp in ipToUsers)
+                {
+                    List<int> users = kvp.Value;
+                    for (int i = 1; i < users.Count; i++)
+                    {
+                        union(users[0], users[i]);
+                    }
+                }
+
+                foreach (var kvp in uuidToUsers)
+                {
+                    List<int> users = kvp.Value;
+                    for (int i = 1; i < users.Count; i++)
+                    {
+                        union(users[0], users[i]);
+                    }
+                }
+
+                Dictionary<int, HashSet<int>> groups = new Dictionary<int, HashSet<int>>();
+                for (int i = 0; i < allUsers.Count; i++)
+                {
+                    int root = find(i);
+                    if (!groups.ContainsKey(root))
+                        groups[root] = new HashSet<int>();
+                    groups[root].Add(i);
+                }
+
+                int index = 1;
+                foreach (var group in groups)
+                {
+                    if (group.Value.Count > 1)
+                    {
+                        Dictionary<string, object> item = new Dictionary<string, object>
+                        {
+                            { "index", index }
+                        };
+
+                        List<Dictionary<string, object>> accounts = new List<Dictionary<string, object>>();
+                        HashSet<string> allIPs = new HashSet<string>();
+
+                        foreach (int userIdx in group.Value)
+                        {
+                            var user = allUsers[userIdx];
+                            string username = user["username"].ToString();
+                            string knownIPsJson = user["knownIPs"].ToString();
+
+                            accounts.Add(new Dictionary<string, object>
+                            {
+                                { "id", user["id"] },
+                                { "username", username }
+                            });
+
+                            List<string> ips = new List<string>();
+                            if (!string.IsNullOrEmpty(knownIPsJson))
+                            {
+                                try
+                                {
+                                    ips = JsonConvert.DeserializeObject<List<string>>(knownIPsJson) ?? new List<string>();
+                                }
+                                catch { }
+                            }
+
+                            foreach (string ip in ips)
+                            {
+                                if (!string.IsNullOrEmpty(ip))
+                                {
+                                    allIPs.Add(ip);
+                                }
+                            }
+                        }
+
+                        item["accounts"] = accounts;
+                        item["ips"] = allIPs.ToList();
+
+                        result.Add(item);
+                        index++;
+                    }
+                }
+
+                return new RestObject()
+                {
+                    { "duplicateips", result }
                 };
             }
             catch (Exception ex)

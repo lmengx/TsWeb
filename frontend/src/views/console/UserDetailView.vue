@@ -3,6 +3,32 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { get, post } from '../../utils/api.js'
 import InventoryViewer from '../../components/InventoryViewer.vue'
+import { getAntiCheatConfig } from '../../api/antiCheatApi.js'
+import { loadItemData } from '../../api/itemDataApi.js'
+
+const itemData = ref({ list: [], dict: {} })
+const antiCheatConfig = ref(null)
+
+const isAnomalyItem = (id, stack) => {
+  const config = antiCheatConfig.value
+  if (!config || !config.items) return false
+
+  const item = config.items.find(i => i.id === id)
+  if (item) {
+    return stack > item.maxStack
+  }
+
+  return false
+}
+
+const getItemName = (id) => {
+  const item = itemData.value.list.find(i => i.id === id)
+  return item ? item.chinese : null
+}
+
+const initItemData = async () => {
+  itemData.value = await loadItemData()
+}
 
 const route = useRoute()
 const router = useRouter()
@@ -15,12 +41,31 @@ const invseeInventory = ref([])
 const invseeLoading = ref(false)
 const invseeError = ref('')
 
+const anomalyItems = computed(() => {
+  console.log('API原始返回:', JSON.stringify(invseeInventory.value))
+  const anomalies = []
+  for (const item of invseeInventory.value) {
+    if (item && item.netID && item.stack) {
+      if (isAnomalyItem(item.netID, item.stack)) {
+        anomalies.push({
+          name: getItemName(item.netID) || `物品(${item.netID})`,
+          stack: item.stack,
+          netId: item.netID
+        })
+      }
+    }
+  }
+  return anomalies
+})
+
 const duplicateIPLoading = ref(false)
 const duplicateIPResult = ref(null)
 
 const showGiveModal = ref(false)
 const showPrefixDropdown = ref(false)
-const giveItemId = ref('')
+const showGiveItemDropdown = ref(false)
+const giveItemSearchQuery = ref('')
+const giveSelectedItemId = ref(0)
 const giveAmount = ref(1)
 const givePrefixId = ref('')
 const giveLoading = ref(false)
@@ -40,6 +85,32 @@ const kickLoading = ref(false)
 const kickError = ref('')
 const kickSuccess = ref('')
 
+const showGroupModal = ref(false)
+const newGroup = ref('')
+const groupLoading = ref(false)
+const groupError = ref('')
+const groupSuccess = ref('')
+const availableGroups = ['default', 'guest', 'member', 'vip', 'admin', 'superadmin', 'owner']
+const showGroupDropdown = ref(false)
+const dropdownStyle = ref({})
+
+const showWhisperModal = ref(false)
+const whisperMessage = ref('')
+const whisperLoading = ref(false)
+const whisperError = ref('')
+const whisperSuccess = ref('')
+
+const showTpModal = ref(false)
+const tpFromPlayer = ref('')
+const tpToPlayer = ref('')
+const tpSelectTarget = ref('to')
+const tpSearchQuery = ref('')
+const tpSearchResults = ref([])
+const tpSearchLoading = ref(false)
+const tpLoading = ref(false)
+const tpError = ref('')
+const tpSuccess = ref('')
+
 const isOnline = ref(false)
 const onlinePlayers = ref([])
 
@@ -55,6 +126,25 @@ const prefixMap = {
   '恶魔': 59, '狂热': 60, '坚硬': 61, '守护': 62, '装甲': 63, '护佑': 64, '奥秘': 65,
   '精确': 66, '幸运': 67, '锯齿': 68, '尖刺': 69, '愤怒': 70, '险恶': 71, '轻快': 72,
   '快速': 73, '弹道': 74, '虬结': 75
+}
+
+const giveItemSearchResults = computed(() => {
+  if (!giveItemSearchQuery.value.trim()) return []
+  
+  const query = giveItemSearchQuery.value.toLowerCase()
+  return itemData.value.list
+    .filter(item => {
+      return item.chinese.toLowerCase().includes(query) ||
+             item.english.toLowerCase().includes(query) ||
+             item.id.toString().includes(query)
+    })
+    .slice(0, 20)
+})
+
+const selectGiveItem = (item) => {
+  giveSelectedItemId.value = item.id
+  giveItemSearchQuery.value = item.chinese
+  showGiveItemDropdown.value = false
 }
 
 const filteredPrefixes = computed(() => {
@@ -89,17 +179,50 @@ const truncatedIP = computed(() => {
 })
 
 const itemImageUrl = computed(() => {
-  if (!giveItemId.value || isNaN(parseInt(giveItemId.value))) return null
-  return `/assets/img/img/Item_${giveItemId.value}.png`
+  if (!giveSelectedItemId.value || giveSelectedItemId.value <= 0) return null
+  return `/assets/img/img/Item_${giveSelectedItemId.value}.png`
+})
+
+const giveItemName = computed(() => {
+  if (!giveSelectedItemId.value || giveSelectedItemId.value <= 0) return ''
+  const itemInfo = itemData.value.dict[giveSelectedItemId.value.toString()]
+  return itemInfo ? itemInfo.chinese || '' : ''
+})
+
+const giveItemEnglishName = computed(() => {
+  if (!giveSelectedItemId.value || giveSelectedItemId.value <= 0) return ''
+  const itemInfo = itemData.value.dict[giveSelectedItemId.value.toString()]
+  return itemInfo ? itemInfo.english || '' : ''
+})
+
+const giveWikiImageUrl = computed(() => {
+  if (!giveItemEnglishName.value) return ''
+  const name = giveItemEnglishName.value.replace(/\s+/g, '_')
+  return `https://terraria.wiki.gg/images/${name}.png`
+})
+
+const giveImageError = ref(false)
+
+const handleGiveImageError = () => {
+  giveImageError.value = true
+}
+
+const giveCurrentImageUrl = computed(() => {
+  if (giveImageError.value && giveWikiImageUrl.value) {
+    return giveWikiImageUrl.value
+  }
+  return itemImageUrl.value
 })
 
 const openGiveModal = () => {
   showGiveModal.value = true
-  giveItemId.value = ''
+  giveItemSearchQuery.value = ''
+  giveSelectedItemId.value = 0
   giveAmount.value = 1
   givePrefixId.value = ''
   giveError.value = ''
   giveSuccess.value = ''
+  showGiveItemDropdown.value = false
 }
 
 const closeGiveModal = () => {
@@ -107,8 +230,8 @@ const closeGiveModal = () => {
 }
 
 const executeGive = async () => {
-  if (!giveItemId.value.trim()) {
-    giveError.value = '请输入物品ID'
+  if (!giveSelectedItemId.value || giveSelectedItemId.value <= 0) {
+    giveError.value = '请选择有效的物品'
     return
   }
 
@@ -118,7 +241,7 @@ const executeGive = async () => {
   giveWarning.value = ''
 
   const username = userDetails.value?.Username || userDetails.value?.name || route.params.username
-  let command = `/give ${giveItemId.value} ${username} ${giveAmount.value}`
+  let command = `/give ${giveSelectedItemId.value} ${username} ${giveAmount.value}`
   let prefixIdToUse = ''
 
   if (givePrefixId.value.trim()) {
@@ -177,11 +300,13 @@ const fetchInventory = async (username) => {
   invseeError.value = ''
 
   try {
+    antiCheatConfig.value = await getAntiCheatConfig()
+
     const response = await get(`/api/tshock/invsee?player=${encodeURIComponent(username)}`)
     const data = await response.json()
 
-    if (data.status === '200' && data.inventory) {
-      invseeInventory.value = data.inventory
+    if (data.status === '200' && data.inventory && data.inventory.inventory) {
+      invseeInventory.value = data.inventory.inventory
     } else if (data.error) {
       invseeError.value = data.error
     } else {
@@ -198,7 +323,7 @@ const fetchInventory = async (username) => {
 
 const handleEditItem = async (data) => {
   const { player, slotIndex, itemId, stack, prefix } = data
-  
+
   try {
     const response = await post('/api/tshock/editinv', {
       player,
@@ -208,7 +333,7 @@ const handleEditItem = async (data) => {
       prefix
     })
     const result = await response.json()
-    
+
     if (result.error) {
       alert('编辑失败: ' + result.error)
     } else {
@@ -299,7 +424,7 @@ const executeKick = async () => {
 
   try {
     const username = userDetails.value.Username || userDetails.value.name
-    const command = kickReason.value.trim() 
+    const command = kickReason.value.trim()
       ? `/kick ${username} ${kickReason.value}`
       : `/kick ${username}`
 
@@ -319,11 +444,243 @@ const executeKick = async () => {
   kickLoading.value = false
 }
 
+const openGroupModal = () => {
+  showGroupModal.value = true
+  newGroup.value = userDetails.value?.Usergroup || userDetails.value?.group || ''
+  groupError.value = ''
+  groupSuccess.value = ''
+  showGroupDropdown.value = false
+}
+
+const closeGroupModal = () => {
+  showGroupModal.value = false
+  showGroupDropdown.value = false
+}
+
+const toggleGroupDropdown = () => {
+  showGroupDropdown.value = !showGroupDropdown.value
+  if (showGroupDropdown.value) {
+    updateDropdownPosition()
+  }
+}
+
+const updateDropdownPosition = () => {
+  const trigger = document.querySelector('.custom-select-trigger')
+  if (trigger) {
+    const rect = trigger.getBoundingClientRect()
+    dropdownStyle.value = {
+      position: 'fixed',
+      top: `${rect.bottom + 4}px`,
+      left: `${rect.left}px`,
+      width: `${rect.width}px`,
+      zIndex: 2000
+    }
+  }
+}
+
+const selectGroup = (group) => {
+  newGroup.value = group
+  showGroupDropdown.value = false
+}
+
+const executeGroupChange = async () => {
+  if (!userDetails.value) return
+  if (!newGroup.value.trim()) {
+    groupError.value = '请选择或输入用户组'
+    return
+  }
+
+  groupLoading.value = true
+  groupError.value = ''
+  groupSuccess.value = ''
+
+  try {
+    const username = userDetails.value.Username || userDetails.value.name
+    const command = `/user group ${username} ${newGroup.value}`
+
+    const response = await post('/api/tshock/command', { command })
+    const result = await response.json()
+
+    if (result.error) {
+      groupError.value = result.error
+    } else {
+      groupSuccess.value = '用户组已更改'
+      fetchUserDetails(username)
+    }
+  } catch (err) {
+    groupError.value = err.message || '更改失败'
+  }
+
+  groupLoading.value = false
+}
+
+const openWhisperModal = () => {
+  showWhisperModal.value = true
+  whisperMessage.value = ''
+  whisperError.value = ''
+  whisperSuccess.value = ''
+}
+
+const closeWhisperModal = () => {
+  showWhisperModal.value = false
+}
+
+const executeWhisper = async () => {
+  if (!userDetails.value) return
+  if (!whisperMessage.value.trim()) {
+    whisperError.value = '请输入消息内容'
+    return
+  }
+
+  whisperLoading.value = true
+  whisperError.value = ''
+  whisperSuccess.value = ''
+
+  try {
+    const username = userDetails.value.Username || userDetails.value.name
+    const command = `/w ${username} ${whisperMessage.value}`
+
+    const response = await post('/api/tshock/command', { command })
+    const result = await response.json()
+
+    if (result.error) {
+      whisperError.value = result.error
+    } else {
+      whisperSuccess.value = '消息已发送'
+      whisperMessage.value = ''
+    }
+  } catch (err) {
+    whisperError.value = err.message || '发送失败'
+  }
+
+  whisperLoading.value = false
+}
+
+const openTpModal = () => {
+  showTpModal.value = true
+  const currentUsername = userDetails.value?.Username || userDetails.value?.name
+  tpFromPlayer.value = currentUsername
+  tpToPlayer.value = ''
+  tpSearchQuery.value = ''
+  tpSearchResults.value = []
+  tpError.value = ''
+  tpSuccess.value = ''
+  loadOnlinePlayers()
+}
+
+const closeTpModal = () => {
+  showTpModal.value = false
+}
+
+const openPlayerSelect = (target) => {
+  tpSelectTarget.value = target
+  tpSearchQuery.value = ''
+  searchPlayers()
+}
+
+const swapTpPlayers = () => {
+  const temp = tpFromPlayer.value
+  tpFromPlayer.value = tpToPlayer.value
+  tpToPlayer.value = temp
+}
+
+const loadOnlinePlayers = async () => {
+  tpSearchLoading.value = true
+  try {
+    const response = await get('/api/tshock/activeusers')
+    const result = await response.json()
+
+    if (result.activeusers) {
+      const names = result.activeusers.split('\t').filter(n => n.trim())
+      onlinePlayers.value = names
+      tpSearchResults.value = names.map(name => ({ Username: name, isOnline: true }))
+    } else {
+      tpSearchResults.value = []
+    }
+  } catch (err) {
+    tpSearchResults.value = []
+  }
+  tpSearchLoading.value = false
+}
+
+const searchPlayers = async () => {
+  if (!tpSearchQuery.value.trim()) {
+    loadOnlinePlayers()
+    return
+  }
+
+  tpSearchLoading.value = true
+  try {
+    const response = await get(`/api/tshock/userlist?username=${encodeURIComponent(tpSearchQuery.value)}`)
+    const result = await response.json()
+
+    if (result.status === '200' && result.users) {
+      const onlineNames = onlinePlayers.value.map(p => p.toLowerCase())
+      tpSearchResults.value = result.users.map(u => ({
+        ...u,
+        name: u.Username || u.name,
+        isOnline: onlineNames.includes((u.Username || u.name).toLowerCase())
+      })).slice(0, 10)
+    } else {
+      tpSearchResults.value = []
+    }
+  } catch (err) {
+    tpSearchResults.value = []
+  }
+  tpSearchLoading.value = false
+}
+
+const selectTpPlayer = (player, target) => {
+  if (target === 'from') {
+    tpFromPlayer.value = player.name || player.Username
+  } else {
+    tpToPlayer.value = player.name || player.Username
+  }
+  tpSearchResults.value = []
+  tpSearchQuery.value = ''
+}
+
+const isPlayerOnline = (playerName) => {
+  return onlinePlayers.value.some(n => n.toLowerCase() === playerName.toLowerCase())
+}
+
+const executeTp = async () => {
+  if (!tpFromPlayer.value || !tpToPlayer.value) {
+    tpError.value = '请选择两个玩家'
+    return
+  }
+
+  if (tpFromPlayer.value === tpToPlayer.value) {
+    tpError.value = '不能传送自己到自己'
+    return
+  }
+
+  tpLoading.value = true
+  tpError.value = ''
+  tpSuccess.value = ''
+
+  try {
+    const command = `/tp ${tpFromPlayer.value} ${tpToPlayer.value}`
+    const response = await post('/api/tshock/command', { command })
+    const result = await response.json()
+
+    if (result.error) {
+      tpError.value = result.error
+    } else {
+      tpSuccess.value = '传送成功'
+    }
+  } catch (err) {
+    tpError.value = err.message || '传送失败'
+  }
+
+  tpLoading.value = false
+}
+
 const checkOnlineStatus = async () => {
   try {
     const response = await get('/api/tshock/activeusers')
     const result = await response.json()
-    
+
     if (result.activeusers) {
       const names = result.activeusers.split('\t').filter(n => n.trim())
       onlinePlayers.value = names
@@ -351,6 +708,10 @@ const goBack = () => {
   router.push('/console/players')
 }
 
+const goToUser = (username) => {
+  router.push(`/console/users/${username}`)
+}
+
 watch(() => route.params.username, (newUsername) => {
   if (newUsername) {
     fetchUserDetails(newUsername)
@@ -360,6 +721,7 @@ watch(() => route.params.username, (newUsername) => {
 }, { immediate: true })
 
 onMounted(() => {
+  initItemData()
   if (route.params.username) {
     fetchUserDetails(route.params.username)
     fetchInventory(route.params.username)
@@ -384,14 +746,6 @@ onMounted(() => {
           </div>
         </template>
       </div>
-      <div v-if="userDetails" class="action-buttons">
-        <button @click="openKickModal" :disabled="!isOnline" class="kick-btn" :class="{ disabled: !isOnline }">
-          踢出
-        </button>
-        <button @click="openBanModal" class="ban-btn">
-          封禁
-        </button>
-      </div>
     </div>
 
     <div v-if="loading" class="loading-state">
@@ -415,7 +769,10 @@ onMounted(() => {
           </div>
           <div class="info-item">
             <dt>用户组</dt>
-            <dd>{{ userDetails.Usergroup || userDetails.group }}</dd>
+            <dd class="group-clickable" @click="openGroupModal">
+              {{ userDetails.Usergroup || userDetails.group }}
+              <span class="change-hint">点击修改</span>
+            </dd>
           </div>
           <div class="info-item">
             <dt>UUID</dt>
@@ -463,23 +820,49 @@ onMounted(() => {
           </div>
 
           <div v-else-if="duplicateIPResult.count === 0" class="result-empty">
-            <p>✅ 未发现共享IP的用户</p>
+            <p>✅ 未发现关联账号</p>
           </div>
 
           <div v-else class="result-content">
-            <h4>发现 {{ duplicateIPResult.count }} 个共享IP的用户:</h4>
+            <h4>关联账号组 (共 {{ duplicateIPResult.totalAccounts }} 个账号)</h4>
+            <div class="shared-ips-section">
+              <span class="shared-ips-label">共享IP:</span>
+              <span
+                v-for="(ip, idx) in duplicateIPResult.sharedIPs"
+                :key="idx"
+                class="shared-ip-chip"
+              >
+                {{ ip }}
+              </span>
+            </div>
             <div class="duplicate-list">
               <div
                 v-for="user in duplicateIPResult.duplicates"
                 :key="user.ID"
                 class="duplicate-item"
+                @click="goToUser(user.Username)"
               >
                 <span class="duplicate-id">ID: {{ user.ID }}</span>
-                <span class="duplicate-name">用户名: {{ user.Username }}</span>
+                <span class="duplicate-name">{{ user.Username }}</span>
               </div>
             </div>
           </div>
         </div>
+      </div>
+
+      <div class="action-section">
+        <button @click="openTpModal" :disabled="!isOnline" class="tp-btn" :class="{ disabled: !isOnline }">
+          传送
+        </button>
+        <button @click="openWhisperModal" :disabled="!isOnline" class="whisper-btn" :class="{ disabled: !isOnline }">
+          私聊
+        </button>
+        <button @click="openKickModal" :disabled="!isOnline" class="kick-btn" :class="{ disabled: !isOnline }">
+          踢出
+        </button>
+        <button @click="openBanModal" class="ban-btn">
+          封禁
+        </button>
       </div>
 
       <div class="inventory-section">
@@ -488,6 +871,12 @@ onMounted(() => {
           <button @click="openGiveModal" class="give-btn">
             给予物品
           </button>
+        </div>
+        <div v-if="anomalyItems.length > 0" class="anomaly-warning">
+          <div class="anomaly-title">⚠️ 异常物品检测</div>
+          <div v-for="(item, index) in anomalyItems" :key="index" class="anomaly-item">
+            {{ item.name }}: {{ item.stack }}个
+          </div>
         </div>
         <InventoryViewer
           :inventory="invseeInventory"
@@ -515,6 +904,7 @@ onMounted(() => {
                 type="text"
                 placeholder="输入踢出原因（可选）"
                 class="form-input"
+                @keyup.enter="executeKick"
               />
             </div>
           </div>
@@ -529,6 +919,163 @@ onMounted(() => {
           <button @click="closeKickModal" class="cancel-btn">取消</button>
           <button @click="executeKick" :disabled="kickLoading" class="kick-submit-btn">
             {{ kickLoading ? '踢出中...' : '确认踢出' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="showGroupModal" class="modal-overlay" @click.self="closeGroupModal">
+      <div class="modal">
+        <div class="modal-header">
+          <h3>修改用户组</h3>
+          <button @click="closeGroupModal" class="close-btn">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="group-form">
+            <div class="form-row">
+              <label>选择新用户组</label>
+              <div class="custom-select-wrapper">
+                <div 
+                  class="custom-select-trigger" 
+                  @click="toggleGroupDropdown"
+                >
+                  <span class="select-value">{{ newGroup || '请选择用户组' }}</span>
+                  <span class="select-arrow" :class="{ rotated: showGroupDropdown }">▼</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <Teleport to="body">
+            <div 
+              v-if="showGroupDropdown && showGroupModal" 
+              class="custom-select-dropdown-teleport"
+              :style="dropdownStyle"
+            >
+              <div 
+                v-for="group in availableGroups" 
+                :key="group"
+                class="custom-select-option"
+                :class="{ selected: newGroup === group }"
+                @click="selectGroup(group)"
+              >
+                {{ group }}
+              </div>
+            </div>
+          </Teleport>
+          <div v-if="groupError" class="give-error">
+            {{ groupError }}
+          </div>
+          <div v-if="groupSuccess" class="give-success">
+            {{ groupSuccess }}
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button @click="closeGroupModal" class="cancel-btn">取消</button>
+          <button @click="executeGroupChange" :disabled="groupLoading" class="submit-btn">
+            {{ groupLoading ? '修改中...' : '确认修改' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="showWhisperModal" class="modal-overlay" @click.self="closeWhisperModal">
+      <div class="modal">
+        <div class="modal-header">
+          <h3>私聊玩家</h3>
+          <button @click="closeWhisperModal" class="close-btn">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="whisper-form">
+            <div class="form-row">
+              <label>消息内容</label>
+              <textarea
+                v-model="whisperMessage"
+                placeholder="输入要发送的消息"
+                class="form-input textarea"
+                rows="3"
+                @keyup.enter="executeWhisper"
+              ></textarea>
+            </div>
+          </div>
+          <div v-if="whisperError" class="give-error">
+            {{ whisperError }}
+          </div>
+          <div v-if="whisperSuccess" class="give-success">
+            {{ whisperSuccess }}
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button @click="closeWhisperModal" class="cancel-btn">取消</button>
+          <button @click="executeWhisper" :disabled="whisperLoading" class="submit-btn">
+            {{ whisperLoading ? '发送中...' : '发送' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="showTpModal" class="modal-overlay" @click.self="closeTpModal">
+      <div class="modal tp-modal">
+        <div class="modal-header">
+          <h3>传送玩家</h3>
+          <button @click="closeTpModal" class="close-btn">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="tp-direction-section">
+            <div class="tp-player-box" @click="openPlayerSelect('from')">
+              <span class="tp-player-name">{{ tpFromPlayer || '点击选择' }}</span>
+              <span class="tp-player-label">被传送者</span>
+            </div>
+            <button @click="swapTpPlayers" class="tp-swap-btn" title="互换">
+              ⇄
+            </button>
+            <div class="tp-player-box" @click="openPlayerSelect('to')">
+              <span class="tp-player-name">{{ tpToPlayer || '点击选择' }}</span>
+              <span class="tp-player-label">目标位置</span>
+            </div>
+          </div>
+          <div class="tp-direction-text">
+            {{ tpFromPlayer || '?' }} → {{ tpToPlayer || '?' }}
+          </div>
+          <div class="tp-form">
+            <div class="form-row">
+              <label>搜索玩家</label>
+              <input
+                v-model="tpSearchQuery"
+                type="text"
+                placeholder="输入玩家名搜索"
+                class="form-input"
+                @input="searchPlayers"
+              />
+              <div v-if="tpSearchLoading" class="tp-search-loading">
+                加载中...
+              </div>
+              <div v-if="tpSearchResults.length > 0" class="tp-search-results">
+                <div
+                  v-for="player in tpSearchResults"
+                  :key="player.Username || player.name"
+                  class="tp-search-item"
+                  :class="{ offline: !player.isOnline }"
+                  @click="player.isOnline && selectTpPlayer(player, tpSelectTarget)"
+                >
+                  <span class="tp-search-status" :class="{ online: player.isOnline }"></span>
+                  <span class="tp-search-name">{{ player.Username || player.name }}</span>
+                  <span class="tp-search-group">{{ player.Usergroup || player.group || '默认' }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div v-if="tpError" class="give-error">
+            {{ tpError }}
+          </div>
+          <div v-if="tpSuccess" class="give-success">
+            {{ tpSuccess }}
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button @click="closeTpModal" class="cancel-btn">取消</button>
+          <button @click="executeTp" :disabled="tpLoading || !tpToPlayer" class="submit-btn">
+            {{ tpLoading ? '传送中...' : '确认传送' }}
           </button>
         </div>
       </div>
@@ -553,6 +1100,7 @@ onMounted(() => {
                 type="text"
                 placeholder="输入封禁原因"
                 class="form-input"
+                @keyup.enter="executeBan"
               />
             </div>
           </div>
@@ -581,21 +1129,45 @@ onMounted(() => {
         <div class="modal-body">
           <div class="give-form">
             <div class="form-row">
-              <label>物品ID</label>
+              <label>物品</label>
               <div class="item-input-row">
-                <input
-                  v-model="giveItemId"
-                  type="text"
-                  placeholder="输入物品ID"
-                  class="form-input"
-                />
-                <div v-if="itemImageUrl" class="item-preview">
-                  <img
-                    :src="itemImageUrl"
-                    :alt="'Item ' + giveItemId"
-                    class="item-image"
-                    @error="(e) => e.target.style.display = 'none'"
+                <div class="search-input-wrapper">
+                  <input
+                    v-model="giveItemSearchQuery"
+                    type="text"
+                    placeholder="搜索物品（名称或ID）..."
+                    class="form-input"
+                    @input="showGiveItemDropdown = true"
+                    @focus="showGiveItemDropdown = true"
+                    @blur="setTimeout(() => showGiveItemDropdown = false, 150)"
                   />
+                  <div v-if="showGiveItemDropdown && giveItemSearchResults.length > 0" class="item-dropdown">
+                    <div
+                      v-for="item in giveItemSearchResults"
+                      :key="item.id"
+                      class="item-option"
+                      @click="selectGiveItem(item)"
+                    >
+                      <img :src="`/assets/img/img/Item_${item.id}.png`" :alt="item.chinese" class="option-image" @error="(e) => e.target.style.display = 'none'" />
+                      <div class="option-info">
+                        <span class="option-name">{{ item.chinese }}</span>
+                        <span class="option-id">ID: {{ item.id }}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div class="item-preview-wrapper">
+                  <div v-if="giveCurrentImageUrl" class="item-preview">
+                    <img
+                      :src="giveCurrentImageUrl"
+                      :alt="giveItemName"
+                      class="item-image"
+                      @error="handleGiveImageError"
+                    />
+                  </div>
+                  <div v-if="giveItemName" class="item-name">
+                    {{ giveItemName }}
+                  </div>
                 </div>
               </div>
             </div>
@@ -719,9 +1291,58 @@ onMounted(() => {
   box-shadow: 0 0 8px rgba(34, 197, 94, 0.6);
 }
 
-.action-buttons {
+.action-section {
   display: flex;
-  gap: 10px;
+  justify-content: center;
+  gap: 12px;
+  padding: 0 20px;
+  margin-bottom: 24px;
+}
+
+.tp-btn {
+  padding: 10px 20px;
+  background: linear-gradient(135deg, #8b5cf6, #7c3aed);
+  color: white;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 500;
+  transition: all 0.25s ease;
+  box-shadow: var(--shadow-sm);
+}
+
+.tp-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(139, 92, 246, 0.4);
+}
+
+.tp-btn.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.whisper-btn {
+  padding: 10px 20px;
+  background: linear-gradient(135deg, #3b82f6, #2563eb);
+  color: white;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 500;
+  transition: all 0.25s ease;
+  box-shadow: var(--shadow-sm);
+}
+
+.whisper-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+}
+
+.whisper-btn.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .kick-btn {
@@ -829,6 +1450,31 @@ onMounted(() => {
   color: var(--text-primary);
   font-size: 0.95rem;
   margin: 0;
+}
+
+.group-clickable {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  padding: 4px 8px;
+  background: rgba(99, 102, 241, 0.1);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  border-radius: var(--radius-sm);
+  color: var(--accent-primary) !important;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.group-clickable:hover {
+  background: rgba(99, 102, 241, 0.2);
+  border-color: rgba(99, 102, 241, 0.5);
+}
+
+.change-hint {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-weight: 400;
 }
 
 .uuid-with-copy {
@@ -950,10 +1596,12 @@ onMounted(() => {
   border-radius: var(--radius-md);
   border: 1px solid var(--border-light);
   transition: all 0.2s ease;
+  cursor: pointer;
 }
 
 .duplicate-item:hover {
   border-color: var(--accent-primary);
+  background: rgba(99, 102, 241, 0.1);
 }
 
 .duplicate-id {
@@ -965,6 +1613,32 @@ onMounted(() => {
   color: var(--text-primary);
   font-size: 0.95rem;
   font-weight: 500;
+}
+
+.shared-ips-section {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 12px;
+  background: rgba(239, 68, 68, 0.1);
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+.shared-ips-label {
+  color: #ef4444;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.shared-ip-chip {
+  padding: 4px 10px;
+  background: rgba(239, 68, 68, 0.2);
+  color: #dc2626;
+  border-radius: var(--radius-sm);
+  font-size: 0.85rem;
 }
 
 .inventory-section {
@@ -1024,7 +1698,7 @@ onMounted(() => {
   background: var(--bg-card);
   border-radius: var(--radius-xl);
   width: 90%;
-  max-width: 400px;
+  max-width: 500px;
   max-height: 85vh;
   overflow: hidden;
   box-shadow: var(--shadow-lg);
@@ -1080,7 +1754,8 @@ onMounted(() => {
   padding: 24px;
 }
 
-.give-form {
+.give-form,
+.group-form {
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -1090,6 +1765,7 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  position: relative;
 }
 
 .form-row label {
@@ -1102,6 +1778,24 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+.item-preview-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.item-name {
+  font-size: 0.85rem;
+  color: var(--accent-secondary);
+  font-weight: 500;
+  text-align: center;
+  max-width: 80px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .form-input {
@@ -1123,6 +1817,96 @@ onMounted(() => {
 
 .form-input::placeholder {
   color: var(--text-muted);
+}
+
+.form-input.textarea {
+  resize: vertical;
+  min-height: 80px;
+}
+
+.custom-select-wrapper {
+  position: relative;
+  width: 100%;
+}
+
+.custom-select-trigger {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background: var(--bg-tertiary);
+  border: 2px solid var(--border-color);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: all 0.25s ease;
+}
+
+.custom-select-trigger:hover {
+  border-color: var(--accent-primary);
+}
+
+.custom-select-trigger:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+}
+
+.select-value {
+  color: var(--text-primary);
+}
+
+.custom-select-trigger .select-arrow {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  transition: transform 0.2s ease;
+}
+
+.custom-select-trigger .select-arrow.rotated {
+  transform: rotate(180deg);
+}
+
+.custom-select-dropdown,
+.custom-select-dropdown-teleport {
+  background: var(--bg-card);
+  border: 2px solid var(--border-color);
+  border-radius: var(--radius-md);
+  max-height: 200px;
+  overflow-y: auto;
+  box-shadow: var(--shadow-lg);
+}
+
+.custom-select-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 100;
+}
+
+.custom-select-option {
+  padding: 12px 16px;
+  color: var(--text-primary);
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.custom-select-option:last-child {
+  border-bottom: none;
+}
+
+.custom-select-option:hover {
+  background: rgba(99, 102, 241, 0.15);
+  color: var(--accent-primary);
+}
+
+.custom-select-option.selected {
+  background: rgba(99, 102, 241, 0.2);
+  color: var(--accent-primary);
+  font-weight: 600;
 }
 
 .item-preview {
@@ -1213,8 +1997,67 @@ onMounted(() => {
   font-size: 0.85rem;
 }
 
-.form-row {
+.search-input-wrapper {
+  flex: 1;
   position: relative;
+}
+
+.item-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--bg-card);
+  border: 2px solid var(--border-color);
+  border-radius: var(--radius-md);
+  max-height: 250px;
+  overflow-y: auto;
+  z-index: 20;
+  box-shadow: var(--shadow-md);
+}
+
+.item-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: background 0.2s ease;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.item-option:last-child {
+  border-bottom: none;
+}
+
+.item-option:hover {
+  background: var(--bg-hover);
+}
+
+.option-image {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+  image-rendering: pixelated;
+  border-radius: var(--radius-sm);
+}
+
+.option-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.option-name {
+  color: var(--text-primary);
+  font-weight: 500;
+  font-size: 0.9rem;
+}
+
+.option-id {
+  color: var(--text-muted);
+  font-size: 0.75rem;
 }
 
 .modal-footer {
@@ -1264,13 +2107,6 @@ onMounted(() => {
 .submit-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
-}
-
-.action-section {
-  display: flex;
-  justify-content: flex-end;
-  padding: 0 20px;
-  margin-bottom: 24px;
 }
 
 .ban-btn {
@@ -1326,5 +2162,192 @@ onMounted(() => {
 .ban-submit-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.kick-submit-btn {
+  padding: 12px 24px;
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  color: white;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: 0.95rem;
+  font-weight: 600;
+  transition: all 0.25s ease;
+  box-shadow: var(--shadow-sm);
+}
+
+.kick-submit-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(245, 158, 11, 0.4);
+}
+
+.kick-submit-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.tp-modal {
+  max-width: 480px;
+}
+
+.tp-direction-section {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.tp-player-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 16px 20px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-lg);
+  border: 2px solid var(--border-color);
+  min-width: 120px;
+  transition: all 0.25s ease;
+}
+
+.tp-player-box.active {
+  border-color: var(--accent-primary);
+  background: rgba(99, 102, 241, 0.1);
+}
+
+.tp-player-name {
+  color: var(--text-primary);
+  font-weight: 600;
+  font-size: 1rem;
+  margin-bottom: 4px;
+}
+
+.tp-player-label {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+.tp-swap-btn {
+  padding: 12px 16px;
+  background: linear-gradient(135deg, var(--accent-primary), #4f46e5);
+  color: white;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: 1.2rem;
+  font-weight: 600;
+  transition: all 0.25s ease;
+  box-shadow: var(--shadow-sm);
+}
+
+.tp-swap-btn:hover {
+  transform: scale(1.1);
+  box-shadow: var(--shadow-md);
+}
+
+.tp-direction-text {
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  margin-bottom: 20px;
+  padding: 8px 16px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-md);
+}
+
+.tp-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.tp-search-loading {
+  padding: 8px 12px;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.tp-search-results {
+  margin-top: 8px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.tp-search-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  cursor: pointer;
+  transition: background 0.2s ease;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.tp-search-item:last-child {
+  border-bottom: none;
+}
+
+.tp-search-item:hover:not(.offline) {
+  background: var(--bg-hover);
+}
+
+.tp-search-item.offline {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.tp-search-status {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ef4444;
+  flex-shrink: 0;
+}
+
+.tp-search-status.online {
+  background: #22c55e;
+}
+
+.tp-search-name {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.tp-search-group {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  padding: 4px 8px;
+  background: var(--bg-card);
+  border-radius: var(--radius-sm);
+}
+
+.anomaly-warning {
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.1), rgba(220, 38, 38, 0.1));
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.anomaly-title {
+  color: #ef4444;
+  font-weight: 600;
+  font-size: 0.95rem;
+  margin-bottom: 12px;
+}
+
+.anomaly-item {
+  color: #dc2626;
+  font-size: 0.9rem;
+  padding: 6px 0;
+  border-bottom: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+.anomaly-item:last-child {
+  border-bottom: none;
 }
 </style>

@@ -157,17 +157,14 @@ export const searchPermissions = (query) => {
     results = Object.entries(permissionMap)
       .filter(([key, value]) => value.includes(query))
       .map(([key, value]) => ({ key, value }))
-      .slice(0, 6)
   } else {
     const englishMatches = Object.entries(permissionMap)
       .filter(([key]) => key.toLowerCase().includes(q))
       .map(([key, value]) => ({ key, value }))
-      .slice(0, 3)
     
     const chineseMatches = Object.entries(permissionMap)
       .filter(([key, value]) => value.includes(query))
       .map(([key, value]) => ({ key, value }))
-      .slice(0, 3)
     
     const seen = new Set()
     englishMatches.forEach(item => {
@@ -182,8 +179,6 @@ export const searchPermissions = (query) => {
         results.push(item)
       }
     })
-    
-    results = results.slice(0, 6)
   }
   
   return results

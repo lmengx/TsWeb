@@ -1,6 +1,7 @@
 <script setup>
-import { ref, watch } from 'vue'
+import { ref, watch, onMounted, computed } from 'vue'
 import ItemEditModal from './ItemEditModal.vue'
+import { loadItemData } from '../api/itemDataApi.js'
 
 const props = defineProps({
   inventory: {
@@ -18,6 +19,14 @@ const props = defineProps({
   initialUsername: {
     type: String,
     default: ''
+  },
+  readonly: {
+    type: Boolean,
+    default: false
+  },
+  showHeader: {
+    type: Boolean,
+    default: true
   }
 })
 
@@ -29,21 +38,60 @@ const showModal = ref(false)
 const editingSlot = ref(-1)
 const editingItem = ref(null)
 
+const itemData = ref({ list: [], dict: {} })
+const imageErrors = ref({})
+
 watch(() => props.initialUsername, (newVal) => {
   if (newVal) {
     username.value = newVal
   }
 }, { immediate: true })
 
+const initItemData = async () => {
+  itemData.value = await loadItemData()
+}
+
+const getItemInfo = (netID) => {
+  if (!netID || netID <= 0) return null
+  return itemData.value.dict[netID.toString()]
+}
+
+const getItemEnglishName = (netID) => {
+  const info = getItemInfo(netID)
+  return info ? info.english || '' : ''
+}
+
+const getWikiImageUrl = (netID) => {
+  const englishName = getItemEnglishName(netID)
+  if (!englishName) return ''
+  const name = englishName.replace(/\s+/g, '_')
+  return `https://terraria.wiki.gg/images/${name}.png`
+}
+
 const getItemImage = (netID) => {
+  const hasError = imageErrors.value[netID]
+  if (hasError) {
+    const wikiUrl = getWikiImageUrl(netID)
+    if (wikiUrl) return wikiUrl
+  }
   return `/assets/img/img/Item_${netID}.png`
 }
+
+const handleImageError = (netID) => {
+  imageErrors.value = { ...imageErrors.value, [netID]: true }
+}
+
+onMounted(() => {
+  initItemData()
+})
 
 const handleFetch = () => {
   emit('fetch', username.value)
 }
 
 const handleCellClick = (slotIndex) => {
+  if (props.readonly) return
+  
   const item = props.inventory[slotIndex]
   editingSlot.value = slotIndex
   editingItem.value = item
@@ -65,11 +113,11 @@ const handleModalClose = () => {
 
 <template>
   <div class="invsee-content">
-    <div class="section-header">
+    <div v-if="showHeader" class="section-header">
       <h2>背包查询</h2>
     </div>
     
-    <div class="invsee-input">
+    <div v-if="showHeader" class="invsee-input">
       <input
         v-model="username"
         type="text"
@@ -113,7 +161,7 @@ const handleModalClose = () => {
                     :src="getItemImage(item.netID)" 
                     :alt="`Item ${item.netID}`"
                     class="item-image"
-                    @error="(e) => e.target.style.display = 'none'"
+                    @error="(e) => { handleImageError(item.netID); }"
                   />
                   <div v-if="item.stack > 1" class="item-stack">{{ item.stack }}</div>
                   <div v-if="item.favorited" class="item-favorite">⭐</div>
@@ -133,7 +181,7 @@ const handleModalClose = () => {
                     v-if="inventory[moneyIdx]?.netID > 0"
                     :src="getItemImage(inventory[moneyIdx]?.netID)" 
                     class="item-image"
-                    @error="(e) => e.target.style.display = 'none'"
+                    @error="(e) => { handleImageError(inventory[moneyIdx]?.netID); }"
                   />
                   <div v-if="inventory[moneyIdx]?.stack > 1" class="item-stack">{{ inventory[moneyIdx]?.stack }}</div>
                   <div class="item-index">{{ moneyIdx }}</div>
@@ -152,7 +200,7 @@ const handleModalClose = () => {
                     v-if="inventory[ammoIdx]?.netID > 0"
                     :src="getItemImage(inventory[ammoIdx]?.netID)" 
                     class="item-image"
-                    @error="(e) => e.target.style.display = 'none'"
+                    @error="(e) => { handleImageError(inventory[ammoIdx]?.netID); }"
                   />
                   <div v-if="inventory[ammoIdx]?.stack > 1" class="item-stack">{{ inventory[ammoIdx]?.stack }}</div>
                   <div class="item-index">{{ ammoIdx }}</div>
@@ -183,7 +231,7 @@ const handleModalClose = () => {
                     v-if="inventory[79 + index - 1]?.netID > 0"
                     :src="getItemImage(inventory[79 + index - 1]?.netID)" 
                     class="item-image"
-                    @error="(e) => e.target.style.display = 'none'"
+                    @error="(e) => { handleImageError(inventory[79 + index - 1]?.netID); }"
                   />
                   <div v-if="inventory[79 + index - 1]?.stack > 1" class="item-stack">{{ inventory[79 + index - 1]?.stack }}</div>
                   <div v-if="inventory[79 + index - 1]?.favorited" class="item-favorite">⭐</div>
@@ -199,7 +247,7 @@ const handleModalClose = () => {
                     v-if="inventory[69 + index - 1]?.netID > 0"
                     :src="getItemImage(inventory[69 + index - 1]?.netID)" 
                     class="item-image"
-                    @error="(e) => e.target.style.display = 'none'"
+                    @error="(e) => { handleImageError(inventory[69 + index - 1]?.netID); }"
                   />
                   <div v-if="inventory[69 + index - 1]?.stack > 1" class="item-stack">{{ inventory[69 + index - 1]?.stack }}</div>
                   <div v-if="inventory[69 + index - 1]?.favorited" class="item-favorite">⭐</div>
@@ -215,7 +263,7 @@ const handleModalClose = () => {
                     v-if="inventory[59 + index - 1]?.netID > 0"
                     :src="getItemImage(inventory[59 + index - 1]?.netID)" 
                     class="item-image"
-                    @error="(e) => e.target.style.display = 'none'"
+                    @error="(e) => { handleImageError(inventory[59 + index - 1]?.netID); }"
                   />
                   <div v-if="inventory[59 + index - 1]?.stack > 1" class="item-stack">{{ inventory[59 + index - 1]?.stack }}</div>
                   <div v-if="inventory[59 + index - 1]?.favorited" class="item-favorite">⭐</div>
@@ -245,7 +293,7 @@ const handleModalClose = () => {
                     v-if="inventory[94 + index - 1]?.netID > 0"
                     :src="getItemImage(inventory[94 + index - 1]?.netID)" 
                     class="item-image"
-                    @error="(e) => e.target.style.display = 'none'"
+                    @error="(e) => { handleImageError(inventory[94 + index - 1]?.netID); }"
                   />
                   <div v-if="inventory[94 + index - 1]?.stack > 1" class="item-stack">{{ inventory[94 + index - 1]?.stack }}</div>
                   <div v-if="inventory[94 + index - 1]?.favorited" class="item-favorite">⭐</div>
@@ -261,7 +309,7 @@ const handleModalClose = () => {
                     v-if="inventory[89 + index - 1]?.netID > 0"
                     :src="getItemImage(inventory[89 + index - 1]?.netID)" 
                     class="item-image"
-                    @error="(e) => e.target.style.display = 'none'"
+                    @error="(e) => { handleImageError(inventory[89 + index - 1]?.netID); }"
                   />
                   <div v-if="inventory[89 + index - 1]?.stack > 1" class="item-stack">{{ inventory[89 + index - 1]?.stack }}</div>
                   <div v-if="inventory[89 + index - 1]?.favorited" class="item-favorite">⭐</div>
@@ -291,7 +339,7 @@ const handleModalClose = () => {
                     v-if="inventory[309 + index]?.netID > 0"
                     :src="getItemImage(inventory[309 + index]?.netID)" 
                     class="item-image"
-                    @error="(e) => e.target.style.display = 'none'"
+                    @error="(e) => { handleImageError(inventory[309 + index]?.netID); }"
                   />
                   <div v-if="inventory[309 + index]?.stack > 1" class="item-stack">{{ inventory[309 + index]?.stack }}</div>
                   <div v-if="inventory[309 + index]?.favorited" class="item-favorite">⭐</div>
@@ -307,7 +355,7 @@ const handleModalClose = () => {
                     v-if="inventory[299 + index]?.netID > 0"
                     :src="getItemImage(inventory[299 + index]?.netID)" 
                     class="item-image"
-                    @error="(e) => e.target.style.display = 'none'"
+                    @error="(e) => { handleImageError(inventory[299 + index]?.netID); }"
                   />
                   <div v-if="inventory[299 + index]?.stack > 1" class="item-stack">{{ inventory[299 + index]?.stack }}</div>
                   <div v-if="inventory[299 + index]?.favorited" class="item-favorite">⭐</div>
@@ -323,7 +371,7 @@ const handleModalClose = () => {
                     v-if="inventory[289 + index]?.netID > 0"
                     :src="getItemImage(inventory[289 + index]?.netID)" 
                     class="item-image"
-                    @error="(e) => e.target.style.display = 'none'"
+                    @error="(e) => { handleImageError(inventory[289 + index]?.netID); }"
                   />
                   <div v-if="inventory[289 + index]?.stack > 1" class="item-stack">{{ inventory[289 + index]?.stack }}</div>
                   <div v-if="inventory[289 + index]?.favorited" class="item-favorite">⭐</div>
@@ -353,7 +401,7 @@ const handleModalClose = () => {
                     v-if="inventory[339 + index]?.netID > 0"
                     :src="getItemImage(inventory[339 + index]?.netID)" 
                     class="item-image"
-                    @error="(e) => e.target.style.display = 'none'"
+                    @error="(e) => { handleImageError(inventory[339 + index]?.netID); }"
                   />
                   <div v-if="inventory[339 + index]?.stack > 1" class="item-stack">{{ inventory[339 + index]?.stack }}</div>
                   <div v-if="inventory[339 + index]?.favorited" class="item-favorite">⭐</div>
@@ -369,7 +417,7 @@ const handleModalClose = () => {
                     v-if="inventory[329 + index]?.netID > 0"
                     :src="getItemImage(inventory[329 + index]?.netID)" 
                     class="item-image"
-                    @error="(e) => e.target.style.display = 'none'"
+                    @error="(e) => { handleImageError(inventory[329 + index]?.netID); }"
                   />
                   <div v-if="inventory[329 + index]?.stack > 1" class="item-stack">{{ inventory[329 + index]?.stack }}</div>
                   <div v-if="inventory[329 + index]?.favorited" class="item-favorite">⭐</div>
@@ -385,7 +433,7 @@ const handleModalClose = () => {
                     v-if="inventory[319 + index]?.netID > 0"
                     :src="getItemImage(inventory[319 + index]?.netID)" 
                     class="item-image"
-                    @error="(e) => e.target.style.display = 'none'"
+                    @error="(e) => { handleImageError(inventory[319 + index]?.netID); }"
                   />
                   <div v-if="inventory[319 + index]?.stack > 1" class="item-stack">{{ inventory[319 + index]?.stack }}</div>
                   <div v-if="inventory[319 + index]?.favorited" class="item-favorite">⭐</div>
@@ -416,7 +464,7 @@ const handleModalClose = () => {
                 v-if="inventory[99 + index - 1]?.netID > 0"
                 :src="getItemImage(inventory[99 + index - 1]?.netID)" 
                 class="item-image"
-                @error="(e) => e.target.style.display = 'none'"
+                @error="(e) => { handleImageError(inventory[99 + index - 1]?.netID); }"
               />
               <div v-if="inventory[99 + index - 1]?.stack > 1" class="item-stack">{{ inventory[99 + index - 1]?.stack }}</div>
               <div v-if="inventory[99 + index - 1]?.favorited" class="item-favorite">⭐</div>
@@ -443,7 +491,7 @@ const handleModalClose = () => {
                 v-if="inventory[139 + index - 1]?.netID > 0"
                 :src="getItemImage(inventory[139 + index - 1]?.netID)" 
                 class="item-image"
-                @error="(e) => e.target.style.display = 'none'"
+                @error="(e) => { handleImageError(inventory[139 + index - 1]?.netID); }"
               />
               <div v-if="inventory[139 + index - 1]?.stack > 1" class="item-stack">{{ inventory[139 + index - 1]?.stack }}</div>
               <div v-if="inventory[139 + index - 1]?.favorited" class="item-favorite">⭐</div>
@@ -470,7 +518,7 @@ const handleModalClose = () => {
                 v-if="inventory[180 + index - 1]?.netID > 0"
                 :src="getItemImage(inventory[180 + index - 1]?.netID)" 
                 class="item-image"
-                @error="(e) => e.target.style.display = 'none'"
+                @error="(e) => { handleImageError(inventory[180 + index - 1]?.netID); }"
               />
               <div v-if="inventory[180 + index - 1]?.stack > 1" class="item-stack">{{ inventory[180 + index - 1]?.stack }}</div>
               <div v-if="inventory[180 + index - 1]?.favorited" class="item-favorite">⭐</div>
@@ -497,7 +545,7 @@ const handleModalClose = () => {
                 v-if="inventory[220 + index - 1]?.netID > 0"
                 :src="getItemImage(inventory[220 + index - 1]?.netID)" 
                 class="item-image"
-                @error="(e) => e.target.style.display = 'none'"
+                @error="(e) => { handleImageError(inventory[220 + index - 1]?.netID); }"
               />
               <div v-if="inventory[220 + index - 1]?.stack > 1" class="item-stack">{{ inventory[220 + index - 1]?.stack }}</div>
               <div v-if="inventory[220 + index - 1]?.favorited" class="item-favorite">⭐</div>

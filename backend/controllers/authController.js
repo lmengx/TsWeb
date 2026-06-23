@@ -2,6 +2,7 @@ import jwt from 'jsonwebtoken'
 import bcrypt from 'bcrypt'
 import forge from 'node-forge'
 import { getConfig } from '../config.js'
+import tshockService from '../services/tshockService.js'
 
 let JWT_SECRET = 'your-secret-key-here-change-in-production'
 let CHALLENGE_EXPIRE = 120000
@@ -67,22 +68,26 @@ export const login = async (req, res) => {
     const encryptedBytes = forge.util.decode64(encryptedPassword)
     const decryptedPassword = serverKeyPair.privateKey.decrypt(encryptedBytes, 'RSA-OAEP')
 
-    const { getDB } = await import('../services/databaseService.js')
-    const db = getDB()
-    
-    const result = db.exec(`SELECT Password, Usergroup FROM Users WHERE Username = '${username}'`)
-    
-    if (!result || result.length === 0 || !result[0].values || result[0].values.length === 0) {
-      await new Promise(r => setTimeout(r, 500))
-      return res.status(401).json({ error: 'Invalid credentials' })
+    if (!tshockService.getConnectionStatus()) {
+      return res.status(503).json({ error: 'Server not connected', redirect: true })
     }
 
-    const storedHash = String(result[0].values[0][0])
-    const userGroup = String(result[0].values[0][1] || 'default')
+    const result = await tshockService.getUserPassword(username)
+    
+    if (!result || result.error || !result.password) {
+      if (result && result.error && (result.error.includes('fetch') || result.error.includes('timeout') || result.error.includes('Connection'))) {
+        return res.status(503).json({ error: 'Server not connected', redirect: true })
+      }
+      await new Promise(r => setTimeout(r, 500))
+      return res.status(401).json({ error: 'User not found' })
+    }
+
+    const storedHash = String(result.password)
+    const userGroup = String(result.usergroup || 'default')
     
     if (!storedHash || storedHash.length < 10) {
       await new Promise(r => setTimeout(r, 500))
-      return res.status(401).json({ error: 'Invalid credentials' })
+      return res.status(401).json({ error: 'User not found' })
     }
 
     const isValid = await bcrypt.compare(String(decryptedPassword), storedHash)
@@ -101,7 +106,7 @@ export const login = async (req, res) => {
       }
     } else {
       await new Promise(r => setTimeout(r, 500))
-      return res.status(401).json({ error: 'Invalid credentials' })
+      return res.status(401).json({ error: 'Wrong password' })
     }
   } catch (error) {
     console.error('Login error:', error)
