@@ -1,4 +1,11 @@
 import { getTshockConfig, updateTshockConfig, isTshockConfigured } from '../config.js'
+import fs from 'fs'
+import path from 'path'
+import { fileURLToPath } from 'url'
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
+const configDir = path.join(__dirname, '../config/反作弊')
 
 export const getConfigStatus = async (req, res) => {
   try {
@@ -7,7 +14,6 @@ export const getConfigStatus = async (req, res) => {
     res.json({
       configured,
       tshock: {
-        hasDatabasePath: !!tshockConfig.databasePath,
         hasHost: !!tshockConfig.host,
         hasPort: !!tshockConfig.port,
         hasApiKey: !!tshockConfig.apiKey
@@ -29,10 +35,46 @@ export const getTshockSettings = async (req, res) => {
 
 export const updateTshockSettings = async (req, res) => {
   try {
-    const { databasePath, host, port, apiKey } = req.body
-    const config = await updateTshockConfig({ databasePath, host, port, apiKey })
+    const { host, port, apiKey } = req.body
+    const config = await updateTshockConfig({ host, port, apiKey })
     res.json({ success: true, config })
   } catch (error) {
     res.status(500).json({ error: error.message })
+  }
+}
+
+export const getConfigFile = async (req, res) => {
+  try {
+    const { name } = req.query
+    if (!name) {
+      return res.status(400).json({ status: '400', error: 'Missing file name' })
+    }
+
+    const filePath = path.join(configDir, name)
+    
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ status: '404', error: 'File not found' })
+    }
+
+    const content = fs.readFileSync(filePath, 'utf8')
+    res.json({ status: '200', content })
+  } catch (error) {
+    res.status(500).json({ status: '500', error: error.message })
+  }
+}
+
+export const saveConfigFile = async (req, res) => {
+  try {
+    const { name, content } = req.body
+    if (!name || !content) {
+      return res.status(400).json({ status: '400', error: 'Missing parameters' })
+    }
+
+    const filePath = path.join(configDir, name)
+    
+    fs.writeFileSync(filePath, content, 'utf8')
+    res.json({ status: '200', message: 'File saved successfully' })
+  } catch (error) {
+    res.status(500).json({ status: '500', error: error.message })
   }
 }

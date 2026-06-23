@@ -1,5 +1,6 @@
 <script setup>
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
+import { loadItemData } from '../api/itemDataApi.js'
 
 const props = defineProps({
   show: {
@@ -34,7 +35,8 @@ const props = defineProps({
 
 const emit = defineEmits(['close', 'submit'])
 
-const itemId = ref(props.initialItemId || 0)
+const itemSearchQuery = ref('')
+const selectedItemId = ref(props.initialItemId || 0)
 const stack = ref(props.initialStack || 1)
 const prefixId = ref('')
 const loading = ref(false)
@@ -42,6 +44,8 @@ const error = ref('')
 const success = ref('')
 const warning = ref('')
 const showPrefixDropdown = ref(false)
+const showItemDropdown = ref(false)
+const itemData = ref({ list: [], dict: {} })
 
 const prefixMap = {
   '大': 1, '巨大': 2, '危险': 3, '凶残': 4, '锋利': 5, '尖锐': 6, '微小': 7, '可怕': 8,
@@ -59,20 +63,79 @@ const prefixMap = {
 
 watch(() => props.show, (newVal) => {
   if (newVal) {
-    itemId.value = props.initialItemId || 0
+    selectedItemId.value = props.initialItemId || 0
+    itemSearchQuery.value = ''
     stack.value = props.initialStack || 1
     prefixId.value = props.initialPrefix ? Object.keys(prefixMap).find(k => prefixMap[k] === props.initialPrefix) || '' : ''
     error.value = ''
     success.value = ''
     warning.value = ''
     showPrefixDropdown.value = false
+    showItemDropdown.value = false
   }
 })
 
-const itemImageUrl = computed(() => {
-  if (!itemId.value || isNaN(parseInt(itemId.value))) return null
-  return `/assets/img/img/Item_${itemId.value}.png`
+const initItemData = async () => {
+  itemData.value = await loadItemData()
+}
+
+const itemSearchResults = computed(() => {
+  if (!itemSearchQuery.value.trim()) return []
+  
+  const query = itemSearchQuery.value.toLowerCase()
+  return itemData.value.list
+    .filter(item => {
+      return item.chinese.toLowerCase().includes(query) ||
+             item.english.toLowerCase().includes(query) ||
+             item.id.toString().includes(query)
+    })
+    .slice(0, 20)
 })
+
+const selectedItemInfo = computed(() => {
+  if (!selectedItemId.value || selectedItemId.value <= 0) return null
+  return itemData.value.dict[selectedItemId.value.toString()]
+})
+
+const itemImageUrl = computed(() => {
+  if (!selectedItemId.value || isNaN(parseInt(selectedItemId.value))) return null
+  return `/assets/img/img/Item_${selectedItemId.value}.png`
+})
+
+const itemName = computed(() => {
+  const info = selectedItemInfo.value
+  return info ? info.chinese || '' : ''
+})
+
+const englishName = computed(() => {
+  const info = selectedItemInfo.value
+  return info ? info.english || '' : ''
+})
+
+const wikiImageUrl = computed(() => {
+  if (!englishName.value) return ''
+  const name = englishName.value.replace(/\s+/g, '_')
+  return `https://terraria.wiki.gg/images/${name}.png`
+})
+
+const imageError = ref(false)
+
+const handleImageError = () => {
+  imageError.value = true
+}
+
+const currentImageUrl = computed(() => {
+  if (imageError.value && wikiImageUrl.value) {
+    return wikiImageUrl.value
+  }
+  return itemImageUrl.value
+})
+
+const selectItem = (item) => {
+  selectedItemId.value = item.id
+  itemSearchQuery.value = item.chinese
+  showItemDropdown.value = false
+}
 
 const filteredPrefixes = computed(() => {
   const input = prefixId.value.trim()
@@ -106,8 +169,8 @@ const getPrefixIdValue = () => {
 }
 
 const handleSubmit = () => {
-  if (!itemId.value || itemId.value <= 0) {
-    error.value = '请输入有效的物品ID'
+  if (!selectedItemId.value || selectedItemId.value <= 0) {
+    error.value = '请选择有效的物品'
     return
   }
 
@@ -117,7 +180,7 @@ const handleSubmit = () => {
   }
 
   emit('submit', {
-    itemId: parseInt(itemId.value),
+    itemId: parseInt(selectedItemId.value),
     stack: parseInt(stack.value),
     prefix: prefixValue,
     slotIndex: props.slotIndex
@@ -127,6 +190,10 @@ const handleSubmit = () => {
 const close = () => {
   emit('close')
 }
+
+onMounted(() => {
+  initItemData()
+})
 </script>
 
 <template>
@@ -139,22 +206,45 @@ const close = () => {
       <div class="modal-body">
         <div class="edit-form">
           <div class="form-row">
-            <label>物品ID</label>
+            <label>物品</label>
             <div class="item-input-row">
-              <input
-                v-model="itemId"
-                type="number"
-                min="0"
-                placeholder="输入物品ID"
-                class="form-input"
-              />
-              <div v-if="itemImageUrl" class="item-preview">
-                <img
-                  :src="itemImageUrl"
-                  :alt="'Item ' + itemId"
-                  class="item-image"
-                  @error="(e) => e.target.style.display = 'none'"
+              <div class="search-input-wrapper">
+                <input
+                  v-model="itemSearchQuery"
+                  type="text"
+                  placeholder="搜索物品（名称或ID）..."
+                  class="form-input"
+                  @input="showItemDropdown = true"
+                  @focus="showItemDropdown = true"
+                  @blur="setTimeout(() => showItemDropdown = false, 150)"
                 />
+                <div v-if="showItemDropdown && itemSearchResults.length > 0" class="item-dropdown">
+                  <div
+                    v-for="item in itemSearchResults"
+                    :key="item.id"
+                    class="item-option"
+                    @click="selectItem(item)"
+                  >
+                    <img :src="`/assets/img/img/Item_${item.id}.png`" :alt="item.chinese" class="option-image" @error="(e) => e.target.style.display = 'none'" />
+                    <div class="option-info">
+                      <span class="option-name">{{ item.chinese }}</span>
+                      <span class="option-id">ID: {{ item.id }}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="item-preview-wrapper">
+                <div v-if="currentImageUrl" class="item-preview">
+                  <img
+                    :src="currentImageUrl"
+                    :alt="itemName"
+                    class="item-image"
+                    @error="handleImageError"
+                  />
+                </div>
+                <div v-if="itemName" class="item-name">
+                  {{ itemName }}
+                </div>
               </div>
             </div>
           </div>
@@ -231,7 +321,7 @@ const close = () => {
   background: var(--bg-card);
   border-radius: var(--radius-xl);
   width: 90%;
-  max-width: 400px;
+  max-width: 500px;
   max-height: 85vh;
   overflow: hidden;
   box-shadow: var(--shadow-lg);
@@ -308,12 +398,35 @@ const close = () => {
 
 .item-input-row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 12px;
 }
 
-.form-input {
+.search-input-wrapper {
   flex: 1;
+  position: relative;
+}
+
+.item-preview-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.item-name {
+  font-size: 0.85rem;
+  color: var(--accent-secondary);
+  font-weight: 500;
+  text-align: center;
+  max-width: 80px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.form-input {
+  width: 100%;
   padding: 12px 16px;
   background: var(--bg-tertiary);
   border: 2px solid var(--border-color);
@@ -321,6 +434,7 @@ const close = () => {
   color: var(--text-primary);
   font-size: 0.95rem;
   transition: all 0.25s ease;
+  box-sizing: border-box;
 }
 
 .form-input:focus {
@@ -349,6 +463,64 @@ const close = () => {
   height: 85%;
   object-fit: contain;
   image-rendering: pixelated;
+}
+
+.item-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--bg-card);
+  border: 2px solid var(--border-color);
+  border-radius: var(--radius-md);
+  max-height: 250px;
+  overflow-y: auto;
+  z-index: 20;
+  box-shadow: var(--shadow-md);
+}
+
+.item-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: background 0.2s ease;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.item-option:last-child {
+  border-bottom: none;
+}
+
+.item-option:hover {
+  background: var(--bg-hover);
+}
+
+.option-image {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+  image-rendering: pixelated;
+  border-radius: var(--radius-sm);
+}
+
+.option-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.option-name {
+  color: var(--text-primary);
+  font-weight: 500;
+  font-size: 0.9rem;
+}
+
+.option-id {
+  color: var(--text-muted);
+  font-size: 0.75rem;
 }
 
 .prefix-dropdown {

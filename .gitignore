@@ -136,3 +136,7 @@ dist
 .pnp.*
 /参考源码/星迹源代码/小程序前端
 /参考源码
+/scripts
+/plugin/obj
+/plugin/obj
+/plugin/obj

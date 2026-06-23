@@ -61,10 +61,7 @@ const logout = () => {
   router.push('/')
 }
 
-const goToSettings = () => {
-  showUserMenu.value = false
-  router.push('/settings')
-}
+
 
 const handleClickOutside = (event) => {
   if (userMenuRef.value && !userMenuRef.value.contains(event.target)) {
@@ -119,19 +116,12 @@ onUnmounted(() => {
               <div class="dropdown-header">
                 <div class="user-info">
                   <div class="user-name">{{ currentUser }}</div>
-                  <div class="user-group">
-                    <span class="group-label">权限组:</span>
-                    <span class="group-value">{{ userGroup }}</span>
-                  </div>
                 </div>
               </div>
               
               <div class="dropdown-divider"></div>
               
               <div class="dropdown-actions">
-                <button v-if="isAdmin" class="settings-btn" @click="goToSettings">
-                  ⚙️ 服务器配置
-                </button>
                 <button class="logout-btn" @click="logout">
                   退出登录
                 </button>
@@ -287,25 +277,6 @@ onUnmounted(() => {
   font-weight: 600;
   color: var(--text-primary);
   margin-bottom: 10px;
-}
-
-.user-group {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 0.85rem;
-}
-
-.group-label {
-  color: var(--text-secondary);
-}
-
-.group-value {
-  color: var(--accent-secondary);
-  font-weight: 500;
-  background: rgba(55, 154, 107, 0.1);
-  padding: 2px 8px;
-  border-radius: var(--radius-sm);
 }
 
 .dropdown-divider {
