@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System;
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System;
 using System.Collections.Generic;
 using System.Data;
 using System.IO;
@@ -67,22 +67,20 @@ namespace TShockData
         {
             try
             {
-                TShock.Log.ConsoleInfo("[ItemDetection] 开始自动扫描...");
-                
                 int totalViolations = 0;
                 foreach (var player in TShock.Players)
                 {
                     if (player == null || !player.Active || !player.IsLoggedIn)
                         continue;
 
-                    if (player.HasPermission("tshock.admin") || player.HasPermission("tshock.item.usebanned"))
-                        continue;
-
-                    var results = ScanOnlinePlayerSilent(player);
+                    var results = ScanOnlinePlayer(player);
                     totalViolations += results.Count;
                 }
 
-                TShock.Log.ConsoleInfo($"[ItemDetection] 自动扫描完成，共检测到 {totalViolations} 条违规");
+                if (totalViolations > 0)
+                {
+                    TShock.Log.ConsoleInfo($"[ItemDetection] 自动扫描完成，共检测到 {totalViolations} 条违规");
+                }
             }
             catch (Exception ex)
             {
@@ -152,22 +150,22 @@ namespace TShockData
         {
             List<RestrictedItem> matchedItems = new List<RestrictedItem>();
 
-            if (player == null || !player.Active)
-                return matchedItems;
-
             var config = AntiCheat.GetConfig();
             if (config == null || !config.Enabled)
                 return matchedItems;
 
-            if (player.HasPermission("tshock.admin") || player.HasPermission("tshock.item.usebanned"))
-                return matchedItems;
+            if (player != null && player.Active)
+            {
+                if (player.HasPermission("tshock.admin") || player.HasPermission("tshock.item.usebanned"))
+                    return matchedItems;
+            }
 
             RefreshRestrictedItems();
 
             var candidates = _currentRestrictedItems.Where(r => r.ID == itemId).ToList();
             foreach (var candidate in candidates)
             {
-                if (stack > candidate.Stack)
+                if (stack >= candidate.Stack)
                 {
                     matchedItems.Add(candidate);
                 }
@@ -181,7 +179,7 @@ namespace TShockData
                 foreach (var originalItem in matchedItems)
                 {
                     var rechecked = _currentRestrictedItems.FirstOrDefault(r => r.ID == originalItem.ID);
-                    if (rechecked != null && stack > rechecked.Stack)
+                    if (rechecked != null && stack >= rechecked.Stack)
                     {
                         recheckedItems.Add(rechecked);
                     }
@@ -198,7 +196,6 @@ namespace TShockData
 
             if (player == null || !player.Active)
             {
-                TShock.Log.ConsoleInfo($"[ItemDetection] 扫描失败: 玩家为空或未激活");
                 return results;
             }
 
@@ -208,17 +205,11 @@ namespace TShockData
                 return results;
             }
 
-            if (player.HasPermission("tshock.admin") || player.HasPermission("tshock.item.usebanned"))
-            {
-                return results;
-            }
-
-            TShock.Log.ConsoleInfo($"[ItemDetection] 开始扫描在线玩家: {player.Name} (ID:{player.Account?.ID ?? 0})");
+            bool hasPermission = player.HasPermission("tshock.admin") || player.HasPermission("tshock.item.usebanned");
 
             List<InventoryData> inventory = GetPlayerInv.GetOnlinePlayerInventory(player);
             if (inventory == null || inventory.Count == 0)
             {
-                TShock.Log.ConsoleInfo($"[ItemDetection] 玩家 {player.Name} 的背包为空");
                 return results;
             }
 
@@ -232,7 +223,15 @@ namespace TShockData
                     foreach (var matchedItem in matchedItems)
                     {
                         string reason = $"持有违禁物品(ID:{item.netID},数量:{item.stack},限制:{matchedItem.Stack})";
-                        TShock.Log.ConsoleError($"[ItemDetection] 检测到违禁物品! 玩家: {player.Name}, 物品ID: {item.netID}, 数量: {item.stack}, 限制: {matchedItem.Stack}, 处理方式: {matchedItem.Method}");
+                        
+                        if (hasPermission)
+                        {
+                            TShock.Log.ConsoleError($"[ItemDetection] [豁免] 玩家: {player.Name} 持有违禁物品但有权限豁免 - 物品ID: {item.netID}, 数量: {item.stack}, 限制: {matchedItem.Stack}");
+                        }
+                        else
+                        {
+                            TShock.Log.ConsoleError($"[ItemDetection] 检测到违禁物品! 玩家: {player.Name}, 物品ID: {item.netID}, 数量: {item.stack}, 限制: {matchedItem.Stack}, 处理方式: {matchedItem.Method}");
+                        }
 
                         results.Add(new CheatResult
                         {
@@ -247,60 +246,8 @@ namespace TShockData
                             Slot = item.slot
                         });
 
-                        ExecuteItemViolation(player, reason, matchedItem.Method);
-                    }
-                }
-            }
-
-            TShock.Log.ConsoleInfo($"[ItemDetection] 扫描完成: {player.Name} - 发现 {results.Count} 条违规");
-            return results;
-        }
-
-        public static List<CheatResult> ScanOnlinePlayerSilent(TSPlayer player)
-        {
-            List<CheatResult> results = new List<CheatResult>();
-
-            if (player == null || !player.Active)
-                return results;
-
-            var config = AntiCheat.GetConfig();
-            if (config == null || !config.Enabled)
-                return results;
-
-            if (player.HasPermission("tshock.admin") || player.HasPermission("tshock.item.usebanned"))
-                return results;
-
-            List<InventoryData> inventory = GetPlayerInv.GetOnlinePlayerInventory(player);
-            if (inventory == null || inventory.Count == 0)
-                return results;
-
-            foreach (var item in inventory)
-            {
-                if (item.netID <= 0) continue;
-
-                var matchedItems = CheckItem(player, item.netID, item.stack);
-                if (matchedItems.Count > 0)
-                {
-                    foreach (var matchedItem in matchedItems)
-                    {
-                        if (item.stack > matchedItem.Stack)
+                        if (!hasPermission)
                         {
-                            string reason = $"持有违禁物品(ID:{item.netID},数量:{item.stack},限制:{matchedItem.Stack})";
-                            TShock.Log.ConsoleError($"[ItemDetection] 自动扫描检测到违规! 玩家: {player.Name}, 物品ID: {item.netID}, 数量: {item.stack}, 限制: {matchedItem.Stack}, 处理方式: {matchedItem.Method}");
-
-                            results.Add(new CheatResult
-                            {
-                                PlayerName = player.Name,
-                                PlayerID = player.Account?.ID ?? 0,
-                                ItemID = item.netID,
-                                ItemName = AntiCheat.GetItemName(item.netID),
-                                FoundStack = item.stack,
-                                AllowedStack = matchedItem.Stack,
-                                Progress = "当前进度",
-                                Method = matchedItem.Method,
-                                Slot = item.slot
-                            });
-
                             ExecuteItemViolation(player, reason, matchedItem.Method);
                         }
                     }
@@ -320,12 +267,9 @@ namespace TShockData
                 return results;
             }
 
-            TShock.Log.ConsoleInfo($"[ItemDetection] 开始扫描离线玩家: {playerName} (ID:{accountId})");
-
             List<InventoryData> inventory = GetPlayerInv.GetOfflinePlayerInventory(accountId);
             if (inventory == null)
             {
-                TShock.Log.ConsoleInfo($"[ItemDetection] 玩家 {playerName} 的背包数据不存在");
                 return results;
             }
 
@@ -340,6 +284,8 @@ namespace TShockData
                     {
                         string reason = $"持有违禁物品(ID:{item.netID},数量:{item.stack},限制:{matchedItem.Stack})";
                         TShock.Log.ConsoleError($"[ItemDetection] 检测到违禁物品! 玩家: {playerName}, 物品ID: {item.netID}, 数量: {item.stack}, 限制: {matchedItem.Stack}, 处理方式: {matchedItem.Method}");
+
+                        ExecuteItemViolation(playerName, reason, matchedItem.Method);
 
                         results.Add(new CheatResult
                         {
@@ -357,7 +303,6 @@ namespace TShockData
                 }
             }
 
-            TShock.Log.ConsoleInfo($"[ItemDetection] 扫描完成: {playerName} - 发现 {results.Count} 条违规");
             return results;
         }
 
@@ -396,71 +341,68 @@ namespace TShockData
 
         private static void ExecuteItemViolation(TSPlayer player, string reason, string method)
         {
+            string playerName = player?.Name ?? "未知";
+            int accountId = player?.Account?.ID ?? 0;
+
             switch (method)
             {
                 case "ban":
-                    BanPlayer(player, reason);
+                    ExecuteBan(playerName, reason);
+                    if (player != null)
+                    {
+                        player.Kick($"检测到作弊行为: {reason}", true);
+                    }
+                    TShock.Log.ConsoleError($"[ItemDetection] 已封禁玩家: {playerName}, 原因: {reason}");
                     break;
                 case "kick":
-                    KickPlayer(player, reason);
+                    if (player != null)
+                    {
+                        player.Kick($"检测到作弊行为: {reason}", true);
+                        TShock.Log.ConsoleError($"[ItemDetection] 已踢出玩家: {playerName}, 原因: {reason}");
+                    }
+                    else
+                    {
+                        TShock.Log.ConsoleError($"[ItemDetection] 违规记录 - 离线玩家: {playerName}, 原因: {reason}");
+                    }
                     break;
                 case "log":
-                    LogViolation(player, reason);
+                    TShock.Log.ConsoleError($"[ItemDetection] 违规记录 - 玩家: {playerName}, 原因: {reason}");
                     break;
                 default:
-                    string command = method.Replace("{player}", player.Name);
+                    string command = method.Replace("{player}", playerName);
                     ExecuteCommand(command);
-                    LogViolation(player, reason);
+                    TShock.Log.ConsoleError($"[ItemDetection] 违规记录 - 玩家: {playerName}, 原因: {reason}");
                     break;
             }
         }
 
-        private static void BanPlayer(TSPlayer player, string reason)
+        private static void ExecuteItemViolation(string playerName, string reason, string method)
         {
-            try
+            switch (method)
             {
-                ExecuteBan(player.Name, player.Account?.ID ?? 0, reason);
-                player.Kick($"检测到作弊行为: {reason}", true);
-                TShock.Log.ConsoleError($"[ItemDetection] 已封禁玩家: {player.Name}, 原因: {reason}");
-            }
-            catch (Exception ex)
-            {
-                TShock.Log.ConsoleError($"[ItemDetection] 封禁玩家失败: {ex.Message}");
-            }
-        }
-
-        private static void KickPlayer(TSPlayer player, string reason)
-        {
-            try
-            {
-                player.Kick($"检测到作弊行为: {reason}", true);
-                TShock.Log.ConsoleError($"[ItemDetection] 已踢出玩家: {player.Name}, 原因: {reason}");
-            }
-            catch (Exception ex)
-            {
-                TShock.Log.ConsoleError($"[ItemDetection] 踢出玩家失败: {ex.Message}");
+                case "ban":
+                    ExecuteBan(playerName, reason);
+                    TShock.Log.ConsoleError($"[ItemDetection] 已封禁玩家: {playerName}, 原因: {reason}");
+                    break;
+                case "kick":
+                    TShock.Log.ConsoleError($"[ItemDetection] 违规记录 - 离线玩家: {playerName}, 原因: {reason}");
+                    break;
+                case "log":
+                    TShock.Log.ConsoleError($"[ItemDetection] 违规记录 - 玩家: {playerName}, 原因: {reason}");
+                    break;
+                default:
+                    string command = method.Replace("{player}", playerName);
+                    ExecuteCommand(command);
+                    TShock.Log.ConsoleError($"[ItemDetection] 违规记录 - 玩家: {playerName}, 原因: {reason}");
+                    break;
             }
         }
 
-        private static void LogViolation(TSPlayer player, string reason)
-        {
-            TShock.Log.ConsoleError($"[ItemDetection] 违规记录 - 玩家: {player.Name}, 原因: {reason}");
-        }
-
-        private static void ExecuteBan(string username, int accountId, string reason)
+        private static void ExecuteBan(string username, string reason)
         {
             try
             {
-                TShockAPI.Commands.HandleCommand(TShockAPI.TSPlayer.Server, $"/ban add \"acc:{username}\" \"{reason}\" -e");
-
-                if (accountId > 0)
-                {
-                    var account = TShock.UserAccounts.GetUserAccountByID(accountId);
-                    if (account != null && !string.IsNullOrEmpty(account.UUID))
-                    {
-                        TShockAPI.Commands.HandleCommand(TShockAPI.TSPlayer.Server, $"/ban add \"uuid:{account.UUID}\" \"{reason}\" -e");
-                    }
-                }
+                TShockAPI.Commands.HandleCommand(TShockAPI.TSPlayer.Server, $"/banp {username}");
             }
             catch (Exception ex)
             {
@@ -885,43 +827,6 @@ namespace TShockData
             return _config;
         }
 
-        public static List<InventoryData> GetPlayerInventory(TSPlayer player)
-        {
-            List<InventoryData> invList = new List<InventoryData>();
-
-            if (player.TPlayer != null)
-            {
-                for (int i = 0; i < player.TPlayer.inventory.Length; i++)
-                {
-                    var item = player.TPlayer.inventory[i];
-                    if (item.type > 0)
-                    {
-                        invList.Add(new InventoryData(item.type, item.prefix, item.stack, i, item.favorited));
-                    }
-                }
-
-                for (int i = 0; i < player.TPlayer.armor.Length; i++)
-                {
-                    var item = player.TPlayer.armor[i];
-                    if (item.type > 0)
-                    {
-                        invList.Add(new InventoryData(item.type, item.prefix, item.stack, NetItem.ArmorIndex.Item1 + i, item.favorited));
-                    }
-                }
-
-                for (int i = 0; i < player.TPlayer.dye.Length; i++)
-                {
-                    var item = player.TPlayer.dye[i];
-                    if (item.type > 0)
-                    {
-                        invList.Add(new InventoryData(item.type, item.prefix, item.stack, NetItem.DyeIndex.Item1 + i, item.favorited));
-                    }
-                }
-            }
-
-            return invList;
-        }
-
         public static string GetItemName(int itemId)
         {
             try
@@ -1008,7 +913,7 @@ namespace TShockData
 
         public static bool CheckProjectile(TSPlayer player, short type, short damage)
         {
-            if (player == null || !player.Active)
+            if (player == null || !player.Active || !player.IsLoggedIn)
                 return false;
 
             if (player.HasPermission("tshock.admin.projectileban"))
@@ -1083,7 +988,7 @@ namespace TShockData
         {
             try
             {
-                ExecuteBan(player.Name, player.Account?.ID ?? 0, reason);
+                ExecuteBan(player.Name, reason);
                 player.Kick($"检测到作弊行为: {reason}", true);
                 TShock.Log.ConsoleError($"[ProjDetection] 已封禁玩家: {player.Name}, 原因: {reason}");
             }
@@ -1111,20 +1016,11 @@ namespace TShockData
             TShock.Log.ConsoleError($"[ProjDetection] 违规记录 - 玩家: {player.Name}, 原因: {reason}");
         }
 
-        private static void ExecuteBan(string username, int accountId, string reason)
+        private static void ExecuteBan(string username, string reason)
         {
             try
             {
-                TShockAPI.Commands.HandleCommand(TShockAPI.TSPlayer.Server, $"/ban add \"acc:{username}\" \"{reason}\" -e");
-
-                if (accountId > 0)
-                {
-                    var account = TShock.UserAccounts.GetUserAccountByID(accountId);
-                    if (account != null && !string.IsNullOrEmpty(account.UUID))
-                    {
-                        TShockAPI.Commands.HandleCommand(TShockAPI.TSPlayer.Server, $"/ban add \"uuid:{account.UUID}\" \"{reason}\" -e");
-                    }
-                }
+                TShockAPI.Commands.HandleCommand(TShockAPI.TSPlayer.Server, $"/banp {username}");
             }
             catch (Exception ex)
             {

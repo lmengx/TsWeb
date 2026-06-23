@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿using System.Collections.Concurrent;
+﻿﻿﻿﻿﻿﻿﻿using System.Collections.Concurrent;
 using System.Data;
 using System.Diagnostics;
 using System.Reflection;
@@ -264,7 +264,7 @@ namespace TShockData
 
                 foreach (string ip in ipList)
                 {
-                    if (!string.IsNullOrEmpty(ip))
+                    if (!string.IsNullOrEmpty(ip) && ip != "127.0.0.1")
                     {
                         TShockAPI.Commands.HandleCommand(TShockAPI.TSPlayer.Server, $"/ban add \"ip:{ip}\" \"{reason}\" -e");
                     }
