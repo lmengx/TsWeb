@@ -3,10 +3,6 @@
   "WorkspaceRootPath": "C:\\Users\\lyt\\Documents\\GitHub\\TsWeb\\plugin\\",
   "Documents": [
     {
-      "AbsoluteMoniker": "D:0:0:{6B6CBCF6-EF6C-4D7F-9D65-CEB9C18AEB47}|TsWeb.csproj|c:\\users\\lyt\\documents\\github\\tsweb\\plugin\\getplayerinv.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
-      "RelativeMoniker": "D:0:0:{6B6CBCF6-EF6C-4D7F-9D65-CEB9C18AEB47}|TsWeb.csproj|solutionrelative:getplayerinv.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
-    },
-    {
       "AbsoluteMoniker": "D:0:0:{6B6CBCF6-EF6C-4D7F-9D65-CEB9C18AEB47}|TsWeb.csproj|c:\\users\\lyt\\documents\\github\\tsweb\\plugin\\anticheat.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
       "RelativeMoniker": "D:0:0:{6B6CBCF6-EF6C-4D7F-9D65-CEB9C18AEB47}|TsWeb.csproj|solutionrelative:anticheat.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
@@ -46,11 +42,11 @@
       "DocumentGroups": [
         {
           "DockedWidth": 200,
-          "SelectedChildIndex": 7,
+          "SelectedChildIndex": 2,
           "Children": [
             {
               "$type": "Document",
-              "DocumentIndex": 3,
+              "DocumentIndex": 2,
               "Title": "RuntimeHooks.cs",
               "DocumentMoniker": "C:\\Users\\lyt\\Documents\\GitHub\\TsWeb\\plugin\\RuntimeHooks.cs",
               "RelativeDocumentMoniker": "RuntimeHooks.cs",
@@ -58,11 +54,12 @@
               "RelativeToolTip": "RuntimeHooks.cs",
               "ViewState": "AgIAACgAAAAAAAAAAAAgwC8AAAAAAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-06-21T11:42:13.279Z"
+              "WhenOpened": "2026-06-21T11:42:13.279Z",
+              "EditorCaption": ""
             },
             {
               "$type": "Document",
-              "DocumentIndex": 7,
+              "DocumentIndex": 6,
               "Title": "RegisterAndAccess.cs",
               "DocumentMoniker": "C:\\Users\\lyt\\Documents\\GitHub\\TsWeb\\plugin\\RegisterAndAccess.cs",
               "RelativeDocumentMoniker": "RegisterAndAccess.cs",
@@ -74,19 +71,20 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 1,
+              "DocumentIndex": 0,
               "Title": "AntiCheat.cs",
               "DocumentMoniker": "C:\\Users\\lyt\\Documents\\GitHub\\TsWeb\\plugin\\AntiCheat.cs",
               "RelativeDocumentMoniker": "AntiCheat.cs",
               "ToolTip": "C:\\Users\\lyt\\Documents\\GitHub\\TsWeb\\plugin\\AntiCheat.cs",
               "RelativeToolTip": "AntiCheat.cs",
-              "ViewState": "AgIAAGABAAAAAAAAAAAAAG0BAAANAAAAAAAAAA==",
+              "ViewState": "AgIAAFgBAAAAAAAAAAAAwGwBAABsAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-06-18T08:30:55.687Z"
+              "WhenOpened": "2026-06-18T08:30:55.687Z",
+              "EditorCaption": ""
             },
             {
               "$type": "Document",
-              "DocumentIndex": 5,
+              "DocumentIndex": 4,
               "Title": "ServerTools.cs",
               "DocumentMoniker": "C:\\Users\\lyt\\Documents\\GitHub\\TsWeb\\plugin\\ServerTools.cs",
               "RelativeDocumentMoniker": "ServerTools.cs",
@@ -98,7 +96,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 4,
+              "DocumentIndex": 3,
               "Title": "GetWorldInfo.cs",
               "DocumentMoniker": "C:\\Users\\lyt\\Documents\\GitHub\\TsWeb\\plugin\\GetWorldInfo.cs",
               "RelativeDocumentMoniker": "GetWorldInfo.cs",
@@ -110,7 +108,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 6,
+              "DocumentIndex": 5,
               "Title": "tools.cs",
               "DocumentMoniker": "C:\\Users\\lyt\\Documents\\GitHub\\TsWeb\\plugin\\tools.cs",
               "RelativeDocumentMoniker": "tools.cs",
@@ -122,7 +120,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 8,
+              "DocumentIndex": 7,
               "Title": "QueryUsers.cs",
               "DocumentMoniker": "C:\\Users\\lyt\\Documents\\GitHub\\TsWeb\\plugin\\QueryUsers.cs",
               "RelativeDocumentMoniker": "QueryUsers.cs",
@@ -134,20 +132,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 0,
-              "Title": "GetPlayerInv.cs",
-              "DocumentMoniker": "C:\\Users\\lyt\\Documents\\GitHub\\TsWeb\\plugin\\GetPlayerInv.cs",
-              "RelativeDocumentMoniker": "GetPlayerInv.cs",
-              "ToolTip": "C:\\Users\\lyt\\Documents\\GitHub\\TsWeb\\plugin\\GetPlayerInv.cs",
-              "RelativeToolTip": "GetPlayerInv.cs",
-              "ViewState": "AgIAAL4AAAAAAAAAAAAAwNMAAAANAAAAAAAAAA==",
-              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-06-13T13:02:56.847Z",
-              "EditorCaption": ""
-            },
-            {
-              "$type": "Document",
-              "DocumentIndex": 2,
+              "DocumentIndex": 1,
               "Title": "Main.cs",
               "DocumentMoniker": "C:\\Users\\lyt\\Documents\\GitHub\\TsWeb\\plugin\\Main.cs",
               "RelativeDocumentMoniker": "Main.cs",
