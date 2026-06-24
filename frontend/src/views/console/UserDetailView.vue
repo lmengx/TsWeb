@@ -166,16 +166,80 @@ const prefixMap = {
 
 const giveItemSearchResults = computed(() => {
   if (!giveItemSearchQuery.value.trim()) return []
-  
-  const query = giveItemSearchQuery.value.toLowerCase()
+
+  const query = giveItemSearchQuery.value.trim().toLowerCase()
+  const keywords = query.split(/\s+/).filter(k => k.length > 0)
+
+  const exactResults = itemData.value.list
+    .filter(item => {
+      const chinese = item.chinese.toLowerCase()
+      const english = item.english.toLowerCase()
+      const id = item.id.toString()
+
+      return keywords.every(keyword => {
+        return chinese.includes(keyword) ||
+               english.includes(keyword) ||
+               id.includes(keyword)
+      })
+    })
+
+  if (exactResults.length > 0) {
+    return exactResults.slice(0, 20)
+  }
+
   return itemData.value.list
     .filter(item => {
-      return item.chinese.toLowerCase().includes(query) ||
-             item.english.toLowerCase().includes(query) ||
-             item.id.toString().includes(query)
+      const chinese = item.chinese.toLowerCase()
+      const english = item.english.toLowerCase()
+      const id = item.id.toString()
+
+      return keywords.every(keyword => {
+        return fuzzyMatchOneMistake(chinese, keyword) ||
+               fuzzyMatchOneMistake(english, keyword) ||
+               fuzzyMatchOneMistake(id, keyword)
+      })
     })
     .slice(0, 20)
 })
+
+const fuzzyMatchOneMistake = (text, keyword) => {
+  if (!text || !keyword) return false
+
+  const textWithoutSpaces = text.replace(/\s+/g, '')
+  const keywordWithoutSpaces = keyword.replace(/\s+/g, '')
+
+  if (textWithoutSpaces.includes(keywordWithoutSpaces)) return true
+
+  const lenDiff = Math.abs(textWithoutSpaces.length - keywordWithoutSpaces.length)
+  if (lenDiff > 1) return false
+
+  const distance = levenshteinDistance(textWithoutSpaces, keywordWithoutSpaces)
+  return distance <= 1
+}
+
+const levenshteinDistance = (a, b) => {
+  const matrix = []
+  for (let i = 0; i <= b.length; i++) {
+    matrix[i] = [i]
+  }
+  for (let j = 0; j <= a.length; j++) {
+    matrix[0][j] = j
+  }
+  for (let i = 1; i <= b.length; i++) {
+    for (let j = 1; j <= a.length; j++) {
+      if (b.charAt(i - 1) === a.charAt(j - 1)) {
+        matrix[i][j] = matrix[i - 1][j - 1]
+      } else {
+        matrix[i][j] = Math.min(
+          matrix[i - 1][j - 1] + 1,
+          matrix[i][j - 1] + 1,
+          matrix[i - 1][j] + 1
+        )
+      }
+    }
+  }
+  return matrix[b.length][a.length]
+}
 
 const selectGiveItem = (item) => {
   giveSelectedItemId.value = item.id
