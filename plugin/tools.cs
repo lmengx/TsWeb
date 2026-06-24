@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System.Collections.Concurrent;
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System.Collections.Concurrent;
 using System.Data;
 using System.Diagnostics;
 using System.Reflection;
@@ -140,6 +140,271 @@ namespace TShockData
             }
         }
 
+        public static void remove(CommandArgs args)
+        {
+            if (args.Parameters.Count < 1)
+            {
+                args.Player.SendErrorMessage("语法错误。正确格式: /remove <玩家名|*> <物品ID> 或 /remove <物品ID>(清除所有玩家)");
+                return;
+            }
+
+            string target;
+            string itemIdStr;
+
+            if (args.Parameters.Count == 1)
+            {
+                target = "*";
+                itemIdStr = args.Parameters[0];
+            }
+            else
+            {
+                target = args.Parameters[0];
+                itemIdStr = args.Parameters[1];
+            }
+
+            if (!int.TryParse(itemIdStr, out int netID))
+            {
+                args.Player.SendErrorMessage($"物品ID必须是数字: {itemIdStr}");
+                return;
+            }
+
+            string itemName = TShock.Utils.GetItemById(netID)?.Name ?? $"物品ID:{netID}";
+
+            if (target == "*")
+            {
+                args.Player.SendInfoMessage("正在后台批量清除物品，请稍后查看控制台日志...");
+                System.Threading.Tasks.Task.Run(() =>
+                {
+                    BatchRemoveItem(netID, itemName);
+                });
+            }
+            else
+            {
+                var account = TShock.UserAccounts.GetUserAccountByName(target);
+                if (account == null)
+                {
+                    args.Player.SendErrorMessage($"找不到玩家: {target}");
+                    return;
+                }
+
+                if (RemoveItemFromPlayer(account.ID, account.Name, netID, itemName))
+                {
+                    args.Player.SendSuccessMessage($"已清除玩家 {target} 的物品: {itemName}");
+                }
+                else
+                {
+                    args.Player.SendErrorMessage($"玩家 {target} 的库存中没有物品ID: {netID}");
+                }
+            }
+        }
+
+        private static void BatchRemoveItem(int netID, string itemName)
+        {
+            int clearedCount = 0;
+            IDbConnection db = TShock.DB;
+            
+            List<Tuple<int, string>> users = new List<Tuple<int, string>>();
+            using (QueryResult res = db.QueryReader("SELECT ID, Username FROM Users"))
+            {
+                while (res.Read())
+                {
+                    users.Add(Tuple.Create(res.Get<int>("ID"), res.Get<string>("Username")));
+                }
+            }
+
+            foreach (var user in users)
+            {
+                if (RemoveItemFromPlayer(user.Item1, user.Item2, netID, itemName))
+                {
+                    clearedCount++;
+                }
+                System.Threading.Thread.Sleep(_random.Next(50, 150));
+            }
+
+            TShock.Log.ConsoleInfo($"[remove] 批量清除完成，共清除 {clearedCount} 个玩家的物品: {itemName}");
+        }
+
+        private static bool RemoveItemFromPlayer(int accountId, string playerName, int netID, string itemName)
+        {
+            var player1 = TShockAPI.TSPlayer.FindByNameOrID(playerName);
+            if (player1.Count > 0)
+            {
+                foreach (var tSPlayer in player1)
+                {
+                    tSPlayer.Kick("管理员清除了您背包中的违规物品", true);
+                }
+            }
+
+            try
+            {
+                IDbConnection db = TShock.DB;
+                string strinventory = "";
+                using (QueryResult res = db.QueryReader("SELECT Inventory FROM tsCharacter WHERE Account = @0", accountId))
+                {
+                    if (res.Read())
+                    {
+                        strinventory = res.Get<string>("Inventory");
+                    }
+                    else
+                    {
+                        return false;
+                    }
+                }
+
+                if (strinventory != "")
+                {
+                    string[] arrinventory = strinventory.Split("~");
+                    bool cleared = false;
+
+                    for (int i = 0; i < arrinventory.Length; i++)
+                    {
+                        string[] item = arrinventory[i].Split(",");
+                        if (item.Length >= 1 && int.TryParse(item[0], out int slotItemId) && slotItemId == netID)
+                        {
+                            item[0] = "0";
+                            item[1] = "0";
+                            item[2] = "0";
+                            arrinventory[i] = string.Join(",", item);
+                            cleared = true;
+                        }
+                    }
+
+                    if (cleared)
+                    {
+                        string finalinv = string.Join("~", arrinventory);
+                        db.Query("UPDATE tsCharacter SET Inventory = @0 WHERE Account = @1", finalinv, accountId);
+                        TShock.Log.ConsoleInfo($"[remove] 已清除玩家 {playerName} 的物品: {itemName}");
+                        return true;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                TShock.Log.ConsoleError($"[remove] 清除玩家 {playerName} 的物品失败: {ex.Message}");
+            }
+
+            return false;
+        }
+
+        public static void find(CommandArgs args)
+        {
+            if (args.Parameters.Count < 1)
+            {
+                args.Player.SendErrorMessage("语法错误。正确格式: /find <物品ID>");
+                return;
+            }
+
+            string itemIdStr = args.Parameters[0];
+
+            if (!int.TryParse(itemIdStr, out int netID))
+            {
+                args.Player.SendErrorMessage($"物品ID必须是数字: {itemIdStr}");
+                return;
+            }
+
+            string itemName = TShock.Utils.GetItemById(netID)?.Name ?? $"物品ID:{netID}";
+            args.Player.SendInfoMessage($"正在查找拥有物品 {itemName} 的玩家...");
+
+            System.Threading.Tasks.Task.Run(() =>
+            {
+                FindPlayersWithItem(netID, itemName, args.Player);
+            });
+        }
+
+        private static void FindPlayersWithItem(int netID, string itemName, TSPlayer requester)
+        {
+            List<string> playersWithItem = new List<string>();
+            IDbConnection db = TShock.DB;
+
+            List<Tuple<int, string>> users = new List<Tuple<int, string>>();
+            using (QueryResult res = db.QueryReader("SELECT ID, Username FROM Users"))
+            {
+                while (res.Read())
+                {
+                    users.Add(Tuple.Create(res.Get<int>("ID"), res.Get<string>("Username")));
+                }
+            }
+
+            foreach (var user in users)
+            {
+                if (PlayerHasItem(user.Item1, netID))
+                {
+                    playersWithItem.Add(user.Item2);
+                }
+                System.Threading.Thread.Sleep(_random.Next(10, 30));
+            }
+
+            if (playersWithItem.Count > 0)
+            {
+                TShock.Log.ConsoleInfo($"[find] 找到 {playersWithItem.Count} 个玩家拥有物品 {itemName}:");
+                foreach (var player in playersWithItem)
+                {
+                    TShock.Log.ConsoleInfo($"  - {player}");
+                }
+
+                if (requester != null && requester.IsLoggedIn)
+                {
+                    requester.SendSuccessMessage($"找到 {playersWithItem.Count} 个玩家拥有物品 {itemName}:");
+                    int displayCount = Math.Min(playersWithItem.Count, 10);
+                    for (int i = 0; i < displayCount; i++)
+                    {
+                        requester.SendInfoMessage($"  - {playersWithItem[i]}");
+                    }
+                    if (playersWithItem.Count > 10)
+                    {
+                        requester.SendInfoMessage($"  ... 还有 {playersWithItem.Count - 10} 个玩家，请查看控制台日志");
+                    }
+                }
+            }
+            else
+            {
+                TShock.Log.ConsoleInfo($"[find] 未找到拥有物品 {itemName} 的玩家");
+                if (requester != null && requester.IsLoggedIn)
+                {
+                    requester.SendErrorMessage($"未找到拥有物品 {itemName} 的玩家");
+                }
+            }
+        }
+
+        private static bool PlayerHasItem(int accountId, int netID)
+        {
+            try
+            {
+                IDbConnection db = TShock.DB;
+                string strinventory = "";
+                using (QueryResult res = db.QueryReader("SELECT Inventory FROM tsCharacter WHERE Account = @0", accountId))
+                {
+                    if (res.Read())
+                    {
+                        strinventory = res.Get<string>("Inventory");
+                    }
+                    else
+                    {
+                        return false;
+                    }
+                }
+
+                if (strinventory != "")
+                {
+                    string[] arrinventory = strinventory.Split("~");
+                    for (int i = 0; i < arrinventory.Length; i++)
+                    {
+                        string[] item = arrinventory[i].Split(",");
+                        if (item.Length >= 1 && int.TryParse(item[0], out int slotItemId) && slotItemId == netID)
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                TShock.Log.ConsoleError($"[find] 查询玩家库存失败: {ex.Message}");
+            }
+
+            return false;
+        }
+
         public static void banp(CommandArgs args)
         {
             if (args.Parameters.Count == 0)
@@ -246,7 +511,7 @@ namespace TShockData
 
         private static readonly Random _random = new Random();
 
-        private static void ExecuteBan(string username, int accountId, string reason, CommandArgs args)
+        public static void ExecuteBan(string username, int accountId, string reason, CommandArgs args)
         {
             try
             {
@@ -298,7 +563,7 @@ namespace TShockData
             }
         }
 
-        private static void ExecuteBanCommand(string command, string type)
+        public static void ExecuteBanCommand(string command, string type)
         {
             const int maxRetries = 5;
             const int baseDelayMs = 200;

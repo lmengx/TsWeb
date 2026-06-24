@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System;
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System;
 using System.Collections.Generic;
 using System.Data;
 using System.IO;
@@ -248,7 +248,7 @@ namespace TShockData
 
                         if (!hasPermission)
                         {
-                            ExecuteItemViolation(player, reason, matchedItem.Method);
+                            ViolationExecutor.ExecuteViolation(player, matchedItem.Method, itemId: item.netID, itemName: AntiCheat.GetItemName(item.netID));
                         }
                     }
                 }
@@ -286,13 +286,13 @@ namespace TShockData
                         TShock.Log.ConsoleError($"[ItemDetection] 检测到违禁物品! 玩家: {playerName}, 物品ID: {item.netID}, 数量: {item.stack}, 限制: {matchedItem.Stack}, 处理方式: {matchedItem.Method}");
 
                         if (executeViolations)
-                        {
-                            System.Threading.Tasks.Task.Run(() =>
                             {
-                                System.Threading.Thread.Sleep(new Random().Next(200, 500));
-                                ExecuteItemViolation(playerName, reason, matchedItem.Method);
-                            });
-                        }
+                                System.Threading.Tasks.Task.Run(() =>
+                                {
+                                    System.Threading.Thread.Sleep(new Random().Next(200, 500));
+                                    ViolationExecutor.ExecuteViolation(playerName, matchedItem.Method, itemId: item.netID, itemName: AntiCheat.GetItemName(item.netID));
+                                });
+                            }
 
                         results.Add(new CheatResult
                         {
@@ -344,108 +344,6 @@ namespace TShockData
             }
 
             return allResults;
-        }
-
-        private static void ExecuteItemViolation(TSPlayer player, string reason, string method)
-        {
-            string playerName = player?.Name ?? "未知";
-            int accountId = player?.Account?.ID ?? 0;
-
-            switch (method)
-            {
-                case "ban":
-                    ExecuteBan(playerName, reason);
-                    if (player != null)
-                    {
-                        player.Kick($"检测到作弊行为: {reason}", true);
-                    }
-                    TShock.Log.ConsoleError($"[ItemDetection] 已封禁玩家: {playerName}, 原因: {reason}");
-                    break;
-                case "kick":
-                    if (player != null)
-                    {
-                        player.Kick($"检测到作弊行为: {reason}", true);
-                        TShock.Log.ConsoleError($"[ItemDetection] 已踢出玩家: {playerName}, 原因: {reason}");
-                    }
-                    else
-                    {
-                        TShock.Log.ConsoleError($"[ItemDetection] 违规记录 - 离线玩家: {playerName}, 原因: {reason}");
-                    }
-                    break;
-                case "log":
-                    TShock.Log.ConsoleError($"[ItemDetection] 违规记录 - 玩家: {playerName}, 原因: {reason}");
-                    break;
-                default:
-                    string command = method.Replace("{player}", playerName);
-                    ExecuteCommand(command);
-                    TShock.Log.ConsoleError($"[ItemDetection] 违规记录 - 玩家: {playerName}, 原因: {reason}");
-                    break;
-            }
-        }
-
-        private static void ExecuteItemViolation(string playerName, string reason, string method)
-        {
-            switch (method)
-            {
-                case "ban":
-                    ExecuteBan(playerName, reason);
-                    TShock.Log.ConsoleError($"[ItemDetection] 已封禁玩家: {playerName}, 原因: {reason}");
-                    break;
-                case "kick":
-                    TShock.Log.ConsoleError($"[ItemDetection] 违规记录 - 离线玩家: {playerName}, 原因: {reason}");
-                    break;
-                case "log":
-                    TShock.Log.ConsoleError($"[ItemDetection] 违规记录 - 玩家: {playerName}, 原因: {reason}");
-                    break;
-                default:
-                    string command = method.Replace("{player}", playerName);
-                    ExecuteCommand(command);
-                    TShock.Log.ConsoleError($"[ItemDetection] 违规记录 - 玩家: {playerName}, 原因: {reason}");
-                    break;
-            }
-        }
-
-        private static void ExecuteBan(string username, string reason)
-        {
-            const int maxRetries = 3;
-            const int retryDelayMs = 1000;
-            
-            for (int attempt = 1; attempt <= maxRetries; attempt++)
-            {
-                try
-                {
-                    TShockAPI.Commands.HandleCommand(TShockAPI.TSPlayer.Server, $"/banp {username}");
-                    return;
-                }
-                catch (Exception ex)
-                {
-                    if (ex.Message.Contains("database is locked") && attempt < maxRetries)
-                    {
-                        TShock.Log.ConsoleError($"[ItemDetection] 数据库锁定，重试第 {attempt} 次...");
-                        System.Threading.Thread.Sleep(retryDelayMs * attempt);
-                    }
-                    else
-                    {
-                        TShock.Log.ConsoleError($"[ItemDetection] ExecuteBan 失败: {ex.Message}");
-                        return;
-                    }
-                }
-            }
-            
-            TShock.Log.ConsoleError($"[ItemDetection] ExecuteBan 重试 {maxRetries} 次后仍失败，玩家: {username}");
-        }
-
-        private static void ExecuteCommand(string command)
-        {
-            try
-            {
-                TShock.Log.ConsoleInfo($"[ItemDetection] 执行命令: {command}");
-                TShockAPI.Commands.HandleCommand(TShockAPI.TSPlayer.Server, command);
-            }
-            catch (Exception ex)
-            {
-                TShock.Log.ConsoleError($"[ItemDetection] 执行命令失败: {ex.Message}");
-            }
         }
     }
 
@@ -879,6 +777,131 @@ namespace TShockData
         public int Slot { get; set; }
     }
 
+    public static class ViolationExecutor
+    {
+        public static void ExecuteViolation(TSPlayer player, string method, string playerName = null, int itemId = 0, string itemName = null, int projId = 0)
+        {
+            string name = playerName ?? player?.Name ?? "未知";
+
+            try
+            {
+                string reason = BuildReason(name, itemId, itemName, projId);
+
+                switch (method?.ToLower())
+                {
+                    case "ban":
+                        ExecuteBan(name, reason);
+                        if (player != null)
+                        {
+                            player.Kick($"检测到作弊行为: {reason}", true);
+                        }
+                        TShock.Log.ConsoleError($"[反作弊] 已封禁玩家: {name}, 原因: {reason}");
+                        break;
+                    case "kick":
+                        if (player != null)
+                        {
+                            ExecuteKick(player, name, reason);
+                            TShock.Log.ConsoleError($"[反作弊] 已踢出玩家: {name}, 原因: {reason}");
+                        }
+                        else
+                        {
+                            TShock.Log.ConsoleError($"[反作弊] 违规记录 - 离线玩家: {name}, 原因: {reason}");
+                        }
+                        break;
+                    case "log":
+                        TShock.Log.ConsoleError($"[反作弊] 违规记录 - 玩家: {name}, 原因: {reason}");
+                        break;
+                    default:
+                        string command = ReplacePlaceholders(method, name, itemId, itemName, projId);
+                        ExecuteCommand(command);
+                        TShock.Log.ConsoleError($"[反作弊] 违规记录 - 玩家: {name}, 原因: {reason}");
+                        break;
+                }
+            }
+            catch (Exception ex)
+            {
+                TShock.Log.ConsoleError($"[反作弊] 执行违规处理失败: {ex.Message}");
+            }
+        }
+
+        public static void ExecuteViolation(string playerName, string method, int itemId = 0, string itemName = null, int projId = 0)
+        {
+            try
+            {
+                string reason = BuildReason(playerName, itemId, itemName, projId);
+
+                switch (method?.ToLower())
+                {
+                    case "ban":
+                        ExecuteBan(playerName, reason);
+                        TShock.Log.ConsoleError($"[反作弊] 已封禁玩家: {playerName}, 原因: {reason}");
+                        break;
+                    case "kick":
+                        TShock.Log.ConsoleError($"[反作弊] 违规记录 - 离线玩家: {playerName}, 原因: {reason}");
+                        break;
+                    case "log":
+                        TShock.Log.ConsoleError($"[反作弊] 违规记录 - 玩家: {playerName}, 原因: {reason}");
+                        break;
+                    default:
+                        string command = ReplacePlaceholders(method, playerName, itemId, itemName, projId);
+                        ExecuteCommand(command);
+                        TShock.Log.ConsoleError($"[反作弊] 违规记录 - 玩家: {playerName}, 原因: {reason}");
+                        break;
+                }
+            }
+            catch (Exception ex)
+            {
+                TShock.Log.ConsoleError($"[反作弊] 执行违规处理失败: {ex.Message}");
+            }
+        }
+
+        private static string BuildReason(string playerName, int itemId, string itemName, int projId)
+        {
+            if (projId > 0)
+            {
+                return $"使用违禁弹幕(ID:{projId})";
+            }
+            if (itemId > 0)
+            {
+                string name = !string.IsNullOrEmpty(itemName) ? $"({itemName})" : "";
+                return $"持有违禁物品(ID:{itemId}{name})";
+            }
+            return "检测到作弊行为";
+        }
+
+        private static string ReplacePlaceholders(string command, string playerName, int itemId, string itemName, int projId)
+        {
+            if (string.IsNullOrEmpty(command))
+                return string.Empty;
+
+            return command
+                .Replace("{playername}", playerName)
+                .Replace("{itemid}", itemId.ToString())
+                .Replace("{itemname}", itemName ?? "")
+                .Replace("{projid}", projId.ToString());
+        }
+
+        private static void ExecuteBan(string username, string reason)
+        {
+            string command = $"banp {username} {reason}";
+            TShock.Log.ConsoleInfo($"[反作弊] 执行命令: /{command}");
+            TShockAPI.Commands.HandleCommand(TShockAPI.TSPlayer.Server, "/" + command);
+        }
+
+        private static void ExecuteKick(TSPlayer player, string username, string reason)
+        {
+            string command = $"kick {username} {reason}";
+            TShock.Log.ConsoleInfo($"[反作弊] 执行命令: /{command}");
+            TShockAPI.Commands.HandleCommand(TShockAPI.TSPlayer.Server, "/" + command);
+        }
+
+        private static void ExecuteCommand(string command)
+        {
+            TShock.Log.ConsoleInfo($"[反作弊] 执行命令: /{command}");
+            TShockAPI.Commands.HandleCommand(TShockAPI.TSPlayer.Server, "/" + command);
+        }
+    }
+
     public static class ProjDetection
     {
         private static List<RestrictedProj> _currentRestrictedProjectiles = new List<RestrictedProj>();
@@ -963,7 +986,7 @@ namespace TShockData
                     return true;
                 }
                 
-                BanPlayer(player, reason);
+                ViolationExecutor.ExecuteViolation(player, "ban");
                 return true;
             }
 
@@ -980,109 +1003,15 @@ namespace TShockData
                     }
 
                     foreach (var confirmedProj in confirmedProjs)
-                    {
-                        TShock.Log.ConsoleError($"[ProjDetection] 检测到违禁弹幕! 玩家: {player.Name}, 弹幕ID: {type}, 伤害: {damage}, 处理方式: {confirmedProj.Method}");
-
-                        string reason = $"使用违禁弹幕(ID:{type})";
-
-                        switch (confirmedProj.Method)
                         {
-                            case "ban":
-                                BanPlayer(player, reason);
-                                break;
-                            case "kick":
-                                KickPlayer(player, reason);
-                                break;
-                            case "log":
-                                LogViolation(player, reason);
-                                break;
-                            default:
-                                string command = confirmedProj.Method.Replace("{player}", player.Name);
-                                ExecuteCommand(command);
-                                LogViolation(player, reason);
-                                break;
+                            TShock.Log.ConsoleError($"[ProjDetection] 检测到违禁弹幕! 玩家: {player.Name}, 弹幕ID: {type}, 伤害: {damage}, 处理方式: {confirmedProj.Method}");
+
+                            ViolationExecutor.ExecuteViolation(player, confirmedProj.Method, projId: type);
                         }
-                    }
                     return true;
                 }
             }
             return false;
-        }
-
-        private static void BanPlayer(TSPlayer player, string reason)
-        {
-            try
-            {
-                ExecuteBan(player.Name, reason);
-                player.Kick($"检测到作弊行为: {reason}", true);
-                TShock.Log.ConsoleError($"[ProjDetection] 已封禁玩家: {player.Name}, 原因: {reason}");
-            }
-            catch (Exception ex)
-            {
-                TShock.Log.ConsoleError($"[ProjDetection] 封禁玩家失败: {ex.Message}");
-            }
-        }
-
-        private static void KickPlayer(TSPlayer player, string reason)
-        {
-            try
-            {
-                player.Kick($"检测到作弊行为: {reason}", true);
-                TShock.Log.ConsoleError($"[ProjDetection] 已踢出玩家: {player.Name}, 原因: {reason}");
-            }
-            catch (Exception ex)
-            {
-                TShock.Log.ConsoleError($"[ProjDetection] 踢出玩家失败: {ex.Message}");
-            }
-        }
-
-        private static void LogViolation(TSPlayer player, string reason)
-        {
-            TShock.Log.ConsoleError($"[ProjDetection] 违规记录 - 玩家: {player.Name}, 原因: {reason}");
-        }
-
-        private static void ExecuteBan(string username, string reason)
-        {
-            const int maxRetries = 3;
-            const int retryDelayMs = 1000;
-            
-            for (int attempt = 1; attempt <= maxRetries; attempt++)
-            {
-                try
-                {
-                    TShockAPI.Commands.HandleCommand(TShockAPI.TSPlayer.Server, $"/banp {username}");
-                    return;
-                }
-                catch (Exception ex)
-                {
-                    if (ex.Message.Contains("database is locked") && attempt < maxRetries)
-                    {
-                        TShock.Log.ConsoleError($"[ProjDetection] 数据库锁定，重试第 {attempt} 次...");
-                        System.Threading.Thread.Sleep(retryDelayMs * attempt);
-                    }
-                    else
-                    {
-                        TShock.Log.
-                            Error($"[ProjDetection] ExecuteBan 失败: {ex.Message}");
-                        return;
-                    }
-                }
-            }
-            
-            TShock.Log.ConsoleError($"[ProjDetection] ExecuteBan 重试 {maxRetries} 次后仍失败，玩家: {username}");
-        }
-
-        private static void ExecuteCommand(string command)
-        {
-            try
-            {
-                TShock.Log.ConsoleInfo($"[ProjDetection] 执行命令: {command}");
-                TShockAPI.Commands.HandleCommand(TShockAPI.TSPlayer.Server, command);
-            }
-            catch (Exception ex)
-            {
-                TShock.Log.ConsoleError($"[ProjDetection] 执行命令失败: {ex.Message}");
-            }
         }
     }
 }
