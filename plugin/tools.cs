@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System.Collections.Concurrent;
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System.Collections.Concurrent;
 using System.Data;
 using System.Diagnostics;
 using System.Reflection;
@@ -11,17 +11,22 @@ using TShockAPI.Hooks;
 namespace TShockData
 {
 
+    internal class BypassCounter
+    {
+        public int PermissionBypass;
+    }
+
     public static class BypassHelper
     {
-        private static readonly ConcurrentDictionary<TSPlayer, int> _bypassCount = new();
-        private static readonly MethodInfo _bypassMethod = ((Action<Action, TSPlayer?>)RunWithoutPermissionChecks).Method;
+        private static readonly ConcurrentDictionary<TSPlayer, BypassCounter> _bypassCounters = new();
 
         [MethodImpl(MethodImplOptions.NoInlining | MethodImplOptions.NoOptimization)]
         public static void RunWithoutPermissionChecks(Action action, TSPlayer? player = null)
         {
             TSPlayer target = (player != null && player.RealPlayer) ? player : TSPlayer.Server;
             
-            _bypassCount.AddOrUpdate(target, 1, (_, old) => old + 1);
+            var counter = _bypassCounters.GetOrAdd(target, _ => new BypassCounter());
+            Interlocked.Increment(ref counter.PermissionBypass);
 
             try
             {
@@ -29,58 +34,36 @@ namespace TShockData
             }
             finally
             {
-                _bypassCount.AddOrUpdate(target, 0, (_, old) => 
-                {
-                    int newValue = old - 1;
-                    return newValue > 0 ? newValue : 0;
-                });
+                Interlocked.Decrement(ref counter.PermissionBypass);
             }
-        }
-
-        public static bool CheckBypassPermission(TSPlayer player)
-        {
-            if (_bypassCount.TryGetValue(player, out int count) && count > 0)
-            {
-                return VerifyCallStack();
-            }
-            
-            if (_bypassCount.TryGetValue(TSPlayer.Server, out int serverCount) && serverCount > 0)
-            {
-                return VerifyCallStack();
-            }
-            
-            return false;
-        }
-
-        private static bool VerifyCallStack()
-        {
-            var trace = new StackTrace();
-            foreach (var frame in trace.GetFrames())
-            {
-                var method = frame.GetMethod();
-                if (method != null && method.Equals(_bypassMethod))
-                {
-                    return true;
-                }
-            }
-            return false;
         }
 
         public static void RegisterPermissionHook()
         {
             PlayerHooks.PlayerPermission += OnPlayerPermission;
-            TShock.Log.ConsoleInfo("[BypassHelper] 权限绕过钩子已注册");
+            //TShock.Log.ConsoleInfo("[BypassHelper] 权限绕过钩子已注册");
         }
 
         public static void UnregisterPermissionHook()
         {
             PlayerHooks.PlayerPermission -= OnPlayerPermission;
-            TShock.Log.ConsoleInfo("[BypassHelper] 权限绕过钩子已注销");
+            //TShock.Log.ConsoleInfo("[BypassHelper] 权限绕过钩子已注销");
         }
 
         private static void OnPlayerPermission(PlayerPermissionEventArgs args)
         {
-            if (CheckBypassPermission(args.Player))
+            if (args.Player == null)
+            {
+                return;
+            }
+            
+            if (_bypassCounters.TryGetValue(args.Player, out var counter) && counter.PermissionBypass > 0)
+            {
+                args.Result = PermissionHookResult.Granted;
+                return;
+            }
+            
+            if (_bypassCounters.TryGetValue(TSPlayer.Server, out var serverCounter) && serverCounter.PermissionBypass > 0)
             {
                 args.Result = PermissionHookResult.Granted;
             }
