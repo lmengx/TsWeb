@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System;
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System;
 using System.Collections.Generic;
 using System.Data;
 using System.IO;
@@ -257,7 +257,7 @@ namespace TShockData
             return results;
         }
 
-        public static List<CheatResult> ScanOfflinePlayer(int accountId, string playerName)
+        public static List<CheatResult> ScanOfflinePlayer(int accountId, string playerName, bool executeViolations = true)
         {
             List<CheatResult> results = new List<CheatResult>();
 
@@ -285,7 +285,14 @@ namespace TShockData
                         string reason = $"持有违禁物品(ID:{item.netID},数量:{item.stack},限制:{matchedItem.Stack})";
                         TShock.Log.ConsoleError($"[ItemDetection] 检测到违禁物品! 玩家: {playerName}, 物品ID: {item.netID}, 数量: {item.stack}, 限制: {matchedItem.Stack}, 处理方式: {matchedItem.Method}");
 
-                        ExecuteItemViolation(playerName, reason, matchedItem.Method);
+                        if (executeViolations)
+                        {
+                            System.Threading.Tasks.Task.Run(() =>
+                            {
+                                System.Threading.Thread.Sleep(new Random().Next(200, 500));
+                                ExecuteItemViolation(playerName, reason, matchedItem.Method);
+                            });
+                        }
 
                         results.Add(new CheatResult
                         {
@@ -400,14 +407,32 @@ namespace TShockData
 
         private static void ExecuteBan(string username, string reason)
         {
-            try
+            const int maxRetries = 3;
+            const int retryDelayMs = 1000;
+            
+            for (int attempt = 1; attempt <= maxRetries; attempt++)
             {
-                TShockAPI.Commands.HandleCommand(TShockAPI.TSPlayer.Server, $"/banp {username}");
+                try
+                {
+                    TShockAPI.Commands.HandleCommand(TShockAPI.TSPlayer.Server, $"/banp {username}");
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    if (ex.Message.Contains("database is locked") && attempt < maxRetries)
+                    {
+                        TShock.Log.ConsoleError($"[ItemDetection] 数据库锁定，重试第 {attempt} 次...");
+                        System.Threading.Thread.Sleep(retryDelayMs * attempt);
+                    }
+                    else
+                    {
+                        TShock.Log.ConsoleError($"[ItemDetection] ExecuteBan 失败: {ex.Message}");
+                        return;
+                    }
+                }
             }
-            catch (Exception ex)
-            {
-                TShock.Log.ConsoleError($"[ItemDetection] ExecuteBan 失败: {ex.Message}");
-            }
+            
+            TShock.Log.ConsoleError($"[ItemDetection] ExecuteBan 重试 {maxRetries} 次后仍失败，玩家: {username}");
         }
 
         private static void ExecuteCommand(string command)
@@ -1018,14 +1043,32 @@ namespace TShockData
 
         private static void ExecuteBan(string username, string reason)
         {
-            try
+            const int maxRetries = 3;
+            const int retryDelayMs = 1000;
+            
+            for (int attempt = 1; attempt <= maxRetries; attempt++)
             {
-                TShockAPI.Commands.HandleCommand(TShockAPI.TSPlayer.Server, $"/banp {username}");
+                try
+                {
+                    TShockAPI.Commands.HandleCommand(TShockAPI.TSPlayer.Server, $"/banp {username}");
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    if (ex.Message.Contains("database is locked") && attempt < maxRetries)
+                    {
+                        TShock.Log.ConsoleError($"[ProjDetection] 数据库锁定，重试第 {attempt} 次...");
+                        System.Threading.Thread.Sleep(retryDelayMs * attempt);
+                    }
+                    else
+                    {
+                        TShock.Log.ConsoleError($"[ProjDetection] ExecuteBan 失败: {ex.Message}");
+                        return;
+                    }
+                }
             }
-            catch (Exception ex)
-            {
-                TShock.Log.ConsoleError($"[ProjDetection] ExecuteBan 失败: {ex.Message}");
-            }
+            
+            TShock.Log.ConsoleError($"[ProjDetection] ExecuteBan 重试 {maxRetries} 次后仍失败，玩家: {username}");
         }
 
         private static void ExecuteCommand(string command)
