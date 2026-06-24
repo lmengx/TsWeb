@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿using System.Collections.Concurrent;
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System.Collections.Concurrent;
 using System.Data;
 using System.Diagnostics;
 using System.Reflection;
@@ -228,6 +228,8 @@ namespace TShockData
             }
         }
 
+        private static readonly Random _random = new Random();
+
         private static void ExecuteBan(string username, int accountId, string reason, CommandArgs args)
         {
             try
@@ -255,18 +257,20 @@ namespace TShockData
                     }
                 }
 
-                TShockAPI.Commands.HandleCommand(TShockAPI.TSPlayer.Server, $"/ban add \"acc:{username}\" \"{reason}\" -e");
+                ExecuteBanCommand($"ban add \"acc:{username}\" \"{reason}\" -e", "账户");
 
                 if (!string.IsNullOrEmpty(uuid))
                 {
-                    TShockAPI.Commands.HandleCommand(TShockAPI.TSPlayer.Server, $"/ban add \"uuid:{uuid}\" \"{reason}\" -e");
+                    Thread.Sleep(_random.Next(100, 300));
+                    ExecuteBanCommand($"ban add \"uuid:{uuid}\" \"{reason}\" -e", "UUID");
                 }
 
                 foreach (string ip in ipList)
                 {
                     if (!string.IsNullOrEmpty(ip) && ip != "127.0.0.1")
                     {
-                        TShockAPI.Commands.HandleCommand(TShockAPI.TSPlayer.Server, $"/ban add \"ip:{ip}\" \"{reason}\" -e");
+                        Thread.Sleep(_random.Next(100, 300));
+                        ExecuteBanCommand($"ban add \"ip:{ip}\" \"{reason}\" -e", $"IP({ip})");
                     }
                 }
 
@@ -276,6 +280,37 @@ namespace TShockData
             {
                 args.Player.SendErrorMessage($"封禁失败: {ex.Message}");
             }
+        }
+
+        private static void ExecuteBanCommand(string command, string type)
+        {
+            const int maxRetries = 5;
+            const int baseDelayMs = 200;
+
+            for (int attempt = 1; attempt <= maxRetries; attempt++)
+            {
+                try
+                {
+                    TShockAPI.Commands.HandleCommand(TShockAPI.TSPlayer.Server, "/" + command);
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    if (ex.Message.Contains("database is locked") && attempt < maxRetries)
+                    {
+                        int delay = baseDelayMs * (int)Math.Pow(2, attempt - 1);
+                        TShock.Log.ConsoleError($"[banp] 数据库锁定，{type}封禁重试第 {attempt} 次，延迟 {delay}ms...");
+                        System.Threading.Thread.Sleep(delay);
+                    }
+                    else
+                    {
+                        TShock.Log.ConsoleError($"[banp] {type}封禁失败: {ex.Message}");
+                        throw;
+                    }
+                }
+            }
+
+            throw new Exception($"{type}封禁重试 {maxRetries} 次后仍失败");
         }
 
     }
