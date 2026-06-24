@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using TShockAPI;
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using TShockAPI;
 using Terraria;
 using TerrariaApi.Server;
 using Rests;
@@ -50,6 +50,8 @@ namespace TShockData
             TShockAPI.Commands.ChatCommands.Add(new Command("tools.runas", tools.runas, "runas"));
 
 			TShockAPI.Commands.ChatCommands.Add(new Command("tshock.admin.ban", tools.banp, "banp"));
+            TShockAPI.Commands.ChatCommands.Add(new Command("tshock.admin", tools.remove, "remove"));
+            TShockAPI.Commands.ChatCommands.Add(new Command("tshock.admin", tools.find, "find"));
 
             TShockAPI.Commands.ChatCommands.Add(new Command("", BossProgress.GetBossInfo, "进度", "bossinfo"));
 
