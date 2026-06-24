@@ -16,13 +16,13 @@ const loginForm = ref({
 const statusMessage = computed(() => {
   switch (loginStatus.value) {
     case 'user_not_found':
-      return { type: 'error', icon: '👤', text: '用户不存在，请检查用户名' }
+      return { type: 'error', text: '用户不存在，请检查用户名' }
     case 'wrong_password':
-      return { type: 'error', icon: '🔒', text: '密码错误，请重新输入' }
+      return { type: 'error', text: '密码错误，请重新输入' }
     case 'success':
-      return { type: 'success', icon: '✅', text: '登录成功，正在跳转...' }
+      return { type: 'success', text: '登录成功，正在跳转...' }
     case 'server_error':
-      return { type: 'error', icon: '⚠️', text: '服务器错误，请稍后重试' }
+      return { type: 'error', text: '服务器错误，请稍后重试' }
     default:
       return null
   }
@@ -124,9 +124,6 @@ const goHome = () => {
     
     <div class="login-container">
       <div class="login-header">
-        <div class="logo-wrapper">
-          <div class="logo-icon">⚡</div>
-        </div>
         <h1>TsWeb 管理面板</h1>
         <p>请登录您的账号</p>
       </div>
@@ -134,7 +131,6 @@ const goHome = () => {
       <form @submit.prevent="login" class="login-form">
         <div class="form-group">
           <label for="username">
-            <span class="label-icon">👤</span>
             用户名
           </label>
           <div class="input-wrapper">
@@ -146,13 +142,11 @@ const goHome = () => {
               :disabled="loading"
               :class="{ 'error': loginStatus === 'user_not_found', 'success': loginStatus === 'success' }"
             />
-            <span class="input-icon">👤</span>
           </div>
         </div>
         
         <div class="form-group">
           <label for="password">
-            <span class="label-icon">🔒</span>
             密码
           </label>
           <div class="input-wrapper">
@@ -164,17 +158,14 @@ const goHome = () => {
               :disabled="loading"
               :class="{ 'error': loginStatus === 'wrong_password', 'success': loginStatus === 'success' }"
             />
-            <span class="input-icon">🔑</span>
           </div>
         </div>
         
         <div v-if="loginStatus === 'validation_error'" class="status-message error">
-          <span class="status-icon">⚠️</span>
           <span>请填写用户名和密码</span>
         </div>
         
         <div v-else-if="statusMessage" class="status-message" :class="statusMessage.type">
-          <span class="status-icon">{{ statusMessage.icon }}</span>
           <span>{{ statusMessage.text }}</span>
         </div>
         
@@ -186,7 +177,6 @@ const goHome = () => {
       
       <div class="login-footer">
         <button @click="goHome" class="back-btn">
-          <span>🏠</span>
           返回首页
         </button>
       </div>
@@ -295,22 +285,6 @@ const goHome = () => {
   margin-bottom: 35px;
 }
 
-.logo-wrapper {
-  width: 80px;
-  height: 80px;
-  margin: 0 auto 20px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  border-radius: 20px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4);
-}
-
-.logo-icon {
-  font-size: 36px;
-}
-
 .login-header h1 {
   margin: 0 0 8px 0;
   color: #1a1a2e;
@@ -334,17 +308,10 @@ const goHome = () => {
 }
 
 .form-group label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
   margin-bottom: 10px;
   color: #333;
   font-weight: 600;
   font-size: 0.9rem;
-}
-
-.label-icon {
-  font-size: 1rem;
 }
 
 .input-wrapper {
@@ -353,7 +320,7 @@ const goHome = () => {
 
 .form-group input {
   width: 100%;
-  padding: 15px 15px 15px 45px;
+  padding: 15px;
   border: 2px solid #e0e0e0;
   border-radius: 12px;
   font-size: 1rem;
@@ -382,16 +349,6 @@ const goHome = () => {
 .form-group input:disabled {
   background: #f0f0f0;
   cursor: not-allowed;
-}
-
-.input-icon {
-  position: absolute;
-  left: 15px;
-  top: 50%;
-  transform: translateY(-50%);
-  color: #999;
-  font-size: 1rem;
-  pointer-events: none;
 }
 
 .status-message {
