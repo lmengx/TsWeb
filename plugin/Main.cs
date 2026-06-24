@@ -20,6 +20,8 @@ namespace TShockData
 		{
 			RuntimeHooks.Initialize();
 
+            BypassHelper.RegisterPermissionHook();
+
             AutoRegister.Initialize(this);
 
 			TShock.RestApi.Register(new SecureRestCommand("/data/users/invsee", GetPlayerInv.GetInv, "data.rest.invsee"));
@@ -95,6 +97,7 @@ namespace TShockData
                 AutoRegister.Dispose(this);
                 RuntimeHooks.Dispose();
                 ItemDetection.StopAutoScan();
+                BypassHelper.UnregisterPermissionHook();
             }
             base.Dispose(Disposing);
         }
