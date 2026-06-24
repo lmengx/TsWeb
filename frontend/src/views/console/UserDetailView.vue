@@ -79,6 +79,13 @@ const banLoading = ref(false)
 const banError = ref('')
 const banSuccess = ref('')
 
+const showPasswordModal = ref(false)
+const newPassword = ref('')
+const confirmPassword = ref('')
+const passwordLoading = ref(false)
+const passwordError = ref('')
+const passwordSuccess = ref('')
+
 const showKickModal = ref(false)
 const kickReason = ref('')
 const kickLoading = ref(false)
@@ -372,6 +379,56 @@ const openBanModal = () => {
   banReason.value = '不当行为'
   banError.value = ''
   banSuccess.value = ''
+}
+
+const openPasswordModal = () => {
+  showPasswordModal.value = true
+  newPassword.value = ''
+  confirmPassword.value = ''
+  passwordError.value = ''
+  passwordSuccess.value = ''
+}
+
+const closePasswordModal = () => {
+  showPasswordModal.value = false
+}
+
+const executePasswordChange = async () => {
+  if (!userDetails.value) return
+  
+  if (!newPassword.value.trim()) {
+    passwordError.value = '请输入新密码'
+    return
+  }
+  
+  if (newPassword.value !== confirmPassword.value) {
+    passwordError.value = '两次输入的密码不一致'
+    return
+  }
+
+  passwordLoading.value = true
+  passwordError.value = ''
+  passwordSuccess.value = ''
+
+  try {
+    const username = userDetails.value.Username || userDetails.value.name
+    const command = `/pwd ${username} ${newPassword.value}`
+
+    const response = await post('/api/tshock/command', { command })
+    const result = await response.json()
+
+    if (result.error) {
+      passwordError.value = result.error
+    } else {
+      passwordSuccess.value = result.response || '密码修改成功'
+      newPassword.value = ''
+      confirmPassword.value = ''
+    }
+  } catch (err) {
+    passwordError.value = err.message || '修改失败'
+  }
+
+  passwordLoading.value = false
 }
 
 const closeBanModal = () => {
@@ -851,26 +908,40 @@ onMounted(() => {
       </div>
 
       <div class="action-section">
-        <button @click="openTpModal" :disabled="!isOnline" class="tp-btn" :class="{ disabled: !isOnline }">
-          传送
-        </button>
-        <button @click="openWhisperModal" :disabled="!isOnline" class="whisper-btn" :class="{ disabled: !isOnline }">
-          私聊
-        </button>
-        <button @click="openKickModal" :disabled="!isOnline" class="kick-btn" :class="{ disabled: !isOnline }">
-          踢出
-        </button>
-        <button @click="openBanModal" class="ban-btn">
-          封禁
-        </button>
+        <div class="action-group">
+          <h4 class="group-label">管理操作</h4>
+          <div class="group-buttons">
+            <button @click="openPasswordModal" class="password-btn">
+              改密码
+            </button>
+            <button @click="openKickModal" :disabled="!isOnline" class="kick-btn" :class="{ disabled: !isOnline }">
+              踢出
+            </button>
+            <button @click="openBanModal" class="ban-btn">
+              封禁
+            </button>
+          </div>
+        </div>
+        
+        <div class="action-group">
+          <h4 class="group-label">互动操作</h4>
+          <div class="group-buttons">
+            <button @click="openTpModal" :disabled="!isOnline" class="tp-btn" :class="{ disabled: !isOnline }">
+              传送
+            </button>
+            <button @click="openWhisperModal" :disabled="!isOnline" class="whisper-btn" :class="{ disabled: !isOnline }">
+              私聊
+            </button>
+            <button @click="openGiveModal" class="give-btn">
+              给物品
+            </button>
+          </div>
+        </div>
       </div>
 
       <div class="inventory-section">
         <div class="inventory-header">
           <h3>背包信息</h3>
-          <button @click="openGiveModal" class="give-btn">
-            给予物品
-          </button>
         </div>
         <div v-if="anomalyItems.length > 0" class="anomaly-warning">
           <div class="anomaly-title">⚠️ 异常物品检测</div>
@@ -1120,6 +1191,50 @@ onMounted(() => {
       </div>
     </div>
 
+    <div v-if="showPasswordModal" class="modal-overlay" @click.self="closePasswordModal">
+      <div class="modal">
+        <div class="modal-header">
+          <h3>修改密码</h3>
+          <button @click="closePasswordModal" class="close-btn">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="password-form">
+            <div class="form-row">
+              <label>新密码</label>
+              <input
+                v-model="newPassword"
+                type="password"
+                placeholder="输入新密码"
+                class="form-input"
+              />
+            </div>
+            <div class="form-row">
+              <label>确认密码</label>
+              <input
+                v-model="confirmPassword"
+                type="password"
+                placeholder="再次输入新密码"
+                class="form-input"
+                @keyup.enter="executePasswordChange"
+              />
+            </div>
+          </div>
+          <div v-if="passwordError" class="give-error">
+            {{ passwordError }}
+          </div>
+          <div v-if="passwordSuccess" class="give-success">
+            {{ passwordSuccess }}
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button @click="closePasswordModal" class="cancel-btn">取消</button>
+          <button @click="executePasswordChange" :disabled="passwordLoading" class="submit-btn">
+            {{ passwordLoading ? '修改中...' : '确认修改' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
     <div v-if="showGiveModal" class="modal-overlay" @click.self="closeGiveModal">
       <div class="modal">
         <div class="modal-header">
@@ -1294,9 +1409,31 @@ onMounted(() => {
 .action-section {
   display: flex;
   justify-content: center;
-  gap: 12px;
+  gap: 30px;
   padding: 0 20px;
   margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+
+.action-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.group-label {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  font-weight: 600;
+  text-align: center;
+}
+
+.group-buttons {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
 }
 
 .tp-btn {
@@ -1343,6 +1480,24 @@ onMounted(() => {
 .whisper-btn.disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.password-btn {
+  padding: 10px 20px;
+  background: linear-gradient(135deg, #10b981, #059669);
+  color: white;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 500;
+  transition: all 0.25s ease;
+  box-shadow: var(--shadow-sm);
+}
+
+.password-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
 }
 
 .kick-btn {
