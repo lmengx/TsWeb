@@ -12,6 +12,23 @@ const inventoryError = ref('')
 
 const isOnline = ref(false)
 
+const formatLocalDate = (dateStr) => {
+  if (!dateStr) return '未知'
+  const match = dateStr.match(/(\d{4})-(\d{2})-(\d{2})[T\s](\d{2}):(\d{2}):(\d{2})/)
+  if (match) {
+    const date = new Date(
+      parseInt(match[1]),
+      parseInt(match[2]) - 1,
+      parseInt(match[3]),
+      parseInt(match[4]),
+      parseInt(match[5]),
+      parseInt(match[6])
+    )
+    return date.toLocaleString('zh-CN')
+  }
+  return new Date(dateStr).toLocaleString('zh-CN')
+}
+
 const fetchSelfInfo = async () => {
   loading.value = true
   error.value = ''
@@ -78,11 +95,11 @@ onMounted(() => {
           </div>
           <div class="info-item">
             <dt>注册时间</dt>
-            <dd>{{ userDetails.Registered ? new Date(userDetails.Registered).toLocaleString() : '未知' }}</dd>
+            <dd>{{ userDetails.Registered ? formatLocalDate(userDetails.Registered) : '未知' }}</dd>
           </div>
           <div class="info-item">
             <dt>最后访问</dt>
-            <dd>{{ userDetails.LastAccessed ? new Date(userDetails.LastAccessed).toLocaleString() : '从未访问' }}</dd>
+            <dd>{{ userDetails.LastAccessed ? formatLocalDate(userDetails.LastAccessed) : '从未访问' }}</dd>
           </div>
         </dl>
       </div>
