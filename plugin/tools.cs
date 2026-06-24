@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System.Collections.Concurrent;
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System.Collections.Concurrent;
 using System.Data;
 using System.Diagnostics;
 using System.Reflection;
@@ -14,42 +14,75 @@ namespace TShockData
     public static class BypassHelper
     {
         private static readonly ConcurrentDictionary<TSPlayer, int> _bypassCount = new();
+        private static readonly MethodInfo _bypassMethod = ((Action<Action, TSPlayer?>)RunWithoutPermissionChecks).Method;
 
         [MethodImpl(MethodImplOptions.NoInlining | MethodImplOptions.NoOptimization)]
         public static void RunWithoutPermissionChecks(Action action, TSPlayer? player = null)
         {
-
-
-
             TSPlayer target = (player != null && player.RealPlayer) ? player : TSPlayer.Server;
-
-
-
-            // 先取出/初始化计数变量
-            int count = _bypassCount.GetOrAdd(target, 0);
-            Interlocked.Increment(ref count);
-            // 写回字典
-            _bypassCount[target] = count;
+            
+            _bypassCount.AddOrUpdate(target, 1, (_, old) => old + 1);
 
             try
             {
-                TShock.Log.Info($"[权限绕过计数] 玩家: {target.Name} | 当前层数: {count}");
                 action();
             }
             finally
             {
-                if (_bypassCount.TryGetValue(target, out int current))
+                _bypassCount.AddOrUpdate(target, 0, (_, old) => 
                 {
-                    Interlocked.Decrement(ref current);
-                    if (current <= 0)
-                    {
-                        _bypassCount.TryRemove(target, out _);
-                    }
-                    else
-                    {
-                        _bypassCount[target] = current;
-                    }
+                    int newValue = old - 1;
+                    return newValue > 0 ? newValue : 0;
+                });
+            }
+        }
+
+        public static bool CheckBypassPermission(TSPlayer player)
+        {
+            if (_bypassCount.TryGetValue(player, out int count) && count > 0)
+            {
+                return VerifyCallStack();
+            }
+            
+            if (_bypassCount.TryGetValue(TSPlayer.Server, out int serverCount) && serverCount > 0)
+            {
+                return VerifyCallStack();
+            }
+            
+            return false;
+        }
+
+        private static bool VerifyCallStack()
+        {
+            var trace = new StackTrace();
+            foreach (var frame in trace.GetFrames())
+            {
+                var method = frame.GetMethod();
+                if (method != null && method.Equals(_bypassMethod))
+                {
+                    return true;
                 }
+            }
+            return false;
+        }
+
+        public static void RegisterPermissionHook()
+        {
+            PlayerHooks.PlayerPermission += OnPlayerPermission;
+            TShock.Log.ConsoleInfo("[BypassHelper] 权限绕过钩子已注册");
+        }
+
+        public static void UnregisterPermissionHook()
+        {
+            PlayerHooks.PlayerPermission -= OnPlayerPermission;
+            TShock.Log.ConsoleInfo("[BypassHelper] 权限绕过钩子已注销");
+        }
+
+        private static void OnPlayerPermission(PlayerPermissionEventArgs args)
+        {
+            if (CheckBypassPermission(args.Player))
+            {
+                args.Result = PermissionHookResult.Granted;
             }
         }
     }
