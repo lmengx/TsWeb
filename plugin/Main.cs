@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using TShockAPI;
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using TShockAPI;
 using Terraria;
 using TerrariaApi.Server;
 using Rests;
@@ -73,6 +73,12 @@ namespace TShockData
             ItemConfigHandler.LoadItemConfig();
             ItemDetection.Initialize();
 
+            OnlineData.Initialize(this);
+
+            TShock.RestApi.Register(new SecureRestCommand("/data/online/hourly", OnlineData.GetHourlyOnline, "data.rest.invsee"));
+            TShock.RestApi.Register(new SecureRestCommand("/data/online/ranking", OnlineData.GetRanking, "data.rest.invsee"));
+            TShock.RestApi.Register(new SecureRestCommand("/data/online/player", OnlineData.GetPlayerCalendar, "data.rest.invsee"));
+
             TShockAPI.Commands.ChatCommands.Add(new Command("tshock.admin", AntiCheat.HandleScanCommand, "scan", "扫描"));
 
             TShockAPI.Commands.ChatCommands.Add(new Command("tshock.admin", ProjDetection.ShowRestrictedList, "projlist", "违禁弹幕"));
@@ -99,6 +105,7 @@ namespace TShockData
                 TShockAPI.Hooks.GeneralHooks.ReloadEvent -= OnReload;
                 PlannedOff.Dispose();
                 AutoRegister.Dispose(this);
+                OnlineData.Dispose();
                 RuntimeHooks.Dispose();
                 ItemDetection.StopAutoScan();
                 BypassHelper.UnregisterPermissionHook();

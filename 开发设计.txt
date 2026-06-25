@@ -31,7 +31,7 @@ boss召唤日志
     hourly_online_snapshot 每小时在线人数
         CREATE TABLE hourly_online_snapshot (
         hour_ts INTEGER PRIMARY KEY, -- 小时时间戳（整点，如2026062514）
-        online_count INTEGER NOT NULL -- 该小时在线峰值/平均在线，按需存
+        online_count TEXT NOT NULL -- 该小时在线过的所有玩家的数字id，空格分开
     );
     CREATE INDEX idx_hour_ts ON hourly_online_snapshot(hour_ts);
 

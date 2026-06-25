@@ -21,6 +21,7 @@ const sidebarItems = [
   },
   { id: 'terminal', name: '控制台', path: '/console/terminal', adminOnly: true },
   { id: 'players', name: '玩家管理', path: '/console/players', adminOnly: true },
+  { id: 'online', name: '在线统计', path: '/console/online', adminOnly: true },
   { id: 'groups', name: '组管理', path: '/console/groups', adminOnly: true },
   { id: 'banlist', name: '封禁列表', path: '/console/banlist', adminOnly: true },
   {

@@ -8,6 +8,7 @@ import tshockRoutes from './routes/tshockRoutes.js'
 import configRoutes from './routes/configRoutes.js'
 import antiCheatRoutes from './routes/antiCheatRoutes.js'
 import resourceRoutes from './routes/resourceRoutes.js'
+import onlineRoutes from './routes/onlineRoutes.js'
 import tshockService from './services/tshockService.js'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -35,6 +36,7 @@ app.use('/api/tshock', tshockRoutes)
 app.use('/api/config', configRoutes)
 app.use('/api/anticheat', antiCheatRoutes)
 app.use('/api/resources', resourceRoutes)
+app.use('/api/online', onlineRoutes)
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: Date.now() })
