@@ -179,7 +179,7 @@ namespace TShockData
             {
                 if (evt.Value == name)
                 {
-                    return IsEventCompleted(evt.Key);
+                    return !IsEventCompleted(evt.Key);
                 }
             }
 

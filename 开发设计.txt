@@ -1,26 +1,56 @@
 todo
 
-    写一个clear命令，clear 玩家名 物品id/准确名称，先检测玩家库存，如果有对应物品，就将玩家踢出，再编辑库存清除
+    弹幕屏蔽时不时失效
 
-    确认弹幕违规和物品违规的执行器是一样的吗
+    boss召唤限制
+        在线玩家不足7人时禁止召唤，有权限的玩家可以强行召唤
 
-    加{itemid}和{itemname}的转义
-    kick和ban都改为先文本替换/banp {playername}和/kick {playername}再调用通用触发器，log就是什么都不干
-    加一个预设功能bc,文本替换为/bc xxx违规持有xxx即可
-    调用/clear {playername} {itemid}来实现清除物品
+
+异常数据限制：哨兵数量20，召唤物数量15
+
+tshock配置文件编辑
+
+死亡排行、钓鱼排行
+
+boss召唤日志
+
+在线统计，每分钟增加计数，记录每10分钟在线的所有玩家
+
+
+    player_daily_stat 玩家每日时长（主键防重复，按天聚合）
+        CREATE TABLE player_daily_stat (
+        uid TEXT NOT NULL,        -- 玩家唯一ID
+        date TEXT NOT NULL,       -- 日期 yyyy-MM-dd
+        daily_min INTEGER NOT NULL DEFAULT 0, -- 当日游玩分钟
+        PRIMARY KEY (uid, date)
+    );
+    -- 索引：查单个玩家所有天数记录
+    CREATE INDEX idx_pds_uid ON player_daily_stat(uid);
+
+
+    hourly_online_snapshot 每小时在线人数
+        CREATE TABLE hourly_online_snapshot (
+        hour_ts INTEGER PRIMARY KEY, -- 小时时间戳（整点，如2026062514）
+        online_count INTEGER NOT NULL -- 该小时在线峰值/平均在线，按需存
+    );
+    CREATE INDEX idx_hour_ts ON hourly_online_snapshot(hour_ts);
+
+
+加一个预设功能bc,文本替换为/bc xxx违规持有xxx即可
+    可在此处加一个bcp(prue)来去颜色和开头的“[服务器广播]"字样
+
+调用/clear {playername} {itemid}来实现清除物品
          
-        可在此处加一个bcp(prue)来去颜色和开头的“[服务器广播]"字样
-
-    给前端手动触发的rest扫描加一个参数，让它不要直接做处理，而是将结果显示在前端，让管理员自行决定如何处理
-
-加一个查找所有玩家背包寻找指定物品的功能/find 物品id/准确名字
-
-前端物品查询优化，使其支持空格多词搜索和模糊匹配
-同步到物品给予，背包编辑
+给前端手动触发的rest扫描加一个参数，让它不要直接做处理，而是将结果显示在前端，让管理员自行决定如何处理
 
 指令优化
 tp重写，禁止玩家tp时显示允许选项
-允许在后端执行tp玩家a到玩家b（或者修复runas）
+
+前后端权限优化
+    superadmin/owner:全部权限
+
+    newadmin 查在线玩家，查看玩家详情、踢出、禁言
+    admin 封禁、
 
 外挂反制
     露西斧骚扰网络抓包

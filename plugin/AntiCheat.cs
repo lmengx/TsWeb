@@ -897,8 +897,17 @@ namespace TShockData
 
         private static void ExecuteCommand(string command)
         {
-            TShock.Log.ConsoleInfo($"[反作弊] 执行命令: /{command}");
-            TShockAPI.Commands.HandleCommand(TShockAPI.TSPlayer.Server, "/" + command);
+            if (string.IsNullOrEmpty(command))
+                return;
+
+            string finalCommand = command.Trim();
+            if (!finalCommand.StartsWith("/"))
+            {
+                finalCommand = "/" + finalCommand;
+            }
+
+            TShock.Log.ConsoleInfo($"[反作弊] 执行命令: {finalCommand}");
+            TShockAPI.Commands.HandleCommand(TShockAPI.TSPlayer.Server, finalCommand);
         }
     }
 

@@ -53,12 +53,9 @@ const bossImageMap = {
 }
 
 const quickCommands = [
-  { label: '{player}', desc: '玩家名字' },
-  { label: '/kick {player}', desc: '踢出玩家' },
-  { label: '/ban {player}', desc: '封禁玩家' },
-  { label: '/tempban {player} 5m', desc: '临时封禁5分钟' },
-  { label: '/warn {player} 违规弹幕', desc: '警告玩家' },
-  { label: '/runas {player} /me 作弊', desc: '模拟发言' }
+  { label: '/banp "{playername}" "违规使用{projid}"', desc: '封禁玩家' },
+  { label: '/kick "{playername}" "违规使用{projid}"', desc: '踢出玩家' },
+  { label: '/bc "{playername}违规使用{projid}"', desc: '广播公告' }
 ]
 
 const getProgressImageUrl = (progressName) => {
@@ -348,7 +345,7 @@ onMounted(() => {
                           type="text"
                           v-model="proj.method"
                           class="method-input-field"
-                          placeholder="输入执行命令，支持 {player} 转义"
+                          placeholder="支持 {playername}、{projid} 转义"
                         />
                         <div class="quick-commands">
                           <span class="quick-label">快速:</span>
