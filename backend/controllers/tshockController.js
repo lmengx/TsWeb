@@ -213,3 +213,38 @@ export const scanItems = async (req, res) => {
   
   res.json(result)
 }
+
+export const getPlayerStats = async (req, res) => {
+  const { player } = req.query
+  
+  if (!player) {
+    return res.status(400).json({ status: '400', error: 'player parameter is required' })
+  }
+
+  const result = await tshockService.getPlayerStats(player)
+  
+  if (result.error) {
+    return res.json({ status: 'error', error: result.error })
+  }
+  
+  res.json({ status: '200', ...result })
+}
+
+export const setPlayerStats = async (req, res) => {
+  const { player } = req.body
+  
+  if (!player) {
+    return res.status(400).json({ status: '400', error: 'player parameter is required' })
+  }
+
+  const stats = { ...req.body }
+  delete stats.player
+
+  const result = await tshockService.setPlayerStats(player, stats)
+  
+  if (result.error) {
+    return res.json({ status: 'error', error: result.error })
+  }
+  
+  res.json({ status: '200', ...result })
+}
