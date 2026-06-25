@@ -150,6 +150,44 @@ const tpSuccess = ref('')
 const isOnline = ref(false)
 const onlinePlayers = ref([])
 
+const playerStats = ref(null)
+const statsLoading = ref(false)
+const statsError = ref('')
+const statsSaving = ref(false)
+const statsSaveSuccess = ref('')
+const statsSaveError = ref('')
+
+const tempStats = ref({
+  maxHealth: 400,
+  maxMana: 200,
+  questsCompleted: 0,
+  extraSlot: false,
+  unlockedBiomeTorches: false,
+  ateArtisanBread: false,
+  usedAegisCrystal: false,
+  usedAegisFruit: false,
+  usedArcaneCrystal: false,
+  usedGalaxyPearl: false,
+  usedGummyWorm: false,
+  usedAmbrosia: false,
+  unlockedSuperCart: false,
+  enabledSuperCart: false
+})
+
+const enhancesMap = {
+  extraSlot: '额外配饰槽（恶魔之心）',
+  unlockedBiomeTorches: '火把神徽章',
+  ateArtisanBread: '工匠面包',
+  usedAegisCrystal: '埃癸斯水晶（生命再生+20%）',
+  usedAegisFruit: '埃癸斯果（防御力+5）',
+  usedArcaneCrystal: '奥术水晶（魔力再生+20%）',
+  usedGalaxyPearl: '银河珍珠（运气+0.3）',
+  usedGummyWorm: '黏性蠕虫（钓鱼技能+30）',
+  usedAmbrosia: '珍馐（采矿/建造速度+15%）',
+  unlockedSuperCart: '矿车升级包',
+  enabledSuperCart: '启用超级矿车'
+}
+
 const prefixMap = {
   '大': 1, '巨大': 2, '危险': 3, '凶残': 4, '锋利': 5, '尖锐': 6, '微小': 7, '可怕': 8,
   '小': 9, '钝': 10, '倒霉': 11, '笨重': 12, '可耻': 13, '重': 14, '轻': 15, '精准': 16,
@@ -855,6 +893,72 @@ const copyToClipboard = async (text) => {
   }
 }
 
+const fetchPlayerStats = async (username) => {
+  statsLoading.value = true
+  statsError.value = ''
+
+  try {
+    const response = await get(`/api/tshock/stats?player=${encodeURIComponent(username)}`)
+    const result = await response.json()
+
+    if (result.status === '200' && result.data) {
+      playerStats.value = result.data
+      tempStats.value = {
+        maxHealth: result.data.maxHealth || 400,
+        maxMana: result.data.maxMana || 200,
+        questsCompleted: result.data.questsCompleted || 0,
+        extraSlot: result.data.extraSlot || false,
+        unlockedBiomeTorches: result.data.unlockedBiomeTorches || false,
+        ateArtisanBread: result.data.ateArtisanBread || false,
+        usedAegisCrystal: result.data.usedAegisCrystal || false,
+        usedAegisFruit: result.data.usedAegisFruit || false,
+        usedArcaneCrystal: result.data.usedArcaneCrystal || false,
+        usedGalaxyPearl: result.data.usedGalaxyPearl || false,
+        usedGummyWorm: result.data.usedGummyWorm || false,
+        usedAmbrosia: result.data.usedAmbrosia || false,
+        unlockedSuperCart: result.data.unlockedSuperCart || false,
+        enabledSuperCart: result.data.enabledSuperCart || false
+      }
+    } else if (result.error) {
+      statsError.value = result.error
+    }
+  } catch (err) {
+    if (err.message !== 'Unauthorized') {
+      statsError.value = 'Error: ' + err.message
+    }
+  }
+
+  statsLoading.value = false
+}
+
+const savePlayerStats = async () => {
+  statsSaving.value = true
+  statsSaveSuccess.value = ''
+  statsSaveError.value = ''
+
+  const username = userDetails.value?.Username || userDetails.value?.name || route.params.username
+
+  try {
+    const response = await post('/api/tshock/stats/set', {
+      player: username,
+      ...tempStats.value
+    })
+    const result = await response.json()
+
+    if (result.error) {
+      statsSaveError.value = result.error
+    } else {
+      statsSaveSuccess.value = result.response || '保存成功'
+      await fetchPlayerStats(username)
+      await checkOnlineStatus()
+    }
+  } catch (err) {
+    statsSaveError.value = err.message || '保存失败'
+  }
+
+  statsSaving.value = false
+}
+
 const goBack = () => {
   router.push('/console/players')
 }
@@ -867,6 +971,7 @@ watch(() => route.params.username, (newUsername) => {
   if (newUsername) {
     fetchUserDetails(newUsername)
     fetchInventory(newUsername)
+    fetchPlayerStats(newUsername)
     checkOnlineStatus()
   }
 }, { immediate: true })
@@ -876,6 +981,7 @@ onMounted(() => {
   if (route.params.username) {
     fetchUserDetails(route.params.username)
     fetchInventory(route.params.username)
+    fetchPlayerStats(route.params.username)
     checkOnlineStatus()
   }
 })
@@ -1029,6 +1135,87 @@ onMounted(() => {
             <button @click="openGiveModal" class="give-btn">
               给物品
             </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="stats-section">
+        <div class="stats-header">
+          <h3>角色属性</h3>
+          <span v-if="isOnline" class="online-warning">⚠️ 在线玩家修改属性后将被强制踢出</span>
+        </div>
+        
+        <div v-if="statsLoading" class="loading-state">
+          <p>加载中...</p>
+        </div>
+        
+        <div v-else-if="statsError" class="error-state">
+          <p>{{ statsError }}</p>
+        </div>
+        
+        <div v-else-if="playerStats" class="stats-content">
+          <div class="stats-row">
+            <div class="stat-item">
+              <label>血量上限</label>
+              <input
+                v-model.number="tempStats.maxHealth"
+                type="number"
+                min="100"
+                max="600"
+                class="stat-input"
+              />
+            </div>
+            <div class="stat-item">
+              <label>魔力上限</label>
+              <input
+                v-model.number="tempStats.maxMana"
+                type="number"
+                min="20"
+                max="200"
+                class="stat-input"
+              />
+            </div>
+            <div class="stat-item">
+              <label>完成任务数</label>
+              <input
+                v-model.number="tempStats.questsCompleted"
+                type="number"
+                min="0"
+                class="stat-input"
+              />
+            </div>
+          </div>
+          
+          <div class="enhances-section">
+            <h4 class="enhances-title">角色永久增益</h4>
+            <div class="enhances-grid">
+              <div
+                v-for="(label, key) in enhancesMap"
+                :key="key"
+                class="enhance-item"
+              >
+                <label class="enhance-label">
+                  <input
+                    v-model="tempStats[key]"
+                    type="checkbox"
+                    class="enhance-checkbox"
+                  />
+                  <span>{{ label }}</span>
+                </label>
+              </div>
+            </div>
+          </div>
+          
+          <div class="stats-actions">
+            <button @click="savePlayerStats" :disabled="statsSaving" class="save-stats-btn">
+              {{ statsSaving ? '保存中...' : '保存属性' }}
+            </button>
+            <div v-if="statsSaveSuccess" class="stats-success">
+              {{ statsSaveSuccess }}
+            </div>
+            <div v-if="statsSaveError" class="stats-error">
+              {{ statsSaveError }}
+            </div>
           </div>
         </div>
       </div>
@@ -2598,5 +2785,180 @@ onMounted(() => {
 
 .anomaly-item:last-child {
   border-bottom: none;
+}
+
+.stats-section {
+  background: var(--bg-card);
+  border-radius: var(--radius-xl);
+  padding: 24px;
+  margin: 0 20px 24px;
+  box-shadow: var(--shadow-lg);
+  border: 1px solid var(--border-light);
+}
+
+.stats-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.stats-header h3 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.online-warning {
+  font-size: 0.85rem;
+  color: #f59e0b;
+  padding: 6px 12px;
+  background: rgba(245, 158, 11, 0.15);
+  border-radius: var(--radius-sm);
+}
+
+.stats-content {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.stats-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 16px;
+}
+
+.stat-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-light);
+}
+
+.stat-item label {
+  color: var(--text-secondary);
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.stat-input {
+  padding: 10px 14px;
+  background: var(--bg-card);
+  border: 2px solid var(--border-color);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: 1rem;
+  font-weight: 500;
+  transition: all 0.25s ease;
+}
+
+.stat-input:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+}
+
+.enhances-section {
+  padding: 16px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-light);
+}
+
+.enhances-title {
+  margin: 0 0 16px 0;
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.enhances-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 12px;
+}
+
+.enhance-item {
+  display: flex;
+  align-items: center;
+}
+
+.enhance-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  padding: 10px 12px;
+  background: var(--bg-card);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-light);
+  transition: all 0.2s ease;
+  width: 100%;
+}
+
+.enhance-label:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent-primary);
+}
+
+.enhance-checkbox {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  accent-color: var(--accent-primary);
+  flex-shrink: 0;
+}
+
+.enhance-label span {
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  flex: 1;
+}
+
+.stats-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  justify-content: flex-end;
+}
+
+.save-stats-btn {
+  padding: 12px 24px;
+  background: linear-gradient(135deg, #10b981, #059669);
+  color: white;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: 0.95rem;
+  font-weight: 500;
+  transition: all 0.25s ease;
+  box-shadow: var(--shadow-sm);
+}
+
+.save-stats-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
+}
+
+.save-stats-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.stats-success {
+  color: #10b981;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.stats-error {
+  color: #ef4444;
+  font-size: 0.9rem;
+  font-weight: 500;
 }
 </style>
