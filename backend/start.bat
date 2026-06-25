@@ -1,1 +1,1 @@
-pnpm run start
+start cmd /k pnpm run start
