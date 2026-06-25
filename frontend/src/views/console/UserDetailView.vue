@@ -1500,7 +1500,7 @@ onMounted(() => {
           
           <div class="stats-actions">
             <button @click="refreshPlayerStats" :disabled="statsLoading" class="refresh-stats-btn">
-              {{ statsLoading ? '刷新中...' : '🔄 刷新' }}
+              {{ statsLoading ? '刷新中...' : '刷新' }}
             </button>
             <button @click="savePlayerStats" :disabled="statsSaving" class="save-stats-btn">
               {{ statsSaving ? '保存中...' : '保存属性' }}
@@ -1519,7 +1519,7 @@ onMounted(() => {
         <div class="inventory-header">
           <h3>背包信息</h3>
           <button @click="refreshInventory" :disabled="invseeLoading" class="refresh-btn">
-            {{ invseeLoading ? '刷新中...' : '🔄 刷新' }}
+            {{ invseeLoading ? '刷新中...' : '刷新' }}
           </button>
         </div>
         <div v-if="anomalyItems.length > 0" class="anomaly-warning">
@@ -2403,29 +2403,30 @@ onMounted(() => {
 
 .refresh-btn,
 .refresh-stats-btn {
-  padding: 8px 16px;
-  background: var(--bg-tertiary);
-  color: var(--text-secondary);
-  border: 1px solid var(--border-light);
+  padding: 10px 20px;
+  background: linear-gradient(135deg, var(--accent-primary), #4f46e5);
+  color: white;
+  border: none;
   border-radius: var(--radius-md);
   cursor: pointer;
-  font-size: 0.85rem;
+  font-size: 0.9rem;
   font-weight: 500;
-  transition: all 0.2s ease;
+  transition: all 0.25s ease;
+  box-shadow: var(--shadow-sm);
   white-space: nowrap;
 }
 
 .refresh-btn:hover:not(:disabled),
 .refresh-stats-btn:hover:not(:disabled) {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-  border-color: var(--accent-primary);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
 }
 
 .refresh-btn:disabled,
 .refresh-stats-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+  transform: none;
 }
 
 .give-btn {
