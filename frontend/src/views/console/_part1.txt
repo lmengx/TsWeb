@@ -1,0 +1,1061 @@
+<script setup>
+import { ref, computed, onMounted, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { get, post } from '../../utils/api.js'
+import InventoryViewer from '../../components/InventoryViewer.vue'
+import { getAntiCheatConfig } from '../../api/antiCheatApi.js'
+import { loadItemData } from '../../api/itemDataApi.js'
+
+const itemData = ref({ list: [], dict: {} })
+const antiCheatConfig = ref(null)
+
+const isAnomalyItem = (id, stack) => {
+  const config = antiCheatConfig.value
+  if (!config || !config.items) return false
+
+  const item = config.items.find(i => i.id === id)
+  if (item) {
+    return stack > item.maxStack
+  }
+
+  return false
+}
+
+const getItemName = (id) => {
+  const item = itemData.value.list.find(i => i.id === id)
+  return item ? item.chinese : null
+}
+
+const formatLocalDate = (dateStr) => {
+  if (!dateStr) return '未知'
+  const match = dateStr.match(/(\d{4})-(\d{2})-(\d{2})[T\s](\d{2}):(\d{2}):(\d{2})/)
+  if (match) {
+    const date = new Date(
+      parseInt(match[1]),
+      parseInt(match[2]) - 1,
+      parseInt(match[3]),
+      parseInt(match[4]),
+      parseInt(match[5]),
+      parseInt(match[6])
+    )
+    return date.toLocaleString('zh-CN')
+  }
+  return new Date(dateStr).toLocaleString('zh-CN')
+}
+
+const initItemData = async () => {
+  itemData.value = await loadItemData()
+}
+
+const route = useRoute()
+const router = useRouter()
+
+const userDetails = ref(null)
+const loading = ref(true)
+const error = ref('')
+
+const invseeInventory = ref([])
+const invseeLoading = ref(false)
+const invseeError = ref('')
+
+const anomalyItems = computed(() => {
+  console.log('API原始返回:', JSON.stringify(invseeInventory.value))
+  const anomalies = []
+  for (const item of invseeInventory.value) {
+    if (item && item.netID && item.stack) {
+      if (isAnomalyItem(item.netID, item.stack)) {
+        anomalies.push({
+          name: getItemName(item.netID) || `物品(${item.netID})`,
+          stack: item.stack,
+          netId: item.netID
+        })
+      }
+    }
+  }
+  return anomalies
+})
+
+const duplicateIPLoading = ref(false)
+const duplicateIPResult = ref(null)
+
+const showGiveModal = ref(false)
+const showPrefixDropdown = ref(false)
+const showGiveItemDropdown = ref(false)
+const giveItemSearchQuery = ref('')
+const giveSelectedItemId = ref(0)
+const giveAmount = ref(1)
+const givePrefixId = ref('')
+const giveLoading = ref(false)
+const giveError = ref('')
+const giveSuccess = ref('')
+const giveWarning = ref('')
+
+const showBanModal = ref(false)
+const banReason = ref('不当行为')
+const banLoading = ref(false)
+const banError = ref('')
+const banSuccess = ref('')
+
+const showPasswordModal = ref(false)
+const newPassword = ref('')
+const confirmPassword = ref('')
+const passwordLoading = ref(false)
+const passwordError = ref('')
+const passwordSuccess = ref('')
+
+const showKickModal = ref(false)
+const kickReason = ref('')
+const kickLoading = ref(false)
+const kickError = ref('')
+const kickSuccess = ref('')
+
+const showGroupModal = ref(false)
+const newGroup = ref('')
+const groupLoading = ref(false)
+const groupError = ref('')
+const groupSuccess = ref('')
+const availableGroups = ref([])
+const showGroupDropdown = ref(false)
+const dropdownStyle = ref({})
+
+const fetchGroups = async () => {
+  try {
+    const response = await get('/api/tshock/groups')
+    const result = await response.json()
+    if (result.groups) {
+      availableGroups.value = result.groups.map(g => g.GroupName)
+    }
+  } catch (err) {
+    console.error('Failed to fetch groups:', err)
+  }
+}
+
+const showWhisperModal = ref(false)
+const whisperMessage = ref('')
+const whisperLoading = ref(false)
+const whisperError = ref('')
+const whisperSuccess = ref('')
+
+const showTpModal = ref(false)
+const tpFromPlayer = ref('')
+const tpToPlayer = ref('')
+const tpSelectTarget = ref('to')
+const tpSearchQuery = ref('')
+const tpSearchResults = ref([])
+const tpSearchLoading = ref(false)
+const tpLoading = ref(false)
+const tpError = ref('')
+const tpSuccess = ref('')
+
+const isOnline = ref(false)
+const onlinePlayers = ref([])
+
+const playerStats = ref(null)
+const statsLoading = ref(false)
+const statsError = ref('')
+const statsSaving = ref(false)
+const statsSaveSuccess = ref('')
+const statsSaveError = ref('')
+
+const tempStats = ref({
+  maxHealth: 400,
+  maxMana: 200,
+  questsCompleted: 0,
+  extraSlot: false,
+  unlockedBiomeTorches: false,
+  ateArtisanBread: false,
+  usedAegisCrystal: false,
+  usedAegisFruit: false,
+  usedArcaneCrystal: false,
+  usedGalaxyPearl: false,
+  usedGummyWorm: false,
+  usedAmbrosia: false,
+  unlockedSuperCart: false,
+  enabledSuperCart: false
+})
+
+const enhancesMap = {
+  extraSlot: '额外配饰槽（恶魔之心）',
+  unlockedBiomeTorches: '火把神徽章',
+  ateArtisanBread: '工匠面包',
+  usedAegisCrystal: '埃癸斯水晶（生命再生+20%）',
+  usedAegisFruit: '埃癸斯果（防御力+5）',
+  usedArcaneCrystal: '奥术水晶（魔力再生+20%）',
+  usedGalaxyPearl: '银河珍珠（运气+0.3）',
+  usedGummyWorm: '黏性蠕虫（钓鱼技能+30）',
+  usedAmbrosia: '珍馐（采矿/建造速度+15%）',
+  unlockedSuperCart: '矿车升级包',
+  enabledSuperCart: '启用超级矿车'
+}
+
+const prefixMap = {
+  '大': 1, '巨大': 2, '危险': 3, '凶残': 4, '锋利': 5, '尖锐': 6, '微小': 7, '可怕': 8,
+  '小': 9, '钝': 10, '倒霉': 11, '笨重': 12, '可耻': 13, '重': 14, '轻': 15, '精准': 16,
+  '迅速': 17, '急速': 18, '恐怖': 19, '致命': 20, '可靠': 21, '讨厌': 22, '无力': 23,
+  '粗笨': 24, '强大': 25, '神秘': 26, '精巧': 27, '精湛': 28, '笨拙': 29, '无知': 30,
+  '错乱': 31, '威猛': 32, '禁忌': 33, '天界': 34, '狂怒': 35, '锐利': 36, '高端': 37,
+  '强力': 38, '碎裂': 39, '破损': 40, '粗劣': 41, '迅捷': 42, '灵活': 43, '灵巧': 44,
+  '残暴': 45, '缓慢': 46, '迟钝': 47, '呆滞': 48, '惹恼': 49, '凶险': 50, '狂躁': 51,
+  '致伤': 52, '强劲': 53, '粗鲁': 54, '虚弱': 55, '无情': 56, '暴怒': 57, '神级': 58,
+  '恶魔': 59, '狂热': 60, '坚硬': 61, '守护': 62, '装甲': 63, '护佑': 64, '奥秘': 65,
+  '精确': 66, '幸运': 67, '锯齿': 68, '尖刺': 69, '愤怒': 70, '险恶': 71, '轻快': 72,
+  '快速': 73, '弹道': 74, '虬结': 75
+}
+
+const giveItemSearchResults = computed(() => {
+  if (!giveItemSearchQuery.value.trim()) return []
+
+  const query = giveItemSearchQuery.value.trim().toLowerCase()
+  const keywords = query.split(/\s+/).filter(k => k.length > 0)
+
+  const exactResults = itemData.value.list
+    .filter(item => {
+      const chinese = item.chinese.toLowerCase()
+      const english = item.english.toLowerCase()
+      const id = item.id.toString()
+
+      return keywords.every(keyword => {
+        return chinese.includes(keyword) ||
+               english.includes(keyword) ||
+               id.includes(keyword)
+      })
+    })
+
+  if (exactResults.length > 0) {
+    return exactResults.slice(0, 20)
+  }
+
+  return itemData.value.list
+    .filter(item => {
+      const chinese = item.chinese.toLowerCase()
+      const english = item.english.toLowerCase()
+      const id = item.id.toString()
+
+      return keywords.every(keyword => {
+        return fuzzyMatchOneMistake(chinese, keyword) ||
+               fuzzyMatchOneMistake(english, keyword) ||
+               fuzzyMatchOneMistake(id, keyword)
+      })
+    })
+    .slice(0, 20)
+})
+
+const fuzzyMatchOneMistake = (text, keyword) => {
+  if (!text || !keyword) return false
+
+  const textWithoutSpaces = text.replace(/\s+/g, '')
+  const keywordWithoutSpaces = keyword.replace(/\s+/g, '')
+
+  if (textWithoutSpaces.includes(keywordWithoutSpaces)) return true
+
+  const lenDiff = Math.abs(textWithoutSpaces.length - keywordWithoutSpaces.length)
+  if (lenDiff > 1) return false
+
+  const distance = levenshteinDistance(textWithoutSpaces, keywordWithoutSpaces)
+  return distance <= 1
+}
+
+const levenshteinDistance = (a, b) => {
+  const matrix = []
+  for (let i = 0; i <= b.length; i++) {
+    matrix[i] = [i]
+  }
+  for (let j = 0; j <= a.length; j++) {
+    matrix[0][j] = j
+  }
+  for (let i = 1; i <= b.length; i++) {
+    for (let j = 1; j <= a.length; j++) {
+      if (b.charAt(i - 1) === a.charAt(j - 1)) {
+        matrix[i][j] = matrix[i - 1][j - 1]
+      } else {
+        matrix[i][j] = Math.min(
+          matrix[i - 1][j - 1] + 1,
+          matrix[i][j - 1] + 1,
+          matrix[i - 1][j] + 1
+        )
+      }
+    }
+  }
+  return matrix[b.length][a.length]
+}
+
+const selectGiveItem = (item) => {
+  giveSelectedItemId.value = item.id
+  giveItemSearchQuery.value = item.chinese
+  showGiveItemDropdown.value = false
+}
+
+const filteredPrefixes = computed(() => {
+  const input = givePrefixId.value.trim()
+  if (!input) return []
+  const isNumericInput = /^\d+$/.test(input)
+  return Object.entries(prefixMap)
+    .filter(([name, id]) => {
+      if (isNumericInput) {
+        return String(id).includes(input)
+      }
+      return name.includes(input)
+    })
+    .map(([name, id]) => ({ name, id }))
+})
+
+const selectPrefix = (prefix) => {
+  givePrefixId.value = prefix.name
+  showPrefixDropdown.value = false
+}
+
+const truncatedUUID = computed(() => {
+  if (!userDetails.value?.UUID) return '未知'
+  const uuid = userDetails.value.UUID
+  return uuid.length > 8 ? uuid.substring(0, 8) + '...' : uuid
+})
+
+const truncatedIP = computed(() => {
+  if (!userDetails.value?.KnownIPs) return '无'
+  const ip = userDetails.value.KnownIPs
+  return ip.length > 25 ? ip.substring(0, 25) + '...' : ip
+})
+
+const itemImageUrl = computed(() => {
+  if (!giveSelectedItemId.value || giveSelectedItemId.value <= 0) return null
+  return `/assets/img/img/Item_${giveSelectedItemId.value}.png`
+})
+
+const giveItemName = computed(() => {
+  if (!giveSelectedItemId.value || giveSelectedItemId.value <= 0) return ''
+  const itemInfo = itemData.value.dict[giveSelectedItemId.value.toString()]
+  return itemInfo ? itemInfo.chinese || '' : ''
+})
+
+const giveItemEnglishName = computed(() => {
+  if (!giveSelectedItemId.value || giveSelectedItemId.value <= 0) return ''
+  const itemInfo = itemData.value.dict[giveSelectedItemId.value.toString()]
+  return itemInfo ? itemInfo.english || '' : ''
+})
+
+const giveWikiImageUrl = computed(() => {
+  if (!giveItemEnglishName.value) return ''
+  const name = giveItemEnglishName.value.replace(/\s+/g, '_')
+  return `https://terraria.wiki.gg/images/${name}.png`
+})
+
+const giveImageError = ref(false)
+
+const handleGiveImageError = () => {
+  giveImageError.value = true
+}
+
+const giveCurrentImageUrl = computed(() => {
+  if (giveImageError.value && giveWikiImageUrl.value) {
+    return giveWikiImageUrl.value
+  }
+  return itemImageUrl.value
+})
+
+const openGiveModal = () => {
+  showGiveModal.value = true
+  giveItemSearchQuery.value = ''
+  giveSelectedItemId.value = 0
+  giveAmount.value = 1
+  givePrefixId.value = ''
+  giveError.value = ''
+  giveSuccess.value = ''
+  showGiveItemDropdown.value = false
+}
+
+const closeGiveModal = () => {
+  showGiveModal.value = false
+}
+
+const executeGive = async () => {
+  if (!giveSelectedItemId.value || giveSelectedItemId.value <= 0) {
+    giveError.value = '请选择有效的物品'
+    return
+  }
+
+  giveLoading.value = true
+  giveError.value = ''
+  giveSuccess.value = ''
+  giveWarning.value = ''
+
+  const username = userDetails.value?.Username || userDetails.value?.name || route.params.username
+  let command = `/give ${giveSelectedItemId.value} ${username} ${giveAmount.value}`
+  let prefixIdToUse = ''
+
+  if (givePrefixId.value.trim()) {
+    const input = givePrefixId.value.trim()
+    if (prefixMap[input] !== undefined) {
+      prefixIdToUse = prefixMap[input]
+    } else if (/^\d+$/.test(input)) {
+      prefixIdToUse = input
+      giveWarning.value = '前缀ID使用了数字输入，已直接使用该ID'
+    } else {
+      giveWarning.value = `前缀"${input}"无法识别，已忽略`
+    }
+    if (prefixIdToUse) {
+      command += ` ${prefixIdToUse}`
+    }
+  }
+
+  try {
+    const response = await post('/api/tshock/command', { command })
+    const result = await response.json()
+
+    if (result.error) {
+      giveError.value = result.error
+    } else {
+      giveSuccess.value = result.response || '物品已给予'
+      fetchInventory(username)
+    }
+  } catch (err) {
+    giveError.value = err.message || '执行失败'
+  }
+
+  giveLoading.value = false
+}
+
+const fetchUserDetails = async (username) => {
+  loading.value = true
+  error.value = ''
+  try {
+    const response = await get(`/api/tshock/userlist?username=${encodeURIComponent(username)}`)
+    const result = await response.json()
+
+    if (result.status === '200' && result.users && result.users.length > 0) {
+      userDetails.value = result.users[0]
+    } else {
+      error.value = '用户不存在'
+    }
+  } catch (err) {
+    error.value = '加载失败: ' + err.message
+  }
+  loading.value = false
+}
+
+const fetchInventory = async (username) => {
+  invseeLoading.value = true
+  invseeInventory.value = []
+  invseeError.value = ''
+
+  try {
+    antiCheatConfig.value = await getAntiCheatConfig()
+
+    const response = await get(`/api/tshock/invsee?player=${encodeURIComponent(username)}`)
+    const data = await response.json()
+
+    if (data.status === '200' && data.inventory && data.inventory.inventory) {
+      invseeInventory.value = data.inventory.inventory
+    } else if (data.error) {
+      invseeError.value = data.error
+    } else {
+      invseeError.value = '未知错误'
+    }
+  } catch (err) {
+    if (err.message !== 'Unauthorized') {
+      invseeError.value = 'Error: ' + err.message
+    }
+  }
+
+  invseeLoading.value = false
+}
+
+const handleEditItem = async (data) => {
+  const { player, slotIndex, itemId, stack, prefix } = data
+
+  try {
+    const response = await post('/api/tshock/editinv', {
+      player,
+      slotIndex,
+      itemId,
+      stack,
+      prefix
+    })
+    const result = await response.json()
+
+    if (result.error) {
+      alert('编辑失败: ' + result.error)
+    } else {
+      fetchInventory(player)
+    }
+  } catch (err) {
+    alert('编辑失败: ' + err.message)
+  }
+}
+
+const checkDuplicateIPs = async () => {
+  if (!userDetails.value) return
+
+  duplicateIPLoading.value = true
+  duplicateIPResult.value = null
+
+  try {
+    const username = userDetails.value.Username || userDetails.value.name
+    const response = await get(`/api/tshock/duplicateips?username=${encodeURIComponent(username)}`)
+    const result = await response.json()
+    duplicateIPResult.value = result
+  } catch (err) {
+    console.error('Failed to check duplicate IPs:', err)
+    duplicateIPResult.value = { error: '查询失败' }
+  }
+
+  duplicateIPLoading.value = false
+}
+
+const resetDuplicateIPResult = () => {
+  duplicateIPResult.value = null
+}
+
+const openBanModal = () => {
+  showBanModal.value = true
+  banReason.value = '不当行为'
+  banError.value = ''
+  banSuccess.value = ''
+}
+
+const openPasswordModal = () => {
+  showPasswordModal.value = true
+  newPassword.value = ''
+  confirmPassword.value = ''
+  passwordError.value = ''
+  passwordSuccess.value = ''
+}
+
+const closePasswordModal = () => {
+  showPasswordModal.value = false
+}
+
+const executePasswordChange = async () => {
+  if (!userDetails.value) return
+  
+  if (!newPassword.value.trim()) {
+    passwordError.value = '请输入新密码'
+    return
+  }
+  
+  if (newPassword.value !== confirmPassword.value) {
+    passwordError.value = '两次输入的密码不一致'
+    return
+  }
+
+  passwordLoading.value = true
+  passwordError.value = ''
+  passwordSuccess.value = ''
+
+  try {
+    const username = userDetails.value.Username || userDetails.value.name
+    const command = `/pwd ${username} ${newPassword.value}`
+
+    const response = await post('/api/tshock/command', { command })
+    const result = await response.json()
+
+    if (result.error) {
+      passwordError.value = result.error
+    } else {
+      passwordSuccess.value = result.response || '密码修改成功'
+      newPassword.value = ''
+      confirmPassword.value = ''
+    }
+  } catch (err) {
+    passwordError.value = err.message || '修改失败'
+  }
+
+  passwordLoading.value = false
+}
+
+const closeBanModal = () => {
+  showBanModal.value = false
+}
+
+const executeBan = async () => {
+  if (!userDetails.value) return
+
+  banLoading.value = true
+  banError.value = ''
+  banSuccess.value = ''
+
+  try {
+    const response = await post('/api/tshock/ban', {
+      name: userDetails.value.Username || userDetails.value.name,
+      reason: banReason.value
+    })
+    const result = await response.json()
+
+    if (result.error) {
+      banError.value = result.error
+    } else {
+      banSuccess.value = result.response || '封禁成功'
+    }
+  } catch (err) {
+    banError.value = err.message || '封禁失败'
+  }
+
+  banLoading.value = false
+}
+
+const openKickModal = () => {
+  showKickModal.value = true
+  kickReason.value = ''
+  kickError.value = ''
+  kickSuccess.value = ''
+}
+
+const closeKickModal = () => {
+  showKickModal.value = false
+}
+
+const executeKick = async () => {
+  if (!userDetails.value) return
+
+  kickLoading.value = true
+  kickError.value = ''
+  kickSuccess.value = ''
+
+  try {
+    const username = userDetails.value.Username || userDetails.value.name
+    const command = kickReason.value.trim()
+      ? `/kick ${username} ${kickReason.value}`
+      : `/kick ${username}`
+
+    const response = await post('/api/tshock/command', { command })
+    const result = await response.json()
+
+    if (result.error) {
+      kickError.value = result.error
+    } else {
+      kickSuccess.value = result.response || '踢出成功'
+      await checkOnlineStatus()
+    }
+  } catch (err) {
+    kickError.value = err.message || '踢出失败'
+  }
+
+  kickLoading.value = false
+}
+
+const openGroupModal = async () => {
+  showGroupModal.value = true
+  newGroup.value = userDetails.value?.Usergroup || userDetails.value?.group || ''
+  groupError.value = ''
+  groupSuccess.value = ''
+  showGroupDropdown.value = false
+  await fetchGroups()
+}
+
+const closeGroupModal = () => {
+  showGroupModal.value = false
+  showGroupDropdown.value = false
+}
+
+const toggleGroupDropdown = () => {
+  showGroupDropdown.value = !showGroupDropdown.value
+  if (showGroupDropdown.value) {
+    updateDropdownPosition()
+  }
+}
+
+const updateDropdownPosition = () => {
+  const trigger = document.querySelector('.custom-select-trigger')
+  if (trigger) {
+    const rect = trigger.getBoundingClientRect()
+    dropdownStyle.value = {
+      position: 'fixed',
+      top: `${rect.bottom + 4}px`,
+      left: `${rect.left}px`,
+      width: `${rect.width}px`,
+      zIndex: 2000
+    }
+  }
+}
+
+const selectGroup = (group) => {
+  newGroup.value = group
+  showGroupDropdown.value = false
+}
+
+const executeGroupChange = async () => {
+  if (!userDetails.value) return
+  if (!newGroup.value.trim()) {
+    groupError.value = '请选择或输入用户组'
+    return
+  }
+
+  groupLoading.value = true
+  groupError.value = ''
+  groupSuccess.value = ''
+
+  try {
+    const username = userDetails.value.Username || userDetails.value.name
+    const command = `/user group ${username} ${newGroup.value}`
+
+    const response = await post('/api/tshock/command', { command })
+    const result = await response.json()
+
+    if (result.error) {
+      groupError.value = result.error
+    } else {
+      groupSuccess.value = '用户组已更改'
+      fetchUserDetails(username)
+    }
+  } catch (err) {
+    groupError.value = err.message || '更改失败'
+  }
+
+  groupLoading.value = false
+}
+
+const openWhisperModal = () => {
+  showWhisperModal.value = true
+  whisperMessage.value = ''
+  whisperError.value = ''
+  whisperSuccess.value = ''
+}
+
+const closeWhisperModal = () => {
+  showWhisperModal.value = false
+}
+
+const executeWhisper = async () => {
+  if (!userDetails.value) return
+  if (!whisperMessage.value.trim()) {
+    whisperError.value = '请输入消息内容'
+    return
+  }
+
+  whisperLoading.value = true
+  whisperError.value = ''
+  whisperSuccess.value = ''
+
+  try {
+    const username = userDetails.value.Username || userDetails.value.name
+    const command = `/w ${username} ${whisperMessage.value}`
+
+    const response = await post('/api/tshock/command', { command })
+    const result = await response.json()
+
+    if (result.error) {
+      whisperError.value = result.error
+    } else {
+      whisperSuccess.value = '消息已发送'
+      whisperMessage.value = ''
+    }
+  } catch (err) {
+    whisperError.value = err.message || '发送失败'
+  }
+
+  whisperLoading.value = false
+}
+
+const openTpModal = () => {
+  showTpModal.value = true
+  const currentUsername = userDetails.value?.Username || userDetails.value?.name
+  tpFromPlayer.value = currentUsername
+  tpToPlayer.value = ''
+  tpSearchQuery.value = ''
+  tpSearchResults.value = []
+  tpError.value = ''
+  tpSuccess.value = ''
+  loadOnlinePlayers()
+}
+
+const closeTpModal = () => {
+  showTpModal.value = false
+}
+
+const openPlayerSelect = (target) => {
+  tpSelectTarget.value = target
+  tpSearchQuery.value = ''
+  searchPlayers()
+}
+
+const swapTpPlayers = () => {
+  const temp = tpFromPlayer.value
+  tpFromPlayer.value = tpToPlayer.value
+  tpToPlayer.value = temp
+}
+
+const loadOnlinePlayers = async () => {
+  tpSearchLoading.value = true
+  try {
+    const response = await get('/api/tshock/activeusers')
+    const result = await response.json()
+
+    if (result.activeusers) {
+      const names = result.activeusers.split('\t').filter(n => n.trim())
+      onlinePlayers.value = names
+      tpSearchResults.value = names.map(name => ({ Username: name, isOnline: true }))
+    } else {
+      tpSearchResults.value = []
+    }
+  } catch (err) {
+    tpSearchResults.value = []
+  }
+  tpSearchLoading.value = false
+}
+
+const searchPlayers = async () => {
+  if (!tpSearchQuery.value.trim()) {
+    loadOnlinePlayers()
+    return
+  }
+
+  tpSearchLoading.value = true
+  try {
+    const response = await get(`/api/tshock/userlist?username=${encodeURIComponent(tpSearchQuery.value)}`)
+    const result = await response.json()
+
+    if (result.status === '200' && result.users) {
+      const onlineNames = onlinePlayers.value.map(p => p.toLowerCase())
+      tpSearchResults.value = result.users.map(u => ({
+        ...u,
+        name: u.Username || u.name,
+        isOnline: onlineNames.includes((u.Username || u.name).toLowerCase())
+      })).slice(0, 10)
+    } else {
+      tpSearchResults.value = []
+    }
+  } catch (err) {
+    tpSearchResults.value = []
+  }
+  tpSearchLoading.value = false
+}
+
+const selectTpPlayer = (player, target) => {
+  if (target === 'from') {
+    tpFromPlayer.value = player.name || player.Username
+  } else {
+    tpToPlayer.value = player.name || player.Username
+  }
+  tpSearchResults.value = []
+  tpSearchQuery.value = ''
+}
+
+const isPlayerOnline = (playerName) => {
+  return onlinePlayers.value.some(n => n.toLowerCase() === playerName.toLowerCase())
+}
+
+const executeTp = async () => {
+  if (!tpFromPlayer.value || !tpToPlayer.value) {
+    tpError.value = '请选择两个玩家'
+    return
+  }
+
+  if (tpFromPlayer.value === tpToPlayer.value) {
+    tpError.value = '不能传送自己到自己'
+    return
+  }
+
+  tpLoading.value = true
+  tpError.value = ''
+  tpSuccess.value = ''
+
+  try {
+    const command = `/runas -f ${tpToPlayer.value} "/tphere ${tpFromPlayer.value}"`
+    const response = await post('/api/tshock/command', { command })
+    const result = await response.json()
+
+    if (result.error) {
+      tpError.value = result.error
+    } else {
+      tpSuccess.value = '传送成功'
+    }
+  } catch (err) {
+    tpError.value = err.message || '传送失败'
+  }
+
+  tpLoading.value = false
+}
+
+const checkOnlineStatus = async () => {
+  try {
+    const response = await get('/api/tshock/activeusers')
+    const result = await response.json()
+
+    if (result.activeusers) {
+      const names = result.activeusers.split('\t').filter(n => n.trim())
+      onlinePlayers.value = names
+      const username = userDetails.value?.Username || userDetails.value?.name
+      isOnline.value = names.some(name => name.toLowerCase() === username.toLowerCase())
+    } else {
+      isOnline.value = false
+    }
+  } catch (err) {
+    isOnline.value = false
+  }
+}
+
+const copyToClipboard = async (text) => {
+  if (!text) return
+  try {
+    await navigator.clipboard.writeText(text)
+    alert('已复制到剪贴板')
+  } catch (err) {
+    console.error('复制失败:', err)
+  }
+}
+
+// ==================== 近十日在线统计 ====================
+const toLocalDateString = (date) => {
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const d = String(date.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+
+const dailyStartDate = ref(toLocalDateString(new Date(Date.now() - 9 * 86400000)))
+const dailyData = ref([])
+const dailyLoading = ref(false)
+const dailyMaxMin = ref(1)
+
+const formatDuration = (min) => {
+  const h = Math.floor(min / 60)
+  const m = min % 60
+  if (h > 0 && m > 0) return `${h}h ${m}m`
+  if (h > 0) return `${h}h`
+  return `${m}m`
+}
+
+const fetchDailyStats = async (username) => {
+  if (!username) return
+  dailyLoading.value = true
+  try {
+    const res = await get(`/api/online/player?name=${encodeURIComponent(username)}&year=${new Date().getFullYear()}`)
+    const json = await res.json()
+    const dayMap = {}
+    ;(json.days || []).forEach(d => { dayMap[d.date] = d.daily_min })
+
+    const start = new Date(dailyStartDate.value + 'T00:00:00')
+    const bars = []
+    for (let i = 0; i < 10; i++) {
+      const d = new Date(start)
+      d.setDate(d.getDate() + i)
+      const ds = toLocalDateString(d)
+      bars.push({ date: ds, label: ds.slice(5), minutes: dayMap[ds] || 0 })
+    }
+    dailyData.value = bars
+    dailyMaxMin.value = Math.max(1, ...bars.map(b => b.minutes))
+  } catch (e) {
+    dailyData.value = []
+    dailyMaxMin.value = 1
+  }
+  dailyLoading.value = false
+}
+
+const shiftDaily = (offset) => {
+  const d = new Date(dailyStartDate.value + 'T00:00:00')
+  d.setDate(d.getDate() + offset)
+  dailyStartDate.value = toLocalDateString(d)
+}
+
+const dailyPct = (min) => {
+  if (dailyMaxMin.value === 0) return 0
+  return Math.round((min / dailyMaxMin.value) * 100)
+}
+
+const dailyColorClass = (min) => {
+  if (min === 0) return 'level-0'
+  if (min <= 30) return 'level-1'
+  if (min <= 120) return 'level-2'
+  if (min <= 300) return 'level-3'
+  return 'level-4'
+}
+
+watch(dailyStartDate, () => {
+  const username = userDetails.value?.Username || userDetails.value?.name
+  if (username) fetchDailyStats(username)
+})
+
+const fetchPlayerStats = async (username) => {
+  statsLoading.value = true
+  statsError.value = ''
+
+  try {
+    const response = await get(`/api/tshock/stats?player=${encodeURIComponent(username)}`)
+    const result = await response.json()
+
+    if (result.status === '200' && result.data) {
+      playerStats.value = result.data
+      tempStats.value = {
+        maxHealth: result.data.maxHealth || 400,
+        maxMana: result.data.maxMana || 200,
+        questsCompleted: result.data.questsCompleted || 0,
+        extraSlot: result.data.extraSlot || false,
+        unlockedBiomeTorches: result.data.unlockedBiomeTorches || false,
+        ateArtisanBread: result.data.ateArtisanBread || false,
+        usedAegisCrystal: result.data.usedAegisCrystal || false,
+        usedAegisFruit: result.data.usedAegisFruit || false,
+        usedArcaneCrystal: result.data.usedArcaneCrystal || false,
+        usedGalaxyPearl: result.data.usedGalaxyPearl || false,
+        usedGummyWorm: result.data.usedGummyWorm || false,
+        usedAmbrosia: result.data.usedAmbrosia || false,
+        unlockedSuperCart: result.data.unlockedSuperCart || false,
+        enabledSuperCart: result.data.enabledSuperCart || false
+      }
+    } else if (result.error) {
+      statsError.value = result.error
+    }
+  } catch (err) {
+    if (err.message !== 'Unauthorized') {
+      statsError.value = 'Error: ' + err.message
+    }
+  }
+
+  statsLoading.value = false
+}
+
+const savePlayerStats = async () => {
+  statsSaving.value = true
+  statsSaveSuccess.value = ''
+  statsSaveError.value = ''
+
+  const username = userDetails.value?.Username || userDetails.value?.name || route.params.username
+
+  try {
+    const response = await post('/api/tshock/stats/set', {
+      player: username,
+      ...tempStats.value
+    })
+    const result = await response.json()
+
+    if (result.error) {
+      statsSaveError.value = result.error
+    } else {
+      statsSaveSuccess.value = result.response || '保存成功'
+      await fetchPlayerStats(username)
+      await checkOnlineStatus()
+    }
+  } catch (err) {
+    statsSaveError.value = err.message || '保存失败'
+  }
+
+  statsSaving.value = false
+}
+
+const goBack = () => {
+  router.push('/console/players')
+}
+
+const goToUser = (username) => {
+  router.push(`/console/users/${username}`)
+}
+
+watch(() => route.params.username, (newUsername) => {
+  if (newUsername) {
+    fetchUserDetails(newUsername)
+    fetchInventory(newUsername)
+    fetchPlayerStats(newUsername)
+    fetchDailyStats(newUsername)
+    checkOnlineStatus()
+  }
+}, { immediate: true })
+
+onMounted(() => {
+  initItemData()
+  if (route.params.username) {
+    fetchUserDetails(route.params.username)
+    fetchInventory(route.params.username)
+    fetchPlayerStats(route.params.username)
+    fetchDailyStats(route.params.username)
+    checkOnlineStatus()
+  }
+})
+</script>
