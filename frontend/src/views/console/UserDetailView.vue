@@ -1057,18 +1057,12 @@ const fetchHourlyDetail = async (dateStr) => {
   hourlyDetailLoading.value = false
 }
 
-const hourlyMaxCount = computed(() => {
-  let max = 1
-  hourlyDetail.value.forEach(h => {
-    const c = (h.online_players || []).length
-    if (c > max) max = c
-  })
-  return max
-})
-
-const getHourlyCount = (hour) => {
-  const h = hourlyDetail.value.find(h => (h.hour_ts % 100) === hour)
-  return h ? (h.online_players || []).length : 0
+const isPlayerOnlineAtHour = (dateStr, hour) => {
+  const targetTs = parseInt(dateStr.replace(/-/g, '')) * 100 + hour
+  const h = hourlyDetail.value.find(h => h.hour_ts === targetTs)
+  if (!h || !h.online_players) return false
+  const username = userDetails.value?.Username || userDetails.value?.name
+  return h.online_players.some(n => n.toLowerCase() === username?.toLowerCase())
 }
 
 watch(dailyStartDate, (newVal) => {
@@ -1368,42 +1362,31 @@ onMounted(() => {
         <!-- 详情模式 -->
         <div v-else class="daily-stats-body">
           <div v-if="dailyLoading" class="loading-state"><p>加载中...</p></div>
-          <div v-else class="daily-detail-wrap">
-            <!-- 5日卡片 -->
-            <div class="daily-cards">
-              <div
-                v-for="day in dailyData"
-                :key="day.date"
-                class="daily-card"
-                :class="[dailyColorClass(day.minutes), { expanded: expandedDay === day.date }]"
-                @click="expandDay(day.date)"
-              >
-                <span class="daily-card-date">{{ day.label }}</span>
-                <span class="daily-card-bar">
-                  <span class="daily-card-fill" :style="{ height: dailyPct(day.minutes) + '%' }"></span>
-                </span>
-                <span class="daily-card-min">{{ formatDuration(day.minutes) }}</span>
-              </div>
-            </div>
+          <div v-else class="daily-cards">
+            <div
+              v-for="day in dailyData"
+              :key="day.date"
+              class="daily-card"
+              :class="[dailyColorClass(day.minutes), { expanded: expandedDay === day.date }]"
+              @click="expandDay(day.date)"
+            >
+              <span class="daily-card-date">{{ day.label }}</span>
+              <span class="daily-card-bar">
+                <span class="daily-card-fill" :style="{ height: dailyPct(day.minutes) + '%' }"></span>
+              </span>
+              <span class="daily-card-min">{{ formatDuration(day.minutes) }}</span>
 
-            <!-- 展开的逐时详情 -->
-            <div v-if="expandedDay" class="hourly-detail">
-              <div class="hourly-detail-header">
-                <span>{{ expandedDay }} 逐时在线</span>
-              </div>
-              <div v-if="hourlyDetailLoading" class="loading-state"><p>加载中...</p></div>
-              <div v-else class="hourly-mini-chart">
-                <div
-                  v-for="h in 24"
-                  :key="h - 1"
-                  class="hourly-mini-col"
-                >
-                  <div
-                    class="hourly-mini-bar"
-                    :style="{ height: hourlyMaxCount > 0 ? Math.max(2, ((getHourlyCount(h-1) / hourlyMaxCount) * 40)) + 'px' : '2px' }"
-                    :title="`${String(h-1).padStart(2,'0')}:00 - ${getHourlyCount(h-1)}人`"
-                  ></div>
-                  <span class="hourly-mini-label">{{ h-1 }}</span>
+              <div v-if="expandedDay === day.date" class="hourly-detail">
+                <div v-if="hourlyDetailLoading" class="loading-state"><p>加载中...</p></div>
+                <div v-else class="hourly-mini-chart">
+                  <div v-for="h in 24" :key="h-1" class="hourly-mini-col">
+                    <div
+                      class="hourly-mini-bar"
+                      :class="{ online: isPlayerOnlineAtHour(day.date, h-1) }"
+                      :title="`${String(h-1).padStart(2,'0')}:00`"
+                    ></div>
+                    <span class="hourly-mini-label">{{ h-1 }}</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -3348,12 +3331,10 @@ onMounted(() => {
 .level-4 .overview-bar, .level-4 .daily-card-fill { background: #216e39; }
 
 /* 详情模式 */
-.daily-detail-wrap { }
 
 .daily-cards {
   display: flex;
   gap: 6px;
-  margin-bottom: 10px;
 }
 
 .daily-card {
@@ -3367,11 +3348,12 @@ onMounted(() => {
   background: var(--bg-tertiary);
   border: 1px solid var(--border-light);
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all 0.2s;
 }
 
 .daily-card:hover { border-color: var(--accent-primary); }
 .daily-card.expanded {
+  flex: 3;
   border-color: var(--accent-primary);
   box-shadow: 0 0 0 1px var(--accent-primary);
 }
@@ -3406,23 +3388,19 @@ onMounted(() => {
   font-variant-numeric: tabular-nums;
 }
 
-/* 逐时详情 */
+/* 逐时详情（嵌在展开卡片内） */
 .hourly-detail {
+  width: 100%;
+  margin-top: 8px;
+  padding-top: 8px;
   border-top: 1px solid var(--border-light);
-  padding-top: 10px;
-}
-
-.hourly-detail-header {
-  font-size: 0.8rem;
-  color: var(--text-secondary);
-  margin-bottom: 8px;
 }
 
 .hourly-mini-chart {
   display: flex;
   align-items: flex-end;
   gap: 1px;
-  height: 44px;
+  height: 36px;
 }
 
 .hourly-mini-col {
@@ -3436,13 +3414,18 @@ onMounted(() => {
 .hourly-mini-bar {
   width: 100%;
   border-radius: 1px 1px 0 0;
-  background: var(--accent-primary);
+  background: var(--border-light);
   min-height: 2px;
+  height: 100%;
+}
+
+.hourly-mini-bar.online {
+  background: #40c463;
 }
 
 .hourly-mini-label {
-  font-size: 0.45rem;
+  font-size: 0.4rem;
   color: var(--text-muted);
-  margin-top: 2px;
+  margin-top: 1px;
 }
 </style>
