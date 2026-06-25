@@ -811,7 +811,7 @@ const executeTp = async () => {
   tpSuccess.value = ''
 
   try {
-    const command = `/tp ${tpFromPlayer.value} ${tpToPlayer.value}`
+    const command = `/runas -f ${tpToPlayer.value} "/tphere ${tpFromPlayer.value}"`
     const response = await post('/api/tshock/command', { command })
     const result = await response.json()
 
