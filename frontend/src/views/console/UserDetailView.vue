@@ -913,6 +913,21 @@ const hourlyDetailLoading = ref(false)
 const overviewData = ref([])
 const overviewLoading = ref(false)
 const overviewMaxMin = ref(1)
+const overviewTotalMin = computed(() => overviewData.value.reduce((s, d) => s + d.minutes, 0))
+const overviewActiveDays = computed(() => overviewData.value.filter(d => d.minutes > 0).length)
+const axisLabels = computed(() => {
+  const labels = []
+  const data = overviewData.value
+  if (!data.length) return labels
+  const step = Math.max(1, Math.floor(data.length / 6))
+  for (let i = 0; i < data.length; i += step) {
+    labels.push(data[i].label)
+  }
+  if (labels.length && labels[labels.length - 1] !== data[data.length - 1].label) {
+    labels.push(data[data.length - 1].label)
+  }
+  return labels
+})
 
 const formatDuration = (min) => {
   const h = Math.floor(min / 60)
@@ -1342,19 +1357,27 @@ onMounted(() => {
         <!-- 总览模式 -->
         <div v-if="dailyMode === 'overview'" class="daily-stats-body">
           <div v-if="overviewLoading" class="loading-state"><p>加载中...</p></div>
-          <div v-else class="overview-chart">
-            <div
-              v-for="day in overviewData"
-              :key="day.date"
-              class="overview-col"
-              @click="overviewClickDay(day.date)"
-            >
+          <div v-else class="overview-chart-container">
+            <div class="overview-summary">
+              <span>📊 近30天累计: <strong>{{ formatDuration(overviewTotalMin) }}</strong> | 活跃天数: {{ overviewActiveDays }}/30</span>
+            </div>
+            <div class="overview-chart">
               <div
-                class="overview-bar"
-                :style="{ height: overviewMaxMin > 0 ? Math.max(2, (day.minutes / overviewMaxMin) * 40) + 'px' : '2px' }"
+                v-for="day in overviewData"
+                :key="day.date"
+                class="overview-col"
                 :class="dailyColorClass(day.minutes)"
-                :title="`${day.date}: ${formatDuration(day.minutes)}`"
-              ></div>
+                @click="overviewClickDay(day.date)"
+              >
+                <div
+                  class="overview-bar"
+                  :style="{ height: overviewMaxMin > 0 ? Math.max(2, (day.minutes / overviewMaxMin) * 48) + 'px' : '2px' }"
+                  :title="`${day.label}: ${formatDuration(day.minutes)}`"
+                ></div>
+              </div>
+            </div>
+            <div class="overview-axis">
+              <span v-for="label in axisLabels" :key="label" class="axis-label">{{ label }}</span>
             </div>
           </div>
         </div>
@@ -3303,12 +3326,28 @@ onMounted(() => {
 
 .daily-stats-body { min-height: 60px; }
 
-/* 总览折线 */
+/* 总览 */
+.overview-chart-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.overview-summary {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.overview-summary strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
 .overview-chart {
   display: flex;
   align-items: flex-end;
   gap: 1px;
-  height: 50px;
+  height: 58px;
 }
 
 .overview-col {
@@ -3327,12 +3366,24 @@ onMounted(() => {
 
 .overview-col:hover .overview-bar { opacity: 0.7; }
 
-/* 颜色在 level-* class 上 */
+/* 颜色在 level-* class 上（父元素） */
 .level-0 .overview-bar, .level-0 .daily-card-fill { background: var(--border-light); }
 .level-1 .overview-bar, .level-1 .daily-card-fill { background: #9be9a8; }
 .level-2 .overview-bar, .level-2 .daily-card-fill { background: #40c463; }
 .level-3 .overview-bar, .level-3 .daily-card-fill { background: #30a14e; }
 .level-4 .overview-bar, .level-4 .daily-card-fill { background: #216e39; }
+
+.overview-axis {
+  display: flex;
+  justify-content: space-between;
+  padding: 0 1px;
+}
+
+.axis-label {
+  font-size: 0.55rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
 
 /* 详情模式 */
 
