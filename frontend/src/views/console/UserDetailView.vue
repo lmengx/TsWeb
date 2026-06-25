@@ -901,10 +901,18 @@ const toLocalDateString = (date) => {
   return `${y}-${m}-${d}`
 }
 
-const dailyStartDate = ref(toLocalDateString(new Date(Date.now() - 9 * 86400000)))
+const dailyStartDate = ref(toLocalDateString(new Date(Date.now() - 4 * 86400000)))
 const dailyData = ref([])
 const dailyLoading = ref(false)
 const dailyMaxMin = ref(1)
+const dailyMode = ref('detail')
+const todayStr = toLocalDateString(new Date())
+const expandedDay = ref(todayStr)
+const hourlyDetail = ref([])
+const hourlyDetailLoading = ref(false)
+const overviewData = ref([])
+const overviewLoading = ref(false)
+const overviewMaxMin = ref(1)
 
 const formatDuration = (min) => {
   const h = Math.floor(min / 60)
@@ -925,7 +933,7 @@ const fetchDailyStats = async (username) => {
 
     const start = new Date(dailyStartDate.value + 'T00:00:00')
     const bars = []
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < 5; i++) {
       const d = new Date(start)
       d.setDate(d.getDate() + i)
       const ds = toLocalDateString(d)
@@ -938,11 +946,18 @@ const fetchDailyStats = async (username) => {
     dailyMaxMin.value = 1
   }
   dailyLoading.value = false
+  // auto-expand today after fetching
+  if (expandedDay.value === todayStr) fetchHourlyDetail(todayStr)
 }
 
 const shiftDaily = (offset) => {
   const d = new Date(dailyStartDate.value + 'T00:00:00')
   d.setDate(d.getDate() + offset)
+  // 不能超过今天-4（最后一天不能超过今天）
+  const maxStart = new Date()
+  maxStart.setDate(maxStart.getDate() - 4)
+  maxStart.setHours(0, 0, 0, 0)
+  if (d > maxStart) d.setTime(maxStart.getTime())
   dailyStartDate.value = toLocalDateString(d)
 }
 
@@ -959,7 +974,110 @@ const dailyColorClass = (min) => {
   return 'level-4'
 }
 
-watch(dailyStartDate, () => {
+// 日期校验
+const validateDate = (dateStr) => {
+  const d = new Date(dateStr + 'T00:00:00')
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  if (d > today) {
+    alert('不能选择未来的日期')
+    return false
+  }
+  const registered = userDetails.value?.Registered
+  if (registered) {
+    const regDate = new Date(registered)
+    regDate.setHours(0, 0, 0, 0)
+    if (d < regDate) {
+      alert('不能早于注册日期 (' + toLocalDateString(regDate) + ')')
+      return false
+    }
+  }
+  return true
+}
+
+// 切换模式
+const toggleMode = () => {
+  dailyMode.value = dailyMode.value === 'overview' ? 'detail' : 'overview'
+  const username = userDetails.value?.Username || userDetails.value?.name
+  if (dailyMode.value === 'overview' && username) fetchOverview()
+}
+
+// 加载30天总览数据
+const fetchOverview = async () => {
+  const username = userDetails.value?.Username || userDetails.value?.name
+  if (!username) return
+  overviewLoading.value = true
+  try {
+    const res = await get(`/api/online/player?name=${encodeURIComponent(username)}&year=${new Date().getFullYear()}`)
+    const json = await res.json()
+    const dayMap = {}
+    ;(json.days || []).forEach(d => { dayMap[d.date] = d.daily_min })
+    const today = new Date()
+    const days = []
+    for (let i = 29; i >= 0; i--) {
+      const d = new Date(today)
+      d.setDate(d.getDate() - i)
+      const ds = toLocalDateString(d)
+      days.push({ date: ds, label: ds.slice(5), minutes: dayMap[ds] || 0 })
+    }
+    overviewData.value = days
+    overviewMaxMin.value = Math.max(1, ...days.map(d => d.minutes))
+  } catch (e) { overviewData.value = [] }
+  overviewLoading.value = false
+}
+
+// 点击总览某天→切换到详情模式
+const overviewClickDay = (dateStr) => {
+  dailyMode.value = 'detail'
+  expandedDay.value = dateStr
+  const d = new Date(dateStr + 'T00:00:00')
+  d.setDate(d.getDate() - 2)
+  const registered = userDetails.value?.Registered
+  if (registered && d < new Date(registered + 'T00:00:00')) {
+    d.setTime(new Date(registered + 'T00:00:00').getTime())
+  }
+  dailyStartDate.value = toLocalDateString(d)
+  fetchHourlyDetail(dateStr)
+}
+
+// 展开某天的逐时数据
+const expandDay = (dateStr) => {
+  expandedDay.value = dateStr
+  fetchHourlyDetail(dateStr)
+}
+
+// 加载某天的逐时在线数据
+const fetchHourlyDetail = async (dateStr) => {
+  hourlyDetailLoading.value = true
+  try {
+    const res = await get(`/api/online/hourly?date=${dateStr}`)
+    const json = await res.json()
+    hourlyDetail.value = json.hours || []
+  } catch (e) { hourlyDetail.value = [] }
+  hourlyDetailLoading.value = false
+}
+
+const hourlyMaxCount = computed(() => {
+  let max = 1
+  hourlyDetail.value.forEach(h => {
+    const c = (h.online_players || []).length
+    if (c > max) max = c
+  })
+  return max
+})
+
+const getHourlyCount = (hour) => {
+  const h = hourlyDetail.value.find(h => (h.hour_ts % 100) === hour)
+  return h ? (h.online_players || []).length : 0
+}
+
+watch(dailyStartDate, (newVal) => {
+  if (!validateDate(newVal)) {
+    const today = new Date()
+    today.setDate(today.getDate() - 4)
+    dailyStartDate.value = toLocalDateString(today)
+    return
+  }
   const username = userDetails.value?.Username || userDetails.value?.name
   if (username) fetchDailyStats(username)
 })
@@ -1214,28 +1332,80 @@ onMounted(() => {
 
       <div class="daily-stats-section">
         <div class="daily-stats-header">
-          <h3>近十日在线</h3>
-          <div class="daily-nav">
-            <button @click="shiftDaily(-10)" class="daily-nav-btn" title="往前10天">◀</button>
+          <div class="daily-header-left">
+            <button @click="toggleMode" class="mode-toggle-btn" :title="dailyMode === 'overview' ? '切换到详情' : '切换到总览'">
+              {{ dailyMode === 'overview' ? '📊 总览' : '📋 详情' }}
+            </button>
+          </div>
+          <h3>{{ dailyMode === 'overview' ? '30日在线趋势' : '近5日在线' }}</h3>
+          <div class="daily-nav" v-if="dailyMode === 'detail'">
+            <button @click="shiftDaily(-5)" class="daily-nav-btn" title="往前5天">◀</button>
             <input type="date" v-model="dailyStartDate" class="filter-date" />
-            <button @click="shiftDaily(10)" class="daily-nav-btn" title="往后10天">▶</button>
+            <button @click="shiftDaily(5)" class="daily-nav-btn" title="往后5天">▶</button>
           </div>
         </div>
-        <div class="daily-stats-body">
-          <div v-if="dailyLoading" class="loading-state"><p>加载中...</p></div>
-          <div v-else class="daily-cards">
+
+        <!-- 总览模式 -->
+        <div v-if="dailyMode === 'overview'" class="daily-stats-body">
+          <div v-if="overviewLoading" class="loading-state"><p>加载中...</p></div>
+          <div v-else class="overview-chart">
             <div
-              v-for="day in dailyData"
+              v-for="day in overviewData"
               :key="day.date"
-              class="daily-card"
-              :class="dailyColorClass(day.minutes)"
-              :title="`${day.date}: ${formatDuration(day.minutes)}`"
+              class="overview-col"
+              @click="overviewClickDay(day.date)"
             >
-              <span class="daily-card-date">{{ day.label }}</span>
-              <span class="daily-card-bar">
-                <span class="daily-card-fill" :style="{ height: dailyPct(day.minutes) + '%' }"></span>
-              </span>
-              <span class="daily-card-min">{{ formatDuration(day.minutes) }}</span>
+              <div
+                class="overview-bar"
+                :style="{ height: overviewMaxMin > 0 ? Math.max(2, (day.minutes / overviewMaxMin) * 40) + 'px' : '2px' }"
+                :class="dailyColorClass(day.minutes)"
+                :title="`${day.date}: ${formatDuration(day.minutes)}`"
+              ></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 详情模式 -->
+        <div v-else class="daily-stats-body">
+          <div v-if="dailyLoading" class="loading-state"><p>加载中...</p></div>
+          <div v-else class="daily-detail-wrap">
+            <!-- 5日卡片 -->
+            <div class="daily-cards">
+              <div
+                v-for="day in dailyData"
+                :key="day.date"
+                class="daily-card"
+                :class="[dailyColorClass(day.minutes), { expanded: expandedDay === day.date }]"
+                @click="expandDay(day.date)"
+              >
+                <span class="daily-card-date">{{ day.label }}</span>
+                <span class="daily-card-bar">
+                  <span class="daily-card-fill" :style="{ height: dailyPct(day.minutes) + '%' }"></span>
+                </span>
+                <span class="daily-card-min">{{ formatDuration(day.minutes) }}</span>
+              </div>
+            </div>
+
+            <!-- 展开的逐时详情 -->
+            <div v-if="expandedDay" class="hourly-detail">
+              <div class="hourly-detail-header">
+                <span>{{ expandedDay }} 逐时在线</span>
+              </div>
+              <div v-if="hourlyDetailLoading" class="loading-state"><p>加载中...</p></div>
+              <div v-else class="hourly-mini-chart">
+                <div
+                  v-for="h in 24"
+                  :key="h - 1"
+                  class="hourly-mini-col"
+                >
+                  <div
+                    class="hourly-mini-bar"
+                    :style="{ height: hourlyMaxCount > 0 ? Math.max(2, ((getHourlyCount(h-1) / hourlyMaxCount) * 40)) + 'px' : '2px' }"
+                    :title="`${String(h-1).padStart(2,'0')}:00 - ${getHourlyCount(h-1)}人`"
+                  ></div>
+                  <span class="hourly-mini-label">{{ h-1 }}</span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -3078,6 +3248,7 @@ onMounted(() => {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 14px;
+  gap: 12px;
 }
 
 .daily-stats-header h3 {
@@ -3085,6 +3256,26 @@ onMounted(() => {
   font-size: 1.05rem;
   font-weight: 600;
   color: var(--text-primary);
+  flex: 1;
+  text-align: center;
+}
+
+.daily-header-left { min-width: 80px; }
+
+.mode-toggle-btn {
+  padding: 4px 10px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 0.8rem;
+  transition: all 0.15s;
+}
+
+.mode-toggle-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent-primary);
 }
 
 .daily-nav {
@@ -3094,8 +3285,7 @@ onMounted(() => {
 }
 
 .daily-nav-btn {
-  width: 28px;
-  height: 28px;
+  width: 28px; height: 28px;
   border: 1px solid var(--border-light);
   border-radius: var(--radius-sm, 6px);
   background: var(--bg-input);
@@ -3124,13 +3314,46 @@ onMounted(() => {
   width: 130px;
 }
 
-.daily-stats-body {
-  min-height: 80px;
+.daily-stats-body { min-height: 60px; }
+
+/* 总览折线 */
+.overview-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 1px;
+  height: 50px;
 }
+
+.overview-col {
+  flex: 1;
+  display: flex;
+  align-items: flex-end;
+  cursor: pointer;
+}
+
+.overview-bar {
+  width: 100%;
+  border-radius: 1px 1px 0 0;
+  min-height: 2px;
+  transition: opacity 0.15s;
+}
+
+.overview-col:hover .overview-bar { opacity: 0.7; }
+
+/* 颜色在 level-* class 上 */
+.level-0 .overview-bar, .level-0 .daily-card-fill { background: var(--border-light); }
+.level-1 .overview-bar, .level-1 .daily-card-fill { background: #9be9a8; }
+.level-2 .overview-bar, .level-2 .daily-card-fill { background: #40c463; }
+.level-3 .overview-bar, .level-3 .daily-card-fill { background: #30a14e; }
+.level-4 .overview-bar, .level-4 .daily-card-fill { background: #216e39; }
+
+/* 详情模式 */
+.daily-detail-wrap { }
 
 .daily-cards {
   display: flex;
   gap: 6px;
+  margin-bottom: 10px;
 }
 
 .daily-card {
@@ -3143,11 +3366,14 @@ onMounted(() => {
   border-radius: var(--radius-md, 8px);
   background: var(--bg-tertiary);
   border: 1px solid var(--border-light);
-  transition: border-color 0.15s;
+  cursor: pointer;
+  transition: all 0.15s;
 }
 
-.daily-card:hover {
+.daily-card:hover { border-color: var(--accent-primary); }
+.daily-card.expanded {
   border-color: var(--accent-primary);
+  box-shadow: 0 0 0 1px var(--accent-primary);
 }
 
 .daily-card-date {
@@ -3158,7 +3384,7 @@ onMounted(() => {
 
 .daily-card-bar {
   width: 100%;
-  height: 60px;
+  height: 48px;
   border-radius: 4px;
   background: var(--bg-input);
   display: flex;
@@ -3173,16 +3399,50 @@ onMounted(() => {
   transition: height 0.3s ease;
 }
 
-.daily-card.level-0 .daily-card-fill { background: var(--border-light); }
-.daily-card.level-1 .daily-card-fill { background: #9be9a8; }
-.daily-card.level-2 .daily-card-fill { background: #40c463; }
-.daily-card.level-3 .daily-card-fill { background: #30a14e; }
-.daily-card.level-4 .daily-card-fill { background: #216e39; }
-
 .daily-card-min {
   font-size: 0.7rem;
   font-weight: 500;
   color: var(--text-primary);
   font-variant-numeric: tabular-nums;
+}
+
+/* 逐时详情 */
+.hourly-detail {
+  border-top: 1px solid var(--border-light);
+  padding-top: 10px;
+}
+
+.hourly-detail-header {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+.hourly-mini-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 1px;
+  height: 44px;
+}
+
+.hourly-mini-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.hourly-mini-bar {
+  width: 100%;
+  border-radius: 1px 1px 0 0;
+  background: var(--accent-primary);
+  min-height: 2px;
+}
+
+.hourly-mini-label {
+  font-size: 0.45rem;
+  color: var(--text-muted);
+  margin-top: 2px;
 }
 </style>
