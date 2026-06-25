@@ -1157,6 +1157,16 @@ const savePlayerStats = async () => {
   statsSaving.value = false
 }
 
+const refreshPlayerStats = () => {
+  const username = userDetails.value?.Username || userDetails.value?.name
+  if (username) fetchPlayerStats(username)
+}
+
+const refreshInventory = () => {
+  const username = userDetails.value?.Username || userDetails.value?.name
+  if (username) fetchInventory(username)
+}
+
 const goBack = () => {
   router.push('/console/players')
 }
@@ -1489,6 +1499,9 @@ onMounted(() => {
           </div>
           
           <div class="stats-actions">
+            <button @click="refreshPlayerStats" :disabled="statsLoading" class="refresh-stats-btn">
+              {{ statsLoading ? '刷新中...' : '🔄 刷新' }}
+            </button>
             <button @click="savePlayerStats" :disabled="statsSaving" class="save-stats-btn">
               {{ statsSaving ? '保存中...' : '保存属性' }}
             </button>
@@ -1505,6 +1518,9 @@ onMounted(() => {
       <div class="inventory-section">
         <div class="inventory-header">
           <h3>背包信息</h3>
+          <button @click="refreshInventory" :disabled="invseeLoading" class="refresh-btn">
+            {{ invseeLoading ? '刷新中...' : '🔄 刷新' }}
+          </button>
         </div>
         <div v-if="anomalyItems.length > 0" class="anomaly-warning">
           <div class="anomaly-title">⚠️ 异常物品检测</div>
@@ -1517,6 +1533,7 @@ onMounted(() => {
           :loading="invseeLoading"
           :error="invseeError"
           :initial-username="route.params.username"
+          :show-header="false"
           @fetch="fetchInventory"
           @editItem="handleEditItem"
         />
@@ -2360,10 +2377,14 @@ onMounted(() => {
 }
 
 .inventory-section {
-  flex: 1;
+  background: var(--bg-card);
+  border-radius: var(--radius-xl);
+  padding: 20px 24px;
+  margin: 0 20px 24px;
+  box-shadow: var(--shadow-lg);
+  border: 1px solid var(--border-light);
   display: flex;
   flex-direction: column;
-  padding: 0 20px;
 }
 
 .inventory-header {
@@ -2376,8 +2397,35 @@ onMounted(() => {
 .inventory-header h3 {
   margin: 0;
   color: var(--text-primary);
-  font-size: 1.2rem;
+  font-size: 1.1rem;
   font-weight: 600;
+}
+
+.refresh-btn,
+.refresh-stats-btn {
+  padding: 8px 16px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.refresh-btn:hover:not(:disabled),
+.refresh-stats-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--accent-primary);
+}
+
+.refresh-btn:disabled,
+.refresh-stats-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .give-btn {
