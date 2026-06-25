@@ -893,6 +893,63 @@ const copyToClipboard = async (text) => {
   }
 }
 
+// ==================== 近十日在线统计 ====================
+const toLocalDateString = (date) => {
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const d = String(date.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+
+const dailyStartDate = ref(toLocalDateString(new Date(Date.now() - 9 * 86400000)))
+const dailyData = ref([])
+const dailyLoading = ref(false)
+const dailyMaxMin = ref(1)
+
+const formatDuration = (min) => {
+  const h = Math.floor(min / 60)
+  const m = min % 60
+  if (h > 0 && m > 0) return `${h}h ${m}m`
+  if (h > 0) return `${h}h`
+  return `${m}m`
+}
+
+const fetchDailyStats = async (username) => {
+  if (!username) return
+  dailyLoading.value = true
+  try {
+    const res = await get(`/api/online/player?name=${encodeURIComponent(username)}&year=${new Date().getFullYear()}`)
+    const json = await res.json()
+    const dayMap = {}
+    ;(json.days || []).forEach(d => { dayMap[d.date] = d.daily_min })
+
+    const start = new Date(dailyStartDate.value + 'T00:00:00')
+    const bars = []
+    for (let i = 0; i < 10; i++) {
+      const d = new Date(start)
+      d.setDate(d.getDate() + i)
+      const ds = toLocalDateString(d)
+      bars.push({ date: ds, label: ds.slice(5), minutes: dayMap[ds] || 0 })
+    }
+    dailyData.value = bars
+    dailyMaxMin.value = Math.max(1, ...bars.map(b => b.minutes))
+  } catch (e) {
+    dailyData.value = []
+    dailyMaxMin.value = 1
+  }
+  dailyLoading.value = false
+}
+
+const dailyBarHeight = (min) => {
+  if (dailyMaxMin.value === 0) return 4
+  return Math.max(4, (min / dailyMaxMin.value) * 120)
+}
+
+watch(dailyStartDate, () => {
+  const username = userDetails.value?.Username || userDetails.value?.name
+  if (username) fetchDailyStats(username)
+})
+
 const fetchPlayerStats = async (username) => {
   statsLoading.value = true
   statsError.value = ''
@@ -972,6 +1029,7 @@ watch(() => route.params.username, (newUsername) => {
     fetchUserDetails(newUsername)
     fetchInventory(newUsername)
     fetchPlayerStats(newUsername)
+    fetchDailyStats(newUsername)
     checkOnlineStatus()
   }
 }, { immediate: true })
@@ -982,6 +1040,7 @@ onMounted(() => {
     fetchUserDetails(route.params.username)
     fetchInventory(route.params.username)
     fetchPlayerStats(route.params.username)
+    fetchDailyStats(route.params.username)
     checkOnlineStatus()
   }
 })
@@ -1135,6 +1194,31 @@ onMounted(() => {
             <button @click="openGiveModal" class="give-btn">
               给物品
             </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="daily-stats-section">
+        <div class="daily-stats-header">
+          <h3>近十日在线统计</h3>
+          <input type="date" v-model="dailyStartDate" class="filter-date" />
+        </div>
+        <div class="daily-stats-body">
+          <div v-if="dailyLoading" class="loading-state"><p>加载中...</p></div>
+          <div v-else class="daily-bar-chart">
+            <div
+              v-for="day in dailyData"
+              :key="day.date"
+              class="daily-bar-col"
+            >
+              <div
+                class="daily-bar"
+                :style="{ height: dailyBarHeight(day.minutes) + 'px' }"
+                :title="`${day.date}: ${formatDuration(day.minutes)}`"
+              ></div>
+              <span class="daily-bar-label">{{ day.label }}</span>
+              <span class="daily-bar-val">{{ formatDuration(day.minutes) }}</span>
+            </div>
           </div>
         </div>
       </div>
@@ -2960,5 +3044,84 @@ onMounted(() => {
   color: #ef4444;
   font-size: 0.9rem;
   font-weight: 500;
+}
+
+.daily-stats-section {
+  background: var(--bg-card);
+  border-radius: var(--radius-xl);
+  padding: 24px;
+  margin: 0 20px 24px;
+  box-shadow: var(--shadow-lg);
+  border: 1px solid var(--border-light);
+}
+
+.daily-stats-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.daily-stats-header h3 {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.filter-date {
+  padding: 6px 12px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-size: 0.875rem;
+}
+
+.daily-stats-body {
+  min-height: 160px;
+}
+
+.daily-bar-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  height: 160px;
+  padding-top: 8px;
+}
+
+.daily-bar-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  height: 100%;
+}
+
+.daily-bar {
+  width: 100%;
+  max-width: 48px;
+  border-radius: 4px 4px 0 0;
+  background: linear-gradient(180deg, #6366f1, #4f46e5);
+  min-height: 4px;
+  transition: opacity 0.15s;
+}
+
+.daily-bar-col:hover .daily-bar {
+  opacity: 0.8;
+}
+
+.daily-bar-label {
+  margin-top: 6px;
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+}
+
+.daily-bar-val {
+  margin-top: 2px;
+  font-size: 0.65rem;
+  color: var(--accent-primary);
+  font-variant-numeric: tabular-nums;
 }
 </style>
