@@ -940,9 +940,23 @@ const fetchDailyStats = async (username) => {
   dailyLoading.value = false
 }
 
-const dailyBarHeight = (min) => {
-  if (dailyMaxMin.value === 0) return 4
-  return Math.max(4, (min / dailyMaxMin.value) * 120)
+const shiftDaily = (offset) => {
+  const d = new Date(dailyStartDate.value + 'T00:00:00')
+  d.setDate(d.getDate() + offset)
+  dailyStartDate.value = toLocalDateString(d)
+}
+
+const dailyPct = (min) => {
+  if (dailyMaxMin.value === 0) return 0
+  return Math.round((min / dailyMaxMin.value) * 100)
+}
+
+const dailyColorClass = (min) => {
+  if (min === 0) return 'level-0'
+  if (min <= 30) return 'level-1'
+  if (min <= 120) return 'level-2'
+  if (min <= 300) return 'level-3'
+  return 'level-4'
 }
 
 watch(dailyStartDate, () => {
@@ -1200,24 +1214,28 @@ onMounted(() => {
 
       <div class="daily-stats-section">
         <div class="daily-stats-header">
-          <h3>近十日在线统计</h3>
-          <input type="date" v-model="dailyStartDate" class="filter-date" />
+          <h3>近十日在线</h3>
+          <div class="daily-nav">
+            <button @click="shiftDaily(-10)" class="daily-nav-btn" title="往前10天">◀</button>
+            <input type="date" v-model="dailyStartDate" class="filter-date" />
+            <button @click="shiftDaily(10)" class="daily-nav-btn" title="往后10天">▶</button>
+          </div>
         </div>
         <div class="daily-stats-body">
           <div v-if="dailyLoading" class="loading-state"><p>加载中...</p></div>
-          <div v-else class="daily-bar-chart">
+          <div v-else class="daily-cards">
             <div
               v-for="day in dailyData"
               :key="day.date"
-              class="daily-bar-col"
+              class="daily-card"
+              :class="dailyColorClass(day.minutes)"
+              :title="`${day.date}: ${formatDuration(day.minutes)}`"
             >
-              <div
-                class="daily-bar"
-                :style="{ height: dailyBarHeight(day.minutes) + 'px' }"
-                :title="`${day.date}: ${formatDuration(day.minutes)}`"
-              ></div>
-              <span class="daily-bar-label">{{ day.label }}</span>
-              <span class="daily-bar-val">{{ formatDuration(day.minutes) }}</span>
+              <span class="daily-card-date">{{ day.label }}</span>
+              <span class="daily-card-bar">
+                <span class="daily-card-fill" :style="{ height: dailyPct(day.minutes) + '%' }"></span>
+              </span>
+              <span class="daily-card-min">{{ formatDuration(day.minutes) }}</span>
             </div>
           </div>
         </div>
@@ -3049,7 +3067,7 @@ onMounted(() => {
 .daily-stats-section {
   background: var(--bg-card);
   border-radius: var(--radius-xl);
-  padding: 24px;
+  padding: 20px 24px;
   margin: 0 20px 24px;
   box-shadow: var(--shadow-lg);
   border: 1px solid var(--border-light);
@@ -3059,69 +3077,112 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 16px;
+  margin-bottom: 14px;
 }
 
 .daily-stats-header h3 {
   margin: 0;
-  font-size: 1.1rem;
+  font-size: 1.05rem;
   font-weight: 600;
   color: var(--text-primary);
 }
 
+.daily-nav {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.daily-nav-btn {
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 0.7rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+}
+
+.daily-nav-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--accent-primary);
+}
+
 .filter-date {
-  padding: 6px 12px;
+  padding: 5px 10px;
   border: 1px solid var(--border-light);
   border-radius: var(--radius-sm, 6px);
   background: var(--bg-input);
   color: var(--text-primary);
-  font-size: 0.875rem;
+  font-size: 0.8rem;
+  width: 130px;
 }
 
 .daily-stats-body {
-  min-height: 160px;
+  min-height: 80px;
 }
 
-.daily-bar-chart {
+.daily-cards {
   display: flex;
-  align-items: flex-end;
-  gap: 8px;
-  height: 160px;
-  padding-top: 8px;
+  gap: 6px;
 }
 
-.daily-bar-col {
+.daily-card {
   flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: flex-end;
-  height: 100%;
+  gap: 4px;
+  padding: 8px 4px 6px;
+  border-radius: var(--radius-md, 8px);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-light);
+  transition: border-color 0.15s;
 }
 
-.daily-bar {
-  width: 100%;
-  max-width: 48px;
-  border-radius: 4px 4px 0 0;
-  background: linear-gradient(180deg, #6366f1, #4f46e5);
-  min-height: 4px;
-  transition: opacity 0.15s;
+.daily-card:hover {
+  border-color: var(--accent-primary);
 }
 
-.daily-bar-col:hover .daily-bar {
-  opacity: 0.8;
-}
-
-.daily-bar-label {
-  margin-top: 6px;
+.daily-card-date {
   font-size: 0.7rem;
   color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
 }
 
-.daily-bar-val {
-  margin-top: 2px;
-  font-size: 0.65rem;
-  color: var(--accent-primary);
+.daily-card-bar {
+  width: 100%;
+  height: 60px;
+  border-radius: 4px;
+  background: var(--bg-input);
+  display: flex;
+  align-items: flex-end;
+  overflow: hidden;
+}
+
+.daily-card-fill {
+  width: 100%;
+  border-radius: 4px;
+  min-height: 2px;
+  transition: height 0.3s ease;
+}
+
+.daily-card.level-0 .daily-card-fill { background: var(--border-light); }
+.daily-card.level-1 .daily-card-fill { background: #9be9a8; }
+.daily-card.level-2 .daily-card-fill { background: #40c463; }
+.daily-card.level-3 .daily-card-fill { background: #30a14e; }
+.daily-card.level-4 .daily-card-fill { background: #216e39; }
+
+.daily-card-min {
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: var(--text-primary);
   font-variant-numeric: tabular-nums;
 }
 </style>
