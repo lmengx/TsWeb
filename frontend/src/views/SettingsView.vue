@@ -1,139 +1,69 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, watch, nextTick } from 'vue'
 import { get, post } from '../utils/api.js'
 import { useRouter } from 'vue-router'
-import { loadItemData } from '../api/itemDataApi.js'
 
 const router = useRouter()
-const loading = ref(false)
-const saving = ref(false)
+const loading = ref(true)
 const error = ref('')
 const success = ref('')
-const itemData = ref({ list: [], dict: {} })
-const configItems = ref([])
-const searchQuery = ref('')
-const addSearchQuery = ref('')
-const showAddModal = ref(false)
-const imageErrors = ref({})
+let saveTimer = null
+let ready = false
 
-const filteredItems = computed(() => {
-  if (!searchQuery.value.trim()) return configItems.value
-  const query = searchQuery.value.toLowerCase()
-  return configItems.value.filter(item => {
-    const info = itemData.value.dict[item.id.toString()]
-    if (!info) return item.id.toString().includes(query)
-    return info.chinese.toLowerCase().includes(query) ||
-           info.english.toLowerCase().includes(query) ||
-           item.id.toString().includes(query)
-  })
-})
+const registerMode = ref('default')
+const bossLimitEnabled = ref(false)
+const bossLimitMinPlayers = ref(7)
 
-const searchResults = computed(() => {
-  if (!addSearchQuery.value.trim()) return []
-  const query = addSearchQuery.value.toLowerCase()
-  const existingIds = configItems.value.map(i => i.id)
-  return itemData.value.list
-    .filter(item => {
-      return item.chinese.toLowerCase().includes(query) ||
-             item.english.toLowerCase().includes(query) ||
-             item.id.toString().includes(query)
-    })
-    .map(item => ({
-      ...item,
-      isAdded: existingIds.includes(item.id)
-    }))
-    .slice(0, 20)
-})
+const modeOptions = [
+  { value: 'default', label: '默认模式 - 允许手动注册' },
+  { value: 'auto', label: '自动注册 - 新玩家自动创建账户' },
+  { value: 'disable', label: '禁用注册 - 完全禁止注册' }
+]
 
-const getItemInfo = (id) => {
-  return itemData.value.dict[id.toString()] || null
-}
-
-const getItemImage = (id) => {
-  const hasError = imageErrors.value[id]
-  if (hasError) {
-    const info = getItemInfo(id)
-    if (info && info.english) {
-      const wikiName = info.english.replace(/\s+/g, '_')
-      return `https://terraria.wiki.gg/images/${wikiName}.png`
+const autoSave = () => {
+  if (!ready) return
+  clearTimeout(saveTimer)
+  saveTimer = setTimeout(async () => {
+    error.value = ''
+    success.value = ''
+    try {
+      const res = await post('/api/config/tsweb', {
+        mode: registerMode.value,
+        bossLimitEnabled: bossLimitEnabled.value,
+        bossLimitMinPlayers: bossLimitMinPlayers.value
+      })
+      const data = await res.json()
+      if (data.status === '200') {
+        success.value = '已保存'
+        setTimeout(() => { success.value = '' }, 1500)
+      } else {
+        error.value = data.error || '保存失败'
+      }
+    } catch (err) {
+      error.value = '保存失败: ' + err.message
     }
-    return ''
-  }
-  return `/assets/img/img/Item_${id}.png`
+  }, 500)
 }
 
-const handleImageError = (id) => {
-  imageErrors.value = { ...imageErrors.value, [id]: true }
-}
+watch(registerMode, autoSave)
+watch(bossLimitEnabled, autoSave)
+watch(bossLimitMinPlayers, autoSave)
 
 const fetchConfig = async () => {
   loading.value = true
   error.value = ''
   try {
-    const [items, configRes] = await Promise.all([
-      loadItemData(),
-      get(`/api/config/file?name=${encodeURIComponent('物品数量限制.json')}`)
-    ])
-    itemData.value = items
-    
-    const data = await configRes.json()
-    if (data.content) {
-      const parsed = JSON.parse(data.content)
-      configItems.value = parsed.items || []
-    }
+    const res = await get('/api/config/tsweb')
+    const data = await res.json()
+    if (data.mode !== undefined) registerMode.value = data.mode
+    if (data.bossLimitEnabled !== undefined) bossLimitEnabled.value = data.bossLimitEnabled
+    if (data.bossLimitMinPlayers !== undefined) bossLimitMinPlayers.value = data.bossLimitMinPlayers
+    await nextTick()
   } catch (err) {
     error.value = '加载配置失败: ' + err.message
   }
+  ready = true
   loading.value = false
-}
-
-const increaseStack = (id) => {
-  const item = configItems.value.find(i => i.id === id)
-  if (item) {
-    item.maxStack = Math.min(item.maxStack + 1, 9999)
-  }
-}
-
-const decreaseStack = (id) => {
-  const item = configItems.value.find(i => i.id === id)
-  if (item && item.maxStack > 1) {
-    item.maxStack = item.maxStack - 1
-  }
-}
-
-const removeItem = (id) => {
-  configItems.value = configItems.value.filter(i => i.id !== id)
-}
-
-const addItem = (id) => {
-  if (!configItems.value.find(i => i.id === id)) {
-    configItems.value.push({ id, maxStack: 999 })
-  }
-  addSearchQuery.value = ''
-  showAddModal.value = false
-}
-
-const saveConfig = async () => {
-  saving.value = true
-  error.value = ''
-  success.value = ''
-  try {
-    const content = JSON.stringify({ items: configItems.value }, null, 2)
-    const response = await post('/api/config/file', {
-      name: '物品数量限制.json',
-      content
-    })
-    const result = await response.json()
-    if (result.status === '200') {
-      success.value = '配置保存成功'
-      setTimeout(() => { success.value = '' }, 2000)
-    } else {
-      error.value = result.error || '保存失败'
-    }
-  } catch (err) {
-    error.value = '保存失败: ' + err.message
-  }
-  saving.value = false
 }
 
 const goToAppConfig = () => {
@@ -148,128 +78,71 @@ onMounted(() => {
 <template>
   <div class="settings-page">
     <div class="page-header">
-      <h2>设置</h2>
+      <h2>服务器设置</h2>
     </div>
 
     <div class="settings-content">
-      <div class="main-section">
+      <div v-if="loading" class="loading-state">
+        <p>加载中...</p>
+      </div>
+
+      <div v-else class="settings-grid">
+        <!-- 注册模式 -->
         <div class="section-card">
-          <h3>物品数量限制</h3>
-          
-          <div v-if="loading" class="loading-state">
-            <p>加载中...</p>
-          </div>
-
-          <div v-else class="config-editor">
-            <div class="toolbar">
+          <h3>注册模式</h3>
+          <p class="section-desc">控制新玩家的注册方式</p>
+          <div class="radio-group">
+            <label
+              v-for="opt in modeOptions"
+              :key="opt.value"
+              class="radio-item"
+              :class="{ active: registerMode === opt.value }"
+            >
               <input
-                v-model="searchQuery"
-                type="text"
-                placeholder="搜索物品（名称或ID）..."
-                class="search-input"
+                type="radio"
+                v-model="registerMode"
+                :value="opt.value"
+                class="radio-input"
               />
-              <button @click="showAddModal = true" class="add-btn">
-                + 添加物品
-              </button>
-            </div>
-
-            <div class="items-list">
-              <div v-if="filteredItems.length === 0" class="empty-list">
-                暂无配置项
-              </div>
-              
-              <div
-                v-for="item in filteredItems"
-                :key="item.id"
-                class="item-row"
-              >
-                <img
-                  :src="getItemImage(item.id)"
-                  :alt="getItemInfo(item.id)?.chinese || ''"
-                  class="item-icon"
-                  @error="handleImageError(item.id)"
-                />
-                <div class="item-details">
-                  <span class="item-name">
-                    {{ getItemInfo(item.id)?.chinese || `物品(${item.id})` }}
-                  </span>
-                  <span class="item-id">ID: {{ item.id }}</span>
-                </div>
-                <div class="stack-control">
-                  <button @click="decreaseStack(item.id)" class="stack-btn">-</button>
-                  <input
-                    type="number"
-                    v-model.number="item.maxStack"
-                    min="1"
-                    max="9999"
-                    class="stack-input"
-                  />
-                  <button @click="increaseStack(item.id)" class="stack-btn">+</button>
-                </div>
-                <button @click="removeItem(item.id)" class="remove-btn">×</button>
-              </div>
-            </div>
-
-            <div class="editor-actions">
-              <button
-                @click="saveConfig"
-                :disabled="saving"
-                class="save-btn"
-              >
-                {{ saving ? '保存中...' : '保存配置' }}
-              </button>
-            </div>
-
-            <div v-if="error" class="error-message">{{ error }}</div>
-            <div v-if="success" class="success-message">{{ success }}</div>
+              <span class="radio-label">{{ opt.label }}</span>
+            </label>
           </div>
         </div>
 
+        <!-- Boss 限制 -->
+        <div class="section-card">
+          <h3>Boss 召唤限制</h3>
+          <p class="section-desc">未击败的 Boss 需要达到最低在线人数方可召唤（无 spawnboss 权限者）</p>
+          <div class="toggle-row">
+            <span class="toggle-label">开启限制</span>
+            <label class="switch">
+              <input type="checkbox" v-model="bossLimitEnabled" />
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div class="toggle-row">
+            <span class="toggle-label">最低在线人数</span>
+            <div class="number-control">
+              <button class="num-btn" @click="bossLimitMinPlayers = Math.max(1, bossLimitMinPlayers - 1)">−</button>
+              <span class="num-value">{{ bossLimitMinPlayers }}</span>
+              <button class="num-btn" @click="bossLimitMinPlayers = Math.min(999, bossLimitMinPlayers + 1)">+</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 应用配置 -->
         <div class="section-card">
           <h3>应用配置</h3>
-          <p class="config-desc">管理服务器连接配置</p>
+          <p class="section-desc">管理服务器连接配置</p>
           <button @click="goToAppConfig" class="nav-btn">
             前往应用配置
           </button>
         </div>
       </div>
-    </div>
 
-    <div v-if="showAddModal" class="modal-overlay" @click.self="showAddModal = false">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h4>添加物品</h4>
-          <button @click="showAddModal = false" class="modal-close">×</button>
-        </div>
-        <input
-          v-model="addSearchQuery"
-          type="text"
-          placeholder="搜索物品（名称或ID）..."
-          class="modal-search"
-          autofocus
-        />
-        <div class="search-results">
-          <div
-            v-for="item in searchResults"
-            :key="item.id"
-            class="result-item"
-            :class="{ 'result-item-added': item.isAdded }"
-            @click="addItem(item.id)"
-          >
-            <img
-              :src="`/assets/img/img/Item_${item.id}.png`"
-              :alt="item.chinese"
-              class="result-icon"
-              @error="$event.target.style.display='none'"
-            />
-            <span class="result-name">{{ item.chinese }}</span>
-            <span class="result-id">ID: {{ item.id }}</span>
-            <span v-if="item.isAdded" class="result-status">已添加</span>
-          </div>
-          <div v-if="searchResults.length === 0 && addSearchQuery.trim()" class="no-results">
-            未找到匹配的物品
-          </div>
-        </div>
+      <div class="status-bar">
+        <span v-if="success" class="success-msg">{{ success }}</span>
+        <span v-if="error" class="error-msg">{{ error }}</span>
       </div>
     </div>
   </div>
@@ -292,12 +165,16 @@ onMounted(() => {
 }
 
 .settings-content {
-  display: flex;
-  gap: 20px;
+  max-width: 700px;
 }
 
-.main-section {
-  flex: 1;
+.loading-state {
+  text-align: center;
+  padding: 60px;
+  color: var(--text-muted);
+}
+
+.settings-grid {
   display: flex;
   flex-direction: column;
   gap: 20px;
@@ -312,214 +189,108 @@ onMounted(() => {
 }
 
 .section-card h3 {
-  margin: 0 0 16px 0;
+  margin: 0 0 4px 0;
   color: var(--text-primary);
   font-size: 1.1rem;
   font-weight: 600;
-  padding-bottom: 12px;
-  border-bottom: 1px solid var(--border-light);
 }
 
-.config-editor {
-  width: 100%;
+.section-desc {
+  margin: 0 0 20px 0;
+  color: var(--text-muted);
+  font-size: 0.85rem;
 }
 
-.toolbar {
-  display: flex;
-  gap: 12px;
-  margin-bottom: 16px;
-}
-
-.search-input {
-  flex: 1;
-  padding: 10px 14px;
-  background: var(--bg-tertiary);
-  border: 2px solid var(--border-color);
-  border-radius: var(--radius-md);
-  color: var(--text-primary);
-  font-size: 0.9rem;
-  transition: all 0.25s ease;
-}
-
-.search-input:focus {
-  outline: none;
-  border-color: var(--accent-primary);
-}
-
-.add-btn {
-  padding: 10px 20px;
-  background: var(--accent-primary);
-  color: white;
-  border: none;
-  border-radius: var(--radius-md);
-  font-size: 0.9rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.25s ease;
-}
-
-.add-btn:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
-}
-
-.items-list {
+.radio-group {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  max-height: 400px;
-  overflow-y: auto;
-  padding: 4px;
 }
 
-.empty-list {
-  text-align: center;
-  padding: 40px;
-  color: var(--text-muted);
-}
-
-.item-row {
+.radio-item {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px;
+  gap: 10px;
+  padding: 12px 16px;
   background: var(--bg-tertiary);
   border: 2px solid var(--border-color);
   border-radius: var(--radius-md);
-  transition: all 0.25s ease;
+  cursor: pointer;
+  transition: all 0.2s ease;
 }
 
-.item-row:hover {
+.radio-item:hover {
   border-color: var(--accent-primary);
 }
 
-.item-icon {
-  width: 32px;
-  height: 32px;
-  max-width: 32px;
-  max-height: 32px;
-  object-fit: contain;
-  flex-shrink: 0;
-  border-radius: 4px;
+.radio-item.active {
+  border-color: var(--accent-primary);
+  background: rgba(99, 102, 241, 0.08);
 }
 
-.item-details {
-  flex: 1;
+.radio-input {
+  accent-color: var(--accent-primary);
+}
+
+.radio-label {
+  color: var(--text-primary);
+  font-size: 0.9rem;
+}
+
+.toggle-row {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 0;
 }
 
-.item-name {
+.toggle-label {
   color: var(--text-primary);
   font-size: 0.95rem;
   font-weight: 500;
 }
 
-.item-id {
-  color: var(--text-muted);
-  font-size: 0.8rem;
-}
-
-.stack-control {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.stack-btn {
-  width: 28px;
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 50px;
   height: 28px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  color: var(--text-primary);
-  font-size: 1rem;
+}
+
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.slider {
+  position: absolute;
   cursor: pointer;
-  transition: all 0.2s ease;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: var(--bg-tertiary);
+  border: 2px solid var(--border-color);
+  border-radius: 28px;
+  transition: all 0.3s ease;
 }
 
-.stack-btn:hover {
+.slider::before {
+  content: '';
+  position: absolute;
+  height: 18px; width: 18px;
+  left: 3px; bottom: 3px;
+  background: var(--text-muted);
+  border-radius: 50%;
+  transition: all 0.3s ease;
+}
+
+.switch input:checked + .slider {
   background: var(--accent-primary);
-  color: white;
-}
-
-.stack-input {
-  width: 60px;
-  padding: 4px 8px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  color: var(--text-primary);
-  font-size: 0.9rem;
-  font-weight: 600;
-  text-align: center;
-}
-
-.stack-input:focus {
-  outline: none;
   border-color: var(--accent-primary);
 }
 
-.stack-input::-webkit-inner-spin-button,
-.stack-input::-webkit-outer-spin-button {
-  -webkit-appearance: none;
-  margin: 0;
-}
-
-.stack-input[type=number] {
-  -moz-appearance: textfield;
-}
-
-.remove-btn {
-  width: 28px;
-  height: 28px;
-  background: rgba(239, 68, 68, 0.1);
-  border: 1px solid rgba(239, 68, 68, 0.3);
-  border-radius: var(--radius-sm);
-  color: #ef4444;
-  font-size: 1.2rem;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.remove-btn:hover {
-  background: #ef4444;
-  color: white;
-}
-
-.editor-actions {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 16px;
-}
-
-.save-btn {
-  padding: 10px 20px;
-  background: linear-gradient(135deg, var(--accent-primary), #4f46e5);
-  color: white;
-  border: none;
-  border-radius: var(--radius-md);
-  font-size: 0.9rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.25s ease;
-}
-
-.save-btn:hover:not(:disabled) {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
-}
-
-.save-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.config-desc {
-  margin: 0 0 16px 0;
-  color: var(--text-muted);
-  font-size: 0.9rem;
+.switch input:checked + .slider::before {
+  transform: translateX(22px);
+  background: white;
 }
 
 .nav-btn {
@@ -539,164 +310,56 @@ onMounted(() => {
   color: var(--accent-primary);
 }
 
-.loading-state {
-  text-align: center;
-  padding: 60px;
-  color: var(--text-muted);
+.status-bar {
+  margin-top: 16px;
+  min-height: 24px;
 }
 
-.error-message {
-  margin-top: 12px;
-  padding: 10px 14px;
-  background: rgba(239, 68, 68, 0.15);
-  color: var(--accent-error);
-  border-radius: var(--radius-md);
-  font-size: 0.9rem;
-  border: 1px solid rgba(239, 68, 68, 0.3);
-}
-
-.success-message {
-  margin-top: 12px;
-  padding: 10px 14px;
-  background: rgba(34, 197, 94, 0.15);
-  color: var(--accent-secondary);
-  border-radius: var(--radius-md);
-  font-size: 0.9rem;
-  border: 1px solid rgba(34, 197, 94, 0.3);
-}
-
-.modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-}
-
-.modal-content {
-  background: var(--bg-card);
-  border-radius: var(--radius-xl);
-  padding: 24px;
-  width: 400px;
-  max-width: 90vw;
-  box-shadow: var(--shadow-lg);
-}
-
-.modal-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 16px;
-}
-
-.modal-header h4 {
-  margin: 0;
-  color: var(--text-primary);
-  font-size: 1.1rem;
-}
-
-.modal-close {
-  width: 28px;
-  height: 28px;
-  background: var(--bg-tertiary);
-  border: none;
-  border-radius: var(--radius-sm);
-  color: var(--text-primary);
-  font-size: 1.2rem;
-  cursor: pointer;
-}
-
-.modal-close:hover {
-  background: var(--accent-error);
-  color: white;
-}
-
-.modal-search {
-  width: 100%;
-  padding: 10px 14px;
-  background: var(--bg-tertiary);
-  border: 2px solid var(--border-color);
-  border-radius: var(--radius-md);
-  color: var(--text-primary);
-  font-size: 0.9rem;
-  margin-bottom: 12px;
-}
-
-.modal-search:focus {
-  outline: none;
-  border-color: var(--accent-primary);
-}
-
-.search-results {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  max-height: 300px;
-  overflow-y: auto;
-}
-
-.result-item {
+.number-control {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 10px;
-  background: var(--bg-tertiary);
+}
+
+.num-btn {
+  width: 32px;
+  height: 32px;
   border: 2px solid var(--border-color);
   border-radius: var(--radius-md);
-  cursor: pointer;
-  transition: all 0.25s ease;
-}
-
-.result-item:hover {
-  border-color: var(--accent-primary);
-  background: var(--bg-secondary);
-}
-
-.result-icon {
-  width: 24px;
-  height: 24px;
-  max-width: 24px;
-  max-height: 24px;
-  object-fit: contain;
-  flex-shrink: 0;
-}
-
-.result-name {
-  flex: 1;
+  background: var(--bg-tertiary);
   color: var(--text-primary);
-  font-size: 0.9rem;
+  font-size: 1.1rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
 }
 
-.result-id {
-  color: var(--text-muted);
-  font-size: 0.8rem;
+.num-btn:hover {
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
 }
 
-.result-status {
-  padding: 2px 8px;
-  background: rgba(34, 197, 94, 0.2);
-  color: var(--accent-secondary);
-  font-size: 0.75rem;
+.num-value {
+  font-size: 1.1rem;
   font-weight: 600;
-  border-radius: var(--radius-sm);
-}
-
-.result-item-added {
-  opacity: 0.7;
-}
-
-.result-item-added:hover {
-  opacity: 1;
-}
-
-.no-results {
+  color: var(--text-primary);
+  min-width: 32px;
   text-align: center;
-  padding: 20px;
-  color: var(--text-muted);
+}
+
+.success-msg {
+  color: var(--accent-secondary);
+  font-size: 0.85rem;
+}
+
+.error-msg {
+  color: var(--accent-error);
+  font-size: 0.85rem;
+  padding: 8px 12px;
+  background: rgba(239, 68, 68, 0.1);
+  border-radius: var(--radius-md);
+  display: inline-block;
 }
 </style>

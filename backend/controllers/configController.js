@@ -2,6 +2,7 @@ import { getTshockConfig, updateTshockConfig, isTshockConfigured } from '../conf
 import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
+import tshockService from '../services/tshockService.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -74,6 +75,24 @@ export const saveConfigFile = async (req, res) => {
     
     fs.writeFileSync(filePath, content, 'utf8')
     res.json({ status: '200', message: 'File saved successfully' })
+  } catch (error) {
+    res.status(500).json({ status: '500', error: error.message })
+  }
+}
+
+export const getTsWebConfig = async (req, res) => {
+  try {
+    const result = await tshockService.getTsWebConfig()
+    res.json(result)
+  } catch (error) {
+    res.status(500).json({ status: '500', error: error.message })
+  }
+}
+
+export const setTsWebConfig = async (req, res) => {
+  try {
+    const result = await tshockService.setTsWebConfig(req.body)
+    res.json(result)
   } catch (error) {
     res.status(500).json({ status: '500', error: error.message })
   }
