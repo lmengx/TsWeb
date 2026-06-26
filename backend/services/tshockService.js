@@ -1126,6 +1126,31 @@ export class TShockService {
       return { error: error.message }
     }
   }
+
+  async getTsWebConfig() {
+    if (!this.baseUrl) await this.init()
+    const url = `${this.baseUrl}/data/config/tsweb${this.apiKey ? `?token=${encodeURIComponent(this.apiKey)}` : ''}`
+    console.log(`[OUTGOING] GET ${url}`)
+    try {
+      const response = await fetch(url, { method: 'GET', headers: { 'Accept': 'application/json' } })
+      return await response.json()
+    } catch (error) {
+      return { status: '500', error: error.message }
+    }
+  }
+
+  async setTsWebConfig(params) {
+    if (!this.baseUrl) await this.init()
+    const query = Object.entries(params).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&')
+    const url = `${this.baseUrl}/data/config/tsweb/set?${query}${this.apiKey ? `&token=${encodeURIComponent(this.apiKey)}` : ''}`
+    console.log(`[OUTGOING] POST ${url}`)
+    try {
+      const response = await fetch(url, { method: 'POST', headers: { 'Accept': 'application/json' } })
+      return await response.json()
+    } catch (error) {
+      return { status: '500', error: error.message }
+    }
+  }
 }
 
 export default new TShockService()
