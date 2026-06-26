@@ -210,12 +210,32 @@ const closePermissionMenu = () => {
 }
 const copyPermission = async (permission) => {
   try {
-    await navigator.clipboard.writeText(permission)
-    error.value = ''
-  } catch (err) {
-    error.value = '复制失败'
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(permission)
+    } else {
+      fallbackCopy(permission)
+    }
+  } catch {
+    fallbackCopy(permission)
   }
   closePermissionMenu()
+}
+
+const fallbackCopy = (text) => {
+  const textarea = document.createElement('textarea')
+  textarea.value = text
+  textarea.style.position = 'fixed'
+  textarea.style.opacity = '0'
+  textarea.style.left = '-9999px'
+  document.body.appendChild(textarea)
+  textarea.focus()
+  textarea.select()
+  try {
+    document.execCommand('copy')
+  } catch {
+    // execCommand also failed, nothing we can do
+  }
+  document.body.removeChild(textarea)
 }
 const deletePermission = async () => {
   const { groupName, permission } = permissionContextMenu.value
