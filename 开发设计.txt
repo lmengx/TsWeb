@@ -1,76 +1,55 @@
 todo
 
+bug修复：
+
     弹幕屏蔽时不时失效
 
-    boss召唤限制
-        在线玩家不足7人时禁止召唤，有权限的玩家可以强行召唤
+    remove指令无效
 
+    前端组管理中复制权限无效
 
-异常数据限制：哨兵数量20，召唤物数量15
+新功能：
 
-tshock配置文件编辑
+    事件记录系统
+        召唤boss日志，使用违禁物品，
 
-死亡排行、钓鱼排行
+    异常数据限制：哨兵数量20，召唤物数量15
 
-boss召唤日志
+    tshock配置文件编辑
 
-在线统计，每分钟增加计数，记录每10分钟在线的所有玩家
+    死亡排行、钓鱼排行
 
+    外挂反制
+        露西斧骚扰网络抓包
+        传送枪
+        脚本地图画
 
-    player_daily_stat 玩家每日时长（主键防重复，按天聚合）
-        CREATE TABLE player_daily_stat (
-        uid TEXT NOT NULL,        -- 玩家唯一ID
-        date TEXT NOT NULL,       -- 日期 yyyy-MM-dd
-        daily_min INTEGER NOT NULL DEFAULT 0, -- 当日游玩分钟
-        PRIMARY KEY (uid, date)
-    );
-    -- 索引：查单个玩家所有天数记录
-    CREATE INDEX idx_pds_uid ON player_daily_stat(uid);
+    qq绑定
 
+优化：
 
-    hourly_online_snapshot 每小时在线人数
-        CREATE TABLE hourly_online_snapshot (
-        hour_ts INTEGER PRIMARY KEY, -- 小时时间戳（整点，如2026062514）
-        online_count TEXT NOT NULL -- 该小时在线过的所有玩家的数字id，空格分开
-    );
-    CREATE INDEX idx_hour_ts ON hourly_online_snapshot(hour_ts);
+    弹幕检测、物品检测的内容填充
+    
 
+    前后端权限优化
 
-加一个预设功能bc,文本替换为/bc xxx违规持有xxx即可
-    可在此处加一个bcp(prue)来去颜色和开头的“[服务器广播]"字样
+    给前端手动触发的rest扫描加一个参数，让它不要直接做处理，而是将结果显示在前端，让管理员自行决定如何处理
 
-调用/clear {playername} {itemid}来实现清除物品
-         
-给前端手动触发的rest扫描加一个参数，让它不要直接做处理，而是将结果显示在前端，让管理员自行决定如何处理
+    指令优化
+        tp重写，禁止玩家tp时显示允许选项
 
-指令优化
-tp重写，禁止玩家tp时显示允许选项
+    物品检测
+        在线玩家定时检测
+        垃圾桶
+        丢出
+        存箱子
+        卖出
+        进入/离开时扫描背包
 
-前后端权限优化
-    superadmin/owner:全部权限
+    rest控制面板中查看编辑ban列表
 
-    newadmin 查在线玩家，查看玩家详情、踢出、禁言
-    admin 封禁、
-
-外挂反制
-    露西斧骚扰网络抓包
-    传送枪
-    脚本地图画
-
-弹幕检测
-    内容填充
-
-物品检测
-    在线玩家定时检测
-    垃圾桶
-    丢出
-    存箱子
-    卖出
-    进入/离开时扫描背包
-
-
-
-rest控制面板中查看编辑ban列表
+    现在调整鉴权机制，前后端的权限不再根据身份组来硬对应来识别是否可用，而是使用tshock原生权限，调用api获取对应用户是否具有对应权限，前端也要做出对应反馈，首先修改玩家详情页中的接口，具体规则如下
+    拥有tshock.su可以使用所有接口，tshock.accountinfo.check可以查询玩家信息
 
 
 
@@ -85,60 +64,23 @@ rest控制面板中查看编辑ban列表
 
     已封禁IP记录区域，同区域注册需要验证（qq机器人/服主手动验证）
 
-    玩法策略
-        宵禁插件：凌晨禁止召唤boss，在线人数超过8或超过已注册60%可无视
+
 
 
 
 插件需要实现的接口
 
-
-
     角色导出并下载
     
     qq验证登录
 
-    投票、清除boss，封禁玩家
-
-    超进度物品检测，弹幕检测
-
-    爆炸物投放日志
-        按时间排序
-        按使用次数排序
-
-    注册方式调控
-        不修改
-        自动注册
-        禁止常规方式注册
         
     qq绑定操作
         注册
         提权
 
-    禁止非大陆IP进入，同街道IP封禁
+
 
     角色认证（前后自动设置组）
 
-
-    快速设置组权限（参观者、玩起来不方便、正常玩家、vip玩家、管理员）
-
-    cmd
-        命令猜测
-
-
-    查角色查背包
-        角色私聊，传送到角色
-        批量查重复IP
-            返回内容中根本不需要uuid在前端调用http://ip-api.com/json/39.172.35.172?lang=zh-CN
-
-    权限控制显示
-
-    
-来显示查询到的IP的具体位置，运营商
-格式如下
-{"status":"success","country":"中国","countryCode":"CN","region":"ZJ","regionName":"浙江","city":"嘉兴","zip":"","lat":30.7488,"lon":120.7486,"timezone":"Asia/Shanghai","isp":"China Mobile Communications Corporation","org":"China Mobile","as":"AS56041 China Mobile communications corporation","query":"39.172.35.172"}
-        查询细致数据（钓鱼任务
-        查异常数据（低任务次数手机，100金钥匙，大师诱饵999，999药水，999铂金，99生命水晶
-
     云端捏人
-
