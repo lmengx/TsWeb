@@ -141,3 +141,6 @@ dist
 /plugin/obj
 /plugin/obj
 /plugin/.vs
+/.talkcody
+_temp_fix.js
+backend/backend.zip
