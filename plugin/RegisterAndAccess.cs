@@ -5,6 +5,7 @@ using TerrariaApi.Server;
 using TShockAPI;
 using TShockAPI.DB;
 using Newtonsoft.Json;
+using Rests;
 
 namespace TShockData
 {
@@ -19,6 +20,12 @@ namespace TShockData
     {
         [JsonProperty("AutoRegisterMode")]
         public string AutoRegisterMode { get; set; } = "default";
+
+        [JsonProperty("BOSS限制")]
+        public bool BossLimitEnabled { get; set; } = false;
+
+        [JsonProperty("新BOSS召唤最低人数")]
+        public int BossLimitMinPlayers { get; set; } = 7;
 
         public RegisterMode GetMode()
         {
@@ -329,6 +336,48 @@ namespace TShockData
             args.Player.SendInfoMessage("  default - 默认行为，允许手动注册");
             args.Player.SendInfoMessage("  auto - 自动注册新玩家，禁用手动注册");
             args.Player.SendInfoMessage("  disable - 完全禁用注册");
+        }
+
+        // ═══════════════════════════════════════════
+        // REST API
+        // ═══════════════════════════════════════════
+
+        public static object GetConfigJson(RestRequestArgs args)
+        {
+            return new
+            {
+                status = "200",
+                mode = Config.AutoRegisterMode,
+                bossLimitEnabled = Config.BossLimitEnabled,
+                bossLimitMinPlayers = Config.BossLimitMinPlayers
+            };
+        }
+
+        public static object SetConfigJson(RestRequestArgs args)
+        {
+            try
+            {
+                var mode = args.Parameters["mode"];
+                if (!string.IsNullOrEmpty(mode))
+                {
+                    var m = mode.ToLower();
+                    if (m == "default" || m == "auto" || m == "disable")
+                        Config.AutoRegisterMode = m;
+                }
+                var ble = args.Parameters["bossLimitEnabled"];
+                if (!string.IsNullOrEmpty(ble))
+                    Config.BossLimitEnabled = ble.ToLower() == "true";
+                var blmp = args.Parameters["bossLimitMinPlayers"];
+                if (!string.IsNullOrEmpty(blmp) && int.TryParse(blmp, out var num) && num > 0)
+                    Config.BossLimitMinPlayers = num;
+                SaveConfig();
+                TShock.Log.ConsoleInfo($"[TSWeb] REST 更新配置: mode={Config.AutoRegisterMode}, bossLimit={Config.BossLimitEnabled}, minPlayers={Config.BossLimitMinPlayers}");
+                return new { status = "200", message = "配置已保存" };
+            }
+            catch (Exception ex)
+            {
+                return new { status = "500", error = ex.Message };
+            }
         }
     }
 }

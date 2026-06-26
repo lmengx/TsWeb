@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using TShockAPI;
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using TShockAPI;
 using Terraria;
 using TerrariaApi.Server;
 using Rests;
@@ -19,6 +19,8 @@ namespace TShockData
 		public override void Initialize()
 		{
 			RuntimeHooks.Initialize();
+
+			BossLimit.Initialize();
 
             BypassHelper.RegisterPermissionHook();
 
@@ -58,6 +60,8 @@ namespace TShockData
             TShockAPI.Commands.ChatCommands.Add(new Command("", BossProgress.GetBossInfo, "进度", "bossinfo"));
 
             TShock.RestApi.Register(new SecureRestCommand("/data/boss/progress", BossProgress.GetBossInfoJson, ""));
+            TShock.RestApi.Register(new SecureRestCommand("/data/config/tsweb", AutoRegister.GetConfigJson, ""));
+            TShock.RestApi.Register(new SecureRestCommand("/data/config/tsweb/set", AutoRegister.SetConfigJson, "data.rest.invsee"));
 
             TShockAPI.Commands.ChatCommands.Add(new Command("tools.planoff", PlannedOff.PlanOff, "planoff"));
             PlannedOff.Initialize(this);
@@ -107,6 +111,7 @@ namespace TShockData
                 AutoRegister.Dispose(this);
                 OnlineData.Dispose();
                 RuntimeHooks.Dispose();
+                BossLimit.Dispose();
                 ItemDetection.StopAutoScan();
                 BypassHelper.UnregisterPermissionHook();
             }

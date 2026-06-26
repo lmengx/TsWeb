@@ -186,7 +186,7 @@ namespace TShockData
             return false;
         }
 
-        private static int GetKillCount(int npcNetId)
+        internal static int GetKillCount(int npcNetId)
         {
             try
             {
