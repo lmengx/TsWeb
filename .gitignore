@@ -144,3 +144,4 @@ dist
 /.talkcody
 _temp_fix.js
 backend/backend.zip
+frontend/dist.zip
