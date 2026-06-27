@@ -672,6 +672,43 @@ export class TShockService {
     }
   }
 
+  async unbanPlayer(ticket, fullDelete = true) {
+    if (!this.baseUrl) {
+      await this.init()
+    }
+
+    const headers = {
+      'Accept': 'application/json'
+    }
+
+    let url = `${this.baseUrl}/data/users/unban?ticket=${encodeURIComponent(ticket)}&fullDelete=${fullDelete}`
+    if (this.apiKey) {
+      url += `&token=${encodeURIComponent(this.apiKey)}`
+    }
+
+    console.log(`[OUTGOING] GET ${url}`)
+
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        headers
+      })
+
+      console.log(`[RESPONSE] Status: ${response.status}`)
+      const text = await response.text()
+      console.log(`[RESPONSE] Body: ${text}`)
+
+      try {
+        return JSON.parse(text)
+      } catch {
+        return { error: 'Invalid JSON', rawResponse: text }
+      }
+    } catch (error) {
+      this.isConnected = false
+      return { error: error.message }
+    }
+  }
+
   async getUserPassword(username) {
     if (!this.baseUrl) {
       await this.init()

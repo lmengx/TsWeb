@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using Rests;
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using Rests;
 using System;
 using System.Collections.Generic;
 using System.Data;
@@ -381,6 +381,72 @@ namespace TShockData
                     { "bannedIPs", ipList.Count },
                     { "reason", reason }
                 };
+            }
+            catch (Exception ex)
+            {
+                return new RestObject("500")
+                {
+                    { "error", ex.Message }
+                };
+            }
+        }
+
+        public static object UnbanPlayer(RestRequestArgs args)
+        {
+            string ticketStr = null;
+            bool fullDelete = true;
+
+            try
+            {
+                ticketStr = args.Parameters["ticket"];
+            }
+            catch { }
+
+            try
+            {
+                string fd = args.Parameters["fullDelete"];
+                if (!string.IsNullOrEmpty(fd))
+                    fullDelete = bool.Parse(fd);
+            }
+            catch { }
+
+            if (string.IsNullOrEmpty(ticketStr))
+            {
+                return new RestObject("400")
+                {
+                    { "error", "ticket 参数是必填的（封票据编号）" }
+                };
+            }
+
+            if (!int.TryParse(ticketStr, out int ticketNumber))
+            {
+                return new RestObject("400")
+                {
+                    { "error", "ticket 必须是有效的数字" }
+                };
+            }
+
+            try
+            {
+                // 直接调用 TShock.Bans.RemoveBan，绕过损坏的 /ban del 命令
+                bool success = TShock.Bans.RemoveBan(ticketNumber, fullDelete);
+
+                if (success)
+                {
+                    return new RestObject()
+                    {
+                        { "response", $"封禁令 #{ticketNumber} 已{(fullDelete ? "彻底删除" : "标记过期")}" },
+                        { "ticket", ticketNumber },
+                        { "fullDelete", fullDelete }
+                    };
+                }
+                else
+                {
+                    return new RestObject("404")
+                    {
+                        { "error", $"未找到票号为 #{ticketNumber} 的封禁记录" }
+                    };
+                }
             }
             catch (Exception ex)
             {
