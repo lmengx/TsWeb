@@ -173,6 +173,17 @@ export const unbanPlayer = async (req, res) => {
   res.json(result)
 }
 
+export const createUser = async (req, res) => {
+  const { username, password, group } = req.body
+
+  if (!username || !password) {
+    return res.status(400).json({ error: 'username and password are required' })
+  }
+
+  const result = await tshockService.createUser(username, password, group || '')
+  res.json(result)
+}
+
 
 
 export const getBossProgress = async (req, res) => {

@@ -1,5 +1,6 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
+import { get, post } from '../utils/api.js'
 
 const props = defineProps({
   users: {
@@ -19,6 +20,94 @@ const props = defineProps({
 const emit = defineEmits(['refresh', 'goToUserDetail'])
 
 const searchQuery = ref('')
+
+// 创建用户模态框
+const showCreateModal = ref(false)
+const newUsername = ref('')
+const newPassword = ref('')
+const newGroup = ref('')
+const groups = ref([])
+const createLoading = ref(false)
+const createError = ref('')
+const createSuccess = ref('')
+const showGroupDropdown = ref(false)
+
+const toggleGroupDropdown = () => {
+  showGroupDropdown.value = !showGroupDropdown.value
+}
+
+const selectGroup = (group) => {
+  newGroup.value = group
+  showGroupDropdown.value = false
+}
+
+const closeGroupDropdown = () => {
+  showGroupDropdown.value = false
+}
+
+const fetchGroups = async () => {
+  try {
+    const response = await get('/api/tshock/groups')
+    const result = await response.json()
+    if (result.groups) {
+      groups.value = result.groups.map(g => ({ name: g.GroupName }))
+    }
+  } catch (err) {
+    console.error('Failed to fetch groups:', err)
+  }
+}
+
+const openCreateModal = () => {
+  newUsername.value = ''
+  newPassword.value = ''
+  newGroup.value = ''
+  createError.value = ''
+  createSuccess.value = ''
+  showCreateModal.value = true
+  fetchGroups()
+}
+
+const closeCreateModal = () => {
+  showCreateModal.value = false
+  showGroupDropdown.value = false
+  newUsername.value = ''
+  newPassword.value = ''
+  newGroup.value = ''
+  createError.value = ''
+  createSuccess.value = ''
+}
+
+const executeCreateUser = async () => {
+  if (!newUsername.value.trim() || !newPassword.value.trim()) {
+    createError.value = '用户名和密码不能为空'
+    return
+  }
+
+  createLoading.value = true
+  createError.value = ''
+  createSuccess.value = ''
+
+  try {
+    const response = await post('/api/tshock/user/create', {
+      username: newUsername.value.trim(),
+      password: newPassword.value,
+      group: newGroup.value
+    })
+    const result = await response.json()
+
+    if (result.error) {
+      createError.value = result.error
+    } else {
+      createSuccess.value = result.response || '创建成功'
+      emit('refresh')
+      setTimeout(() => closeCreateModal(), 1500)
+    }
+  } catch (err) {
+    createError.value = err.message || '创建失败'
+  }
+
+  createLoading.value = false
+}
 
 const isUserOnline = (username) => {
   return props.activeUsers.some(name => name.toLowerCase() === username.toLowerCase())
@@ -70,6 +159,7 @@ const handleRowClick = (user) => {
         placeholder="搜索用户名..."
         class="search-input"
       />
+      <button @click="openCreateModal" class="create-user-btn">+ 创建用户</button>
     </div>
 
     <div v-if="loading" class="loading-state">
@@ -109,6 +199,60 @@ const handleRowClick = (user) => {
       </table>
     </div>
   </div>
+
+    <!-- 创建用户模态框 -->
+    <div v-if="showCreateModal" class="modal-overlay" @click.self="closeCreateModal">
+      <div class="modal-dialog">
+        <div class="modal-header">
+          <h3>创建用户</h3>
+          <button class="modal-close" @click="closeCreateModal">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label class="form-label">用户名 <span class="required">*</span></label>
+            <input
+              v-model="newUsername"
+              type="text"
+              placeholder="输入用户名"
+              class="form-input"
+              @keyup.enter="executeCreateUser"
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-label">密码 <span class="required">*</span></label>
+            <input
+              v-model="newPassword"
+              type="password"
+              placeholder="输入密码"
+              class="form-input"
+              @keyup.enter="executeCreateUser"
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-label">权限组</label>
+            <div class="custom-select-wrapper">
+              <div class="custom-select-trigger" @click="toggleGroupDropdown">
+                <span class="custom-select-value" :class="{ placeholder: !newGroup }">{{ newGroup || '请选择用户组' }}</span>
+                <span class="custom-select-arrow" :class="{ rotated: showGroupDropdown }">▼</span>
+              </div>
+              <div v-if="showGroupDropdown" class="custom-select-dropdown">
+                <div class="custom-select-option" :class="{ selected: !newGroup }" @click="selectGroup('')">默认权限组</div>
+                <div v-for="g in groups" :key="g.name" class="custom-select-option" :class="{ selected: newGroup === g.name }" @click="selectGroup(g.name)">{{ g.name }}</div>
+              </div>
+            </div>
+          </div>
+
+          <div v-if="createError" class="error-msg">{{ createError }}</div>
+          <div v-if="createSuccess" class="success-msg">{{ createSuccess }}</div>
+        </div>
+        <div class="modal-footer">
+          <button class="modal-btn cancel" @click="closeCreateModal" :disabled="createLoading">取消</button>
+          <button class="modal-btn confirm" @click="executeCreateUser" :disabled="createLoading">
+            {{ createLoading ? '创建中...' : '确认创建' }}
+          </button>
+        </div>
+      </div>
+    </div>
 </template>
 
 <style scoped>
@@ -165,6 +309,9 @@ const handleRowClick = (user) => {
 .search-bar {
   padding: 0 20px;
   margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 .search-input {
@@ -276,5 +423,264 @@ const handleRowClick = (user) => {
   height: 10px;
   background: #6b7280;
   border-radius: 50%;
+}
+
+.create-user-btn {
+  padding: 10px 20px;
+  background: linear-gradient(135deg, #16a34a, #15803d);
+  color: white;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 600;
+  transition: all 0.25s ease;
+  white-space: nowrap;
+  box-shadow: var(--shadow-sm);
+  flex-shrink: 0;
+}
+
+.create-user-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+/* 模态框通用样式 */
+.modal-overlay {
+  position: fixed;
+  z-index: 1000;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal-dialog {
+  background: var(--bg-card);
+  border-radius: var(--radius-xl);
+  padding: 0;
+  width: 90%;
+  max-width: 440px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--border-light);
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 18px 24px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.modal-header h3 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 1.1rem;
+}
+
+.modal-close {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1.5rem;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+}
+
+.modal-close:hover {
+  color: var(--text-primary);
+}
+
+.modal-body {
+  padding: 24px;
+}
+
+.form-group {
+  margin-bottom: 18px;
+  position: relative;
+  width: 100%;
+}
+
+.form-label {
+  display: block;
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.required {
+  color: var(--accent-error);
+}
+
+.form-input {
+  width: 100%;
+  padding: 12px 16px;
+  background: var(--bg-tertiary);
+  border: 2px solid var(--border-color);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: 0.95rem;
+  transition: all 0.25s ease;
+  box-sizing: border-box;
+}
+
+.form-input:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+}
+
+.form-input::placeholder {
+  color: var(--text-muted);
+}
+
+.custom-select-wrapper {
+  position: relative;
+  width: 100%;
+}
+
+.custom-select-trigger {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  padding: 12px 16px;
+  background: var(--bg-tertiary);
+  border: 2px solid var(--border-color);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  box-sizing: border-box;
+}
+
+.custom-select-trigger:hover {
+  border-color: var(--accent-primary);
+}
+
+.custom-select-value {
+  color: var(--text-primary);
+}
+
+.custom-select-value.placeholder {
+  color: var(--text-muted);
+}
+
+.custom-select-arrow {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  transition: transform 0.2s ease;
+}
+
+.custom-select-arrow.rotated {
+  transform: rotate(180deg);
+}
+
+.custom-select-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 100;
+  background: var(--bg-card);
+  border: 2px solid var(--border-color);
+  border-radius: var(--radius-md);
+  max-height: 200px;
+  overflow-y: auto;
+  box-shadow: var(--shadow-lg);
+}
+
+.custom-select-option {
+  padding: 12px 16px;
+  color: var(--text-primary);
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.custom-select-option:last-child {
+  border-bottom: none;
+}
+
+.custom-select-option:hover {
+  background: rgba(99, 102, 241, 0.15);
+  color: var(--accent-primary);
+}
+
+.custom-select-option.selected {
+  background: rgba(99, 102, 241, 0.2);
+  color: var(--accent-primary);
+  font-weight: 600;
+}
+
+.error-msg {
+  padding: 10px 14px;
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--accent-error);
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  font-size: 0.85rem;
+  margin-top: 4px;
+}
+
+.success-msg {
+  padding: 10px 14px;
+  background: rgba(22, 163, 74, 0.1);
+  color: #16a34a;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(22, 163, 74, 0.3);
+  font-size: 0.85rem;
+  margin-top: 4px;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 16px 24px;
+  border-top: 1px solid var(--border-light);
+}
+
+.modal-btn {
+  padding: 10px 24px;
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.modal-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.modal-btn.cancel {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+}
+
+.modal-btn.cancel:hover:not(:disabled) {
+  background: var(--border-color);
+}
+
+.modal-btn.confirm {
+  background: var(--accent-primary);
+  color: #fff;
+}
+
+.modal-btn.confirm:hover:not(:disabled) {
+  opacity: 0.85;
 }
 </style>
