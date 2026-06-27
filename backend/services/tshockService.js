@@ -709,6 +709,44 @@ export class TShockService {
     }
   }
 
+  async createUser(username, password, group) {
+    if (!this.baseUrl) {
+      await this.init()
+    }
+
+    const headers = {
+      'Accept': 'application/json'
+    }
+
+    let url = `${this.baseUrl}/v2/users/create?user=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}`
+    if (group) url += `&group=${encodeURIComponent(group)}`
+    if (this.apiKey) {
+      url += `&token=${encodeURIComponent(this.apiKey)}`
+    }
+
+    console.log(`[OUTGOING] GET ${url}`)
+
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        headers
+      })
+
+      console.log(`[RESPONSE] Status: ${response.status}`)
+      const text = await response.text()
+      console.log(`[RESPONSE] Body: ${text}`)
+
+      try {
+        return JSON.parse(text)
+      } catch {
+        return { error: 'Invalid JSON', rawResponse: text }
+      }
+    } catch (error) {
+      this.isConnected = false
+      return { error: error.message }
+    }
+  }
+
   async getUserPassword(username) {
     if (!this.baseUrl) {
       await this.init()
