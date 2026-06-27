@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System;
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System;
 using System.Collections.Generic;
 using System.Data;
 using System.IO;
@@ -405,77 +405,86 @@ namespace TShockData
         public static void ExecuteViolation(TSPlayer player, string method, string playerName = null, int itemId = 0, string itemName = null, int projId = 0)
         {
             string name = playerName ?? player?.Name ?? "未知";
+            string captureMethod = method;
 
-            try
+            System.Threading.Tasks.Task.Run(() =>
             {
-                string reason = BuildReason(name, itemId, itemName, projId);
-
-                switch (method?.ToLower())
+                try
                 {
-                    case "ban":
-                        ExecuteBan(name, reason);
-                        if (player != null)
-                        {
-                            player.Kick($"检测到作弊行为: {reason}", true);
-                        }
-                        TShock.Log.ConsoleError($"[反作弊] 已封禁玩家: {name}, 原因: {reason}");
-                        break;
-                    case "kick":
-                        if (player != null)
-                        {
-                            ExecuteKick(player, name, reason);
-                            TShock.Log.ConsoleError($"[反作弊] 已踢出玩家: {name}, 原因: {reason}");
-                        }
-                        else
-                        {
-                            TShock.Log.ConsoleError($"[反作弊] 违规记录 - 离线玩家: {name}, 原因: {reason}");
-                        }
-                        break;
-                    case "log":
-                        TShock.Log.ConsoleError($"[反作弊] 违规记录 - 玩家: {name}, 原因: {reason}");
-                        break;
-                    default:
-                        string command = ReplacePlaceholders(method, name, itemId, itemName, projId);
-                        ExecuteCommand(command);
-                        TShock.Log.ConsoleError($"[反作弊] 违规记录 - 玩家: {name}, 原因: {reason}");
-                        break;
+                    string reason = BuildReason(name, itemId, itemName, projId);
+
+                    switch (captureMethod?.ToLower())
+                    {
+                        case "ban":
+                            ExecuteBan(name, reason);
+                            if (player != null)
+                            {
+                                player.Kick($"检测到作弊行为: {reason}", true);
+                            }
+                            TShock.Log.ConsoleError($"[反作弊] 已封禁玩家: {name}, 原因: {reason}");
+                            break;
+                        case "kick":
+                            if (player != null)
+                            {
+                                ExecuteKick(player, name, reason);
+                                TShock.Log.ConsoleError($"[反作弊] 已踢出玩家: {name}, 原因: {reason}");
+                            }
+                            else
+                            {
+                                TShock.Log.ConsoleError($"[反作弊] 违规记录 - 离线玩家: {name}, 原因: {reason}");
+                            }
+                            break;
+                        case "log":
+                            TShock.Log.ConsoleError($"[反作弊] 违规记录 - 玩家: {name}, 原因: {reason}");
+                            break;
+                        default:
+                            string command = ReplacePlaceholders(captureMethod, name, itemId, itemName, projId);
+                            ExecuteCommand(command);
+                            TShock.Log.ConsoleError($"[反作弊] 违规记录 - 玩家: {name}, 原因: {reason}");
+                            break;
+                    }
                 }
-            }
-            catch (Exception ex)
-            {
-                TShock.Log.ConsoleError($"[反作弊] 执行违规处理失败: {ex.Message}");
-            }
+                catch (Exception ex)
+                {
+                    TShock.Log.ConsoleError($"[反作弊] 执行违规处理失败: {ex.Message}");
+                }
+            });
         }
 
         public static void ExecuteViolation(string playerName, string method, int itemId = 0, string itemName = null, int projId = 0)
         {
-            try
-            {
-                string reason = BuildReason(playerName, itemId, itemName, projId);
+            string captureMethod = method;
 
-                switch (method?.ToLower())
-                {
-                    case "ban":
-                        ExecuteBan(playerName, reason);
-                        TShock.Log.ConsoleError($"[反作弊] 已封禁玩家: {playerName}, 原因: {reason}");
-                        break;
-                    case "kick":
-                        TShock.Log.ConsoleError($"[反作弊] 违规记录 - 离线玩家: {playerName}, 原因: {reason}");
-                        break;
-                    case "log":
-                        TShock.Log.ConsoleError($"[反作弊] 违规记录 - 玩家: {playerName}, 原因: {reason}");
-                        break;
-                    default:
-                        string command = ReplacePlaceholders(method, playerName, itemId, itemName, projId);
-                        ExecuteCommand(command);
-                        TShock.Log.ConsoleError($"[反作弊] 违规记录 - 玩家: {playerName}, 原因: {reason}");
-                        break;
-                }
-            }
-            catch (Exception ex)
+            System.Threading.Tasks.Task.Run(() =>
             {
-                TShock.Log.ConsoleError($"[反作弊] 执行违规处理失败: {ex.Message}");
-            }
+                try
+                {
+                    string reason = BuildReason(playerName, itemId, itemName, projId);
+
+                    switch (captureMethod?.ToLower())
+                    {
+                        case "ban":
+                            ExecuteBan(playerName, reason);
+                            TShock.Log.ConsoleError($"[反作弊] 已封禁玩家: {playerName}, 原因: {reason}");
+                            break;
+                        case "kick":
+                            TShock.Log.ConsoleError($"[反作弊] 违规记录 - 离线玩家: {playerName}, 原因: {reason}");
+                            break;
+                        case "log":
+                            TShock.Log.ConsoleError($"[反作弊] 违规记录 - 玩家: {playerName}, 原因: {reason}");
+                            break;
+                        default:
+                            string command = ReplacePlaceholders(captureMethod, playerName, itemId, itemName, projId);
+                            ExecuteCommand(command);
+                            TShock.Log.ConsoleError($"[反作弊] 违规记录 - 玩家: {playerName}, 原因: {reason}");
+                            break;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    TShock.Log.ConsoleError($"[反作弊] 执行违规处理失败: {ex.Message}");
+                }
+            });
         }
 
         private static string BuildReason(string playerName, int itemId, string itemName, int projId)
