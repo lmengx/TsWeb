@@ -361,14 +361,16 @@ namespace TShockData
         {
             if (_initialized) return;
             GetDataHandlers.ItemDrop.Register(OnItemDrop);
+            GetDataHandlers.ChestItemChange.Register(OnChestItemChange);
             _initialized = true;
-            TShock.Log.ConsoleInfo("[TSWeb] 物品限制功能已启用 (丢出检测)");
+            TShock.Log.ConsoleInfo("[TSWeb] 物品限制功能已启用 (丢出+存箱检测)");
         }
 
         public static void Dispose()
         {
             if (!_initialized) return;
             GetDataHandlers.ItemDrop.UnRegister(OnItemDrop);
+            GetDataHandlers.ChestItemChange.UnRegister(OnChestItemChange);
             _initialized = false;
         }
 
@@ -392,6 +394,48 @@ namespace TShockData
                     NetMessage.SendData(21, -1, -1, null, e.ID, 0, 0);
 
                     TShock.Log.ConsoleError($"[TSWeb] 阻止丢出违禁物品! 玩家: {e.Player.Name}, 物品ID: {e.Type}, 数量: {e.Stacks}, 限制: {matchedItem.Stack}, 处理: {matchedItem.Method}");
+
+                    ViolationExecutor.ExecuteViolation(e.Player, matchedItem.Method,
+                        playerName: e.Player.Name,
+                        itemId: e.Type,
+                        itemName: AntiCheat.GetItemName(e.Type));
+                }
+            }
+        }
+
+        /// <summary>
+        /// 箱子物品变更检测：拦截存入箱子的违禁物品
+        /// </summary>
+        private static void OnChestItemChange(object? sender, GetDataHandlers.ChestItemEventArgs e)
+        {
+            if (e.Player == null || e.Type <= 0)
+                return;
+
+            TShock.Log.ConsoleInfo($"[TSWeb] 玩家存取箱子: {e.Player.Name}, 箱子ID={e.ID}, Slot={e.Slot}, Type={e.Type}, Stacks={e.Stacks}");
+
+            // 对接物品限制审查器
+            var matchedItems = ItemDetection.CheckItem(e.Player, e.Type, e.Stacks);
+            if (matchedItems.Count > 0)
+            {
+                foreach (var matchedItem in matchedItems)
+                {
+                    // 阻止物品存入箱子
+                    e.Handled = true;
+
+                    // 刷新箱子该槽位，让客户端恢复原状
+                    if (e.ID >= 0 && e.ID < Main.chest.Length && Main.chest[e.ID] != null)
+                    {
+                        var chest = Main.chest[e.ID];
+                        if (e.Slot < chest.item.Length)
+                        {
+                            var originalItem = chest.item[e.Slot];
+                            e.Player.SendData(PacketTypes.ChestItem, "", e.ID, e.Slot, originalItem.stack, originalItem.prefix, originalItem.type);
+                        }
+                    }
+
+                    e.Player.SendErrorMessage($"违禁物品({AntiCheat.GetItemName(e.Type)})无法存入箱子!");
+
+                    TShock.Log.ConsoleError($"[TSWeb] 阻止存入箱子违禁物品! 玩家: {e.Player.Name}, 物品ID: {e.Type}, 数量: {e.Stacks}, 限制: {matchedItem.Stack}, 处理: {matchedItem.Method}");
 
                     ViolationExecutor.ExecuteViolation(e.Player, matchedItem.Method,
                         playerName: e.Player.Name,
