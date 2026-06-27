@@ -107,12 +107,14 @@ onMounted(() => {
       <section class="card ranking-section">
         <div class="card-header">
           <h3>累计时长排行</h3>
-          <select v-model="rankingDays" class="filter-select">
-            <option :value="7">最近7天</option>
-            <option :value="14">最近14天</option>
-            <option :value="30">最近30天</option>
-            <option :value="90">最近90天</option>
-          </select>
+          <div class="select-wrapper">
+            <select v-model="rankingDays" class="filter-select">
+              <option :value="1">今天</option>
+              <option :value="7">最近7天</option>
+              <option :value="30">最近30天</option>
+              <option :value="36500">累计</option>
+            </select>
+          </div>
         </div>
         <div class="card-body">
           <div v-if="rankingLoading" class="loading">加载中...</div>
@@ -235,12 +237,53 @@ onMounted(() => {
 }
 
 .filter-select, .filter-date {
-  padding: 6px 12px;
+  padding: 7px 32px 7px 14px;
   border: 1px solid var(--border-light);
   border-radius: var(--radius-sm, 6px);
   background: var(--bg-input);
   color: var(--text-primary);
   font-size: 0.875rem;
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  min-width: 120px;
+}
+
+.select-wrapper {
+  position: relative;
+  display: inline-flex;
+}
+
+.select-wrapper::after {
+  content: '';
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 0;
+  height: 0;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 5px solid var(--text-secondary);
+  pointer-events: none;
+}
+
+.filter-select:hover {
+  border-color: var(--accent-primary);
+}
+
+.filter-select:focus {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-primary) 20%, transparent);
+}
+
+.filter-select option {
+  background: var(--bg-card);
+  color: var(--text-primary);
+  padding: 6px 12px;
 }
 
 .loading, .empty {
