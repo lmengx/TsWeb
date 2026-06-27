@@ -97,3 +97,31 @@ export const setTsWebConfig = async (req, res) => {
     res.status(500).json({ status: '500', error: error.message })
   }
 }
+
+export const getAllowList = async (req, res) => {
+  try {
+    const result = await tshockService.getTsWebAllowList()
+    res.json(result)
+  } catch (error) {
+    res.status(500).json({ status: '500', error: error.message })
+  }
+}
+
+export const addAllowIP = async (req, res) => {
+  try {
+    const { ip } = req.body
+    const result = await tshockService.addTsWebAllowIP(ip)
+    res.json(result)
+  } catch (error) {
+    res.status(500).json({ status: '500', error: error.message })
+  }
+}
+
+export const clearAllowList = async (req, res) => {
+  try {
+    const result = await tshockService.clearTsWebAllowList()
+    res.json(result)
+  } catch (error) {
+    res.status(500).json({ status: '500', error: error.message })
+  }
+}
