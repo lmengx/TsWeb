@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using TShockAPI;
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using TShockAPI;
 using Terraria;
 using TerrariaApi.Server;
 using Rests;
@@ -26,7 +26,7 @@ namespace TShockData
 
             AutoRegister.Initialize(this);
 
-            ItemRestrict.Initialize(this);
+            ItemRestrict.Initialize();
 
 			TShock.RestApi.Register(new SecureRestCommand("/data/users/invsee", GetPlayerInv.GetInv, "data.rest.invsee"));
 			TShock.RestApi.Register(new SecureRestCommand("/data/users/editinv", GetPlayerInv.EditInv, "data.rest.invsee"));
@@ -115,7 +115,7 @@ namespace TShockData
                 TShockAPI.Hooks.GeneralHooks.ReloadEvent -= OnReload;
                 PlannedOff.Dispose();
                 AutoRegister.Dispose(this);
-                ItemRestrict.Dispose(this);
+                ItemRestrict.Dispose();
                 OnlineData.Dispose();
                 RuntimeHooks.Dispose();
                 BossLimit.Dispose();
