@@ -162,6 +162,19 @@ export const banPlayer = async (req, res) => {
 
 
 
+export const unbanPlayer = async (req, res) => {
+  const { ticket, fullDelete } = req.body
+
+  if (!ticket) {
+    return res.status(400).json({ error: 'ticket is required' })
+  }
+
+  const result = await tshockService.unbanPlayer(ticket, fullDelete !== false)
+  res.json(result)
+}
+
+
+
 export const getBossProgress = async (req, res) => {
   const result = await tshockService.getBossProgress()
   res.json(result)

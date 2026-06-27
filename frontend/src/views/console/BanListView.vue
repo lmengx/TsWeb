@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { get } from '../../utils/api.js'
+import { get, post } from '../../utils/api.js'
 
 const router = useRouter()
 
@@ -9,6 +9,7 @@ const loading = ref(false)
 const error = ref('')
 const banList = ref([])
 const searchQuery = ref('')
+const showActiveOnly = ref(true) // 默认只显示生效中的封禁
 const currentPage = ref(1)
 const pageSize = ref(10)
 
@@ -38,17 +39,34 @@ const parseIdentifier = (identifier) => {
   return { type: '未知', value: identifier }
 }
 
+const isBanExpired = (ban) => {
+  // 3155378976000000000 = DateTime.MaxValue.Ticks = 永久封禁，永不过期
+  if (ban.end_date_ticks === 3155378976000000000) return false
+  // 当前UTC时间的.NET刻度
+  const nowTicks = (Date.now() * 10000) + 621355968000000000
+  return ban.end_date_ticks <= nowTicks
+}
+
 const filteredBanList = computed(() => {
-  if (!searchQuery.value.trim()) {
-    return banList.value
+  let list = banList.value
+
+  // 筛选：仅生效中
+  if (showActiveOnly.value) {
+    list = list.filter(ban => !isBanExpired(ban))
   }
-  const query = searchQuery.value.toLowerCase()
-  return banList.value.filter(ban => {
-    const parsed = parseIdentifier(ban.identifier)
-    return parsed.value.toLowerCase().includes(query) ||
-           ban.reason?.toLowerCase().includes(query) ||
-           ban.banning_user?.toLowerCase().includes(query)
-  })
+
+  // 筛选：搜索关键词
+  if (searchQuery.value.trim()) {
+    const query = searchQuery.value.toLowerCase()
+    list = list.filter(ban => {
+      const parsed = parseIdentifier(ban.identifier)
+      return parsed.value.toLowerCase().includes(query) ||
+             ban.reason?.toLowerCase().includes(query) ||
+             ban.banning_user?.toLowerCase().includes(query)
+    })
+  }
+
+  return list
 })
 
 const totalItems = computed(() => filteredBanList.value.length)
@@ -131,6 +149,55 @@ const resetPage = () => {
   currentPage.value = 1
 }
 
+// 解封相关
+const showUnbanModal = ref(false)
+const unbanTicket = ref('')
+const unbanLoading = ref(false)
+const unbanError = ref('')
+const unbanSuccess = ref('')
+
+const openUnbanModal = (ticket) => {
+  unbanTicket.value = ticket
+  unbanError.value = ''
+  unbanSuccess.value = ''
+  showUnbanModal.value = true
+}
+
+const closeUnbanModal = () => {
+  showUnbanModal.value = false
+  unbanTicket.value = ''
+  unbanError.value = ''
+  unbanSuccess.value = ''
+}
+
+const executeUnban = async () => {
+  unbanLoading.value = true
+  unbanError.value = ''
+  unbanSuccess.value = ''
+
+  try {
+    const response = await post('/api/tshock/unban', {
+      ticket: unbanTicket.value
+    })
+    const result = await response.json()
+
+    if (result.error) {
+      unbanError.value = result.error
+    } else {
+      unbanSuccess.value = result.response || '解封成功'
+      // 刷新封禁列表
+      setTimeout(() => {
+        fetchBanList()
+        closeUnbanModal()
+      }, 1000)
+    }
+  } catch (err) {
+    unbanError.value = err.message || '解封失败'
+  }
+
+  unbanLoading.value = false
+}
+
 onMounted(() => {
   fetchBanList()
 })
@@ -153,6 +220,10 @@ onMounted(() => {
             @input="resetPage"
           />
         </div>
+        <label class="active-filter">
+          <input type="checkbox" v-model="showActiveOnly" @change="resetPage" />
+          <span class="checkbox-label">仅生效中</span>
+        </label>
         <button @click="fetchBanList" :disabled="loading" class="refresh-btn">
           <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M21 2v6h-6"></path>
@@ -181,6 +252,7 @@ onMounted(() => {
               <th>封禁者</th>
               <th>封禁时间</th>
               <th>到期时间</th>
+              <th>操作</th>
             </tr>
           </thead>
           <tbody>
@@ -210,6 +282,9 @@ onMounted(() => {
                 <span :class="{ permanent: ban.end_date_ticks === 3155378976000000000 }">
                   {{ ban.end_date_ticks === 3155378976000000000 ? '永久' : ticksToDate(ban.end_date_ticks) }}
                 </span>
+              </td>
+              <td class="action-cell">
+                <button @click="openUnbanModal(ban.ticket_number)" class="unban-btn">解封</button>
               </td>
             </tr>
           </tbody>
@@ -256,6 +331,29 @@ onMounted(() => {
           <line x1="9" y1="9" x2="15" y2="15"></line>
         </svg>
         <p>暂无封禁记录</p>
+      </div>
+    </div>
+
+    <!-- 解封确认弹窗 -->
+    <div v-if="showUnbanModal" class="modal-overlay" @click.self="closeUnbanModal">
+      <div class="modal-dialog">
+        <div class="modal-header">
+          <h3>确认解封</h3>
+          <button class="modal-close" @click="closeUnbanModal">×</button>
+        </div>
+        <div class="modal-body">
+          <p>确定要解封票号为 <strong>#{{ unbanTicket }}</strong> 的封禁记录吗？</p>
+          <p class="modal-warning">此操作将永久删除该封禁记录，被封玩家将可以重新进入服务器。</p>
+
+          <div v-if="unbanError" class="error-message" style="margin-top: 12px;">{{ unbanError }}</div>
+          <div v-if="unbanSuccess" class="success-message" style="margin-top: 12px;">{{ unbanSuccess }}</div>
+        </div>
+        <div class="modal-footer">
+          <button class="modal-btn cancel" @click="closeUnbanModal" :disabled="unbanLoading">取消</button>
+          <button class="modal-btn confirm" @click="executeUnban" :disabled="unbanLoading">
+            {{ unbanLoading ? '处理中...' : '确认解封' }}
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -317,6 +415,37 @@ onMounted(() => {
 
 .search-input::placeholder {
   color: var(--text-muted);
+}
+
+.active-filter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+  padding: 8px 14px;
+  background: var(--bg-tertiary);
+  border: 2px solid var(--border-color);
+  border-radius: var(--radius-md);
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.active-filter:hover {
+  border-color: var(--accent-primary);
+}
+
+.active-filter input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent-primary);
+  cursor: pointer;
+}
+
+.checkbox-label {
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  font-weight: 500;
 }
 
 .refresh-btn {
@@ -535,5 +664,151 @@ onMounted(() => {
   margin-top: 12px;
   font-size: 0.85rem;
   color: var(--text-muted);
+}
+
+.action-cell {
+  min-width: 80px;
+  text-align: center;
+}
+
+.unban-btn {
+  padding: 6px 16px;
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--accent-error);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 600;
+  transition: all 0.2s ease;
+}
+
+.unban-btn:hover {
+  background: rgba(239, 68, 68, 0.25);
+  border-color: var(--accent-error);
+}
+
+/* 弹窗样式 */
+.modal-overlay {
+  position: fixed;
+  z-index: 1000;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal-dialog {
+  background: var(--bg-card);
+  border-radius: var(--radius-xl);
+  padding: 0;
+  width: 90%;
+  max-width: 440px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--border-light);
+  overflow: hidden;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.modal-header h3 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 1.1rem;
+}
+
+.modal-close {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1.5rem;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+}
+
+.modal-close:hover {
+  color: var(--text-primary);
+}
+
+.modal-body {
+  padding: 20px 24px;
+}
+
+.modal-body p {
+  margin: 0 0 8px 0;
+  color: var(--text-primary);
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.modal-warning {
+  color: var(--accent-error) !important;
+  font-size: 0.85rem !important;
+  background: rgba(239, 68, 68, 0.08);
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  margin-top: 12px !important;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 16px 24px;
+  border-top: 1px solid var(--border-light);
+}
+
+.modal-btn {
+  padding: 10px 24px;
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.modal-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.modal-btn.cancel {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+}
+
+.modal-btn.cancel:hover:not(:disabled) {
+  background: var(--border-color);
+}
+
+.modal-btn.confirm {
+  background: var(--accent-error);
+  color: #fff;
+}
+
+.modal-btn.confirm:hover:not(:disabled) {
+  opacity: 0.85;
+}
+
+.success-message {
+  padding: 10px 14px;
+  background: rgba(22, 163, 74, 0.1);
+  color: #16a34a;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(22, 163, 74, 0.3);
+  font-size: 0.85rem;
 }
 </style>

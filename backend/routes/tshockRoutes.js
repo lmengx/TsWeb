@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { executeCommand, testCommand, getUsers, getActiveUsers, getInventory, getUserList, checkDuplicateIPs, getAllDuplicateIPs, editInventory, getGroups, getGroup, createGroup, updateGroup, deleteGroup, addGroupPermission, removeGroupPermission, banPlayer, getSelfInfo, getBossProgress, getBanList, scanItems, getPlayerStats, setPlayerStats } from '../controllers/tshockController.js'
+import { executeCommand, testCommand, getUsers, getActiveUsers, getInventory, getUserList, checkDuplicateIPs, getAllDuplicateIPs, editInventory, getGroups, getGroup, createGroup, updateGroup, deleteGroup, addGroupPermission, removeGroupPermission, banPlayer, unbanPlayer, getSelfInfo, getBossProgress, getBanList, scanItems, getPlayerStats, setPlayerStats } from '../controllers/tshockController.js'
 import { verifyToken, requireRole } from '../middlewares/authMiddleware.js'
 
 const router = Router()
@@ -21,6 +21,7 @@ router.post('/groups/delete', verifyToken, requireRole('admin'), deleteGroup)
 router.post('/groups/permission/add', verifyToken, requireRole('admin'), addGroupPermission)
 router.post('/groups/permission/remove', verifyToken, requireRole('admin'), removeGroupPermission)
 router.post('/ban', verifyToken, requireRole('admin'), banPlayer)
+router.post('/unban', verifyToken, requireRole('admin'), unbanPlayer)
 router.get('/banlist', verifyToken, requireRole('admin'), getBanList)
 router.get('/self', verifyToken, getSelfInfo)
 router.get('/boss/progress', verifyToken, getBossProgress)
