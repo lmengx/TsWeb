@@ -1151,6 +1151,39 @@ export class TShockService {
       return { status: '500', error: error.message }
     }
   }
+
+  async getTsWebAllowList() {
+    if (!this.baseUrl) await this.init()
+    const url = `${this.baseUrl}/data/config/tsweb/allowlist${this.apiKey ? `?token=${encodeURIComponent(this.apiKey)}` : ''}`
+    try {
+      const response = await fetch(url, { method: 'GET', headers: { 'Accept': 'application/json' } })
+      return await response.json()
+    } catch (error) {
+      return { status: '500', error: error.message }
+    }
+  }
+
+  async addTsWebAllowIP(ip) {
+    if (!this.baseUrl) await this.init()
+    const url = `${this.baseUrl}/data/config/tsweb/allow?ip=${encodeURIComponent(ip)}${this.apiKey ? `&token=${encodeURIComponent(this.apiKey)}` : ''}`
+    try {
+      const response = await fetch(url, { method: 'POST', headers: { 'Accept': 'application/json' } })
+      return await response.json()
+    } catch (error) {
+      return { status: '500', error: error.message }
+    }
+  }
+
+  async clearTsWebAllowList() {
+    if (!this.baseUrl) await this.init()
+    const url = `${this.baseUrl}/data/config/tsweb/allowclear${this.apiKey ? `?token=${encodeURIComponent(this.apiKey)}` : ''}`
+    try {
+      const response = await fetch(url, { method: 'POST', headers: { 'Accept': 'application/json' } })
+      return await response.json()
+    } catch (error) {
+      return { status: '500', error: error.message }
+    }
+  }
 }
 
 export default new TShockService()

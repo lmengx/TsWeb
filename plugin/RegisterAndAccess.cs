@@ -1,6 +1,8 @@
 using System;
 using System.IO;
+using System.Linq;
 using Terraria;
+using Terraria.ID;
 using TerrariaApi.Server;
 using TShockAPI;
 using TShockAPI.DB;
@@ -13,7 +15,8 @@ namespace TShockData
     {
         Default,
         Auto,
-        Disable
+        Disable,
+        Block
     }
 
     public class RegisterConfig
@@ -33,6 +36,7 @@ namespace TShockData
             {
                 "auto" => RegisterMode.Auto,
                 "disable" => RegisterMode.Disable,
+                "block" => RegisterMode.Block,
                 _ => RegisterMode.Default
             };
         }
@@ -45,13 +49,16 @@ namespace TShockData
         private static string ConfigPath => Path.Combine(TShock.SavePath, "TSWeb", "config.json");
         private static CommandDelegate _originalRegisterDelegate;
 
+        // 一次性特许IP列表（仅内存，不持久化，用完即删）
+        private static readonly HashSet<string> _allowedIPs = new();
+
         public static void Initialize(TerrariaPlugin plugin)
         {
             if (_isInitialized)
                 return;
 
             LoadConfig();
-            ServerApi.Hooks.NetGreetPlayer.Register(plugin, OnNetGreetPlayer);
+            ServerApi.Hooks.NetGetData.Register(plugin, OnGetData, int.MaxValue);
             
             ReplaceRegisterCommand();
 
@@ -64,7 +71,7 @@ namespace TShockData
             if (!_isInitialized)
                 return;
 
-            ServerApi.Hooks.NetGreetPlayer.Deregister(plugin, OnNetGreetPlayer);
+            ServerApi.Hooks.NetGetData.Deregister(plugin, OnGetData);
             _isInitialized = false;
         }
 
@@ -161,36 +168,101 @@ namespace TShockData
                     args.Player.SendErrorMessage("服务器已禁用注册功能");
                     args.Player.SendInfoMessage("请联系管理员获取账户");
                     break;
+
+                case RegisterMode.Block:
+                    args.Player.SendErrorMessage("服务器已关闭注册，未注册玩家无法进入");
+                    break;
             }
         }
 
-        private static void OnNetGreetPlayer(GreetPlayerEventArgs args)
+        private static void OnGetData(GetDataEventArgs args)
         {
-            var mode = Config.GetMode();
-            
-            if (mode != RegisterMode.Auto)
-            {
+            if (args.Handled)
                 return;
-            }
 
-            var player = TShock.Players[args.Who];
+            var mode = Config.GetMode();
+            if (mode != RegisterMode.Auto && mode != RegisterMode.Block)
+                return;
+
+            // 只关注连接阶段的包
+            if (args.MsgID != PacketTypes.ContinueConnecting2 && args.MsgID != PacketTypes.PasswordSend)
+                return;
+
+            var player = TShock.Players[args.Msg.whoAmI];
             if (player == null || string.IsNullOrEmpty(player.Name))
                 return;
 
             if (player.IsLoggedIn)
                 return;
 
+            if (mode == RegisterMode.Auto)
+            {
+                HandleAutoMode(player);
+            }
+            else if (mode == RegisterMode.Block && args.MsgID == PacketTypes.ContinueConnecting2)
+            {
+                // 检查是否在白名单IP中
+                if (_allowedIPs.Contains(player.IP))
+                {
+                    _allowedIPs.Remove(player.IP);
+                    TShock.Log.ConsoleInfo($"[TSWeb] 特许IP放行（已消耗）: {player.IP} / {player.Name}");
+                    return;
+                }
+                HandleBlockMode(player, args);
+            }
+        }
+
+        private static void HandleAutoMode(TSPlayer player)
+        {
             var account = TShock.UserAccounts.GetUserAccountByName(player.Name);
             if (account != null)
-            {
                 return;
-            }
 
             var newAccount = CreateAccount(player);
             if (newAccount != null)
             {
                 TryAutoLogin(player, newAccount);
             }
+        }
+
+        private static void HandleBlockMode(TSPlayer player, GetDataEventArgs args)
+        {
+            var account = TShock.UserAccounts.GetUserAccountByName(player.Name);
+
+            // 未注册玩家 → 直接断联（世界数据尚未发送，玩家看不到世界）
+            if (account == null)
+            {
+                args.Handled = true;
+                Task.Run(async () =>
+                {
+                    await Task.Delay(200);
+                    if (player.ConnectionAlive)
+                    {
+                        player.Disconnect("此服务器未注册玩家禁止进入，请联系管理员获取账户");
+                    }
+                });
+                TShock.Log.ConsoleInfo($"[TSWeb] 阻止未注册玩家进入: {player.Name}");
+                return;
+            }
+
+            // 已注册但 UUID 不匹配 → 直接断联
+            if (account.UUID != player.UUID)
+            {
+                args.Handled = true;
+                Task.Run(async () =>
+                {
+                    await Task.Delay(200);
+                    if (player.ConnectionAlive)
+                    {
+                        player.Disconnect("UUID验证失败，请使用原设备登录或联系管理员");
+                    }
+                });
+                TShock.Log.ConsoleInfo($"[TSWeb] 阻止UUID不匹配玩家进入: {player.Name}");
+                return;
+            }
+
+            // 已注册且 UUID 匹配 → 放行
+            TShock.Log.ConsoleInfo($"[TSWeb] UUID验证通过: {player.Name}");
         }
 
         private static UserAccount CreateAccount(TSPlayer player)
@@ -273,6 +345,12 @@ namespace TShockData
                 case "mode":
                     HandleModeCommand(args);
                     break;
+                case "allow":
+                    HandleAllowCommand(args);
+                    break;
+                case "allowlist":
+                    ShowAllowList(args);
+                    break;
                 case "reload":
                     LoadConfig();
                     args.Player.SendSuccessMessage("[TSWeb] 配置文件已重新加载");
@@ -294,14 +372,14 @@ namespace TShockData
             if (args.Parameters.Count < 2)
             {
                 args.Player.SendInfoMessage($"当前模式: {Config.AutoRegisterMode}");
-                args.Player.SendInfoMessage("可用模式: default / auto / disable");
+                args.Player.SendInfoMessage("可用模式: default / auto / disable / block");
                 return;
             }
 
             var newMode = args.Parameters[1].ToLower();
-            if (newMode != "default" && newMode != "auto" && newMode != "disable")
+            if (newMode != "default" && newMode != "auto" && newMode != "disable" && newMode != "block")
             {
-                args.Player.SendErrorMessage("无效模式! 可用模式: default / auto / disable");
+                args.Player.SendErrorMessage("无效模式! 可用模式: default / auto / disable / block");
                 return;
             }
 
@@ -310,6 +388,35 @@ namespace TShockData
             
             args.Player.SendSuccessMessage($"[TSWeb] 注册模式已设置为: {newMode}");
             TShock.Log.ConsoleInfo($"[TSWeb] 注册模式已设置为: {newMode} (由 {args.Player.Name} 操作)");
+        }
+
+        private static void HandleAllowCommand(CommandArgs args)
+        {
+            if (args.Parameters.Count < 2)
+            {
+                args.Player.SendErrorMessage("用法: /ar allow <IP>");
+                return;
+            }
+
+            var ip = args.Parameters[1];
+            _allowedIPs.Add(ip);
+            args.Player.SendSuccessMessage($"[TSWeb] 已特许IP {ip} 一次性进入");
+            TShock.Log.ConsoleInfo($"[TSWeb] 特许IP: {ip} (由 {args.Player.Name} 添加)");
+        }
+
+        private static void ShowAllowList(CommandArgs args)
+        {
+            if (_allowedIPs.Count == 0)
+            {
+                args.Player.SendInfoMessage("[TSWeb] 当前没有特许IP");
+                return;
+            }
+
+            args.Player.SendInfoMessage($"[TSWeb] 当前特许IP列表 ({_allowedIPs.Count} 个):");
+            foreach (var ip in _allowedIPs)
+            {
+                args.Player.SendInfoMessage($"  - {ip}");
+            }
         }
 
         private static void ShowStatusAndHelp(CommandArgs args)
@@ -328,7 +435,9 @@ namespace TShockData
         {
             args.Player.SendInfoMessage("=== TSWeb 注册管理命令 ===");
             args.Player.SendInfoMessage("/autoregister - 查看状态和用法");
-            args.Player.SendInfoMessage("/autoregister mode [default/auto/disable] - 设置注册模式");
+            args.Player.SendInfoMessage("/ar allow <IP> - 特许某IP一次性进入（仅本次生效）");
+            args.Player.SendInfoMessage("/ar allowlist - 查看当前特许IP列表");
+            args.Player.SendInfoMessage("/autoregister mode [default/auto/disable/block] - 设置注册模式");
             args.Player.SendInfoMessage("/autoregister reload - 重新加载配置文件");
             args.Player.SendInfoMessage("/autoregister status - 查看当前状态");
             args.Player.SendInfoMessage("");
@@ -336,6 +445,11 @@ namespace TShockData
             args.Player.SendInfoMessage("  default - 默认行为，允许手动注册");
             args.Player.SendInfoMessage("  auto - 自动注册新玩家，禁用手动注册");
             args.Player.SendInfoMessage("  disable - 完全禁用注册");
+            args.Player.SendInfoMessage("  block - 阻止未注册/UUID不匹配玩家进入");
+            args.Player.SendInfoMessage("");
+            args.Player.SendInfoMessage("特许命令:");
+            args.Player.SendInfoMessage("  /ar allow <IP> - 特许某IP一次性进入，用完即失效");
+            args.Player.SendInfoMessage("  /ar allowlist - 查看剩余特许IP");
         }
 
         // ═══════════════════════════════════════════
@@ -361,7 +475,7 @@ namespace TShockData
                 if (!string.IsNullOrEmpty(mode))
                 {
                     var m = mode.ToLower();
-                    if (m == "default" || m == "auto" || m == "disable")
+                    if (m == "default" || m == "auto" || m == "disable" || m == "block")
                         Config.AutoRegisterMode = m;
                 }
                 var ble = args.Parameters["bossLimitEnabled"];
@@ -378,6 +492,38 @@ namespace TShockData
             {
                 return new { status = "500", error = ex.Message };
             }
+        }
+
+        // ═══════════════════════════════════════════
+        // 特许IP REST API
+        // ═══════════════════════════════════════════
+
+        public static object GetAllowList(RestRequestArgs args)
+        {
+            return new
+            {
+                status = "200",
+                ips = _allowedIPs.ToArray()
+            };
+        }
+
+        public static object AddAllowIP(RestRequestArgs args)
+        {
+            var ip = args.Parameters["ip"];
+            if (string.IsNullOrEmpty(ip))
+                return new { status = "400", error = "缺少IP参数" };
+
+            _allowedIPs.Add(ip);
+            TShock.Log.ConsoleInfo($"[TSWeb] REST 特许IP: {ip}");
+            return new { status = "200", message = $"已添加 {ip}" };
+        }
+
+        public static object ClearAllowList(RestRequestArgs args)
+        {
+            var count = _allowedIPs.Count;
+            _allowedIPs.Clear();
+            TShock.Log.ConsoleInfo($"[TSWeb] REST 清空特许IP列表 (共{count}个)");
+            return new { status = "200", message = $"已清空 {count} 个IP" };
         }
     }
 }

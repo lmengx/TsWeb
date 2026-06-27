@@ -13,11 +13,15 @@ let ready = false
 const registerMode = ref('default')
 const bossLimitEnabled = ref(false)
 const bossLimitMinPlayers = ref(7)
+const allowIP = ref('')
+const allowIPs = ref([])
+const allowMsg = ref('')
 
 const modeOptions = [
   { value: 'default', label: '默认模式 - 允许手动注册' },
   { value: 'auto', label: '自动注册 - 新玩家自动创建账户' },
-  { value: 'disable', label: '禁用注册 - 完全禁止注册' }
+  { value: 'disable', label: '禁用注册 - 完全禁止注册' },
+  { value: 'block', label: '阻止模式 - 未注册/UUID不匹配玩家断联' }
 ]
 
 const autoSave = () => {
@@ -48,6 +52,51 @@ const autoSave = () => {
 watch(registerMode, autoSave)
 watch(bossLimitEnabled, autoSave)
 watch(bossLimitMinPlayers, autoSave)
+watch(allowIP, () => { allowMsg.value = '' })
+
+const fetchAllowList = async () => {
+  try {
+    const res = await get('/api/config/tsweb/allowlist')
+    const data = await res.json()
+    if (data.status === '200' && Array.isArray(data.ips)) {
+      allowIPs.value = data.ips
+    }
+  } catch {}
+}
+
+const addAllowIPHandler = async () => {
+  const ip = allowIP.value.trim()
+  if (!ip) { allowMsg.value = '请输入IP'; return }
+  allowMsg.value = ''
+  try {
+    const res = await post('/api/config/tsweb/allow', { ip })
+    const data = await res.json()
+    if (data.status === '200') {
+      allowIP.value = ''
+      allowMsg.value = data.message
+      fetchAllowList()
+    } else {
+      allowMsg.value = data.error || '添加失败'
+    }
+  } catch (err) {
+    allowMsg.value = '添加失败: ' + err.message
+  }
+}
+
+const clearAllowListHandler = async () => {
+  try {
+    const res = await post('/api/config/tsweb/allowclear')
+    const data = await res.json()
+    if (data.status === '200') {
+      allowIPs.value = []
+      allowMsg.value = data.message
+    } else {
+      allowMsg.value = data.error || '清空失败'
+    }
+  } catch (err) {
+    allowMsg.value = '清空失败: ' + err.message
+  }
+}
 
 const fetchConfig = async () => {
   loading.value = true
@@ -58,6 +107,7 @@ const fetchConfig = async () => {
     if (data.mode !== undefined) registerMode.value = data.mode
     if (data.bossLimitEnabled !== undefined) bossLimitEnabled.value = data.bossLimitEnabled
     if (data.bossLimitMinPlayers !== undefined) bossLimitMinPlayers.value = data.bossLimitMinPlayers
+    fetchAllowList()
     await nextTick()
   } catch (err) {
     error.value = '加载配置失败: ' + err.message
@@ -107,6 +157,34 @@ onMounted(() => {
               <span class="radio-label">{{ opt.label }}</span>
             </label>
           </div>
+
+          <!-- 特许IP - 仅阻止模式可见 -->
+          <div v-if="registerMode === 'block'" class="allow-section">
+            <div class="allow-divider"></div>
+            <h4 class="allow-title">特许IP</h4>
+            <p class="allow-desc">添加一次性特许IP，绕过阻止模式进入服务器，用完即失效</p>
+            <div class="allow-input-row">
+              <input
+                v-model="allowIP"
+                type="text"
+                placeholder="输入IP地址"
+                class="allow-input"
+                @keyup.enter="addAllowIPHandler"
+              />
+              <button @click="addAllowIPHandler" class="btn btn-primary">添加</button>
+            </div>
+            <div v-if="allowMsg" class="allow-msg">{{ allowMsg }}</div>
+            <div v-if="allowIPs.length > 0" class="allow-list">
+              <div class="allow-list-header">
+                <span>当前特许IP（{{ allowIPs.length }} 个）</span>
+                <button @click="clearAllowListHandler" class="btn-link-danger">清空全部</button>
+              </div>
+              <div v-for="ip in allowIPs" :key="ip" class="allow-item">
+                <span class="ip-text">{{ ip }}</span>
+              </div>
+            </div>
+            <div v-else class="allow-empty">当前没有特许IP</div>
+          </div>
         </div>
 
         <!-- Boss 限制 -->
@@ -130,9 +208,9 @@ onMounted(() => {
           </div>
         </div>
 
-        <!-- 应用配置 -->
+        <!-- Boss 限制 -->
         <div class="section-card">
-          <h3>应用配置</h3>
+          <h3>Boss 召唤限制</h3>
           <p class="section-desc">管理服务器连接配置</p>
           <button @click="goToAppConfig" class="nav-btn">
             前往应用配置
@@ -361,5 +439,116 @@ onMounted(() => {
   background: rgba(239, 68, 68, 0.1);
   border-radius: var(--radius-md);
   display: inline-block;
+}
+
+.allow-section {
+  margin-top: 8px;
+}
+
+.allow-divider {
+  height: 1px;
+  background: var(--border-color);
+  margin: 16px 0;
+}
+
+.allow-title {
+  margin: 0 0 2px 0;
+  color: var(--text-primary);
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.allow-desc {
+  margin: 0 0 14px 0;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+.allow-input-row {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.allow-input {
+  flex: 1;
+  padding: 10px 14px;
+  background: var(--bg-tertiary);
+  border: 2px solid var(--border-color);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: 0.95rem;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.allow-input:focus {
+  border-color: var(--accent-primary);
+}
+
+.btn {
+  padding: 10px 20px;
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.btn-primary {
+  background: var(--accent-primary);
+  color: #fff;
+}
+
+.btn-primary:hover {
+  opacity: 0.85;
+}
+
+.btn-link-danger {
+  background: none;
+  border: none;
+  color: var(--accent-error);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+  transition: opacity 0.2s;
+}
+
+.btn-link-danger:hover {
+  opacity: 0.7;
+}
+
+.allow-msg {
+  color: var(--accent-secondary);
+  font-size: 0.85rem;
+  margin-bottom: 10px;
+}
+
+.allow-list-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.allow-item {
+  padding: 8px 12px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  margin-bottom: 4px;
+  font-family: monospace;
+  font-size: 0.9rem;
+  color: var(--text-primary);
+}
+
+.allow-empty {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  padding: 12px 0;
 }
 </style>
