@@ -13,6 +13,10 @@ const showActiveOnly = ref(true) // 默认只显示生效中的封禁
 const currentPage = ref(1)
 const pageSize = ref(10)
 
+// 排序
+const sortField = ref('start_date_ticks')
+const sortOrder = ref('desc') // 'asc' 或 'desc'
+
 const ticksToDate = (ticks) => {
   try {
     const date = new Date((ticks - 621355968000000000) / 10000)
@@ -60,14 +64,56 @@ const filteredBanList = computed(() => {
     const query = searchQuery.value.toLowerCase()
     list = list.filter(ban => {
       const parsed = parseIdentifier(ban.identifier)
+      const ticketStr = String(ban.ticket_number)
       return parsed.value.toLowerCase().includes(query) ||
              ban.reason?.toLowerCase().includes(query) ||
-             ban.banning_user?.toLowerCase().includes(query)
+             ban.banning_user?.toLowerCase().includes(query) ||
+             ticketStr.includes(query)
     })
   }
 
+  // 排序
+  list = [...list].sort((a, b) => {
+    let cmp = 0
+    switch (sortField.value) {
+      case 'ticket_number':
+        cmp = a.ticket_number - b.ticket_number
+        break
+      case 'start_date_ticks':
+        cmp = a.start_date_ticks - b.start_date_ticks
+        break
+      case 'end_date_ticks':
+        cmp = a.end_date_ticks - b.end_date_ticks
+        break
+      case 'reason':
+        cmp = (a.reason || '').localeCompare(b.reason || '')
+        break
+      case 'banning_user':
+        cmp = (a.banning_user || '').localeCompare(b.banning_user || '')
+        break
+      default:
+        cmp = a.start_date_ticks - b.start_date_ticks
+    }
+    return sortOrder.value === 'asc' ? cmp : -cmp
+  })
+
   return list
 })
+
+const toggleSort = (field) => {
+  if (sortField.value === field) {
+    sortOrder.value = sortOrder.value === 'asc' ? 'desc' : 'asc'
+  } else {
+    sortField.value = field
+    sortOrder.value = 'desc'
+  }
+  currentPage.value = 1
+}
+
+const sortIndicator = (field) => {
+  if (sortField.value !== field) return ''
+  return sortOrder.value === 'asc' ? ' ▲' : ' ▼'
+}
 
 const totalItems = computed(() => filteredBanList.value.length)
 const totalPages = computed(() => Math.ceil(totalItems.value / pageSize.value))
@@ -245,13 +291,23 @@ onMounted(() => {
         <table class="ban-table">
           <thead>
             <tr>
-              <th>编号</th>
-              <th>类型</th>
-              <th>标识符</th>
-              <th>封禁原因</th>
-              <th>封禁者</th>
-              <th>封禁时间</th>
-              <th>到期时间</th>
+              <th class="sortable-th" @click="toggleSort('ticket_number')">
+              编号<span class="sort-indicator">{{ sortIndicator('ticket_number') }}</span>
+            </th>
+            <th>类型</th>
+            <th>标识符</th>
+            <th class="sortable-th" @click="toggleSort('reason')">
+              封禁原因<span class="sort-indicator">{{ sortIndicator('reason') }}</span>
+            </th>
+            <th class="sortable-th" @click="toggleSort('banning_user')">
+              封禁者<span class="sort-indicator">{{ sortIndicator('banning_user') }}</span>
+            </th>
+            <th class="sortable-th" @click="toggleSort('start_date_ticks')">
+              封禁时间<span class="sort-indicator">{{ sortIndicator('start_date_ticks') }}</span>
+            </th>
+            <th class="sortable-th" @click="toggleSort('end_date_ticks')">
+              到期时间<span class="sort-indicator">{{ sortIndicator('end_date_ticks') }}</span>
+            </th>
               <th>操作</th>
             </tr>
           </thead>
@@ -510,6 +566,21 @@ onMounted(() => {
 .ban-table {
   width: 100%;
   border-collapse: collapse;
+}
+
+.ban-table th.sortable-th {
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.2s ease;
+}
+
+.ban-table th.sortable-th:hover {
+  background: var(--bg-hover);
+}
+
+.sort-indicator {
+  color: var(--accent-primary);
+  font-size: 0.75rem;
 }
 
 .ban-table th,
