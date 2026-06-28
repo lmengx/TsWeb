@@ -12,6 +12,72 @@ const itemSuccess = ref('')
 const itemData = ref({ list: [], dict: {} })
 const imageErrorIds = ref(new Set())
 
+// 物品搜索
+const itemSearchQuery = ref('')
+const itemSearchResults = ref([])
+const showItemSearch = ref(false)
+const itemSearchTarget = ref({ progress: '', index: -1 })
+
+const levenshteinDistance = (a, b) => {
+  const matrix = []
+  for (let i = 0; i <= b.length; i++) matrix[i] = [i]
+  for (let j = 0; j <= a.length; j++) matrix[0][j] = j
+  for (let i = 1; i <= b.length; i++) {
+    for (let j = 1; j <= a.length; j++) {
+      if (b.charAt(i - 1) === a.charAt(j - 1)) {
+        matrix[i][j] = matrix[i - 1][j - 1]
+      } else {
+        matrix[i][j] = Math.min(matrix[i - 1][j - 1] + 1, matrix[i][j - 1] + 1, matrix[i - 1][j] + 1)
+      }
+    }
+  }
+  return matrix[b.length][a.length]
+}
+
+const fuzzyMatchItem = (text, keyword) => {
+  if (!text || !keyword) return false
+  const t = text.replace(/\s+/g, '').toLowerCase()
+  const k = keyword.replace(/\s+/g, '').toLowerCase()
+  if (t.includes(k)) return true
+  const lenDiff = Math.abs(t.length - k.length)
+  if (lenDiff > 1) return false
+  return levenshteinDistance(t, k) <= 1
+}
+
+const doItemSearch = () => {
+  const query = itemSearchQuery.value.trim().toLowerCase()
+  if (!query) {
+    itemSearchResults.value = itemData.value.list.slice(0, 50)
+    return
+  }
+  const keywords = query.split(/\s+/).filter(k => k.length > 0)
+  const results = itemData.value.list.filter(item => {
+    const chinese = (item.chinese || '').toLowerCase()
+    const english = (item.english || '').toLowerCase()
+    const id = item.id.toString()
+    return keywords.every(k =>
+      chinese.includes(k) || english.includes(k) || id.includes(k) ||
+      fuzzyMatchItem(chinese, k) || fuzzyMatchItem(english, k) || fuzzyMatchItem(id, k)
+    )
+  })
+  itemSearchResults.value = results.slice(0, 100)
+}
+
+const openItemSearch = (progress, index) => {
+  itemSearchTarget.value = { progress, index }
+  itemSearchQuery.value = ''
+  itemSearchResults.value = itemData.value.list.slice(0, 50)
+  showItemSearch.value = true
+}
+
+const selectItem = (item) => {
+  const { progress, index } = itemSearchTarget.value
+  if (progress && index >= 0 && itemConfigEdit.value?.restrictionsMap[progress]?.[index]) {
+    itemConfigEdit.value.restrictionsMap[progress][index].id = item.id
+  }
+  showItemSearch.value = false
+}
+
 const scanLoading = ref(false)
 const scanResult = ref(null)
 const scanError = ref('')
@@ -281,35 +347,6 @@ onMounted(() => {
       </div>
 
       <div v-else-if="itemConfigEdit">
-        <div class="config-header">
-          <div class="config-row">
-            <label>启用检测</label>
-            <label class="toggle">
-              <input type="checkbox" v-model="itemConfigEdit.enabled">
-              <span class="slider"></span>
-            </label>
-          </div>
-
-          <div class="config-row">
-            <label>自动扫描</label>
-            <label class="toggle">
-              <input type="checkbox" v-model="itemConfigEdit.autoScan">
-              <span class="slider"></span>
-            </label>
-          </div>
-
-          <div class="config-row">
-            <label>扫描间隔(秒)</label>
-            <input 
-              type="number" 
-              v-model.number="itemConfigEdit.autoScanInterval" 
-              min="30" 
-              max="3600"
-              class="interval-input"
-            />
-          </div>
-        </div>
-
         <div class="scan-section">
           <button @click="handleScanItems" :disabled="scanLoading" class="scan-btn">
             <svg v-if="scanLoading" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="spinner">
@@ -339,6 +376,35 @@ onMounted(() => {
           </div>
 
           <div v-if="scanError" class="scan-error">{{ scanError }}</div>
+        </div>
+
+        <div class="config-header">
+          <div class="config-row">
+            <label>启用检测</label>
+            <label class="toggle">
+              <input type="checkbox" v-model="itemConfigEdit.enabled">
+              <span class="slider"></span>
+            </label>
+          </div>
+
+          <div class="config-row">
+            <label>自动扫描</label>
+            <label class="toggle">
+              <input type="checkbox" v-model="itemConfigEdit.autoScan">
+              <span class="slider"></span>
+            </label>
+          </div>
+
+          <div class="config-row">
+            <label>扫描间隔(秒)</label>
+            <input 
+              type="number" 
+              v-model.number="itemConfigEdit.autoScanInterval" 
+              min="30" 
+              max="3600"
+              class="interval-input"
+            />
+          </div>
         </div>
 
         <div class="restrictions-container">
@@ -380,9 +446,16 @@ onMounted(() => {
                   }"
                 >
                   <div class="restriction-info">
-                    <div class="id-wrapper">
-                      <span class="id-label">ID</span>
-                      <input
+                      <div class="id-wrapper">
+                        <div class="id-search-row">
+                          <span class="id-label">ID</span>
+                          <button @click="openItemSearch(progress, iIndex)" class="item-search-btn" title="搜索物品">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                              <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                            </svg>
+                          </button>
+                        </div>
+                        <input
                         type="number"
                         v-model.number="item.id"
                         class="restriction-id-input"
@@ -537,6 +610,58 @@ onMounted(() => {
         </div>
       </div>
     </div>
+
+    <!-- 物品搜索弹窗 -->
+    <Teleport to="body">
+      <div v-if="showItemSearch" class="search-modal-overlay" @click.self="showItemSearch = false">
+        <div class="search-modal">
+          <div class="search-modal-header">
+            <h3>搜索物品</h3>
+            <button @click="showItemSearch = false" class="close-btn">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+            </button>
+          </div>
+          <div class="search-modal-body">
+            <input
+              v-model="itemSearchQuery"
+              @input="doItemSearch"
+              type="text"
+              placeholder="搜索物品名称或ID（支持多词）..."
+              class="search-input-lg"
+              autofocus
+            />
+            <div class="search-hint">
+              找到 {{ itemSearchResults.length }} 个匹配结果
+            </div>
+            <div class="item-grid">
+              <div
+                v-for="result in itemSearchResults"
+                :key="result.id"
+                class="item-card"
+                @click="selectItem(result)"
+              >
+                <img
+                  :src="`/assets/img/img/Item_${result.id}.png`"
+                  :alt="result.chinese"
+                  class="item-card-image"
+                  @error="(e) => { e.target.src = `https://terraria.wiki.gg/images/${(result.english || '').replace(/\s+/g, '_')}.png` }"
+                />
+                <div class="item-card-info">
+                  <span class="item-card-name">{{ result.chinese }}</span>
+                  <span class="item-card-id">ID: {{ result.id }}</span>
+                </div>
+              </div>
+              <div v-if="itemSearchResults.length === 0 && itemSearchQuery.trim()" class="no-search-results">
+                未找到匹配的物品
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -1185,6 +1310,180 @@ onMounted(() => {
   background: rgba(59, 130, 246, 0.05);
   border-radius: 12px;
   border: 1px solid rgba(59, 130, 246, 0.15);
+}
+
+/* 物品搜索 */
+.id-search-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.item-search-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: all 0.2s;
+  padding: 0;
+}
+
+.item-search-btn:hover {
+  background: rgba(99, 102, 241, 0.1);
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+}
+
+.search-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+.search-modal {
+  background: var(--bg-card);
+  border-radius: 20px;
+  width: 90%;
+  max-width: 600px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+
+.search-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.search-modal-header h3 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 1.1rem;
+}
+
+.close-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  transition: all 0.2s;
+}
+
+.close-btn:hover {
+  color: var(--text-primary);
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.search-modal-body {
+  padding: 20px 24px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.search-input-lg {
+  width: 100%;
+  padding: 14px 18px;
+  background: var(--bg-tertiary);
+  border: 2px solid var(--border-color);
+  border-radius: 12px;
+  color: var(--text-primary);
+  font-size: 1rem;
+  box-sizing: border-box;
+  transition: all 0.25s ease;
+}
+
+.search-input-lg:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+}
+
+.search-hint {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin: 8px 0 16px;
+}
+
+.item-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 10px;
+}
+
+.item-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 12px;
+  background: var(--bg-primary);
+  border: 2px solid var(--border-light);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.25s ease;
+}
+
+.item-card:hover {
+  border-color: var(--accent-primary);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.15);
+}
+
+.item-card-image {
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+
+.item-card-info {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 2px;
+}
+
+.item-card-name {
+  color: var(--text-primary);
+  font-size: 0.8rem;
+  font-weight: 600;
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.item-card-id {
+  color: var(--accent-primary);
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+.no-search-results {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 40px;
+  color: var(--text-muted);
 }
 
 .scan-btn {

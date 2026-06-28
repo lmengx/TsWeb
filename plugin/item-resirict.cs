@@ -380,7 +380,7 @@ namespace TShockData
                 return;
 
             // 日志输出
-            TShock.Log.ConsoleInfo($"[TSWeb] 玩家丢出物品: {e.Player.Name}, ID={e.ID}, Type={e.Type}, Stacks={e.Stacks}, Pos=({e.Position.X:F1},{e.Position.Y:F1})");
+            //TShock.Log.ConsoleInfo($"[TSWeb] 玩家丢出物品: {e.Player.Name}, ID={e.ID}, Type={e.Type}, Stacks={e.Stacks}, Pos=({e.Position.X:F1},{e.Position.Y:F1})");
 
             // 对接物品限制审查器
             var matchedItems = ItemDetection.CheckItem(e.Player, e.Type, e.Stacks);
@@ -411,7 +411,7 @@ namespace TShockData
             if (e.Player == null || e.Type <= 0)
                 return;
 
-            TShock.Log.ConsoleInfo($"[TSWeb] 玩家存取箱子: {e.Player.Name}, 箱子ID={e.ID}, Slot={e.Slot}, Type={e.Type}, Stacks={e.Stacks}");
+            //TShock.Log.ConsoleInfo($"[TSWeb] 玩家存取箱子: {e.Player.Name}, 箱子ID={e.ID}, Slot={e.Slot}, Type={e.Type}, Stacks={e.Stacks}");
 
             // 对接物品限制审查器
             var matchedItems = ItemDetection.CheckItem(e.Player, e.Type, e.Stacks);

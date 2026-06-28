@@ -210,7 +210,7 @@ onMounted(() => {
 
         <!-- Boss 限制 -->
         <div class="section-card">
-          <h3>Boss 召唤限制</h3>
+          <h3>服务器连接配置</h3>
           <p class="section-desc">管理服务器连接配置</p>
           <button @click="goToAppConfig" class="nav-btn">
             前往应用配置
