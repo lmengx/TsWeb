@@ -238,6 +238,22 @@ export const scanItems = async (req, res) => {
   res.json(result)
 }
 
+export const scanItemById = async (req, res) => {
+  const { itemId } = req.body
+  
+  if (!itemId || isNaN(itemId)) {
+    return res.json({ status: 'error', error: 'itemId is required' })
+  }
+  
+  const result = await tshockService.scanItemById(itemId)
+  
+  if (result.error) {
+    return res.json({ status: 'error', error: result.error })
+  }
+  
+  res.json(result)
+}
+
 export const getPlayerStats = async (req, res) => {
   const { player } = req.query
   

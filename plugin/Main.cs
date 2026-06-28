@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using TShockAPI;
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using TShockAPI;
 using Terraria;
 using TerrariaApi.Server;
 using Rests;
@@ -53,6 +53,7 @@ namespace TShockData
             TShock.RestApi.Register(new SecureRestCommand("/data/anticheat/item-config/getitemconfig", ItemConfigHandler.GetItemConfigApi, "tshock.admin"));
             TShock.RestApi.Register(new SecureRestCommand("/data/anticheat/item-config/saveitemconfig", ItemConfigHandler.SaveItemConfigApi, "tshock.admin"));
             TShock.RestApi.Register(new SecureRestCommand("/data/anticheat/item-config/scanall", ItemConfigHandler.ScanAllItemsApi, "tshock.admin"));
+            TShock.RestApi.Register(new SecureRestCommand("/data/anticheat/item-config/scan-by-id", ItemConfigHandler.ScanItemByIdApi, "tshock.admin"));
 
             TShockAPI.Commands.ChatCommands.Add(new Command("tools.runas", tools.runas, "runas"));
 

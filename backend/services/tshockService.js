@@ -1123,6 +1123,43 @@ export class TShockService {
     }
   }
 
+  async scanItemById(itemId) {
+    if (!this.baseUrl) {
+      await this.init()
+    }
+
+    const headers = {
+      'Accept': 'application/json'
+    }
+
+    let url = `${this.baseUrl}/data/anticheat/item-config/scan-by-id?itemId=${encodeURIComponent(itemId)}`
+    if (this.apiKey) {
+      url += `&token=${encodeURIComponent(this.apiKey)}`
+    }
+
+    console.log(`[OUTGOING] GET ${url}`)
+
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        headers
+      })
+
+      console.log(`[RESPONSE] Status: ${response.status}`)
+      const text = await response.text()
+      console.log(`[RESPONSE] Body: ${text}`)
+
+      try {
+        return JSON.parse(text)
+      } catch {
+        return { error: 'Invalid JSON', rawResponse: text }
+      }
+    } catch (error) {
+      this.isConnected = false
+      return { error: error.message }
+    }
+  }
+
   async getPlayerStats(player) {
     if (!this.baseUrl) {
       await this.init()

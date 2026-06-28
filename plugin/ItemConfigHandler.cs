@@ -196,5 +196,44 @@ namespace TShockData
                 return new { status = 500, error = ex.Message };
             }
         }
+
+        public static object ScanItemByIdApi(RestRequestArgs args)
+        {
+            try
+            {
+                int itemId = 0;
+                var rawId = args.Parameters["itemId"];
+                if (!string.IsNullOrEmpty(rawId))
+                {
+                    int.TryParse(rawId, out itemId);
+                }
+
+                if (itemId <= 0)
+                {
+                    return new { status = 400, error = "缺少有效的 itemId 参数" };
+                }
+
+                // 复用 tools.FindPlayersWithItem 的数据库扫描逻辑
+                var playerNames = tools.FindPlayersWithItem(itemId);
+
+                var players = new System.Collections.Generic.List<object>();
+                foreach (var name in playerNames)
+                {
+                    players.Add(new
+                    {
+                        name = name,
+                        itemId = itemId,
+                        itemName = AntiCheat.GetItemName(itemId)
+                    });
+                }
+
+                return new { status = 200, players = players, count = players.Count };
+            }
+            catch (Exception ex)
+            {
+                TShock.Log.ConsoleError($"[ItemConfig] ScanItemByIdApi error: {ex.Message}");
+                return new { status = 500, error = ex.Message };
+            }
+        }
     }
 }

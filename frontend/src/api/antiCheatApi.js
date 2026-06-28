@@ -129,3 +129,14 @@ export async function scanItems() {
     return { status: 'error', error: error.message }
   }
 }
+
+export async function scanItemById(itemId) {
+  try {
+    const response = await post('/api/tshock/itemscan-by-id', { itemId })
+    const data = await response.json()
+    return data
+  } catch (error) {
+    console.error('Failed to scan item by id:', error)
+    return { status: 'error', error: error.message }
+  }
+}

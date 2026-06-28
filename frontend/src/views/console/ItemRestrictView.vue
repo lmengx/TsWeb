@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
-import { getItemConfig, saveItemConfig, clearItemCache, scanItems } from '../../api/antiCheatApi.js'
+import ItemSearchDialog from '../../components/ItemSearchDialog.vue'
+import { getItemConfig, saveItemConfig, clearItemCache, scanItems, scanItemById } from '../../api/antiCheatApi.js'
 import { loadItemData } from '../../api/itemDataApi.js'
 
 const itemConfig = ref(null)
@@ -12,70 +13,65 @@ const itemSuccess = ref('')
 const itemData = ref({ list: [], dict: {} })
 const imageErrorIds = ref(new Set())
 
-// 物品搜索
-const itemSearchQuery = ref('')
-const itemSearchResults = ref([])
+// 物品搜索对话框
 const showItemSearch = ref(false)
-const itemSearchTarget = ref({ progress: '', index: -1 })
-
-const levenshteinDistance = (a, b) => {
-  const matrix = []
-  for (let i = 0; i <= b.length; i++) matrix[i] = [i]
-  for (let j = 0; j <= a.length; j++) matrix[0][j] = j
-  for (let i = 1; i <= b.length; i++) {
-    for (let j = 1; j <= a.length; j++) {
-      if (b.charAt(i - 1) === a.charAt(j - 1)) {
-        matrix[i][j] = matrix[i - 1][j - 1]
-      } else {
-        matrix[i][j] = Math.min(matrix[i - 1][j - 1] + 1, matrix[i][j - 1] + 1, matrix[i - 1][j] + 1)
-      }
-    }
-  }
-  return matrix[b.length][a.length]
-}
-
-const fuzzyMatchItem = (text, keyword) => {
-  if (!text || !keyword) return false
-  const t = text.replace(/\s+/g, '').toLowerCase()
-  const k = keyword.replace(/\s+/g, '').toLowerCase()
-  if (t.includes(k)) return true
-  const lenDiff = Math.abs(t.length - k.length)
-  if (lenDiff > 1) return false
-  return levenshteinDistance(t, k) <= 1
-}
-
-const doItemSearch = () => {
-  const query = itemSearchQuery.value.trim().toLowerCase()
-  if (!query) {
-    itemSearchResults.value = itemData.value.list.slice(0, 50)
-    return
-  }
-  const keywords = query.split(/\s+/).filter(k => k.length > 0)
-  const results = itemData.value.list.filter(item => {
-    const chinese = (item.chinese || '').toLowerCase()
-    const english = (item.english || '').toLowerCase()
-    const id = item.id.toString()
-    return keywords.every(k =>
-      chinese.includes(k) || english.includes(k) || id.includes(k) ||
-      fuzzyMatchItem(chinese, k) || fuzzyMatchItem(english, k) || fuzzyMatchItem(id, k)
-    )
-  })
-  itemSearchResults.value = results.slice(0, 100)
-}
+const itemSearchTargetIndex = ref(-1)
+const itemSearchMode = ref('restrict')
+const itemSearchProgress = ref('')
 
 const openItemSearch = (progress, index) => {
-  itemSearchTarget.value = { progress, index }
-  itemSearchQuery.value = ''
-  itemSearchResults.value = itemData.value.list.slice(0, 50)
+  itemSearchMode.value = 'restrict'
+  itemSearchProgress.value = progress
+  itemSearchTargetIndex.value = index
   showItemSearch.value = true
 }
 
-const selectItem = (item) => {
-  const { progress, index } = itemSearchTarget.value
+const openScanSearch = () => {
+  itemSearchMode.value = 'scan'
+  showItemSearch.value = true
+}
+
+const handleItemSelect = (item) => {
+  if (itemSearchMode.value === 'scan') {
+    showItemSearch.value = false
+    handleScanHolders(item.id, item.chinese || item.english || item.id)
+    return
+  }
+  const progress = itemSearchProgress.value
+  const index = itemSearchTargetIndex.value
   if (progress && index >= 0 && itemConfigEdit.value?.restrictionsMap[progress]?.[index]) {
     itemConfigEdit.value.restrictionsMap[progress][index].id = item.id
   }
   showItemSearch.value = false
+}
+
+// 按物品ID扫描持有者
+const scanHoldersLoading = ref(false)
+const scanHoldersResults = ref(null)
+const scanHoldersError = ref('')
+
+const handleScanHolders = async (itemId, itemName) => {
+  scanHoldersLoading.value = true
+  scanHoldersError.value = ''
+  scanHoldersResults.value = null
+
+  try {
+    const result = await scanItemById(itemId)
+    if (result.status === 500 || result.status === '500' || result.error) {
+      scanHoldersError.value = result.error || '扫描失败'
+    } else {
+      scanHoldersResults.value = { ...result, itemName, itemId }
+    }
+  } catch (err) {
+    scanHoldersError.value = err.message
+  }
+
+  scanHoldersLoading.value = false
+}
+
+const closeScanHolders = () => {
+  scanHoldersResults.value = null
+  scanHoldersError.value = ''
 }
 
 const scanLoading = ref(false)
@@ -348,15 +344,25 @@ onMounted(() => {
 
       <div v-else-if="itemConfigEdit">
         <div class="scan-section">
-          <button @click="handleScanItems" :disabled="scanLoading" class="scan-btn">
-            <svg v-if="scanLoading" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="spinner">
-              <circle cx="12" cy="12" r="10"></circle>
-            </svg>
-            <svg v-else width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
-            </svg>
-            {{ scanLoading ? '扫描中...' : '手动扫描物品' }}
-          </button>
+          <div class="scan-toolbar">
+            <button @click="openScanSearch" class="scan-btn scan-search-btn">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="11" cy="11" r="8"></circle>
+                <path d="M21 21l-4.35-4.35"></path>
+                <path d="M11 8v6M8 11h6"></path>
+              </svg>
+              搜索指定物品
+            </button>
+            <button @click="handleScanItems" :disabled="scanLoading" class="scan-btn">
+              <svg v-if="scanLoading" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="spinner">
+                <circle cx="12" cy="12" r="10"></circle>
+              </svg>
+              <svg v-else width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+              </svg>
+              {{ scanLoading ? '扫描中...' : '手动扫描物品' }}
+            </button>
+          </div>
 
           <div v-if="scanResult" class="scan-result">
             <h4>扫描结果</h4>
@@ -376,6 +382,30 @@ onMounted(() => {
           </div>
 
           <div v-if="scanError" class="scan-error">{{ scanError }}</div>
+
+          <!-- 按物品扫描持有者结果 -->
+          <div v-if="scanHoldersResults" class="scan-holders-results">
+            <div class="scan-holders-header">
+              <h4>扫描持有者: {{ scanHoldersResults.itemName }} (ID: {{ scanHoldersResults.itemId }})</h4>
+              <button @click="closeScanHolders" class="close-btn">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <line x1="18" y1="6" x2="6" y2="18"></line>
+                  <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+              </button>
+            </div>
+            <div v-if="scanHoldersResults.players && scanHoldersResults.players.length > 0">
+              <div v-for="player in scanHoldersResults.players" :key="player.name" class="holder-row">
+                <span class="holder-name">{{ player.name }}</span>
+              </div>
+              <div v-if="scanHoldersResults.count > 10" class="holder-more">
+                还有 {{ scanHoldersResults.count - 10 }} 名玩家
+              </div>
+            </div>
+            <div v-else class="no-holders">没有玩家持有该物品</div>
+          </div>
+
+          <div v-if="scanHoldersError" class="scan-error">{{ scanHoldersError }}</div>
         </div>
 
         <div class="config-header">
@@ -611,57 +641,12 @@ onMounted(() => {
       </div>
     </div>
 
-    <!-- 物品搜索弹窗 -->
-    <Teleport to="body">
-      <div v-if="showItemSearch" class="search-modal-overlay" @click.self="showItemSearch = false">
-        <div class="search-modal">
-          <div class="search-modal-header">
-            <h3>搜索物品</h3>
-            <button @click="showItemSearch = false" class="close-btn">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <line x1="18" y1="6" x2="6" y2="18"></line>
-                <line x1="6" y1="6" x2="18" y2="18"></line>
-              </svg>
-            </button>
-          </div>
-          <div class="search-modal-body">
-            <input
-              v-model="itemSearchQuery"
-              @input="doItemSearch"
-              type="text"
-              placeholder="搜索物品名称或ID（支持多词）..."
-              class="search-input-lg"
-              autofocus
-            />
-            <div class="search-hint">
-              找到 {{ itemSearchResults.length }} 个匹配结果
-            </div>
-            <div class="item-grid">
-              <div
-                v-for="result in itemSearchResults"
-                :key="result.id"
-                class="item-card"
-                @click="selectItem(result)"
-              >
-                <img
-                  :src="`/assets/img/img/Item_${result.id}.png`"
-                  :alt="result.chinese"
-                  class="item-card-image"
-                  @error="(e) => { e.target.src = `https://terraria.wiki.gg/images/${(result.english || '').replace(/\s+/g, '_')}.png` }"
-                />
-                <div class="item-card-info">
-                  <span class="item-card-name">{{ result.chinese }}</span>
-                  <span class="item-card-id">ID: {{ result.id }}</span>
-                </div>
-              </div>
-              <div v-if="itemSearchResults.length === 0 && itemSearchQuery.trim()" class="no-search-results">
-                未找到匹配的物品
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </Teleport>
+    <ItemSearchDialog
+      :show="showItemSearch"
+      :mode="itemSearchMode"
+      @select="handleItemSelect"
+      @close="showItemSearch = false"
+    />
   </div>
 </template>
 
@@ -1484,6 +1469,89 @@ onMounted(() => {
   text-align: center;
   padding: 40px;
   color: var(--text-muted);
+}
+
+/* 扫描持有者 */
+.scan-holders-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  color: #3b82f6;
+  transition: all 0.2s;
+  margin-top: 6px;
+  padding: 0;
+}
+
+.scan-holders-btn:hover {
+  background: rgba(59, 130, 246, 0.1);
+  border-color: #3b82f6;
+  transform: scale(1.05);
+}
+
+.scan-holders-btn .spinner {
+  animation: spin 1s linear infinite;
+}
+
+.scan-holders-results {
+  margin-top: 20px;
+  padding: 16px;
+  background: rgba(59, 130, 246, 0.05);
+  border: 1px solid rgba(59, 130, 246, 0.15);
+  border-radius: 12px;
+}
+
+.scan-holders-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.scan-holders-header h4 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 0.95rem;
+}
+
+.holder-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  margin-bottom: 6px;
+}
+
+.holder-name {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.holder-count {
+  color: #3b82f6;
+  font-weight: 600;
+}
+
+.no-holders {
+  text-align: center;
+  padding: 20px;
+  color: var(--text-muted);
+}
+
+.holder-more {
+  text-align: center;
+  padding: 12px;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  font-style: italic;
 }
 
 .scan-btn {

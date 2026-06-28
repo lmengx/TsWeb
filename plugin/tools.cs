@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System.Collections.Concurrent;
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System.Collections.Concurrent;
 using System.Data;
 using System.Diagnostics;
 using System.Reflection;
@@ -309,11 +309,42 @@ namespace TShockData
 
             System.Threading.Tasks.Task.Run(() =>
             {
-                FindPlayersWithItem(netID, itemName, args.Player);
+                var players = FindPlayersWithItem(netID);
+
+                if (players.Count > 0)
+                {
+                    TShock.Log.ConsoleInfo($"[find] 找到 {players.Count} 个玩家拥有物品 {itemName}:");
+                    foreach (var player in players)
+                    {
+                        TShock.Log.ConsoleInfo($"  - {player}");
+                    }
+
+                    if (args.Player != null && args.Player.IsLoggedIn)
+                    {
+                        args.Player.SendSuccessMessage($"找到 {players.Count} 个玩家拥有物品 {itemName}:");
+                        int displayCount = Math.Min(players.Count, 10);
+                        for (int i = 0; i < displayCount; i++)
+                        {
+                            args.Player.SendInfoMessage($"  - {players[i]}");
+                        }
+                        if (players.Count > 10)
+                        {
+                            args.Player.SendInfoMessage($"  ... 还有 {players.Count - 10} 个玩家，请查看控制台日志");
+                        }
+                    }
+                }
+                else
+                {
+                    TShock.Log.ConsoleInfo($"[find] 未找到拥有物品 {itemName} 的玩家");
+                    if (args.Player != null && args.Player.IsLoggedIn)
+                    {
+                        args.Player.SendErrorMessage($"未找到拥有物品 {itemName} 的玩家");
+                    }
+                }
             });
         }
 
-        private static void FindPlayersWithItem(int netID, string itemName, TSPlayer requester)
+        public static List<string> FindPlayersWithItem(int netID)
         {
             List<string> playersWithItem = new List<string>();
             IDbConnection db = TShock.DB;
@@ -336,36 +367,7 @@ namespace TShockData
                 System.Threading.Thread.Sleep(_random.Next(10, 30));
             }
 
-            if (playersWithItem.Count > 0)
-            {
-                TShock.Log.ConsoleInfo($"[find] 找到 {playersWithItem.Count} 个玩家拥有物品 {itemName}:");
-                foreach (var player in playersWithItem)
-                {
-                    TShock.Log.ConsoleInfo($"  - {player}");
-                }
-
-                if (requester != null && requester.IsLoggedIn)
-                {
-                    requester.SendSuccessMessage($"找到 {playersWithItem.Count} 个玩家拥有物品 {itemName}:");
-                    int displayCount = Math.Min(playersWithItem.Count, 10);
-                    for (int i = 0; i < displayCount; i++)
-                    {
-                        requester.SendInfoMessage($"  - {playersWithItem[i]}");
-                    }
-                    if (playersWithItem.Count > 10)
-                    {
-                        requester.SendInfoMessage($"  ... 还有 {playersWithItem.Count - 10} 个玩家，请查看控制台日志");
-                    }
-                }
-            }
-            else
-            {
-                TShock.Log.ConsoleInfo($"[find] 未找到拥有物品 {itemName} 的玩家");
-                if (requester != null && requester.IsLoggedIn)
-                {
-                    requester.SendErrorMessage($"未找到拥有物品 {itemName} 的玩家");
-                }
-            }
+            return playersWithItem;
         }
 
         private static bool PlayerHasItem(int accountId, int netID)
