@@ -25,6 +25,9 @@ namespace TShockData
         [JsonProperty("AutoRegisterMode")]
         public string AutoRegisterMode { get; set; } = "default";
 
+        [JsonProperty("Boss限制模式")]
+        public string BossLimitMode { get; set; } = "disabled";
+
         [JsonProperty("BOSS限制")]
         public bool BossLimitEnabled { get; set; } = false;
 
@@ -492,6 +495,7 @@ namespace TShockData
             {
                 status = "200",
                 mode = Config.AutoRegisterMode,
+                bossLimitMode = Config.BossLimitMode,
                 bossLimitEnabled = Config.BossLimitEnabled,
                 bossLimitMinPlayers = Config.BossLimitMinPlayers
             };
@@ -508,6 +512,16 @@ namespace TShockData
                     if (m == "default" || m == "auto" || m == "disable" || m == "block")
                         Config.AutoRegisterMode = m;
                 }
+                var blm = args.Parameters["bossLimitMode"];
+                if (!string.IsNullOrEmpty(blm))
+                {
+                    var m = blm.ToLower();
+                    if (m == "disabled" || m == "playerlimit" || m == "killrequired")
+                    {
+                        Config.BossLimitMode = m;
+                        Config.BossLimitEnabled = m != "disabled";
+                    }
+                }
                 var ble = args.Parameters["bossLimitEnabled"];
                 if (!string.IsNullOrEmpty(ble))
                     Config.BossLimitEnabled = ble.ToLower() == "true";
@@ -515,7 +529,7 @@ namespace TShockData
                 if (!string.IsNullOrEmpty(blmp) && int.TryParse(blmp, out var num) && num > 0)
                     Config.BossLimitMinPlayers = num;
                 SaveConfig();
-                TShock.Log.ConsoleInfo($"[TSWeb] REST 更新配置: mode={Config.AutoRegisterMode}, bossLimit={Config.BossLimitEnabled}, minPlayers={Config.BossLimitMinPlayers}");
+                TShock.Log.ConsoleInfo($"[TSWeb] REST 更新配置: mode={Config.AutoRegisterMode}, bossLimitMode={Config.BossLimitMode}, minPlayers={Config.BossLimitMinPlayers}");
                 return new { status = "200", message = "配置已保存" };
             }
             catch (Exception ex)

@@ -11,14 +11,20 @@ let saveTimer = null
 let ready = false
 
 const registerMode = ref('default')
-const bossLimitEnabled = ref(false)
+const bossLimitMode = ref('disabled')
 const bossLimitMinPlayers = ref(7)
 
-const modeOptions = [
+const registerModeOptions = [
   { value: 'default', label: '默认模式 - 允许手动注册' },
   { value: 'auto', label: '自动注册 - 新玩家自动创建账户' },
   { value: 'disable', label: '禁用注册 - 完全禁止注册' },
   { value: 'block', label: '阻止模式 - 未注册/UUID不匹配玩家断联' }
+]
+
+const bossModeOptions = [
+  { value: 'disabled', label: '不做任何限制' },
+  { value: 'playerlimit', label: '按最低人数限制' },
+  { value: 'killrequired', label: '不允许召唤未击败的 Boss' }
 ]
 
 const autoSave = () => {
@@ -30,7 +36,8 @@ const autoSave = () => {
     try {
       const res = await post('/api/config/tsweb', {
         mode: registerMode.value,
-        bossLimitEnabled: bossLimitEnabled.value,
+        bossLimitMode: bossLimitMode.value,
+        bossLimitEnabled: bossLimitMode.value !== 'disabled',
         bossLimitMinPlayers: bossLimitMinPlayers.value
       })
       const data = await res.json()
@@ -47,7 +54,7 @@ const autoSave = () => {
 }
 
 watch(registerMode, autoSave)
-watch(bossLimitEnabled, autoSave)
+watch(bossLimitMode, autoSave)
 watch(bossLimitMinPlayers, autoSave)
 
 const fetchConfig = async () => {
@@ -57,7 +64,7 @@ const fetchConfig = async () => {
     const res = await get('/api/config/tsweb')
     const data = await res.json()
     if (data.mode !== undefined) registerMode.value = data.mode
-    if (data.bossLimitEnabled !== undefined) bossLimitEnabled.value = data.bossLimitEnabled
+    if (data.bossLimitMode !== undefined) bossLimitMode.value = data.bossLimitMode
     if (data.bossLimitMinPlayers !== undefined) bossLimitMinPlayers.value = data.bossLimitMinPlayers
     await nextTick()
   } catch (err) {
@@ -94,7 +101,7 @@ onMounted(() => {
           <p class="section-desc">控制新玩家的注册方式</p>
           <div class="radio-group">
             <label
-              v-for="opt in modeOptions"
+              v-for="opt in registerModeOptions"
               :key="opt.value"
               class="radio-item"
               :class="{ active: registerMode === opt.value }"
@@ -113,15 +120,24 @@ onMounted(() => {
         <!-- Boss 限制 -->
         <div class="section-card">
           <h3>Boss 召唤限制</h3>
-          <p class="section-desc">未击败的 Boss 需要达到最低在线人数方可召唤（无 spawnboss 权限者）</p>
-          <div class="toggle-row">
-            <span class="toggle-label">开启限制</span>
-            <label class="switch">
-              <input type="checkbox" v-model="bossLimitEnabled" />
-              <span class="slider"></span>
+          <p class="section-desc">控制 Boss 召唤的拦截策略</p>
+          <div class="radio-group">
+            <label
+              v-for="opt in bossModeOptions"
+              :key="opt.value"
+              class="radio-item"
+              :class="{ active: bossLimitMode === opt.value }"
+            >
+              <input
+                type="radio"
+                v-model="bossLimitMode"
+                :value="opt.value"
+                class="radio-input"
+              />
+              <span class="radio-label">{{ opt.label }}</span>
             </label>
           </div>
-          <div class="toggle-row">
+          <div v-if="bossLimitMode === 'playerlimit'" class="toggle-row">
             <span class="toggle-label">最低在线人数</span>
             <div class="number-control">
               <button class="num-btn" @click="bossLimitMinPlayers = Math.max(1, bossLimitMinPlayers - 1)">−</button>
@@ -141,10 +157,23 @@ onMounted(() => {
         </div>
       </div>
 
-      <div class="status-bar">
-        <span v-if="success" class="success-msg">{{ success }}</span>
-        <span v-if="error" class="error-msg">{{ error }}</span>
-      </div>
+      <!-- Toast 通知 -->
+      <Transition name="toast">
+        <div v-if="success" class="toast toast-success">
+          <svg class="toast-icon" viewBox="0 0 20 20" fill="currentColor" width="18" height="18">
+            <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
+          </svg>
+          <span>{{ success }}</span>
+        </div>
+      </Transition>
+      <Transition name="toast">
+        <div v-if="error" class="toast toast-error">
+          <svg class="toast-icon" viewBox="0 0 20 20" fill="currentColor" width="18" height="18">
+            <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"/>
+          </svg>
+          <span>{{ error }}</span>
+        </div>
+      </Transition>
     </div>
   </div>
 </template>
@@ -348,6 +377,60 @@ onMounted(() => {
   color: var(--text-primary);
   min-width: 32px;
   text-align: center;
+}
+
+/* ====== Toast 通知 ====== */
+.toast {
+  position: fixed;
+  top: 20px;
+  right: 24px;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 18px;
+  border-radius: var(--radius-md, 8px);
+  font-size: 0.88rem;
+  font-weight: 500;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+  pointer-events: none;
+  max-width: 360px;
+}
+
+.toast-success {
+  color: #065f46;
+  background: #d1fae5;
+  border: 1px solid #6ee7b7;
+}
+
+.toast-error {
+  color: #991b1b;
+  background: #fee2e2;
+  border: 1px solid #fca5a5;
+}
+
+.toast-icon {
+  flex-shrink: 0;
+}
+
+.toast-enter-active {
+  transition: all 0.3s ease-out;
+}
+.toast-leave-active {
+  transition: all 0.25s ease-in;
+}
+.toast-enter-from {
+  opacity: 0;
+  transform: translateX(40px);
+}
+.toast-leave-to {
+  opacity: 0;
+  transform: translateX(40px);
+}
+
+.status-bar {
+  margin-top: 16px;
+  min-height: 24px;
 }
 
 .success-msg {
