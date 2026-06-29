@@ -13,14 +13,14 @@ const today = toLocalDateString(new Date())
 const currentHour = new Date().getHours()
 
 // ==================== 区域1：排行榜 ====================
-const rankingDays = ref(30)
+const rankingMode = ref('today')
 const rankingData = ref([])
 const rankingLoading = ref(false)
 
 const fetchRanking = async () => {
   rankingLoading.value = true
   try {
-    const res = await get(`/api/online/ranking?days=${rankingDays.value}`)
+    const res = await get(`/api/online/ranking?mode=${rankingMode.value}`)
     const json = await res.json()
     rankingData.value = json.ranking || []
   } catch (e) {
@@ -37,7 +37,7 @@ const formatDuration = (min) => {
   return `${m}m`
 }
 
-watch(rankingDays, fetchRanking)
+watch(rankingMode, fetchRanking)
 
 // ==================== 区域2：逐时在线 ====================
 const hourlyDate = ref(today)
@@ -108,11 +108,12 @@ onMounted(() => {
         <div class="card-header">
           <h3>累计时长排行</h3>
           <div class="select-wrapper">
-            <select v-model="rankingDays" class="filter-select">
-              <option :value="1">今天</option>
-              <option :value="7">最近7天</option>
-              <option :value="30">最近30天</option>
-              <option :value="36500">累计</option>
+            <select v-model="rankingMode" class="filter-select">
+              <option value="today">今天</option>
+              <option value="24h">24小时内</option>
+              <option value="7d">最近7天</option>
+              <option value="30d">最近30天</option>
+              <option value="all">累计</option>
             </select>
           </div>
         </div>

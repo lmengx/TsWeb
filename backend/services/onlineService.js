@@ -39,9 +39,9 @@ class OnlineService {
     }
   }
 
-  async getRanking(days = 30) {
+  async getRanking(mode = 'today') {
     await this.init()
-    const url = `${baseUrl}/data/online/ranking?days=${days}&token=${encodeURIComponent(apiKey)}`
+    const url = `${baseUrl}/data/online/ranking?mode=${encodeURIComponent(mode)}&token=${encodeURIComponent(apiKey)}`
     console.log(`[OUTGOING] GET ${url}`)
     try {
       const res = await fetch(url, { headers: { 'Accept': 'application/json' } })

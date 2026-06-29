@@ -10,8 +10,8 @@ export const getHourlyOnline = async (req, res) => {
 }
 
 export const getRanking = async (req, res) => {
-  const days = parseInt(req.query.days) || 30
-  const result = await onlineService.getRanking(days)
+  const mode = req.query.mode || 'today'
+  const result = await onlineService.getRanking(mode)
   res.json(result)
 }
 

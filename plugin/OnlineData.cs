@@ -262,10 +262,37 @@ namespace TShockData
         {
             try
             {
-                int days = GetOptionalIntParam(args, "days", 30);
-                if (days <= 0) days = 30;
+                string mode;
+                try { mode = args.Parameters["mode"]; } catch { mode = "today"; }
+                if (string.IsNullOrEmpty(mode)) mode = "today";
 
-                string since = DateTime.Now.AddDays(-days).ToString("yyyy-MM-dd");
+                string since;
+                string today = DateTime.Now.ToString("yyyy-MM-dd");
+
+                switch (mode)
+                {
+                    case "today":
+                        // 从今天0点开始（只取当天数据）
+                        since = today;
+                        break;
+                    case "24h":
+                        // 过去24小时（昨天+今天）
+                        since = DateTime.Now.AddDays(-1).ToString("yyyy-MM-dd");
+                        break;
+                    case "7d":
+                        since = DateTime.Now.AddDays(-7).ToString("yyyy-MM-dd");
+                        break;
+                    case "30d":
+                        since = DateTime.Now.AddDays(-30).ToString("yyyy-MM-dd");
+                        break;
+                    case "all":
+                        since = "2000-01-01";
+                        break;
+                    default:
+                        since = today;
+                        mode = "today";
+                        break;
+                }
 
                 var ranking = new List<Dictionary<string, object>>();
 
@@ -290,7 +317,7 @@ namespace TShockData
 
                 return new RestObject
                 {
-                    { "days", days },
+                    { "mode", mode },
                     { "since", since },
                     { "ranking", ranking }
                 };
