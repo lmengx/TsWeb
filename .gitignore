@@ -1,4 +1,5 @@
 .vs
+obj
 # Logs
 logs
 *.log
@@ -135,13 +136,9 @@ dist
 .yarn/build-state.yml
 .yarn/install-state.gz
 .pnp.*
-/参考源码/星迹源代码/小程序前端
 /参考源码
 /scripts
-/plugin/obj
-/plugin/obj
-/plugin/obj
-/plugin/.vs
+
 /.talkcody
 _temp_fix.js
 backend/backend.zip
