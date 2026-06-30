@@ -269,11 +269,18 @@ namespace TShockData
 
                 var banned = new List<string>();
 
-                // 封禁IP
+                // 封禁IP（跳过127.0.0.1，防止封掉本地服务器）
                 if (!string.IsNullOrEmpty(tsPlayer.IP))
                 {
-                    TShock.Bans.InsertBan($"ip:{tsPlayer.IP}", reason, "TSWeb", DateTime.UtcNow, DateTime.MaxValue);
-                    banned.Add($"ip:{tsPlayer.IP}");
+                    if (tsPlayer.IP == "127.0.0.1" || tsPlayer.IP == "localhost" || tsPlayer.IP == "::1")
+                    {
+                        TShock.Log.ConsoleWarn($"[TSWeb] 跳过封禁本地回环IP: {tsPlayer.IP}");
+                    }
+                    else
+                    {
+                        TShock.Bans.InsertBan($"ip:{tsPlayer.IP}", reason, "TSWeb", DateTime.UtcNow, DateTime.MaxValue);
+                        banned.Add($"ip:{tsPlayer.IP}");
+                    }
                 }
 
                 // 封禁UUID
