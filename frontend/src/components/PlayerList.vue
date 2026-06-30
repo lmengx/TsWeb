@@ -11,13 +11,21 @@ const props = defineProps({
     type: Array,
     default: () => []
   },
+  unverifiedPlayers: {
+    type: Array,
+    default: () => []
+  },
+  unverifiedLoading: {
+    type: Boolean,
+    default: false
+  },
   loading: {
     type: Boolean,
     default: false
   }
 })
 
-const emit = defineEmits(['refresh', 'goToUserDetail'])
+const emit = defineEmits(['refresh', 'goToUserDetail', 'goToUnverified'])
 
 const searchQuery = ref('')
 
@@ -160,6 +168,29 @@ const handleRowClick = (user) => {
         class="search-input"
       />
       <button @click="openCreateModal" class="create-user-btn">+ 创建用户</button>
+    </div>
+
+    <!-- 未登录玩家置顶区块 -->
+    <div v-if="unverifiedPlayers.length > 0" class="unverified-section">
+      <div class="unverified-header">
+        <span class="unverified-icon">⚠</span>
+        <span class="unverified-title">未登录玩家 ({{ unverifiedPlayers.length }})</span>
+      </div>
+      <div class="unverified-list">
+        <div
+          v-for="p in unverifiedPlayers"
+          :key="p.nickname"
+          class="unverified-item"
+          @click="emit('goToUnverified', p.nickname)"
+        >
+          <span :class="['uv-status', p.hasAccount ? 'uv-unverified' : 'uv-unregistered']">
+            {{ p.hasAccount ? '未验证' : '未注册' }}
+          </span>
+          <span class="uv-nickname">{{ p.nickname }}</span>
+          <span class="uv-ip">{{ p.ip }}</span>
+          <span class="uv-arrow">→</span>
+        </div>
+      </div>
     </div>
 
     <div v-if="loading" class="loading-state">
@@ -443,6 +474,99 @@ const handleRowClick = (user) => {
 .create-user-btn:hover {
   transform: translateY(-1px);
   box-shadow: var(--shadow-md);
+}
+
+/* 未登录玩家置顶区块 */
+.unverified-section {
+  margin: 0 20px 16px;
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+}
+
+.unverified-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  background: rgba(239, 68, 68, 0.1);
+  border-bottom: 1px solid rgba(239, 68, 68, 0.15);
+}
+
+.unverified-icon {
+  font-size: 1rem;
+}
+
+.unverified-title {
+  color: #ef4444;
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+.unverified-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.unverified-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  cursor: pointer;
+  transition: all 0.2s;
+  border-bottom: 1px solid rgba(239, 68, 68, 0.08);
+}
+
+.unverified-item:last-child {
+  border-bottom: none;
+}
+
+.unverified-item:hover {
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.uv-status {
+  padding: 2px 10px;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.uv-unregistered {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.uv-unverified {
+  background: rgba(245, 158, 11, 0.2);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.uv-nickname {
+  color: var(--text-primary);
+  font-weight: 500;
+  font-size: 0.9rem;
+  flex: 1;
+}
+
+.uv-ip {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  font-family: monospace;
+}
+
+.uv-arrow {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.unverified-item:hover .uv-arrow {
+  color: var(--accent-primary);
 }
 
 /* 模态框通用样式 */

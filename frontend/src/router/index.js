@@ -86,6 +86,12 @@ const routes = [
         meta: { requiresAuth: true, requiresAdmin: true }
       },
       {
+        path: 'unverified/:nickname',
+        name: 'UnverifiedDetail',
+        component: () => import('../views/console/UnverifiedDetail.vue'),
+        meta: { requiresAuth: true, requiresAdmin: true }
+      },
+      {
         path: 'server',
         name: 'ServerSettings',
         component: () => import('../views/console/ServerSettingsView.vue'),
