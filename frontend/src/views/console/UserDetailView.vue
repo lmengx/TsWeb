@@ -98,10 +98,10 @@ const banSuccess = ref('')
 
 const showPasswordModal = ref(false)
 const newPassword = ref('')
-const confirmPassword = ref('')
 const passwordLoading = ref(false)
 const passwordError = ref('')
 const passwordSuccess = ref('')
+const showPasswordText = ref(false)
 
 const showKickModal = ref(false)
 const kickReason = ref('')
@@ -515,13 +515,23 @@ const openBanModal = () => {
 const openPasswordModal = () => {
   showPasswordModal.value = true
   newPassword.value = ''
-  confirmPassword.value = ''
   passwordError.value = ''
   passwordSuccess.value = ''
+  showPasswordText.value = false
 }
 
 const closePasswordModal = () => {
   showPasswordModal.value = false
+}
+
+const generateRandomPassword = () => {
+  const chars = 'abcdefghijkmnopqrstuvwxyz0123456789'
+  let password = ''
+  for (let i = 0; i < 6; i++) {
+    password += chars[Math.floor(Math.random() * chars.length)]
+  }
+  newPassword.value = password
+  showPasswordText.value = true
 }
 
 const executePasswordChange = async () => {
@@ -529,11 +539,6 @@ const executePasswordChange = async () => {
   
   if (!newPassword.value.trim()) {
     passwordError.value = '请输入新密码'
-    return
-  }
-  
-  if (newPassword.value !== confirmPassword.value) {
-    passwordError.value = '两次输入的密码不一致'
     return
   }
 
@@ -553,7 +558,6 @@ const executePasswordChange = async () => {
     } else {
       passwordSuccess.value = result.response || '密码修改成功'
       newPassword.value = ''
-      confirmPassword.value = ''
     }
   } catch (err) {
     passwordError.value = err.message || '修改失败'
@@ -1781,22 +1785,28 @@ onMounted(() => {
           <div class="password-form">
             <div class="form-row">
               <label>新密码</label>
-              <input
-                v-model="newPassword"
-                type="password"
-                placeholder="输入新密码"
-                class="form-input"
-              />
-            </div>
-            <div class="form-row">
-              <label>确认密码</label>
-              <input
-                v-model="confirmPassword"
-                type="password"
-                placeholder="再次输入新密码"
-                class="form-input"
-                @keyup.enter="executePasswordChange"
-              />
+              <div class="password-input-wrapper">
+                <div class="password-input-inner">
+                  <input
+                    v-model="newPassword"
+                :type="showPasswordText ? 'text' : 'password'"
+                    placeholder="输入新密码"
+                    class="form-input"
+                    @keyup.enter="executePasswordChange"
+                  />
+                  <button
+                    class="toggle-password-btn"
+                    @click="showPasswordText = !showPasswordText"
+                    :title="showPasswordText ? '隐藏密码' : '显示密码'"
+                    type="button"
+                  >
+                    {{ showPasswordText ? '隐藏' : '显示' }}
+                  </button>
+                </div>
+                <span class="generate-pwd-badge" @click="generateRandomPassword">
+                  生成随机密码
+                </span>
+              </div>
             </div>
           </div>
           <div v-if="passwordError" class="give-error">
@@ -2078,6 +2088,63 @@ onMounted(() => {
 .password-btn:hover:not(:disabled) {
   transform: translateY(-1px);
   box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
+}
+
+.password-input-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.password-input-inner {
+  position: relative;
+  flex: 1;
+}
+
+.password-input-inner .form-input {
+  width: 100%;
+  padding-right: 60px;
+}
+
+.toggle-password-btn {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 4px 10px;
+  background: none;
+  border: none;
+  color: var(--accent-primary);
+  cursor: pointer;
+  font-size: 0.8rem;
+  line-height: 1;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.toggle-password-btn:hover {
+  color: var(--accent-hover);
+  text-decoration: underline;
+}
+
+.generate-pwd-badge {
+  flex-shrink: 0;
+  padding: 5px 12px;
+  background: rgba(139, 92, 246, 0.12);
+  color: #a78bfa;
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  border-radius: 20px;
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.generate-pwd-badge:hover {
+  background: rgba(139, 92, 246, 0.25);
+  border-color: rgba(139, 92, 246, 0.6);
 }
 
 .kick-btn {
