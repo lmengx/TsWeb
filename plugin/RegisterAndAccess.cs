@@ -283,7 +283,7 @@ namespace TShockData
             {
                 _passwordPending.Remove(player.Name);
                 TShock.Log.ConsoleInfo($"[TSWeb] 密码验证失败: {player.Name}");
-                player.Kick("密码错误，请输入角色密码，角色密码可通过已登录设备更改:/pwd 新密码", true, true);
+                player.Kick("密码错误\n请输入角色密码，已登录设备使用/pwd 新密码 可以设置，如果没有可以登录的设备，请联系服务器管理员\n如果这是你第一次进服，那说明你的角色名已被占用，请更换", true, true);
                 return;
             }
 
