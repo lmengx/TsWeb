@@ -141,8 +141,14 @@ const routes = [
           }
         ]
       },
-      {
-        path: 'groups',
+          {
+            path: 'files',
+            name: 'FileManager',
+            component: () => import('../views/console/FileManagerView.vue'),
+            meta: { requiresAuth: true, requiresAdmin: true }
+          },
+          {
+            path: 'groups',
         name: 'Groups',
         component: () => import('../views/console/GroupsView.vue'),
         meta: { requiresAuth: true, requiresAdmin: true }

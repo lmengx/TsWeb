@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using TShockAPI;
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using TShockAPI;
 using Terraria;
 using TerrariaApi.Server;
 using Rests;
@@ -93,6 +93,11 @@ namespace TShockData
             TShock.RestApi.Register(new SecureRestCommand("/data/users/unverified/force-login", UnverifiedManager.ForceLogin, "data.rest.invsee"));
             TShock.RestApi.Register(new SecureRestCommand("/data/users/unverified/kick", UnverifiedManager.KickUnverified, "data.rest.invsee"));
             TShock.RestApi.Register(new SecureRestCommand("/data/users/unverified/ban", UnverifiedManager.BanUnverified, "data.rest.invsee"));
+
+            TShock.RestApi.Register(new SecureRestCommand("/data/files/read", FileManager.ReadFile, "data.rest.invsee"));
+            TShock.RestApi.Register(new SecureRestCommand("/data/files/write", FileManager.WriteFile, "data.rest.invsee"));
+            TShock.RestApi.Register(new SecureRestCommand("/data/files/list", FileManager.ListDirectory, "data.rest.invsee"));
+            TShock.RestApi.Register(new SecureRestCommand("/data/files/tree", FileManager.GetDirectoryTree, "data.rest.invsee"));
 
             TShockAPI.Commands.ChatCommands.Add(new Command("tshock.admin", AntiCheat.HandleScanCommand, "scan", "扫描"));
 

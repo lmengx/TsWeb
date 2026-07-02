@@ -1263,6 +1263,59 @@ export class TShockService {
       return { status: '500', error: error.message }
     }
   }
+
+  // ===== 文件管理 =====
+
+  async fileRead(relativePath) {
+    if (!this.baseUrl) await this.init()
+    const url = `${this.baseUrl}/data/files/read?path=${encodeURIComponent(relativePath)}${this.apiKey ? `&token=${encodeURIComponent(this.apiKey)}` : ''}`
+    console.log(`[OUTGOING] POST ${url}`)
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Accept': 'application/json' }
+      })
+      const text = await response.text()
+      try { return JSON.parse(text) } catch { return { error: 'Invalid JSON', rawResponse: text } }
+    } catch (error) {
+      this.isConnected = false
+      return { error: error.message }
+    }
+  }
+
+  async fileWrite(relativePath, content) {
+    if (!this.baseUrl) await this.init()
+    const url = `${this.baseUrl}/data/files/write?path=${encodeURIComponent(relativePath)}&content=${encodeURIComponent(content)}${this.apiKey ? `&token=${encodeURIComponent(this.apiKey)}` : ''}`
+    console.log(`[OUTGOING] POST ${url}`)
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Accept': 'application/json' }
+      })
+      const text = await response.text()
+      try { return JSON.parse(text) } catch { return { error: 'Invalid JSON', rawResponse: text } }
+    } catch (error) {
+      this.isConnected = false
+      return { error: error.message }
+    }
+  }
+
+  async fileList(relativePath) {
+    if (!this.baseUrl) await this.init()
+    const url = `${this.baseUrl}/data/files/list?path=${encodeURIComponent(relativePath)}${this.apiKey ? `&token=${encodeURIComponent(this.apiKey)}` : ''}`
+    console.log(`[OUTGOING] POST ${url}`)
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Accept': 'application/json' }
+      })
+      const text = await response.text()
+      try { return JSON.parse(text) } catch { return { error: 'Invalid JSON', rawResponse: text } }
+    } catch (error) {
+      this.isConnected = false
+      return { error: error.message }
+    }
+  }
 }
 
 export default new TShockService()

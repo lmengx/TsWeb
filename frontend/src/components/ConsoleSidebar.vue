@@ -24,6 +24,7 @@ const sidebarItems = [
   { id: 'online', name: '在线统计', path: '/console/online', adminOnly: true },
   { id: 'groups', name: '组管理', path: '/console/groups', adminOnly: true },
   { id: 'banlist', name: '封禁列表', path: '/console/banlist', adminOnly: true },
+  { id: 'files', name: '配置文件', path: '/console/files', adminOnly: true },
   {
     id: 'anticheat',
     name: '反作弊',

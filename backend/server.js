@@ -10,6 +10,8 @@ import antiCheatRoutes from './routes/antiCheatRoutes.js'
 import resourceRoutes from './routes/resourceRoutes.js'
 import onlineRoutes from './routes/onlineRoutes.js'
 import unverifiedRoutes from './routes/unverifiedRoutes.js'
+import fileRoutes from './routes/fileRoutes.js'
+import { loadRules as loadFileAccessRules } from './services/fileAccessService.js'
 import tshockService from './services/tshockService.js'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -39,6 +41,7 @@ app.use('/api/anticheat', antiCheatRoutes)
 app.use('/api/resources', resourceRoutes)
 app.use('/api/online', onlineRoutes)
 app.use('/api/unverified', unverifiedRoutes)
+app.use('/api/files', fileRoutes)
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: Date.now() })
@@ -104,10 +107,17 @@ async function startServer() {
     console.log('TShock not configured. Status set to disconnected.')
   }
   
-  app.listen(port, () => {
+  app.listen(port, async () => {
     console.log(`Server running on http://localhost:${port}`)
     if (config.tshock?.host && config.tshock?.port) {
       console.log(`TShock API: ${config.tshock.host}:${config.tshock.port}`)
+    }
+    // 加载文件访问白名单
+    try {
+      await loadFileAccessRules()
+      console.log('[FileAccess] 文件访问白名单已加载')
+    } catch (err) {
+      console.warn('[FileAccess] 白名单加载失败:', err.message)
     }
   })
 }

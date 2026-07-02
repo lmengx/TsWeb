@@ -1,0 +1,24 @@
+{
+  "//": "文件访问白名单配置。相对路径，以TShock程序目录为根。",
+  "//read": "允许读取的文件列表",
+  "//write": "允许写入/修改的文件列表",
+  "//deny": "显式拒绝（优先级最高）",
+  "//note": "此文件仅允许服务器管理员手动编辑，API只读不写",
+
+  "read": [
+
+    "tshock/config.json"
+
+  ],
+
+  "write": [
+
+    "tshock/sscconfig.json",
+    "tshock/whitelist.txt"
+
+  ],
+
+  "deny": [
+    "tshock/tshock.sqlite"
+  ]
+}
