@@ -7,13 +7,17 @@
 
   "read": [
 
-    "tshock/config.json"
+    "tshock/config.json",
+    { "d": "world" },
+    { "d": "tshock/logs" }
 
   ],
 
   "write": [
 
     "tshock/sscconfig.json",
+    "tshock/motd.txt",
+    "tshock/rules.txt",
     "tshock/whitelist.txt"
 
   ],

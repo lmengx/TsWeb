@@ -4,7 +4,7 @@ import crypto from 'crypto'
 
 const FILE_ACCESS_PATH = path.resolve('config/fileAccess.json')
 
-/** @type {{ read: string[], write: string[] } | null} */
+/** @type {{ read: (string|{d:string})[], write: (string|{d:string})[], deny?: string[] } | null} */
 let rules = null
 let currentHash = null
 
@@ -42,21 +42,35 @@ export async function loadRules() {
   return rules
 }
 
+/** 将配置项统一转为 { type, path } 标准格式 */
+function normalizeEntry(entry) {
+  if (typeof entry === 'string') {
+    return { type: 'file', path: entry.trim().replace(/\\/g, '/') }
+  }
+  if (entry && typeof entry === 'object' && entry.d) {
+    return { type: 'dir', path: entry.d.trim().replace(/\\/g, '/').replace(/\/?$/, '') }
+  }
+  return null
+}
+
 /**
- * 从 read/write 中的明确路径自动计算出哪些目录是可浏览的
+ * 从 read/write 中的路径自动计算出哪些目录是可浏览的
  */
 function rebuildListableDirs() {
   listableDirs = new Set()
 
-  const allPaths = [...(rules.read || []), ...(rules.write || [])]
-  for (const filePath of allPaths) {
-    // 标准化路径：统一正斜杠，去除头尾空格
-    let normalized = filePath.trim().replace(/\\/g, '/')
-    // 跳过空路径或已经是目录的路径
-    if (!normalized || normalized.endsWith('/')) continue
+  const allEntries = [...(rules.read || []), ...(rules.write || [])]
+  for (const entry of allEntries) {
+    const norm = normalizeEntry(entry)
+    if (!norm || !norm.path) continue
+
+    if (norm.type === 'dir') {
+      // 目录规则：目录自身可列出
+      listableDirs.add(norm.path + '/')
+    }
 
     // 逐级提取父目录
-    const parts = normalized.split('/')
+    const parts = norm.path.split('/')
     for (let i = 1; i < parts.length; i++) {
       listableDirs.add(parts.slice(0, i).join('/') + '/')
     }
@@ -70,10 +84,14 @@ function isListable(dirPath) {
 }
 
 /**
- * 精确匹配：路径必须与规则完全一致（不允许通配符）
+ * 校验路径是否匹配规则
+ * - file 类型：rule.path === targetPath
+ * - dir  类型：targetPath 以 rule.path/ 开头（含子目录中所有文件）
  */
-function matchExact(rulePath, targetPath) {
-  return rulePath === targetPath
+function matchEntry(rule, targetPath) {
+  if (rule.type === 'file') return rule.path === targetPath
+  if (rule.type === 'dir') return targetPath === rule.path || targetPath.startsWith(rule.path + '/')
+  return false
 }
 
 /**
@@ -100,7 +118,7 @@ export function checkPermission(relativePath, operation) {
 
   // 3. 先检查 deny 黑名单
   for (const rule of (rules.deny || [])) {
-    if (matchExact(rule, normalized)) return false
+    if (rule === normalized) return false
   }
 
   // 4. list 权限自动计算
@@ -108,18 +126,21 @@ export function checkPermission(relativePath, operation) {
 
   // 5. write 操作：只匹配 write 规则
   if (operation === 'write') {
-    for (const rule of (rules.write || [])) {
-      if (matchExact(rule, normalized)) return true
+    for (const entry of (rules.write || [])) {
+      const norm = normalizeEntry(entry)
+      if (norm && matchEntry(norm, normalized)) return true
     }
     return false
   }
 
   // 6. read 操作：匹配 read 规则 + write 规则（write 隐式包含 read）
-  for (const rule of (rules.read || [])) {
-    if (matchExact(rule, normalized)) return true
+  for (const entry of (rules.read || [])) {
+    const norm = normalizeEntry(entry)
+    if (norm && matchEntry(norm, normalized)) return true
   }
-  for (const rule of (rules.write || [])) {
-    if (matchExact(rule, normalized)) return true
+  for (const entry of (rules.write || [])) {
+    const norm = normalizeEntry(entry)
+    if (norm && matchEntry(norm, normalized)) return true
   }
 
   return false
@@ -160,7 +181,13 @@ export function filterListResult(entries, dirPath) {
     if (entry.type === 'dir') {
       return isListable(fullPath + '/')
     }
-    // 文件：read 或 write 中有精确匹配
-    return (rules.read || []).includes(fullPath) || (rules.write || []).includes(fullPath)
+    // 文件：匹配 read 或 write 规则
+    for (const list of [rules.read, rules.write]) {
+      for (const item of (list || [])) {
+        const norm = normalizeEntry(item)
+        if (norm && matchEntry(norm, fullPath)) return true
+      }
+    }
+    return false
   })
 }
