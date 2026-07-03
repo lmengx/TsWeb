@@ -154,7 +154,12 @@ const handleRowClick = (user) => {
 <template>
   <div class="players-content">
     <div class="section-header">
-      <h2>玩家列表</h2>
+      <div class="header-title">
+        <h2>玩家列表</h2>
+        <span class="online-count-badge" :class="{ 'has-online': activeUsers.length > 0 }">
+          ● {{ activeUsers.length }} / {{ users.length }} 在线
+        </span>
+      </div>
       <button @click="emit('refresh')" :disabled="loading" class="refresh-btn">
         {{ loading ? '刷新中...' : '刷新' }}
       </button>
@@ -301,6 +306,30 @@ const handleRowClick = (user) => {
   align-items: center;
   margin-bottom: 20px;
   padding: 0 20px;
+}
+
+.header-title {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.online-count-badge {
+  padding: 4px 12px;
+  background: var(--bg-tertiary);
+  border-radius: 20px;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  font-weight: 600;
+  white-space: nowrap;
+  border: 1px solid var(--border-light);
+  transition: all 0.3s ease;
+}
+
+.online-count-badge.has-online {
+  background: rgba(34, 197, 94, 0.12);
+  color: #22c55e;
+  border-color: rgba(34, 197, 94, 0.3);
 }
 
 .section-header h2 {
