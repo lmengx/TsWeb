@@ -28,19 +28,12 @@ const getItemName = (id) => {
 
 const formatLocalDate = (dateStr) => {
   if (!dateStr) return '未知'
-  const match = dateStr.match(/(\d{4})-(\d{2})-(\d{2})[T\s](\d{2}):(\d{2}):(\d{2})/)
-  if (match) {
-    const date = new Date(
-      parseInt(match[1]),
-      parseInt(match[2]) - 1,
-      parseInt(match[3]),
-      parseInt(match[4]),
-      parseInt(match[5]),
-      parseInt(match[6])
-    )
-    return date.toLocaleString('zh-CN')
-  }
-  return new Date(dateStr).toLocaleString('zh-CN')
+  // 服务器返回的是 UTC 时间（如 "2026-06-23T11:50:09" 或 "2026-06-23 11:50:09"），
+  // 转为标准 ISO 末尾 +Z 表示 UTC，new Date 会正确解析，toLocaleString 自动转本地时区
+  const normalized = dateStr.replace(' ', 'T') + 'Z'
+  const date = new Date(normalized)
+  if (isNaN(date.getTime())) return dateStr
+  return date.toLocaleString('zh-CN')
 }
 
 const initItemData = async () => {
