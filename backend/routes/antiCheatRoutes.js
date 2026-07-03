@@ -4,7 +4,7 @@ import tshockService from '../services/tshockService.js'
 const router = Router()
 
 router.get('/config', (req, res) => {
-  tshockService.getAntiCheatConfig()
+  tshockService.getItemConfig()
     .then(data => {
       if (data.error) {
         res.status(500).json({ status: '500', error: data.error })
