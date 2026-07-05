@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System.Collections.Concurrent;
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System.Collections.Concurrent;
 using System.Data;
 using System.Diagnostics;
 using System.Reflection;
@@ -226,15 +226,14 @@ namespace TShockData
 
         private static bool RemoveItemFromPlayer(int accountId, string playerName, int netID, string itemName)
         {
-            var player1 = TShockAPI.TSPlayer.FindByNameOrID(playerName);
-            if (player1.Count > 0)
+            // 如果玩家在线，先同步当前状态到 DB，再修改 DB + 同步到客户端
+            var onlinePlayers = TShockAPI.TSPlayer.FindByNameOrID(playerName);
+            TSPlayer? onlinePlayer = null;
+            if (onlinePlayers.Count > 0 && onlinePlayers[0].Active)
             {
-                foreach (var tSPlayer in player1)
-                {
-                    tSPlayer.Kick("管理员清除了您背包中的违规物品", true);
-                }
-                // 等待玩家踢出存档落库，避免清除操作被后续存档覆盖
-                System.Threading.Thread.Sleep(1000);
+                onlinePlayer = onlinePlayers[0];
+                onlinePlayer.PlayerData.CopyCharacter(onlinePlayer);
+                TShock.CharacterDB.InsertPlayerData(onlinePlayer);
             }
 
             try
@@ -275,6 +274,14 @@ namespace TShockData
                     {
                         string finalinv = string.Join("~", arrinventory);
                         db.Query("UPDATE tsCharacter SET Inventory = @0 WHERE Account = @1", finalinv, accountId);
+
+                        // 玩家在线 → 从 DB 重新加载并同步到客户端
+                        if (onlinePlayer != null)
+                        {
+                            onlinePlayer.PlayerData = TShock.CharacterDB.GetPlayerData(onlinePlayer, accountId);
+                            onlinePlayer.PlayerData.RestoreCharacter(onlinePlayer);
+                        }
+
                         TShock.Log.ConsoleInfo($"[remove] 已清除玩家 {playerName} 的物品: {itemName}");
                         return true;
                     }
