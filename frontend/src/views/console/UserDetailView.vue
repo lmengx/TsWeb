@@ -89,6 +89,11 @@ const banLoading = ref(false)
 const banError = ref('')
 const banSuccess = ref('')
 
+const showClearCharacterModal = ref(false)
+const clearCharacterLoading = ref(false)
+const clearCharacterError = ref('')
+const clearCharacterSuccess = ref('')
+
 const showPasswordModal = ref(false)
 const newPassword = ref('')
 const passwordLoading = ref(false)
@@ -587,6 +592,40 @@ const executeBan = async () => {
   }
 
   banLoading.value = false
+}
+
+const openClearCharacterModal = () => {
+  showClearCharacterModal.value = true
+  clearCharacterError.value = ''
+  clearCharacterSuccess.value = ''
+}
+
+const closeClearCharacterModal = () => {
+  showClearCharacterModal.value = false
+}
+
+const executeClearCharacter = async () => {
+  if (!userDetails.value) return
+
+  clearCharacterLoading.value = true
+  clearCharacterError.value = ''
+  clearCharacterSuccess.value = ''
+
+  try {
+    const account = userDetails.value.ID || userDetails.value.id
+    const response = await post('/api/tshock/clearcharacter', { account })
+    const result = await response.json()
+
+    if (result.error) {
+      clearCharacterError.value = result.error
+    } else {
+      clearCharacterSuccess.value = result.response || '角色数据已清空'
+    }
+  } catch (err) {
+    clearCharacterError.value = err.message || '清空失败'
+  }
+
+  clearCharacterLoading.value = false
 }
 
 const openKickModal = () => {
@@ -1327,6 +1366,9 @@ onMounted(() => {
             <button @click="openBanModal" class="ban-btn">
               封禁
             </button>
+            <button @click="openClearCharacterModal" class="danger-btn">
+              🗑 清空角色
+            </button>
           </div>
         </div>
         
@@ -1768,6 +1810,54 @@ onMounted(() => {
       </div>
     </div>
 
+    <div v-if="showClearCharacterModal" class="modal-overlay" @click.self="closeClearCharacterModal">
+      <div class="modal modal-danger">
+        <div class="modal-header">
+          <h3>⚠️ 清空角色数据</h3>
+          <button @click="closeClearCharacterModal" class="close-btn">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="ban-warning">
+            <p>🚨 <strong>危险操作</strong></p>
+            <p>此操作将 <strong>永久删除</strong> 该玩家在服务器的角色数据（背包、装备、建筑权限等）。</p>
+            <p>玩家下次登录时将以全新角色进入，此操作 <strong>不可撤销</strong>！</p>
+          </div>
+          <div class="clear-char-form">
+            <div class="form-row">
+              <label>目标玩家 ID</label>
+              <input
+                :value="userDetails?.ID || userDetails?.id"
+                type="text"
+                class="form-input"
+                disabled
+              />
+            </div>
+            <div class="form-row">
+              <label>目标玩家</label>
+              <input
+                :value="userDetails?.Username || userDetails?.name"
+                type="text"
+                class="form-input"
+                disabled
+              />
+            </div>
+          </div>
+          <div v-if="clearCharacterError" class="give-error">
+            {{ clearCharacterError }}
+          </div>
+          <div v-if="clearCharacterSuccess" class="give-success">
+            {{ clearCharacterSuccess }}
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button @click="closeClearCharacterModal" class="cancel-btn">取消</button>
+          <button @click="executeClearCharacter" :disabled="clearCharacterLoading" class="danger-submit-btn">
+            {{ clearCharacterLoading ? '执行中...' : '确认清空角色数据' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
     <div v-if="showPasswordModal" class="modal-overlay" @click.self="closePasswordModal">
       <div class="modal">
         <div class="modal-header">
@@ -2179,6 +2269,24 @@ onMounted(() => {
 .ban-btn:hover {
   transform: translateY(-1px);
   box-shadow: 0 4px 12px rgba(220, 38, 38, 0.4);
+}
+
+.danger-btn {
+  padding: 10px 20px;
+  background: linear-gradient(135deg, #7c3aed, #6d28d9);
+  color: white;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 500;
+  transition: all 0.25s ease;
+  box-shadow: var(--shadow-sm);
+}
+
+.danger-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(124, 58, 237, 0.4);
 }
 
 .back-btn {
@@ -2954,6 +3062,24 @@ onMounted(() => {
   box-shadow: 0 4px 12px rgba(220, 38, 38, 0.4);
 }
 
+.danger-btn {
+  padding: 12px 24px;
+  background: linear-gradient(135deg, #7c3aed, #6d28d9);
+  color: white;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: 0.95rem;
+  font-weight: 600;
+  transition: all 0.25s ease;
+  box-shadow: var(--shadow-sm);
+}
+
+.danger-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(124, 58, 237, 0.4);
+}
+
 .ban-warning {
   background: rgba(234, 179, 8, 0.15);
   border: 1px solid rgba(234, 179, 8, 0.3);
@@ -2989,6 +3115,33 @@ onMounted(() => {
 .ban-submit-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.danger-submit-btn {
+  padding: 12px 24px;
+  background: linear-gradient(135deg, #7c3aed, #6d28d9);
+  color: white;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: 0.95rem;
+  font-weight: 600;
+  transition: all 0.25s ease;
+  box-shadow: var(--shadow-sm);
+}
+
+.danger-submit-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(124, 58, 237, 0.4);
+}
+
+.danger-submit-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.modal-danger {
+  border: 2px solid #7c3aed;
 }
 
 .kick-submit-btn {

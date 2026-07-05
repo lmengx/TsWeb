@@ -12,6 +12,7 @@ const activeUsers = ref([])
 const usersLoading = ref(false)
 const unverifiedPlayers = ref([])
 const unverifiedLoading = ref(false)
+const refreshKey = ref(0)
 
 const fetchUsers = async () => {
   usersLoading.value = true
@@ -46,6 +47,7 @@ const fetchUsers = async () => {
   }
   usersLoading.value = false
   unverifiedLoading.value = false
+  refreshKey.value++
 }
 
 const handleGoToUserDetail = (username) => {
@@ -63,6 +65,7 @@ onMounted(() => {
 
 <template>
   <PlayerList
+    :key="refreshKey"
     :users="users"
     :active-users="activeUsers"
     :unverified-players="unverifiedPlayers"

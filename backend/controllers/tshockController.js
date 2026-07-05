@@ -1,5 +1,21 @@
 import tshockService from '../services/tshockService.js'
 
+export const clearAllCharacter = async (req, res) => {
+  const { username, password } = req.body
+
+  if (!username || !password) {
+    return res.status(400).json({ status: '400', error: 'username and password are required' })
+  }
+
+  const result = await tshockService.clearAllCharacter(username, password)
+
+  if (result.error) {
+    return res.json({ status: 'error', error: result.error })
+  }
+
+  res.json({ status: '200', response: result.response || '角色数据已全部清空' })
+}
+
 export const executeCommand = async (req, res) => {
   const { command } = req.body
   
@@ -226,6 +242,22 @@ export const getSelfInfo = async (req, res) => {
     isOnline,
     success: !!userInfo
   })
+}
+
+export const clearCharacter = async (req, res) => {
+  const { account } = req.body
+
+  if (!account) {
+    return res.status(400).json({ status: '400', error: 'account is required' })
+  }
+
+  const result = await tshockService.clearCharacter(account)
+
+  if (result.error) {
+    return res.json({ status: 'error', error: result.error })
+  }
+
+  res.json({ status: '200', response: result.response || '角色数据已清空' })
 }
 
 export const scanItems = async (req, res) => {

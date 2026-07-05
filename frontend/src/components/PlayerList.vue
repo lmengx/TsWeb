@@ -160,9 +160,11 @@ const handleRowClick = (user) => {
           ● {{ activeUsers.length }} / {{ users.length }} 在线
         </span>
       </div>
-      <button @click="emit('refresh')" :disabled="loading" class="refresh-btn">
-        {{ loading ? '刷新中...' : '刷新' }}
-      </button>
+      <div class="header-actions">
+        <button @click="emit('refresh')" :disabled="loading" class="refresh-btn">
+          {{ loading ? '刷新中...' : '刷新' }}
+        </button>
+      </div>
     </div>
 
     <div class="search-bar">

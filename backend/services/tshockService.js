@@ -70,6 +70,76 @@ export class TShockService {
     return this.isConnected
   }
 
+  async clearCharacter(account) {
+    if (!this.baseUrl) await this.init()
+
+    const headers = {
+      'Accept': 'application/json'
+    }
+
+    let url = `${this.baseUrl}/data/users/clearcharacter?account=${encodeURIComponent(account)}`
+    if (this.apiKey) {
+      url += `&token=${encodeURIComponent(this.apiKey)}`
+    }
+
+    console.log(`[OUTGOING] GET ${url}`)
+
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        headers
+      })
+
+      console.log(`[RESPONSE] Status: ${response.status}`)
+      const text = await response.text()
+      console.log(`[RESPONSE] Body: ${text}`)
+
+      try {
+        return JSON.parse(text)
+      } catch {
+        return { error: 'Invalid JSON', rawResponse: text }
+      }
+    } catch (error) {
+      this.isConnected = false
+      return { error: error.message }
+    }
+  }
+
+  async clearAllCharacter(username, password) {
+    if (!this.baseUrl) await this.init()
+
+    const headers = {
+      'Accept': 'application/json'
+    }
+
+    let url = `${this.baseUrl}/data/users/clearallcharacter?username=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}`
+    if (this.apiKey) {
+      url += `&token=${encodeURIComponent(this.apiKey)}`
+    }
+
+    console.log(`[OUTGOING] GET ${url}`)
+
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        headers
+      })
+
+      console.log(`[RESPONSE] Status: ${response.status}`)
+      const text = await response.text()
+      console.log(`[RESPONSE] Body: ${text}`)
+
+      try {
+        return JSON.parse(text)
+      } catch {
+        return { error: 'Invalid JSON', rawResponse: text }
+      }
+    } catch (error) {
+      this.isConnected = false
+      return { error: error.message }
+    }
+  }
+
   async executeCommand(command) {
     if (!this.baseUrl) {
       await this.init()

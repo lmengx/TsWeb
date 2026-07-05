@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { executeCommand, testCommand, getUsers, getActiveUsers, getInventory, getUserList, checkDuplicateIPs, getAllDuplicateIPs, editInventory, getGroups, getGroup, createGroup, updateGroup, deleteGroup, addGroupPermission, removeGroupPermission, banPlayer, unbanPlayer, createUser, getSelfInfo, getBossProgress, getBanList, scanItems, scanItemById, getPlayerStats, setPlayerStats } from '../controllers/tshockController.js'
+import { executeCommand, testCommand, getUsers, getActiveUsers, getInventory, getUserList, checkDuplicateIPs, getAllDuplicateIPs, editInventory, getGroups, getGroup, createGroup, updateGroup, deleteGroup, addGroupPermission, removeGroupPermission, banPlayer, unbanPlayer, createUser, getSelfInfo, getBossProgress, getBanList, scanItems, scanItemById, getPlayerStats, setPlayerStats, clearCharacter, clearAllCharacter } from '../controllers/tshockController.js'
 import { verifyToken, requireRole } from '../middlewares/authMiddleware.js'
 
 const router = Router()
@@ -30,5 +30,7 @@ router.post('/itemscan', verifyToken, requireRole('admin'), scanItems)
 router.post('/itemscan-by-id', verifyToken, requireRole('admin'), scanItemById)
 router.get('/stats', verifyToken, requireRole('admin'), getPlayerStats)
 router.post('/stats/set', verifyToken, requireRole('admin'), setPlayerStats)
+router.post('/clearcharacter', verifyToken, requireRole('admin'), clearCharacter)
+router.post('/clearallcharacter', verifyToken, requireRole('admin'), clearAllCharacter)
 
 export default router
