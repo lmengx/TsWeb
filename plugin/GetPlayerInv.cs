@@ -38,20 +38,27 @@ namespace TShockData
             var account = TShock.UserAccounts.GetUserAccountByName(player);
             if (account == null)
             {
-                throw new Exception("找不到玩家");
-            }
-            var player1 = TShockAPI.TSPlayer.FindByNameOrID(account.Name);
-            if (player1.Count > 0)
-            {
-                foreach (var tSPlayer in player1)
+                return new RestObject("404")
                 {
-                    tSPlayer.Kick("管理员修改了您的背包", true);
-                }
-                System.Threading.Thread.Sleep(1000);
+                    { "error", "找不到玩家" }
+                };
             }
+
             try
             {
                 IDbConnection db = TShock.DB;
+
+                // 如果玩家在线，先同步当前内存状态到 DB，再修改 DB + 同步到客户端
+                var onlinePlayers = TShockAPI.TSPlayer.FindByNameOrID(account.Name);
+                TSPlayer? onlinePlayer = null;
+                if (onlinePlayers.Count > 0 && onlinePlayers[0].Active)
+                {
+                    onlinePlayer = onlinePlayers[0];
+                    // 将玩家当前内存中的背包/装备/属性保存到 DB
+                    onlinePlayer.PlayerData.CopyCharacter(onlinePlayer);
+                    TShock.CharacterDB.InsertPlayerData(onlinePlayer);
+                }
+
                 string strinventory = "";
                 using (QueryResult res = db.QueryReader("SELECT Inventory FROM tsCharacter WHERE Account = @0", account.ID))
                 {
@@ -59,39 +66,50 @@ namespace TShockData
                     {
                         strinventory = res.Get<string>("Inventory");
                     }
-                    else
-                    {
-                        return false;
-                    }
                 }
-                if (strinventory != "")
-                {
-                    string[] arrinventory = strinventory.Split("~");
-                    string[] item = arrinventory[index].Split(",");
-                    item[0] = netID.ToString();
-                    item[1] = stack.ToString();
-                    item[2] = prefix.ToString();
-                    arrinventory[index] = string.Join(",", item);
-                    string finalinv = string.Join("~", arrinventory);
-                    db.Query("UPDATE tsCharacter SET Inventory = @0 WHERE Account = @1", finalinv, account.ID);
-                    return new RestObject()
-                    {
-                        { "response", "修改成功" }
-                    };
-                }
-                else
+
+                if (string.IsNullOrEmpty(strinventory))
                 {
                     return new RestObject("400")
                     {
-                        { "response", "数据库错误" }
+                        { "error", "数据库错误" }
                     };
                 }
+
+                string[] arrinventory = strinventory.Split("~");
+                if (index < 0 || index >= arrinventory.Length)
+                {
+                    return new RestObject("400")
+                    {
+                        { "error", $"索引 {index} 超出范围 (0-{arrinventory.Length - 1})" }
+                    };
+                }
+
+                string[] item = arrinventory[index].Split(",");
+                item[0] = netID.ToString();
+                item[1] = stack.ToString();
+                item[2] = prefix.ToString();
+                arrinventory[index] = string.Join(",", item);
+                string finalinv = string.Join("~", arrinventory);
+                db.Query("UPDATE tsCharacter SET Inventory = @0 WHERE Account = @1", finalinv, account.ID);
+
+                // 玩家在线 → 用 RestoreCharacter 将修改后的数据应用到内存并同步客户端
+                if (onlinePlayer != null)
+                {
+                    onlinePlayer.PlayerData = TShock.CharacterDB.GetPlayerData(onlinePlayer, account.ID);
+                    onlinePlayer.PlayerData.RestoreCharacter(onlinePlayer);
+                }
+
+                return new RestObject()
+                {
+                    { "response", "修改成功" }
+                };
             }
             catch (Exception ex)
             {
-                return new RestObject()
+                return new RestObject("500")
                 {
-                    { "response", ex.Message }
+                    { "error", ex.Message }
                 };
             }
         }
