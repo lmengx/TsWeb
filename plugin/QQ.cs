@@ -10,6 +10,11 @@ namespace TShockData
     {
         private static bool _tableChecked = false;
 
+        public static void Initialize()
+        {
+            EnsureTable();
+        }
+
         private static void EnsureTable()
         {
             if (_tableChecked)
