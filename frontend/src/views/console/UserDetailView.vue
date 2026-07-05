@@ -929,6 +929,11 @@ const copyToClipboard = async (text) => {
   }
 }
 
+const copyQQ = () => {
+  const qq = userDetails.value?.QQ
+  if (qq) copyToClipboard(qq)
+}
+
 // ==================== 近十日在线统计 ====================
 const toLocalDateString = (date) => {
   const y = date.getFullYear()
@@ -1246,6 +1251,10 @@ onMounted(() => {
           <div class="online-status" :class="{ online: isOnline }">
             <span class="status-dot"></span>
             <span>{{ isOnline ? '在线' : '离线' }}</span>
+          </div>
+          <div class="qq-bind-status" :class="{ bound: userDetails.QQ }" @click="copyQQ">
+            <span class="qq-dot"></span>
+            <span>QQ:{{ userDetails.QQ || '未绑定' }}</span>
           </div>
         </template>
       </div>
@@ -2077,6 +2086,47 @@ onMounted(() => {
 .online-status.online .status-dot {
   background: #22c55e;
   box-shadow: 0 0 8px rgba(34, 197, 94, 0.6);
+}
+
+.qq-bind-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: var(--bg-tertiary);
+  border-radius: 20px;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  cursor: default;
+  user-select: none;
+}
+
+.qq-bind-status.bound {
+  background: rgba(234, 179, 8, 0.15);
+  color: #eab308;
+  cursor: pointer;
+}
+
+.qq-bind-status.bound:hover {
+  background: rgba(234, 179, 8, 0.25);
+}
+
+.qq-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+
+.qq-bind-status.bound .qq-dot {
+  background: #eab308;
+  box-shadow: 0 0 8px rgba(234, 179, 8, 0.6);
+  animation: qq-glow 1.5s ease-in-out infinite;
+}
+
+@keyframes qq-glow {
+  0%, 100% { box-shadow: 0 0 8px rgba(234, 179, 8, 0.4); }
+  50% { box-shadow: 0 0 14px rgba(234, 179, 8, 0.9); }
 }
 
 .action-section {
