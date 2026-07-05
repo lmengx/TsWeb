@@ -87,20 +87,20 @@ namespace TShockData
                 };
             }
 
+            // 如果玩家在线，先同步当前状态到 DB，再修改 DB + 同步到客户端
             var onlinePlayers = TSPlayer.FindByNameOrID(playerName);
-            if (onlinePlayers.Count > 0)
+            TSPlayer? onlinePlayer = null;
+            if (onlinePlayers.Count > 0 && onlinePlayers[0].Active)
             {
-                foreach (var tsPlayer in onlinePlayers)
-                {
-                    tsPlayer.Kick("管理员修改了您的角色属性", true);
-                }
-                System.Threading.Thread.Sleep(1000);
+                onlinePlayer = onlinePlayers[0];
+                onlinePlayer.PlayerData.CopyCharacter(onlinePlayer);
+                TShock.CharacterDB.InsertPlayerData(onlinePlayer);
             }
 
             try
             {
                 var data = TShock.CharacterDB.GetPlayerData(null, account.ID);
-                if (data == null)
+                if (data == null || !data.exists)
                 {
                     return new RestObject("404")
                     {
@@ -135,6 +135,13 @@ namespace TShockData
                     string updateSql = "UPDATE tsCharacter SET " + string.Join(", ", updateFields) + " WHERE Account = @" + paramIndex;
                     updateValues.Add(account.ID);
                     TShock.DB.Query(updateSql, updateValues.ToArray());
+                }
+
+                // 玩家在线 → 从 DB 重新加载并同步到客户端
+                if (onlinePlayer != null)
+                {
+                    onlinePlayer.PlayerData = TShock.CharacterDB.GetPlayerData(onlinePlayer, account.ID);
+                    onlinePlayer.PlayerData.RestoreCharacter(onlinePlayer);
                 }
 
                 return new RestObject()

@@ -1482,7 +1482,6 @@ onMounted(() => {
       <div class="stats-section">
         <div class="stats-header">
           <h3>角色属性</h3>
-          <span v-if="isOnline" class="online-warning">⚠️ 在线玩家修改属性后将被强制踢出</span>
         </div>
         
         <div v-if="statsLoading" class="loading-state">
