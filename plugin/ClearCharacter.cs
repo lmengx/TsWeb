@@ -50,9 +50,29 @@ namespace TShockData
                     };
                 }
 
+                // 查找该账号是否在线
+                var account = TShock.UserAccounts.GetUserAccountByID(accountId);
+                TSPlayer? onlinePlayer = null;
+                if (account != null)
+                {
+                    var players = TSPlayer.FindByNameOrID(account.Name);
+                    if (players.Count > 0 && players[0].Active)
+                    {
+                        onlinePlayer = players[0];
+                    }
+                }
+
                 // 删除角色数据
                 string deleteQuery = "DELETE FROM tsCharacter WHERE Account = @0";
                 int rowsAffected = db.Query(deleteQuery, accountId);
+
+                // 如果玩家在线，重新生成初始角色数据并同步到客户端
+                if (onlinePlayer != null && account != null)
+                {
+                    TShock.CharacterDB.SeedInitialData(account);
+                    onlinePlayer.PlayerData = TShock.CharacterDB.GetPlayerData(onlinePlayer, accountId);
+                    onlinePlayer.PlayerData.RestoreCharacter(onlinePlayer);
+                }
 
                 TShock.Log.ConsoleInfo($"[TSWeb] 已清空用户 ID={accountId} 的角色数据");
 
