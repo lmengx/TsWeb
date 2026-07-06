@@ -17,8 +17,7 @@ const bossLimitMinPlayers = ref(7)
 const registerModeOptions = [
   { value: 'default', label: '默认模式 - 允许手动注册' },
   { value: 'auto', label: '自动注册 - 新玩家自动创建账户' },
-  { value: 'disable', label: '禁用注册 - 完全禁止注册' },
-  { value: 'block', label: '阻止模式 - 未注册/UUID不匹配玩家断联' }
+  { value: 'block', label: '白名单模式 - 仅已注册玩家可进入' }
 ]
 
 const bossModeOptions = [

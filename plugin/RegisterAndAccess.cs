@@ -16,7 +16,6 @@ namespace TShockData
     {
         Default,
         Auto,
-        Disable,
         Block
     }
 
@@ -42,7 +41,6 @@ namespace TShockData
             return AutoRegisterMode.ToLower() switch
             {
                 "auto" => RegisterMode.Auto,
-                "disable" => RegisterMode.Disable,
                 "block" => RegisterMode.Block,
                 _ => RegisterMode.Default
             };
@@ -171,11 +169,6 @@ namespace TShockData
                     args.Player.SendInfoMessage("加入服务器时系统会自动为您创建账户");
                     break;
 
-                case RegisterMode.Disable:
-                    args.Player.SendErrorMessage("服务器已禁用注册功能");
-                    args.Player.SendInfoMessage("请联系管理员获取账户");
-                    break;
-
                 case RegisterMode.Block:
                     args.Player.SendErrorMessage("服务器已关闭注册，未注册玩家无法进入");
                     break;
@@ -192,7 +185,7 @@ namespace TShockData
                 return;
 
             // 只关注连接阶段的包
-            if (args.MsgID != PacketTypes.ContinueConnecting2 && args.MsgID != PacketTypes.PasswordSend)
+            if (args.MsgID != PacketTypes.ContinueConnecting2)
                 return;
 
             var player = TShock.Players[args.Msg.whoAmI];
@@ -211,10 +204,6 @@ namespace TShockData
                 if (args.MsgID == PacketTypes.ContinueConnecting2)
                 {
                     HandleBlockConnecting(player, args);
-                }
-                else if (args.MsgID == PacketTypes.PasswordSend)
-                {
-                    HandleBlockPassword(player, args);
                 }
             }
         }
@@ -236,23 +225,9 @@ namespace TShockData
         {
             var account = TShock.UserAccounts.GetUserAccountByName(player.Name);
 
-            // 已注册 + UUID匹配 → 放行（让TShock正常处理）
-            if (account != null && account.UUID == player.UUID)
-            {
-                TShock.Log.ConsoleInfo($"[TSWeb] UUID验证通过: {player.Name}");
-                return;
-            }
-
-            // 已注册但 UUID 不匹配 → 我们自己弹密码验证
+            // 有账户 → 放行（BugFixes 会处理 UUID 不匹配的密码挑战）
             if (account != null)
-            {
-                args.Handled = true;
-                player.RequiresPassword = true;
-                _passwordPending.Add(player.Name);
-                NetMessage.SendData((int)PacketTypes.PasswordRequired, player.Index);
-                TShock.Log.ConsoleInfo($"[TSWeb] 请求密码验证(UUID不匹配): {player.Name}");
                 return;
-            }
 
             // 未注册玩家 → 直接断联
             args.Handled = true;
@@ -265,81 +240,6 @@ namespace TShockData
                 }
             });
             TShock.Log.ConsoleInfo($"[TSWeb] 阻止未注册玩家进入: {player.Name}");
-        }
-
-        private static void HandleBlockPassword(TSPlayer player, GetDataEventArgs args)
-        {
-            // 只处理由我们发起密码挑战的玩家
-            if (!_passwordPending.Contains(player.Name))
-                return;
-
-            args.Handled = true;
-
-            string password;
-            using (var reader = new BinaryReader(new MemoryStream(args.Msg.readBuffer, args.Index, args.Length - 1)))
-            {
-                password = reader.ReadString();
-            }
-
-            var account = TShock.UserAccounts.GetUserAccountByName(player.Name);
-            if (account == null || !account.VerifyPassword(password))
-            {
-                _passwordPending.Remove(player.Name);
-                TShock.Log.ConsoleInfo($"[TSWeb] 密码验证失败: {player.Name}");
-                player.Kick("密码错误\n请输入角色密码，已登录设备使用/pwd 新密码 可以设置，如果没有可以登录的设备，请联系服务器管理员\n如果这是你第一次进服，那说明你的角色名已被占用，请更换", true, true);
-                return;
-            }
-
-            // ★ 密码验证通过 → 完整登录流程
-            _passwordPending.Remove(player.Name);
-            TShock.Log.ConsoleInfo($"[TSWeb] 密码验证通过: {player.Name}");
-
-            player.RequiresPassword = false;
-
-            // 推进连接状态
-            if (player.State == (int)ConnectionState.AssigningPlayerSlot)
-                player.State = (int)ConnectionState.AwaitingPlayerInfo;
-
-            // 发送世界信息，继续连接流程
-            NetMessage.SendData((int)PacketTypes.WorldInfo, player.Index);
-
-            // 加载玩家数据
-            player.PlayerData = TShock.CharacterDB.GetPlayerData(player, account.ID);
-
-            // 分配权限组
-            var group = TShock.Groups.GetGroupByName(account.Group);
-            if (!TShock.Groups.AssertGroupValid(player, group, true))
-                return;
-
-            player.Group = group;
-            player.tempGroup = null;
-            player.Account = account;
-            player.IsLoggedIn = true;
-            player.IsDisabledForSSC = false;
-
-            // SSC数据恢复
-            if (Main.ServerSideCharacter)
-            {
-                if (player.HasPermission(Permissions.bypassssc))
-                {
-                    player.PlayerData.CopyCharacter(player);
-                    TShock.CharacterDB.InsertPlayerData(player);
-                }
-                player.PlayerData.RestoreCharacter(player);
-            }
-            player.LoginFailsBySsi = false;
-
-            if (player.HasPermission(Permissions.ignorestackhackdetection))
-                player.IsDisabledForStackDetection = false;
-
-            if (player.HasPermission(Permissions.usebanneditem))
-                player.IsDisabledForBannedWearable = false;
-
-            // 更新UUID为当前设备
-            TShock.UserAccounts.SetUserAccountUUID(account, player.UUID);
-
-            player.SendSuccessMessage($"验证通过: {account.Name}");
-            TShockAPI.Hooks.PlayerHooks.OnPlayerPostLogin(player);
         }
 
         private static UserAccount CreateAccount(TSPlayer player)
@@ -448,9 +348,9 @@ namespace TShockData
             }
 
             var newMode = args.Parameters[1].ToLower();
-            if (newMode != "default" && newMode != "auto" && newMode != "disable" && newMode != "block")
+            if (newMode != "default" && newMode != "auto" && newMode != "block")
             {
-                args.Player.SendErrorMessage("无效模式! 可用模式: default / auto / disable / block");
+                args.Player.SendErrorMessage("无效模式! 可用模式: default / auto / block");
                 return;
             }
 
@@ -484,8 +384,7 @@ namespace TShockData
             args.Player.SendInfoMessage("模式说明:");
             args.Player.SendInfoMessage("  default - 默认行为，允许手动注册");
             args.Player.SendInfoMessage("  auto - 自动注册新玩家，禁用手动注册");
-            args.Player.SendInfoMessage("  disable - 完全禁用注册");
-            args.Player.SendInfoMessage("  block - 阻止未注册/UUID不匹配玩家进入");
+            args.Player.SendInfoMessage("  block - 阻止未注册玩家进入");
         }
 
         // ═══════════════════════════════════════════
@@ -538,9 +437,9 @@ namespace TShockData
                 var mode = args.Parameters["mode"];
                 if (!string.IsNullOrEmpty(mode))
                 {
-                    var m = mode.ToLower();
-                    if (m == "default" || m == "auto" || m == "disable" || m == "block")
-                        Config.AutoRegisterMode = m;
+            var m = mode.ToLower();
+            if (m == "default" || m == "auto" || m == "block")
+                Config.AutoRegisterMode = m;
                 }
                 var blm = args.Parameters["bossLimitMode"];
                 if (!string.IsNullOrEmpty(blm))
