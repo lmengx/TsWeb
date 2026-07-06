@@ -144,4 +144,4 @@ _temp_fix.js
 backend/backend.zip
 frontend/dist.zip
 backend/world.wld
-backend/config.json
+backend/config/config.json
