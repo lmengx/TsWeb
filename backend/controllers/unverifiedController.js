@@ -61,9 +61,11 @@ export const kick = async (req, res) => {
 
 export const ban = async (req, res) => {
   const { nickname, reason } = req.body
+  const character = req.user?.username || '后台操作'
   if (!nickname) return res.status(400).json({ error: 'nickname is required' })
   let path = `/data/users/unverified/ban?nickname=${encodeURIComponent(nickname)}`
   if (reason) path += `&reason=${encodeURIComponent(reason)}`
+  if (character) path += `&character=${encodeURIComponent(character)}`
   const result = await tshockFetch(path)
   res.json(result)
 }

@@ -221,6 +221,14 @@ namespace TShockData
         {
             string nickname = args.Parameters["nickname"];
             string reason = args.Parameters["reason"];
+            string character = "后台操作";
+            try
+            {
+                if (!string.IsNullOrEmpty(args.Parameters["character"]))
+                    character = args.Parameters["character"];
+            }
+            catch { }
+
             if (string.IsNullOrEmpty(reason))
                 reason = "管理员踢出";
 
@@ -255,6 +263,14 @@ namespace TShockData
         {
             string nickname = args.Parameters["nickname"];
             string reason = args.Parameters["reason"];
+            string character = "后台操作";
+            try
+            {
+                if (!string.IsNullOrEmpty(args.Parameters["character"]))
+                    character = args.Parameters["character"];
+            }
+            catch { }
+
             if (string.IsNullOrEmpty(reason))
                 reason = "管理员封禁";
 
@@ -278,7 +294,7 @@ namespace TShockData
                     }
                     else
                     {
-                        TShock.Bans.InsertBan($"ip:{tsPlayer.IP}", reason, "TSWeb", DateTime.UtcNow, DateTime.MaxValue);
+                        TShock.Bans.InsertBan($"ip:{tsPlayer.IP}", reason, character, DateTime.UtcNow, DateTime.MaxValue);
                         banned.Add($"ip:{tsPlayer.IP}");
                     }
                 }
@@ -286,7 +302,7 @@ namespace TShockData
                 // 封禁UUID
                 if (!string.IsNullOrEmpty(tsPlayer.UUID))
                 {
-                    TShock.Bans.InsertBan($"uuid:{tsPlayer.UUID}", reason, "TSWeb", DateTime.UtcNow, DateTime.MaxValue);
+                    TShock.Bans.InsertBan($"uuid:{tsPlayer.UUID}", reason, character, DateTime.UtcNow, DateTime.MaxValue);
                     banned.Add($"uuid:{tsPlayer.UUID}");
                 }
 

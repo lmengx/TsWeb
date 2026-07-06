@@ -766,7 +766,7 @@ export class TShockService {
     }
   }
 
-  async banPlayer(name, reason) {
+  async banPlayer(name, reason, character = null) {
     if (!this.baseUrl) {
       await this.init()
     }
@@ -777,6 +777,7 @@ export class TShockService {
 
     let url = `${this.baseUrl}/data/users/ban?name=${encodeURIComponent(name)}`
     if (reason) url += `&reason=${encodeURIComponent(reason)}`
+    if (character) url += `&character=${encodeURIComponent(character)}`
     if (this.apiKey) {
       url += `&token=${encodeURIComponent(this.apiKey)}`
     }

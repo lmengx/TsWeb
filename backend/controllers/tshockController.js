@@ -162,6 +162,7 @@ export const removeGroupPermission = async (req, res) => {
 
 export const banPlayer = async (req, res) => {
   const { name, id, reason } = req.body
+  const character = req.user?.username || '后台操作'
   
   if (!name && !id) {
     return res.status(400).json({ error: 'name or id is required' })
@@ -172,7 +173,7 @@ export const banPlayer = async (req, res) => {
   }
 
   const target = name || id
-  const result = await tshockService.banPlayer(target, reason)
+  const result = await tshockService.banPlayer(target, reason, character)
   res.json(result)
 }
 

@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using Rests;
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using Rests;
 using System;
 using System.Collections.Generic;
 using System.Data;
@@ -278,6 +278,7 @@ namespace TShockData
             string name = null;
             string id = null;
             string reason = "不当行为";
+            string character = "后台操作";
 
             try
             {
@@ -294,6 +295,13 @@ namespace TShockData
             try
             {
                 reason = args.Parameters["reason"];
+            }
+            catch { }
+
+            try
+            {
+                if (!string.IsNullOrEmpty(args.Parameters["character"]))
+                    character = args.Parameters["character"];
             }
             catch { }
 
@@ -359,18 +367,22 @@ namespace TShockData
                     }
                 }
 
-                TShockAPI.Commands.HandleCommand(TShockAPI.TSPlayer.Server, $"/ban add \"acc:{username}\" \"{reason}\" -e");
+                DateTime now = DateTime.UtcNow;
+                DateTime never = DateTime.MaxValue;
+
+                // 使用 InsertBan 直接写入数据库，带操作人信息
+                TShock.Bans.InsertBan($"acc:{username}", reason, character, now, never);
 
                 if (!string.IsNullOrEmpty(uuid))
                 {
-                    TShockAPI.Commands.HandleCommand(TShockAPI.TSPlayer.Server, $"/ban add \"uuid:{uuid}\" \"{reason}\" -e");
+                    TShock.Bans.InsertBan($"uuid:{uuid}", reason, character, now, never);
                 }
 
                 foreach (string ip in ipList)
                 {
                     if (!string.IsNullOrEmpty(ip))
                     {
-                        TShockAPI.Commands.HandleCommand(TShockAPI.TSPlayer.Server, $"/ban add \"ip:{ip}\" \"{reason}\" -e");
+                        TShock.Bans.InsertBan($"ip:{ip}", reason, character, now, never);
                     }
                 }
 
@@ -380,7 +392,8 @@ namespace TShockData
                     { "username", username },
                     { "uuid", uuid ?? "无" },
                     { "bannedIPs", ipList.Count },
-                    { "reason", reason }
+                    { "reason", reason },
+                    { "character", character }
                 };
             }
             catch (Exception ex)

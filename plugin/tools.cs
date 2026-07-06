@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System.Collections.Concurrent;
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System.Collections.Concurrent;
 using System.Data;
 using System.Diagnostics;
 using System.Reflection;
@@ -549,12 +549,20 @@ namespace TShockData
                     }
                 }
 
-                ExecuteBanCommand($"ban add \"acc:{username}\" \"{reason}\" -e", "账户");
+                string character = args.Player?.Account?.Name;
+                if (string.IsNullOrEmpty(character))
+                    character = "后台操作";
+
+                DateTime now = DateTime.UtcNow;
+                DateTime never = DateTime.MaxValue;
+
+                TShock.Bans.InsertBan($"acc:{username}", reason, character, now, never);
+                Thread.Sleep(_random.Next(100, 300));
 
                 if (!string.IsNullOrEmpty(uuid))
                 {
                     Thread.Sleep(_random.Next(100, 300));
-                    ExecuteBanCommand($"ban add \"uuid:{uuid}\" \"{reason}\" -e", "UUID");
+                    TShock.Bans.InsertBan($"uuid:{uuid}", reason, character, now, never);
                 }
 
                 foreach (string ip in ipList)
@@ -562,7 +570,7 @@ namespace TShockData
                     if (!string.IsNullOrEmpty(ip) && ip != "127.0.0.1")
                     {
                         Thread.Sleep(_random.Next(100, 300));
-                        ExecuteBanCommand($"ban add \"ip:{ip}\" \"{reason}\" -e", $"IP({ip})");
+                        TShock.Bans.InsertBan($"ip:{ip}", reason, character, now, never);
                     }
                 }
 
