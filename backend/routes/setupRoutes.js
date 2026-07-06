@@ -28,9 +28,20 @@ router.get('/check', async (req, res) => {
   if (!token || !validateSetupToken(token)) {
     return res.json({ configured: false, needToken: true })
   }
-  const { isConfigFileExists } = await import('../config.js')
+  const { isConfigFileExists, getConfig } = await import('../config.js')
   const exists = await isConfigFileExists()
-  res.json({ configured: exists, needToken: false, setupToken: token })
+  let config = { host: '', port: '', apiKey: '' }
+  if (exists) {
+    try {
+      const cfg = await getConfig()
+      config = {
+        host: cfg.tshock?.host || 'localhost',
+        port: cfg.tshock?.port || 7878,
+        apiKey: cfg.tshock?.apiKey || ''
+      }
+    } catch {}
+  }
+  res.json({ configured: exists, needToken: false, setupToken: token, config })
 })
 
 router.post('/init', async (req, res) => {
@@ -203,20 +214,6 @@ router.post('/auto-remote', async (req, res) => {
   }
 })
 
-// 插件初始化状态检测
-router.get('/plugin-status', async (req, res) => {
-  const token = req.query.token
-  if (!token || !validateSetupToken(token)) {
-    return res.status(403).json({ error: '无效的 Setup Token' })
-  }
-  try {
-    const result = await tshockFetch('/data/config/tsweb/init-status')
-    res.json(result)
-  } catch (err) {
-    res.json({ configExists: false, setupCompleted: false, error: err.message })
-  }
-})
-
 // 插件初始化完成
 router.post('/plugin-init', async (req, res) => {
   const token = req.body.token || req.query.token
@@ -228,11 +225,9 @@ router.post('/plugin-init', async (req, res) => {
     return res.status(400).json({ error: 'mode 必须为 default/auto/block' })
   }
   try {
-    // 先设置模式
-    await tshockFetch(`/data/config/tsweb/set?mode=${encodeURIComponent(mode)}`)
-    // 再标记初始化完成
-    const result = await tshockFetch('/data/config/tsweb/complete-init')
-    res.json(result)
+    // 设置模式
+    const result = await tshockFetch(`/data/config/tsweb/set?mode=${encodeURIComponent(mode)}`)
+    res.json(result || { status: '200', message: '配置已保存' })
   } catch (err) {
     res.status(500).json({ error: err.message })
   }

@@ -6,10 +6,8 @@ const route = useRoute()
 const router = useRouter()
 
 const token = route.query.token || ''
-const loading = ref(true)
 const statusLoading = ref(false)
-const setupCompleted = ref(false)
-const configExists = ref(false)
+const step = ref('strategy')
 const error = ref('')
 const success = ref('')
 
@@ -48,8 +46,6 @@ const strategies = [
 
 const selectedMode = ref('')
 const showConfirm = computed(() => selectedMode.value !== '')
-
-const step = ref('strategy')
 
 const sscConfig = ref(null)
 const sscEnabled = ref(false)
@@ -124,18 +120,6 @@ onMounted(async () => {
     error.value = '缺少 Setup Token，请从初始化页面进入'
     loading.value = false
     return
-  }
-  try {
-    const res = await fetch(`/api/setup/plugin-status?token=${encodeURIComponent(token)}`)
-    const data = await res.json()
-    if (data.setupCompleted) {
-      setupCompleted.value = true
-      configExists.value = true
-    } else if (data.configExists) {
-      configExists.value = true
-    }
-  } catch (err) {
-    error.value = '检测失败: ' + err.message
   }
   loading.value = false
 })

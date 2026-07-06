@@ -13,6 +13,16 @@ const loading = ref(false)
 const error = ref('')
 const showApiKey = ref(false)
 
+const configExists = ref(false)
+
+const manageHost = ref('')
+const managePort = ref('')
+const manageApiKey = ref('')
+const manageLoading = ref(false)
+const manageError = ref('')
+const manageSuccess = ref('')
+const manageShowKey = ref(false)
+
 const setupToken = route.query.token || ''
 
 const statusText = ref('')
@@ -195,11 +205,59 @@ onMounted(async () => {
       step.value = 'no-access'
       return
     }
-    step.value = 'method'
+    if (data.configured) {
+      configExists.value = true
+      step.value = 'manage'
+      if (data.config) {
+        manageHost.value = data.config.host || '127.0.0.1'
+        managePort.value = String(data.config.port || 7878)
+        manageApiKey.value = data.config.apiKey || ''
+      }
+    } else {
+      step.value = 'method'
+    }
   } catch {
     step.value = 'no-access'
   }
 })
+
+const updateConnection = async () => {
+  if (!manageHost.value.trim() || !managePort.value.trim() || !manageApiKey.value.trim()) {
+    manageError.value = '所有字段均为必填'
+    return
+  }
+  manageLoading.value = true
+  manageError.value = ''
+  manageSuccess.value = ''
+  try {
+    const res = await fetch('/api/setup/init', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        host: manageHost.value.trim(),
+        port: parseInt(managePort.value),
+        apiKey: manageApiKey.value.trim(),
+        token: setupToken
+      })
+    })
+    const data = await res.json()
+    if (data.success) {
+      manageSuccess.value = '连接配置已更新'
+      step.value = 'waiting'
+      statusText.value = '配置已更新，正在连接 TShock...'
+      startPolling()
+    } else {
+      manageError.value = data.error || '更新失败'
+    }
+  } catch (err) {
+    manageError.value = '请求失败: ' + err.message
+  }
+  manageLoading.value = false
+}
+
+const reinstallPlugin = () => {
+  router.push(`/setup/plugin?token=${encodeURIComponent(setupToken)}`)
+}
 
 onUnmounted(() => stopPolling())
 
@@ -213,22 +271,8 @@ function startPolling() {
         statusOk.value = true
         statusText.value = '已连接到 TShock 服务器'
         stopPolling()
-        // 检测插件初始化状态
-        let pluginChecked = false
-        for (let retry = 0; retry < 3 && !pluginChecked; retry++) {
-          try {
-            const pluginRes = await fetch(`/api/setup/plugin-status?token=${encodeURIComponent(setupToken)}`)
-            const pluginData = await pluginRes.json()
-            if (!pluginData.setupCompleted) {
-              setTimeout(() => router.push(`/setup/plugin?token=${encodeURIComponent(setupToken)}`), 500)
-              return
-            }
-            pluginChecked = true
-          } catch {
-            if (retry < 2) await new Promise(r => setTimeout(r, 2000))
-          }
-        }
-        setTimeout(() => router.push('/'), 1000)
+        // 直接跳转到插件初始化页面
+        setTimeout(() => router.push(`/setup/plugin?token=${encodeURIComponent(setupToken)}`), 1000)
       } else {
         statusText.value = data.message || '等待连接...'
       }
@@ -317,6 +361,42 @@ const goBack = () => {
       <!-- 检测中 -->
       <div v-if="step === 'check'" class="setup-body">
         <p>检查配置状态...</p>
+      </div>
+
+      <!-- 管理页面（已有配置时） -->
+      <div v-else-if="step === 'manage'" class="setup-body">
+        <h2>管理面板</h2>
+        <p class="desc">后端配置已存在，可更新连接设置或重新初始化插件。</p>
+
+        <div class="manage-section">
+          <h3 class="manage-title">服务器连接</h3>
+          <div class="form-group">
+            <label class="form-label">服务器地址</label>
+            <input v-model="manageHost" type="text" class="form-input" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">REST API 端口</label>
+            <input v-model="managePort" type="text" class="form-input" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">API 密钥</label>
+            <div class="input-with-btn">
+              <input v-model="manageApiKey" :type="manageShowKey ? 'text' : 'password'" class="form-input" autocomplete="new-password" />
+              <button class="toggle-btn" @click="manageShowKey = !manageShowKey" type="button">{{ manageShowKey ? '隐藏' : '显示' }}</button>
+            </div>
+          </div>
+          <div v-if="manageError" class="error-msg">{{ manageError }}</div>
+          <div v-if="manageSuccess" class="success-msg">{{ manageSuccess }}</div>
+          <button class="submit-btn" @click="updateConnection" :disabled="manageLoading" style="margin-top:12px">
+            {{ manageLoading ? '更新中...' : '更新连接配置' }}
+          </button>
+        </div>
+
+        <div class="manage-section" style="margin-top:24px">
+          <h3 class="manage-title">插件初始化</h3>
+          <p class="desc" style="margin-top:4px">重新配置 TSWeb 插件的进服策略和开荒设置。</p>
+          <button class="submit-btn" @click="reinstallPlugin" style="margin-top:12px">重新初始化插件</button>
+        </div>
       </div>
 
       <!-- 选择配置方式 -->
