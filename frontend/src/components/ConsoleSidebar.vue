@@ -1,10 +1,24 @@
 <script setup>
-import { computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { isAdmin } from '../utils/authHelper.js'
 
 const route = useRoute()
 const router = useRouter()
+
+const aboutVisible = ref(false)
+
+onMounted(async () => {
+  try {
+    const res = await fetch('/api/config/license-check')
+    if (res.ok) {
+      const data = await res.json()
+      if (!data.hidden) {
+        aboutVisible.value = true
+      }
+    }
+  } catch {}
+})
 
 const sidebarItems = [
   { id: 'profile', name: '个人资料', path: '/console/profile' },
@@ -41,7 +55,11 @@ const sidebarItems = [
 ]
 
 const adminSidebarItems = computed(() => {
-  return sidebarItems.filter(item => !item.adminOnly || isAdmin())
+  return sidebarItems.filter(item => {
+    if (item.adminOnly && !isAdmin()) return false
+    if (item.id === 'about' && !aboutVisible.value) return false
+    return true
+  })
 })
 
 const isActive = (path) => {

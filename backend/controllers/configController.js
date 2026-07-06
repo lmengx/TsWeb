@@ -7,6 +7,36 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 const configDir = path.join(__dirname, '../config/反作弊')
 
+// 许可文件
+const LICENSE_PATH = path.join(__dirname, '../../frontend/public/.coffee_license')
+
+export const getLicenseCheck = (req, res) => {
+  try {
+    if (fs.existsSync(LICENSE_PATH)) {
+      const content = fs.readFileSync(LICENSE_PATH, 'utf8').trim()
+      if (content === 'coffeed') {
+        return res.json({ hidden: true })
+      }
+    }
+    res.json({ hidden: false })
+  } catch {
+    res.json({ hidden: false })
+  }
+}
+
+export const postLicenseClose = (req, res) => {
+  try {
+    const dir = path.dirname(LICENSE_PATH)
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true })
+    }
+    fs.writeFileSync(LICENSE_PATH, 'coffeed', 'utf8')
+    res.json({ success: true })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+}
+
 export const getConfigFile = async (req, res) => {
   try {
     const { name } = req.query

@@ -256,6 +256,19 @@ router.beforeEach(async (to, from) => {
     return true
   }
 
+  // 关于页许可检查
+  if (to.path === '/console/about') {
+    try {
+      const res = await fetch('/api/config/license-check')
+      if (res.ok) {
+        const data = await res.json()
+        if (data.hidden) {
+          return '/console'
+        }
+      }
+    } catch {}
+  }
+
   const isConnected = await checkServerStatus()
   
   if (!isConnected) {

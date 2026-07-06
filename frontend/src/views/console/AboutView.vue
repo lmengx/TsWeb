@@ -1,12 +1,24 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
+import { useRouter } from 'vue-router'
+
+const router = useRouter()
+const hidden = ref(false)
 
 const services = [
   {
-    title: '小型服务器+QQ 机器人代部署',
+    title: '移除本页面',
+    price: 'free',
+    items: [
+      '永久隐藏此页面',
+      '让这个应用看上去像是你自己做的'
+    ]
+  },
+  {
+    title: '小型服务器 + QQ 机器人代部署',
     price: '100 起',
     items: [
-      '完整部署当前版本的TSWeb，跑通QQ机器人',
+      '完整部署当前版本的 TSWeb，跑通 QQ 机器人',
       '现有功能技术支持，使用说明'
     ]
   },
@@ -14,7 +26,7 @@ const services = [
     title: '机器人进阶开发',
     price: '100 起',
     items: [
-      '自定义指令开发（查装、查进度、绑定的拓展）',
+      '自定义指令开发（查装备、查进度、自定义拓展）',
       '多服务器管理、跨群广播',
       '定时任务、自动封禁通知',
       '专属机器人定制'
@@ -26,8 +38,8 @@ const services = [
     items: [
       '优选推荐服务商',
       '域名注册推荐，备案指导',
-      '私域特色网站搭建设计，UI风格化',
-      '站群搭建（多世界/分流等），稳定性维护'
+      '私域特色网站搭建设计，UI 风格化',
+      '站群搭建（多世界 / 分流等），稳定性维护'
     ]
   },
   {
@@ -42,13 +54,22 @@ const services = [
 ]
 
 const highlightKeywords = (text) => {
-  const keywords = ['部署', '定制', '开发', '设计', '指导', '保障', '对接', '建议', '监控', '广播', '通知', '定制']
+  const keywords = ['部署', '定制', '开发', '设计', '指导', '保障', '对接', '建议', '监控', '广播', '通知', '定制','自定义']
   let result = text
   for (const kw of keywords) {
     result = result.replace(new RegExp(`(${kw})`, 'g'), '<span class="glow-text">$1</span>')
   }
   return result
 }
+
+const closePage = async () => {
+  try {
+    await fetch('/api/config/license-close', { method: 'POST' })
+  } catch {}
+  localStorage.setItem('tsweb_about_hidden', '1')
+  router.push('/console')
+}
+
 const openSourceUrl = 'https://github.com/lmx12330/TsWeb'
 const authorName = 'lmx12330'
 </script>
@@ -104,7 +125,8 @@ const authorName = 'lmx12330'
           <div v-for="(svc, i) in services" :key="i" class="service-card">
             <div class="service-header">
               <span class="service-title">{{ svc.title }}</span>
-              <span class="service-price">{{ svc.price }}</span>
+              <span v-if="i === 0" class="service-price clickable" @click="closePage" title="点击永久隐藏此页面">{{ svc.price }}</span>
+              <span v-else class="service-price">{{ svc.price }}</span>
             </div>
             <ul class="service-items">
               <li v-for="(item, j) in svc.items" :key="j" class="service-item">
@@ -343,6 +365,19 @@ const authorName = 'lmx12330'
   font-weight: 800;
 }
 
+.service-price.clickable {
+  cursor: pointer;
+  transition: all 0.25s ease;
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.15), rgba(74, 222, 128, 0.1));
+  border-color: rgba(34, 197, 94, 0.3);
+  color: #22c55e;
+}
+
+.service-price.clickable:hover {
+  transform: scale(1.08);
+  box-shadow: 0 0 16px rgba(34, 197, 94, 0.3);
+}
+
 .service-items {
   list-style: none;
   margin: 0;
@@ -359,6 +394,24 @@ const authorName = 'lmx12330'
   font-size: 0.92rem;
   color: var(--text-secondary);
   line-height: 1.6;
+}
+
+.hide-btn {
+  width: 100%;
+  padding: 10px 16px;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.12), rgba(139, 92, 246, 0.08));
+  border: 1.5px solid rgba(99, 102, 241, 0.25);
+  border-radius: 8px;
+  color: #818cf8;
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.hide-btn:hover {
+  background: rgba(99, 102, 241, 0.2);
+  border-color: #818cf8;
 }
 
 .item-bullet {
