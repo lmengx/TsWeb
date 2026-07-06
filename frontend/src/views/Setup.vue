@@ -113,7 +113,9 @@ const verifyRemoteConnection = async () => {
     })
     const data = await res.json()
     if (data.success) {
-      step.value = 'auto-done'
+      step.value = 'waiting'
+      statusText.value = '验证成功，正在检测插件状态...'
+      startPolling()
     } else {
       remoteVerifyError.value = data.error || '验证失败'
     }
@@ -169,7 +171,9 @@ const startAutoVerify = async () => {
     const data = await res.json()
     if (data.success) {
       autoVerifyDone.value = true
-      step.value = 'auto-done'
+      step.value = 'waiting'
+      statusText.value = '验证成功，正在检测插件状态...'
+      startPolling()
     } else {
       autoVerifyError.value = data.error || '验证失败'
     }
@@ -209,6 +213,21 @@ function startPolling() {
         statusOk.value = true
         statusText.value = '已连接到 TShock 服务器'
         stopPolling()
+        // 检测插件初始化状态
+        let pluginChecked = false
+        for (let retry = 0; retry < 3 && !pluginChecked; retry++) {
+          try {
+            const pluginRes = await fetch(`/api/setup/plugin-status?token=${encodeURIComponent(setupToken)}`)
+            const pluginData = await pluginRes.json()
+            if (!pluginData.setupCompleted) {
+              setTimeout(() => router.push(`/setup/plugin?token=${encodeURIComponent(setupToken)}`), 500)
+              return
+            }
+            pluginChecked = true
+          } catch {
+            if (retry < 2) await new Promise(r => setTimeout(r, 2000))
+          }
+        }
         setTimeout(() => router.push('/'), 1000)
       } else {
         statusText.value = data.message || '等待连接...'

@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { saveNewConfig } from '../config.js'
+import { saveNewConfig, getConfig } from '../config.js'
 import { validateSetupToken, generateSetupToken } from '../setupToken.js'
 import tshockService from '../services/tshockService.js'
 import { exec } from 'child_process'
@@ -8,6 +8,18 @@ import fs from 'fs/promises'
 import path from 'path'
 
 const execAsync = promisify(exec)
+
+// 直接向 TShock REST API 发请求
+const tshockFetch = async (pathname) => {
+  const config = await getConfig()
+  const host = config.tshock?.host || 'localhost'
+  const baseUrl = (host.startsWith('http://') || host.startsWith('https://') ? host : `http://${host}`) + ':' + (config.tshock?.port || 7878)
+  const apiKey = config.tshock?.apiKey || ''
+  const sep = pathname.includes('?') ? '&' : '?'
+  const url = `${baseUrl}${pathname}${sep}token=${encodeURIComponent(apiKey)}`
+  const res = await fetch(url)
+  return res.json()
+}
 
 const router = Router()
 
@@ -186,6 +198,41 @@ router.post('/auto-remote', async (req, res) => {
     }
     const modifiedRaw = JSON.stringify(config, null, 2)
     res.json({ success: true, restPort, tokenKey, modifiedRaw })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// 插件初始化状态检测
+router.get('/plugin-status', async (req, res) => {
+  const token = req.query.token
+  if (!token || !validateSetupToken(token)) {
+    return res.status(403).json({ error: '无效的 Setup Token' })
+  }
+  try {
+    const result = await tshockFetch('/data/config/tsweb/init-status')
+    res.json(result)
+  } catch (err) {
+    res.json({ configExists: false, setupCompleted: false, error: err.message })
+  }
+})
+
+// 插件初始化完成
+router.post('/plugin-init', async (req, res) => {
+  const token = req.body.token || req.query.token
+  if (!token || !validateSetupToken(token)) {
+    return res.status(403).json({ error: '无效的 Setup Token' })
+  }
+  const { mode } = req.body
+  if (!mode || !['default', 'auto', 'block'].includes(mode)) {
+    return res.status(400).json({ error: 'mode 必须为 default/auto/block' })
+  }
+  try {
+    // 先设置模式
+    await tshockFetch(`/data/config/tsweb/set?mode=${encodeURIComponent(mode)}`)
+    // 再标记初始化完成
+    const result = await tshockFetch('/data/config/tsweb/complete-init')
+    res.json(result)
   } catch (err) {
     res.status(500).json({ error: err.message })
   }

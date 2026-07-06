@@ -22,6 +22,9 @@ namespace TShockData
 
     public class RegisterConfig
     {
+        [JsonProperty("SetupCompleted")]
+        public bool SetupCompleted { get; set; } = false;
+
         [JsonProperty("AutoRegisterMode")]
         public string AutoRegisterMode { get; set; } = "default";
 
@@ -97,7 +100,7 @@ namespace TShockData
                 else
                 {
                     Config = new RegisterConfig();
-                    SaveConfig();
+                    // 不自动创建文件，等待前端初始化后再保存
                 }
             }
             catch (Exception ex)
@@ -495,10 +498,37 @@ namespace TShockData
             {
                 status = "200",
                 mode = Config.AutoRegisterMode,
+                setupCompleted = Config.SetupCompleted,
                 bossLimitMode = Config.BossLimitMode,
                 bossLimitEnabled = Config.BossLimitEnabled,
                 bossLimitMinPlayers = Config.BossLimitMinPlayers
             };
+        }
+
+        public static object GetInitStatus(RestRequestArgs args)
+        {
+            var configPath = Path.Combine(TShock.SavePath, "TSWeb", "config.json");
+            var fileExists = File.Exists(configPath);
+            return new
+            {
+                status = "200",
+                configExists = fileExists,
+                setupCompleted = fileExists ? Config.SetupCompleted : false
+            };
+        }
+
+        public static object CompleteInit(RestRequestArgs args)
+        {
+            try
+            {
+                Config.SetupCompleted = true;
+                SaveConfig();
+                return new { status = "200", response = "初始化完成" };
+            }
+            catch (Exception ex)
+            {
+                return new RestObject("500") { { "error", ex.Message } };
+            }
         }
 
         public static object SetConfigJson(RestRequestArgs args)
