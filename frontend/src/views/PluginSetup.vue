@@ -440,7 +440,9 @@ onMounted(async () => {
 
 .completed-state h2 {
   margin: 0;
-  color: var(--text-primary);
+  color: #0f0a3a;
+  font-size: 1.5rem;
+  font-weight: 800;
 }
 
 .completed-state p {
