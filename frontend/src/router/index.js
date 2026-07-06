@@ -195,6 +195,12 @@ const routes = [
             meta: { requiresAuth: true, requiresAdmin: true }
           }
         ]
+      },
+      {
+        path: 'about',
+        name: 'About',
+        component: () => import('../views/console/AboutView.vue'),
+        meta: { requiresAuth: true }
       }
     ]
   }

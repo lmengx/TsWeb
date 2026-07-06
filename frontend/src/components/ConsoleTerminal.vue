@@ -1,6 +1,6 @@
 <script setup>
 import { ref, watch, nextTick, onMounted, computed } from 'vue'
-import { post } from '../utils/api.js'
+import { post, get } from '../utils/api.js'
 
 const user = ref(null)
 
@@ -18,6 +18,52 @@ const maxHistory = 50
 const historyContainer = ref(null)
 const commandInputRef = ref(null)
 const historyIndex = ref(-1)
+
+// ── 服务器统计数据 ──
+const stats = ref({ online: '0', total: '0', qqBound: '0', totalBans: '0' })
+
+const fetchServerStats = async () => {
+  try {
+    const [activeRes, usersRes, bansRes] = await Promise.all([
+      get('/api/tshock/activeusers'),
+      get('/api/tshock/users'),
+      get('/api/tshock/banlist')
+    ])
+    
+    const activeData = await activeRes.json()
+    const usersData = await usersRes.json()
+    const bansData = await bansRes.json()
+    
+    let online = '0'
+    if (activeData.activeusers) {
+      const names = activeData.activeusers.split('\t').filter(n => n.trim())
+      online = String(names.length)
+    } else if (activeData.users) {
+      online = String(activeData.users.length)
+    }
+    
+    let total = '0'
+    let qqBound = '0'
+    if (usersData.status === '200' && usersData.users) {
+      total = String(usersData.users.length)
+      const bound = usersData.users.filter(u => u.QQ && u.QQ.trim() !== '')
+      qqBound = String(bound.length)
+    } else if (usersData.users) {
+      total = String(usersData.users.length)
+    }
+    
+    let totalBans = '0'
+    if (bansData.status === '200' && bansData.bans) {
+      totalBans = String(bansData.bans.length)
+    } else if (Array.isArray(bansData)) {
+      totalBans = String(bansData.length)
+    }
+    
+    stats.value = { online, total, qqBound, totalBans }
+  } catch {
+    // 静默失败，保留 '--'
+  }
+}
 
 const allCommands = [
   '/user', '/login', '/logout', '/password', '/register', '/accountinfo', '/ban', '/broadcast',
@@ -215,6 +261,7 @@ const executeCommand = async () => {
 
 onMounted(() => {
   loadUser()
+  fetchServerStats()
   if (commandInputRef.value) {
     commandInputRef.value.focus()
   }
@@ -225,9 +272,23 @@ onMounted(() => {
   <div class="console-content">
     <div class="history-container" ref="historyContainer">
       <div v-if="commandHistory.length === 0" class="empty-state">
-        <p>欢迎使用 TShock 控制台</p>
-        <p v-if="isAdmin">输入命令并按 Enter 执行</p>
-        <p v-else>您没有管理员权限，无法执行命令</p>
+        <div class="stats-grid">
+          <div class="stat-item">
+            <span class="stat-value">{{ stats.online }}<span class="stat-sep">/</span>{{ stats.total }}</span>
+            <span class="stat-label">当前在线 / 总注册</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-value">{{ stats.qqBound }}<small> 人</small></span>
+            <span class="stat-label">QQ 绑定</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-value">{{ stats.totalBans }}<small> 条</small></span>
+            <span class="stat-label">累计封禁</span>
+          </div>
+        </div>
+        <p class="welcome-text">欢迎使用 TShock 控制台</p>
+        <p class="hint-text" v-if="isAdmin">输入命令并按 Enter 执行</p>
+        <p class="hint-text" v-else>您没有管理员权限，无法执行命令</p>
       </div>
 
       <div 
@@ -314,9 +375,84 @@ onMounted(() => {
 }
 
 .empty-state {
-  text-align: center;
-  padding: 60px 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
   color: var(--text-muted);
+  gap: 8px;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 16px;
+  width: 100%;
+  max-width: 480px;
+}
+
+.stat-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 20px 16px;
+  background: var(--bg-tertiary);
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  transition: all 0.25s ease;
+}
+
+.stat-item:hover {
+  border-color: var(--accent-primary);
+  transform: translateY(-2px);
+}
+
+.stat-value {
+  font-size: 1.8rem;
+  font-weight: 800;
+  background: linear-gradient(135deg, var(--accent-primary), #8b5cf6);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.stat-sep {
+  font-size: 1.2rem;
+  font-weight: 400;
+  -webkit-text-fill-color: var(--text-muted);
+  color: var(--text-muted);
+  margin: 0 2px;
+}
+
+.stat-value small {
+  font-size: 0.7rem;
+  font-weight: 600;
+  -webkit-text-fill-color: var(--text-muted);
+  color: var(--text-muted);
+}
+
+.stat-label {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.welcome-text {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin: 8px 0 0;
+}
+
+.hint-text {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin: 0;
 }
 
 .empty-state p {

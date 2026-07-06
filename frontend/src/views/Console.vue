@@ -71,7 +71,8 @@ onMounted(() => {
   flex: 1;
   display: flex;
   overflow: hidden;
-  margin-top: 60px;
+  margin-top: 64px;
+  padding: 0 12px 12px;
 }
 
 .content-area {
@@ -80,5 +81,9 @@ onMounted(() => {
   flex-direction: column;
   overflow-y: auto;
   padding: 20px;
+  background: var(--bg-card);
+  border-radius: 14px;
+  border: 1px solid var(--border-light);
+  margin-left: 12px;
 }
 </style>

@@ -20,11 +20,9 @@ const sidebarItems = [
     ]
   },
   { id: 'terminal', name: '控制台', path: '/console/terminal', adminOnly: true },
-  { id: 'players', name: '玩家管理', path: '/console/players', adminOnly: true },
   { id: 'online', name: '在线统计', path: '/console/online', adminOnly: true },
+  { id: 'players', name: '玩家管理', path: '/console/players', adminOnly: true },
   { id: 'groups', name: '组管理', path: '/console/groups', adminOnly: true },
-  { id: 'banlist', name: '封禁列表', path: '/console/banlist', adminOnly: true },
-  { id: 'files', name: '配置文件', path: '/console/files', adminOnly: true },
   {
     id: 'anticheat',
     name: '反作弊',
@@ -36,7 +34,10 @@ const sidebarItems = [
         { id: 'duplicate-ip', name: '共享IP检测', path: '/console/anticheat/duplicate-ip' }
       ]
   },
-  { id: 'settings', name: '设置', path: '/console/settings', adminOnly: true }
+  { id: 'banlist', name: '封禁列表', path: '/console/banlist', adminOnly: true },
+  { id: 'files', name: '配置文件', path: '/console/files', adminOnly: true },
+  { id: 'settings', name: '设置', path: '/console/settings', adminOnly: true },
+  { id: 'about', name: '关于', path: '/console/about' }
 ]
 
 const adminSidebarItems = computed(() => {
@@ -113,42 +114,45 @@ import { computed } from 'vue'
 
 <style scoped>
 .sidebar {
-  width: 192px;
-  border-right: 1px solid var(--border-light);
-  padding: 20px 0;
+  width: 200px;
   flex-shrink: 0;
   height: 100%;
+  background: var(--bg-card);
+  border-radius: 14px;
+  border: 1px solid var(--border-light);
+  padding: 16px 0;
+  overflow-y: auto;
 }
 
 .sidebar-nav {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
   padding: 0 8px;
 }
 
 .sidebar-item {
   display: flex;
   align-items: center;
-  padding: 12px 16px;
+  padding: 10px 14px;
   cursor: pointer;
-  border-radius: var(--radius-md);
+  border-radius: 10px;
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;
   color: var(--text-secondary);
   text-decoration: none;
+  font-size: 0.9rem;
 }
 
 .sidebar-item:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
-  transform: translateX(4px);
 }
 
 .sidebar-item.active {
   background: linear-gradient(135deg, var(--accent-primary), #4f46e5);
   color: white;
-  box-shadow: var(--shadow-md);
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.2);
 }
 
 .sidebar-item.active:hover {
@@ -161,19 +165,19 @@ import { computed } from 'vue'
 }
 
 .sidebar-name {
-  font-size: 0.95rem;
+  font-size: 0.9rem;
   font-weight: 500;
 }
 
 .active-indicator {
   position: absolute;
-  right: 0;
+  right: 6px;
   top: 50%;
   transform: translateY(-50%);
   width: 3px;
-  height: 24px;
-  background: rgba(255, 255, 255, 0.8);
-  border-radius: 2px 0 0 2px;
+  height: 18px;
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 2px;
 }
 
 .parent-item {

@@ -35,11 +35,7 @@ const isAdmin = computed(() => {
 const loadUser = () => {
   const saved = localStorage.getItem('user')
   if (saved) {
-    try {
-      user.value = JSON.parse(saved)
-    } catch {
-      user.value = null
-    }
+    try { user.value = JSON.parse(saved) } catch { user.value = null }
   }
 }
 
@@ -48,10 +44,7 @@ const fetchStatus = async () => {
     const res = await get('/api/status')
     const data = await res.json()
     serverConnected.value = data.connected
-  } catch {
-    serverConnected.value = false
-  }
-
+  } catch { serverConnected.value = false }
   if (user.value?.username) {
     try {
       const res = await get('/api/tshock/activeusers')
@@ -59,14 +52,9 @@ const fetchStatus = async () => {
       if (data.activeusers) {
         const names = data.activeusers.split('\t').filter(n => n.trim())
         userOnline.value = names.some(n => n.toLowerCase() === user.value.username.toLowerCase())
-      } else {
-        userOnline.value = false
-      }
-    } catch {
-      userOnline.value = false
-    }
+      } else { userOnline.value = false }
+    } catch { userOnline.value = false }
   }
-
   if (user.value?.username) {
     try {
       const res = await get('/api/tshock/userlist?username=' + encodeURIComponent(user.value.username))
@@ -75,9 +63,7 @@ const fetchStatus = async () => {
         qqNumber.value = data.users[0].QQ || ''
         qqBound.value = !!qqNumber.value
       }
-    } catch {
-      qqBound.value = false
-    }
+    } catch { qqBound.value = false }
   }
 }
 
@@ -89,7 +75,6 @@ const handleMouseEnter = () => {
   if (closeTimer) { clearTimeout(closeTimer); closeTimer = null }
   showUserMenu.value = true
 }
-
 const handleMouseLeave = () => {
   closeTimer = setTimeout(() => { showUserMenu.value = false; closeTimer = null }, 150)
 }
@@ -121,138 +106,156 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <header class="app-header glass">
-    <div class="header-content">
-      <div class="header-left">
-        <h1 class="app-title" @click="goHome">TsWeb</h1>
-      </div>
+  <nav class="console-nav">
+    <div class="nav-brand" @click="goHome">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+        <line x1="3" y1="9" x2="21" y2="9"></line>
+        <line x1="9" y1="21" x2="9" y2="9"></line>
+      </svg>
+      <span class="nav-title">TSWeb</span>
+    </div>
 
-      <div class="header-right">
-        <button
-          @click="toggleTheme"
-          class="theme-toggle btn btn-secondary"
-          :title="isDark ? '切换到浅色模式' : '切换到深色模式'"
-        >
-          <span class="theme-text">{{ isDark ? '白天' : '黑夜' }}</span>
-        </button>
+    <div class="nav-actions">
+      <button class="theme-btn" @click="toggleTheme" :title="isDark ? '切换白天' : '切换黑夜'">
+        <svg v-if="isDark" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="5"></circle>
+          <line x1="12" y1="1" x2="12" y2="3"></line>
+          <line x1="12" y1="21" x2="12" y2="23"></line>
+          <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+          <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+          <line x1="1" y1="12" x2="3" y2="12"></line>
+          <line x1="21" y1="12" x2="23" y2="12"></line>
+          <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+          <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+        </svg>
+        <svg v-else width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+        </svg>
+      </button>
 
-        <div
-          class="user-menu-wrapper"
-          ref="userMenuRef"
-          @mouseenter="handleMouseEnter"
-          @mouseleave="handleMouseLeave"
-        >
-          <div
-            class="user-status"
-            @click="isLoggedIn ? toggleUserMenu() : goLogin()"
-            :class="{ active: showUserMenu }"
-          >
-            <span class="status-dot" :class="{ online: serverConnected }"></span>
-            <span class="username">{{ currentUser }}</span>
-            <span class="expand-icon">{{ isLoggedIn ? (showUserMenu ? '▲' : '▼') : '' }}</span>
-          </div>
+      <div class="user-menu-wrapper" ref="userMenuRef" @mouseenter="handleMouseEnter" @mouseleave="handleMouseLeave">
+        <div class="user-status" @click="isLoggedIn ? toggleUserMenu() : goLogin()" :class="{ active: showUserMenu }">
+          <span class="status-dot" :class="{ online: serverConnected }"></span>
+          <span class="username">{{ currentUser }}</span>
+          <span class="expand-icon">{{ isLoggedIn ? (showUserMenu ? '▲' : '▼') : '' }}</span>
+        </div>
 
-          <transition name="dropdown">
-            <div v-if="showUserMenu && isLoggedIn" class="user-dropdown">
-              <div class="dropdown-header">
-                <div class="user-info">
-                  <div class="user-name">{{ currentUser }}</div>
-                  <div class="user-meta">
-                    <span class="meta-item">
-                      <span class="meta-label">权限组</span>
-                      <span class="meta-value tag">{{ displayGroup }}</span>
-                    </span>
-                    <span class="meta-item">
-                      <span class="meta-label">游戏状态</span>
-                      <span class="meta-value" :class="userOnline ? 'online' : 'offline'">
-                        {{ userOnline ? '游戏中' : '离线' }}
-                      </span>
-                    </span>
-                    <span class="meta-item">
-                      <span class="meta-label">QQ 绑定</span>
-                      <span class="meta-value qq-glow" :class="qqBound ? 'bound' : 'unbound'">
-                        {{ qqBound ? qqNumber : '未绑定' }}
-                      </span>
-                    </span>
-                  </div>
+        <transition name="dropdown">
+          <div v-if="showUserMenu && isLoggedIn" class="user-dropdown">
+            <div class="dropdown-header">
+              <div class="user-info">
+                <div class="user-name">{{ currentUser }}</div>
+                <div class="user-meta">
+                  <span class="meta-item">
+                    <span class="meta-label">权限组</span>
+                    <span class="meta-value tag">{{ displayGroup }}</span>
+                  </span>
+                  <span class="meta-item">
+                    <span class="meta-label">游戏状态</span>
+                    <span class="meta-value" :class="userOnline ? 'online' : 'offline'">{{ userOnline ? '游戏中' : '离线' }}</span>
+                  </span>
+                  <span class="meta-item">
+                    <span class="meta-label">QQ 绑定</span>
+                    <span class="meta-value qq-glow" :class="qqBound ? 'bound' : 'unbound'">{{ qqBound ? qqNumber : '未绑定' }}</span>
+                  </span>
                 </div>
               </div>
-
-              <div class="dropdown-divider"></div>
-
-              <div class="dropdown-actions">
-                <button class="logout-btn" @click="logout">退出登录</button>
-              </div>
             </div>
-          </transition>
-        </div>
+            <div class="dropdown-divider"></div>
+            <div class="dropdown-actions">
+              <button class="logout-btn" @click="logout">退出登录</button>
+            </div>
+          </div>
+        </transition>
       </div>
     </div>
-  </header>
+  </nav>
 </template>
 
 <style scoped>
-.app-header {
+.console-nav {
   position: fixed;
   top: 0;
   left: 0;
   right: 0;
   z-index: 1000;
-  padding: 12px 24px;
-  border-bottom: 1px solid var(--border-light);
-}
-
-.header-content {
-  max-width: 1920px;
-  margin: 0 auto;
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  justify-content: space-between;
+  padding: 10px 24px;
+  margin: 12px 16px;
+  background: var(--bg-card);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-radius: 14px;
+  border: 1px solid var(--border-light);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
 }
 
-.header-left { display: flex; align-items: center; }
-
-.app-title {
-  font-size: 1.5rem;
-  font-weight: 700;
-  background: linear-gradient(135deg, var(--accent-primary), #a5b4fc);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  margin: 0;
+.nav-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #6366f1;
   cursor: pointer;
-  transition: opacity 0.2s ease;
 }
 
-.app-title:hover { opacity: 0.8; }
+.nav-title {
+  font-size: 1rem;
+  font-weight: 800;
+  color: var(--text-primary);
+}
 
-.header-right { display: flex; align-items: center; gap: 16px; }
+.nav-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 
-.theme-toggle { padding: 8px 14px; font-size: 0.85rem; transition: all 0.2s ease; }
+/* 主题按钮 */
+.theme-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  border: 1.5px solid var(--border-color);
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
 
-.theme-text { font-weight: 500; }
+.theme-btn:hover {
+  border-color: #6366f1;
+  color: #6366f1;
+}
 
-.user-menu-wrapper { position: relative; }
+/* 用户状态 */
+.user-menu-wrapper {
+  position: relative;
+}
 
 .user-status {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 14px;
+  padding: 7px 12px;
   background: var(--bg-tertiary);
-  border-radius: var(--radius-md);
+  border-radius: 9px;
   border: 1px solid var(--border-color);
   cursor: pointer;
   transition: all 0.2s ease;
 }
 
 .user-status:hover { background: var(--bg-hover); border-color: var(--accent-primary); }
-
 .user-status.active { background: var(--bg-hover); border-color: var(--accent-primary); }
 
 .status-dot {
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   background: #6b7280;
 }
@@ -262,9 +265,9 @@ onUnmounted(() => {
   box-shadow: 0 0 8px rgba(34, 197, 94, 0.6);
 }
 
-.username { font-size: 0.9rem; color: var(--text-primary); font-weight: 500; }
+.username { font-size: 0.85rem; color: var(--text-primary); font-weight: 500; }
 
-.expand-icon { font-size: 0.7rem; color: var(--text-secondary); margin-left: 4px; }
+.expand-icon { font-size: 0.65rem; color: var(--text-secondary); margin-left: 4px; }
 
 .user-dropdown {
   position: absolute;
@@ -272,7 +275,7 @@ onUnmounted(() => {
   right: 0;
   width: 260px;
   background: var(--bg-card);
-  border-radius: var(--radius-xl);
+  border-radius: 14px;
   box-shadow: var(--shadow-lg);
   border: 1px solid var(--border-light);
   overflow: hidden;
@@ -280,23 +283,15 @@ onUnmounted(() => {
 }
 
 .dropdown-enter-active, .dropdown-leave-active { transition: all 0.25s ease; }
-
 .dropdown-enter-from, .dropdown-leave-to { opacity: 0; transform: translateY(-10px); }
 
 .dropdown-header { padding: 20px; }
-
 .user-info { flex: 1; }
-
 .user-name { font-size: 1.1rem; font-weight: 600; color: var(--text-primary); margin-bottom: 16px; }
-
 .user-meta { display: flex; flex-direction: column; gap: 10px; }
-
 .meta-item { display: flex; justify-content: space-between; align-items: center; }
-
 .meta-label { font-size: 0.82rem; color: var(--text-muted); }
-
 .meta-value { font-size: 0.85rem; font-weight: 600; color: var(--text-primary); }
-
 .meta-value.tag {
   color: var(--accent-primary);
   background: rgba(99, 102, 241, 0.15);
@@ -304,41 +299,20 @@ onUnmounted(() => {
   border-radius: 10px;
   font-size: 0.78rem;
 }
-
 .meta-value.online { color: #22c55e; }
-
 .meta-value.offline { color: #6b7280; }
-
 .meta-value.bound { color: #22c55e; }
-
 .meta-value.unbound { color: #6b7280; }
 
 .dropdown-divider { height: 1px; background: var(--border-light); margin: 0 20px; }
-
 .dropdown-actions { padding: 16px 20px; }
-
-.settings-btn {
-  width: 100%;
-  padding: 12px 16px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  color: var(--text-primary);
-  font-size: 0.95rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  margin-bottom: 8px;
-}
-
-.settings-btn:hover { background: var(--bg-hover); border-color: var(--accent-primary); }
 
 .logout-btn {
   width: 100%;
   padding: 12px 16px;
   background: var(--bg-tertiary);
   border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
+  border-radius: 10px;
   color: var(--text-primary);
   font-size: 0.95rem;
   font-weight: 500;
@@ -356,9 +330,10 @@ onUnmounted(() => {
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
-  animation: appheader-qq-shimmer 2.5s ease-in-out infinite;
+  animation: qq-shimmer 2.5s ease-in-out infinite;
 }
-@keyframes appheader-qq-shimmer {
+
+@keyframes qq-shimmer {
   0% { background-position: 200% 0; }
   100% { background-position: -200% 0; }
 }

@@ -53,9 +53,7 @@ const login = async () => {
     
     const loginResponse = await fetch('/api/auth/login', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         username: loginForm.value.username,
         encryptedPassword,
@@ -107,78 +105,62 @@ const login = async () => {
   loading.value = false
 }
 
-const goHome = () => {
-  router.push('/')
-}
+const goHome = () => { router.push('/') }
 </script>
 
 <template>
   <div class="login-page">
-    <div class="bg-decoration">
-      <div class="circle circle-1"></div>
-      <div class="circle circle-2"></div>
-      <div class="circle circle-3"></div>
-      <div class="wave wave-1"></div>
-      <div class="wave wave-2"></div>
-    </div>
-    
-    <div class="login-container">
+    <div class="login-card">
       <div class="login-header">
-        <h1>TsWeb 管理面板</h1>
-        <p>请登录您的账号</p>
+        <div class="login-logo">
+          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+            <line x1="3" y1="9" x2="21" y2="9"></line>
+            <line x1="9" y1="21" x2="9" y2="9"></line>
+          </svg>
+        </div>
+        <h1>TSWeb</h1>
+        <p class="login-sub">管理面板登录</p>
       </div>
-      
+
       <form @submit.prevent="login" class="login-form">
         <div class="form-group">
-          <label for="username">
-            用户名
-          </label>
-          <div class="input-wrapper">
-            <input
-              id="username"
-              v-model="loginForm.username"
-              type="text"
-              placeholder="请输入用户名"
-              :disabled="loading"
-              :class="{ 'error': loginStatus === 'user_not_found', 'success': loginStatus === 'success' }"
-            />
-          </div>
+          <label class="form-label">用户名</label>
+          <input
+            v-model="loginForm.username"
+            type="text"
+            placeholder="请输入用户名"
+            :disabled="loading"
+            :class="{ error: loginStatus === 'user_not_found', success: loginStatus === 'success' }"
+          />
         </div>
-        
+
         <div class="form-group">
-          <label for="password">
-            密码
-          </label>
-          <div class="input-wrapper">
-            <input
-              id="password"
-              v-model="loginForm.password"
-              type="password"
-              placeholder="请输入密码"
-              :disabled="loading"
-              :class="{ 'error': loginStatus === 'wrong_password', 'success': loginStatus === 'success' }"
-            />
-          </div>
+          <label class="form-label">密码</label>
+          <input
+            v-model="loginForm.password"
+            type="password"
+            placeholder="请输入密码"
+            :disabled="loading"
+            :class="{ error: loginStatus === 'wrong_password', success: loginStatus === 'success' }"
+          />
         </div>
-        
+
         <div v-if="loginStatus === 'validation_error'" class="status-message error">
-          <span>请填写用户名和密码</span>
+          请填写用户名和密码
         </div>
-        
         <div v-else-if="statusMessage" class="status-message" :class="statusMessage.type">
-          <span>{{ statusMessage.text }}</span>
+          {{ statusMessage.text }}
         </div>
-        
+
         <button type="submit" class="login-btn" :disabled="loading">
           <span v-if="loading" class="btn-spinner"></span>
-          <span>{{ loading ? '登录中...' : '登 录' }}</span>
+          <span>{{ loading ? '登录中...' : '登录' }}</span>
         </button>
       </form>
-      
+
       <div class="login-footer">
-        <button @click="goHome" class="back-btn">
-          返回首页
-        </button>
+        <button @click="goHome" class="back-btn">返回首页</button>
       </div>
     </div>
   </div>
@@ -188,114 +170,58 @@ const goHome = () => {
 .login-page {
   min-height: 100vh;
   display: flex;
-  justify-content: center;
   align-items: center;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
-  padding: 20px;
-  position: relative;
-  overflow: hidden;
+  justify-content: center;
+  padding: 40px 20px;
+  background: linear-gradient(135deg, #e0e7ff, #c7d2fe, #a5b4fc, #c7d2fe, #e0e7ff);
+  background-size: 400% 400%;
+  animation: bgFlow 8s ease infinite;
 }
 
-.bg-decoration {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  pointer-events: none;
+@keyframes bgFlow {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
 }
 
-.circle {
-  position: absolute;
-  border-radius: 50%;
-  opacity: 0.15;
-}
-
-.circle-1 {
-  width: 400px;
-  height: 400px;
-  background: #fff;
-  top: -100px;
-  right: -100px;
-  animation: float 6s ease-in-out infinite;
-}
-
-.circle-2 {
-  width: 300px;
-  height: 300px;
-  background: #4ecdc4;
-  bottom: -50px;
-  left: -50px;
-  animation: float 8s ease-in-out infinite reverse;
-}
-
-.circle-3 {
-  width: 200px;
-  height: 200px;
-  background: #ffe66d;
-  top: 50%;
-  left: 20%;
-  animation: float 5s ease-in-out infinite;
-}
-
-@keyframes float {
-  0%, 100% { transform: translateY(0) scale(1); }
-  50% { transform: translateY(-20px) scale(1.05); }
-}
-
-.wave {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  width: 200%;
-  height: 100px;
-  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 120' preserveAspectRatio='none'%3E%3Cpath d='M321.39,56.44c58-10.79,114.16-30.13,172-41.86,82.39-16.72,168.19-17.73,250.45-.39C823.78,31,906.67,72,985.66,92.83c70.05,18.48,146.53,26.09,214.34,3V120H0V95.8C66.12,105.76,136.09,106.5,206.38,91.63c60.26-14.87,116.26-30.33,166.49-49.49z' fill='%23ffffff' fill-opacity='0.1'/%3E%3C/svg%3E");
-  background-repeat: repeat-x;
-  animation: wave 10s linear infinite;
-}
-
-.wave-1 {
-  animation-delay: 0s;
-}
-
-.wave-2 {
-  animation-delay: -5s;
-  opacity: 0.5;
-}
-
-@keyframes wave {
-  0% { transform: translateX(0); }
-  100% { transform: translateX(-50%); }
-}
-
-.login-container {
-  background: rgba(255, 255, 255, 0.95);
-  backdrop-filter: blur(10px);
-  padding: 50px 45px;
-  border-radius: 24px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
+.login-card {
   width: 100%;
   max-width: 420px;
-  position: relative;
-  z-index: 1;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-radius: 24px;
+  padding: 44px 40px;
+  box-shadow: 0 8px 40px rgba(99, 102, 241, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.6);
 }
 
 .login-header {
   text-align: center;
-  margin-bottom: 35px;
+  margin-bottom: 32px;
+}
+
+.login-logo {
+  color: #6366f1;
+  display: flex;
+  justify-content: center;
+  margin-bottom: 12px;
 }
 
 .login-header h1 {
-  margin: 0 0 8px 0;
-  color: #1a1a2e;
-  font-size: 1.6rem;
-  font-weight: 700;
+  margin: 0 0 4px;
+  font-size: 1.8rem;
+  font-weight: 800;
+  background: linear-gradient(135deg, #4f46e5, #7c3aed);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
-.login-header p {
+.login-sub {
   margin: 0;
-  color: #666;
-  font-size: 0.95rem;
+  color: #6b7280;
+  font-size: 0.9rem;
 }
 
 .login-form {
@@ -304,50 +230,51 @@ const goHome = () => {
 }
 
 .form-group {
-  margin-bottom: 22px;
+  margin-bottom: 20px;
 }
 
-.form-group label {
-  margin-bottom: 10px;
-  color: #333;
+.form-label {
+  display: block;
+  color: #1e1b4b;
+  font-size: 0.85rem;
   font-weight: 600;
-  font-size: 0.9rem;
-}
-
-.input-wrapper {
-  position: relative;
+  margin-bottom: 8px;
 }
 
 .form-group input {
   width: 100%;
-  padding: 15px;
-  border: 2px solid #e0e0e0;
-  border-radius: 12px;
-  font-size: 1rem;
+  padding: 12px 16px;
+  background: white;
+  border: 2px solid rgba(0, 0, 0, 0.1);
+  border-radius: 10px;
+  color: #0f0a3a;
+  font-size: 0.95rem;
+  transition: all 0.25s ease;
   box-sizing: border-box;
-  transition: all 0.3s ease;
-  background: #fafafa;
+  outline: none;
 }
 
 .form-group input:focus {
-  outline: none;
-  border-color: #667eea;
-  background: #fff;
-  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+  border-color: #6366f1;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+}
+
+.form-group input::placeholder {
+  color: #9ca3af;
 }
 
 .form-group input.error {
-  border-color: #e74c3c;
-  background: #fef5f5;
+  border-color: #ef4444;
+  background: #fef2f2;
 }
 
 .form-group input.success {
-  border-color: #27ae60;
+  border-color: #22c55e;
   background: #f0fdf4;
 }
 
 .form-group input:disabled {
-  background: #f0f0f0;
+  background: #f3f4f6;
   cursor: not-allowed;
 }
 
@@ -355,39 +282,29 @@ const goHome = () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  padding: 12px 16px;
+  padding: 10px 16px;
   border-radius: 10px;
-  margin-bottom: 20px;
-  font-size: 0.9rem;
-  animation: slideIn 0.3s ease;
+  margin-bottom: 16px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  animation: slideIn 0.25s ease;
 }
 
 @keyframes slideIn {
-  from {
-    opacity: 0;
-    transform: translateY(-10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .status-message.error {
-  background: #fef2f2;
+  background: rgba(239, 68, 68, 0.1);
   color: #dc2626;
-  border: 1px solid #fee2e2;
+  border: 1px solid rgba(239, 68, 68, 0.2);
 }
 
 .status-message.success {
-  background: #f0fdf4;
+  background: rgba(22, 163, 74, 0.1);
   color: #16a34a;
-  border: 1px solid #bbf7d0;
-}
-
-.status-icon {
-  font-size: 1.1rem;
+  border: 1px solid rgba(22, 163, 74, 0.2);
 }
 
 .login-btn {
@@ -395,32 +312,33 @@ const goHome = () => {
   align-items: center;
   justify-content: center;
   gap: 10px;
-  padding: 16px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  padding: 14px 24px;
+  background: linear-gradient(135deg, #6366f1, #4f46e5);
   color: white;
   border: none;
-  border-radius: 12px;
+  border-radius: 10px;
   font-size: 1rem;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.3s ease;
-  box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+  transition: all 0.25s ease;
+  box-shadow: 0 4px 16px rgba(99, 102, 241, 0.25);
 }
 
 .login-btn:hover:not(:disabled) {
   transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(102, 126, 234, 0.5);
+  box-shadow: 0 6px 20px rgba(99, 102, 241, 0.4);
 }
 
 .login-btn:disabled {
-  background: #ccc;
+  opacity: 0.6;
   cursor: not-allowed;
   box-shadow: none;
+  transform: none;
 }
 
 .btn-spinner {
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
   border: 2px solid rgba(255, 255, 255, 0.3);
   border-top-color: #fff;
   border-radius: 50%;
@@ -433,26 +351,23 @@ const goHome = () => {
 
 .login-footer {
   text-align: center;
-  margin-top: 25px;
+  margin-top: 20px;
 }
 
 .back-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
   background: none;
   border: none;
-  color: #667eea;
+  color: #6366f1;
   cursor: pointer;
-  font-size: 0.95rem;
+  font-size: 0.9rem;
   font-weight: 500;
-  padding: 10px 20px;
+  padding: 8px 16px;
   border-radius: 8px;
-  transition: all 0.3s ease;
+  transition: all 0.2s ease;
 }
 
 .back-btn:hover {
-  background: rgba(102, 126, 234, 0.1);
-  color: #5a6fd6;
+  background: rgba(99, 102, 241, 0.08);
+  color: #4f46e5;
 }
 </style>

@@ -5,12 +5,11 @@ import { get } from '../utils/api.js'
 
 const router = useRouter()
 
-// ── 用户状态（与 AppHeader 一致） ──
+// ── 用户状态 ──
 const user = ref(null)
 const showUserMenu = ref(false)
 const userMenuRef = ref(null)
 let closeTimer = null
-
 const serverConnected = ref(false)
 const userOnline = ref(false)
 const qqBound = ref(false)
@@ -100,23 +99,36 @@ const toggleTheme = () => {
   localStorage.setItem('theme', isDark.value ? 'dark' : 'light')
 }
 
-// ── 滚动数字 ──
+// ── 项目统计数据 ──
 const stats = [
-  { label: '管理玩家', target: 1284, suffix: '' },
-  { label: '当前在线', target: 12, suffix: '' },
-  { label: '封禁处理', target: 342, suffix: '' }
+  { label: '已修复恶性 Bug', value: 3, suffix: '', prefix: '' },
+  { label: '前端管理功能', value: 17, suffix: '', prefix: '' },
+  { label: '运维管理效率', value: 0, suffix: '', prefix: 'up+' }
 ]
 const statValues = ref(stats.map(() => 0))
 const statsRef = ref(null)
 let statsAnimated = false
+let scrollObs = null
+
+// 3D 卡片
+const cardRefs = ref([])
+const cardVisible = ref([false, false, false])
+
+const setCardRef = (el) => {
+  if (el) cardRefs.value.push(el)
+}
 
 const animateStats = () => {
   if (statsAnimated) return
   statsAnimated = true
   stats.forEach((s, i) => {
     const start = performance.now()
-    const dur = [2000, 1500, 1800][i]
-    const from = 0, to = s.target
+    const dur = [2000, 1800, 1000][i]
+    const from = 0, to = s.value
+    if (to === 0) {
+      statValues.value[i] = 0
+      return
+    }
     const tick = (now) => {
       const elapsed = now - start
       const progress = Math.min(elapsed / dur, 1)
@@ -127,8 +139,6 @@ const animateStats = () => {
     requestAnimationFrame(tick)
   })
 }
-
-let scrollObs = null
 
 // ── 功能卡片 ──
 const features = [
@@ -151,8 +161,7 @@ const onCardMove = (e, i) => {
 const techStack = [
   { name: 'Vue.js', color: '#4fc08d' },
   { name: 'Node.js', color: '#339933' },
-  { name: 'TShock', color: '#6366f1' },
-  { name: 'SQLite', color: '#003b57' }
+  { name: 'C#', color: '#9b59b6' }
 ]
 
 onMounted(() => {
@@ -167,18 +176,37 @@ onMounted(() => {
     document.documentElement.setAttribute('data-theme', 'dark')
   }
 
+  // 统计数字滚动
   if (statsRef.value) {
     scrollObs = new IntersectionObserver((entries) => {
-      if (entries[0].isIntersecting) animateStats()
+      if (entries[0].isIntersecting) {
+        animateStats()
+      }
     }, { threshold: 0.3 })
     scrollObs.observe(statsRef.value)
   }
+
+  // 3D 卡片滚动观察
+  setTimeout(() => {
+    cardRefs.value.forEach((el, i) => {
+      if (!el) return
+      const obs = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+          if (entry.isIntersecting) {
+            cardVisible.value[i] = true
+            obs.unobserve(el)
+          }
+        })
+      }, { threshold: 0.2 })
+      obs.observe(el)
+    })
+  }, 100)
 })
 
 onUnmounted(() => {
   document.removeEventListener('click', handleClickOutside)
   if (statusTimer) clearInterval(statusTimer)
-  scrollObs?.disconnect()
+  if (scrollObs) scrollObs.disconnect()
 })
 </script>
 
@@ -212,7 +240,6 @@ onUnmounted(() => {
           </svg>
         </button>
 
-        <!-- 登录状态（与 AppHeader 完全一致） -->
         <div class="user-menu-wrapper" ref="userMenuRef" @mouseenter="handleMouseEnter" @mouseleave="handleMouseLeave">
           <div class="user-status" @click="isLoggedIn ? toggleUserMenu() : goLogin()" :class="{ active: showUserMenu }">
             <span class="status-dot" :class="{ online: serverConnected }"></span>
@@ -242,9 +269,7 @@ onUnmounted(() => {
                 </div>
               </div>
               <div class="dropdown-divider"></div>
-              <div class="dropdown-actions">
-                <button class="logout-btn" @click="logout">退出登录</button>
-              </div>
+              <div class="dropdown-actions"><button class="logout-btn" @click="logout">退出登录</button></div>
             </div>
           </transition>
         </div>
@@ -276,11 +301,17 @@ onUnmounted(() => {
         </div>
       </section>
 
-      <!-- 统计数字 -->
-      <section ref="statsRef" class="stats-section">
-        <div v-for="(s, i) in stats" :key="i" class="stat-card">
-          <span class="stat-value">{{ statValues[i] }}{{ s.suffix }}</span>
-          <span class="stat-label">{{ s.label }}</span>
+      <!-- 项目进度 -->
+      <section ref="statsRef" class="progress-section">
+        <div class="progress-left">
+          <h2 class="progress-title">项目进展</h2>
+          <p class="progress-desc">从零构建 TSWeb 管理面板的开发记录</p>
+        </div>
+        <div class="progress-cards">
+          <div v-for="(s, i) in stats" :key="i" :ref="setCardRef" class="progress-card" :class="{ visible: cardVisible[i] }">
+            <span class="progress-value">{{ s.prefix }}{{ s.prefix === 'up+' ? '' : statValues[i] }}{{ s.suffix }}</span>
+            <span class="progress-label">{{ s.label }}</span>
+          </div>
         </div>
       </section>
 
@@ -298,7 +329,7 @@ onUnmounted(() => {
       <section class="tech-section">
         <p class="tech-label">技术栈</p>
         <div class="tech-row">
-          <div v-for="t in techStack" :key="t.name" class="tech-item">
+          <div v-for="t in techStack" :key="t.name" class="tech-item" :style="{ '--dot-color': t.color }">
             <span class="tech-dot" :style="{ background: t.color }"></span>
             {{ t.name }}
           </div>
@@ -313,7 +344,6 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-/* ═══════════════════════════════════ 主题变量 ═══════════════════════════════════ */
 .home-page {
   --bg-gradient: linear-gradient(135deg, #e0e7ff, #c7d2fe, #a5b4fc, #c7d2fe, #e0e7ff);
   --card-bg: rgba(255, 255, 255, 0.7);
@@ -342,7 +372,6 @@ onUnmounted(() => {
   background: var(--bg-gradient);
   background-size: 400% 400%;
   animation: bgFlow 8s ease infinite;
-  transition: background 0.4s ease;
   color: var(--text-primary);
 }
 
@@ -373,7 +402,7 @@ onUnmounted(() => {
   100% { background-position: 0% 50%; }
 }
 
-/* ═══════════════════════════════════ 导航 ═══════════════════════════════════ */
+/* 导航 */
 .home-nav {
   display: flex;
   align-items: center;
@@ -386,99 +415,42 @@ onUnmounted(() => {
   border-radius: 16px;
   border: 1px solid var(--nav-border);
 }
+.nav-brand { display: flex; align-items: center; gap: 8px; color: #6366f1; cursor: pointer; }
+.nav-title { font-size: 1.05rem; font-weight: 800; color: var(--text-primary); }
+.nav-actions { display: flex; align-items: center; gap: 8px; }
 
-.nav-brand {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: #6366f1;
-  cursor: pointer;
-}
-
-.nav-title {
-  font-size: 1.05rem;
-  font-weight: 800;
-  color: var(--text-primary);
-}
-
-.nav-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-/* ── 主题按钮 ── */
 .theme-btn {
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
+  width: 36px; height: 36px; border-radius: 10px;
   border: 1.5px solid var(--btn-border);
   background: var(--btn-bg);
   color: var(--text-muted);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
   transition: all 0.2s ease;
 }
+.theme-btn:hover { border-color: #6366f1; color: #6366f1; }
 
-.theme-btn:hover {
-  border-color: #6366f1;
-  color: #6366f1;
-}
-
-/* ── 用户状态（与 AppHeader 一致） ── */
-.user-menu-wrapper {
-  position: relative;
-}
-
+.user-menu-wrapper { position: relative; }
 .user-status {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 14px;
-  background: var(--bg-tertiary);
-  border-radius: 10px;
-  border: 1px solid var(--border-color);
-  cursor: pointer;
-  transition: all 0.2s ease;
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 14px; background: var(--bg-tertiary);
+  border-radius: 10px; border: 1px solid var(--border-color);
+  cursor: pointer; transition: all 0.2s ease;
 }
-
 .user-status:hover { background: var(--bg-hover); border-color: var(--accent-primary); }
 .user-status.active { background: var(--bg-hover); border-color: var(--accent-primary); }
-
-.status-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #6b7280;
-}
-
-.status-dot.online {
-  background: #22c55e;
-  box-shadow: 0 0 8px rgba(34, 197, 94, 0.6);
-}
-
+.status-dot { width: 8px; height: 8px; border-radius: 50%; background: #6b7280; }
+.status-dot.online { background: #22c55e; box-shadow: 0 0 8px rgba(34,197,94,0.6); }
 .username { font-size: 0.9rem; color: var(--text-primary); font-weight: 500; }
-
 .expand-icon { font-size: 0.7rem; color: var(--text-secondary); margin-left: 4px; }
 
 .user-dropdown {
-  position: absolute;
-  top: calc(100% + 8px);
-  right: 0;
-  width: 260px;
-  background: var(--bg-card);
-  border-radius: 14px;
-  box-shadow: var(--shadow-lg);
-  border: 1px solid var(--border-light);
-  overflow: hidden;
-  z-index: 1001;
+  position: absolute; top: calc(100% + 8px); right: 0;
+  width: 260px; background: var(--bg-card); border-radius: 14px;
+  box-shadow: var(--shadow-lg); border: 1px solid var(--border-light);
+  overflow: hidden; z-index: 1001;
 }
-
 .dropdown-enter-active, .dropdown-leave-active { transition: all 0.25s ease; }
 .dropdown-enter-from, .dropdown-leave-to { opacity: 0; transform: translateY(-10px); }
-
 .dropdown-header { padding: 20px; }
 .user-info { flex: 1; }
 .user-name { font-size: 1.1rem; font-weight: 600; color: var(--text-primary); margin-bottom: 16px; }
@@ -486,44 +458,26 @@ onUnmounted(() => {
 .meta-item { display: flex; justify-content: space-between; align-items: center; }
 .meta-label { font-size: 0.82rem; color: var(--text-muted); }
 .meta-value { font-size: 0.85rem; font-weight: 600; color: var(--text-primary); }
-.meta-value.tag {
-  color: var(--accent-primary);
-  background: rgba(99, 102, 241, 0.15);
-  padding: 2px 10px;
-  border-radius: 10px;
-  font-size: 0.78rem;
-}
+.meta-value.tag { color: var(--accent-primary); background: rgba(99,102,241,0.15); padding: 2px 10px; border-radius: 10px; font-size: 0.78rem; }
 .meta-value.online { color: #22c55e; }
 .meta-value.offline { color: #6b7280; }
 .meta-value.bound { color: #22c55e; }
 .meta-value.unbound { color: #6b7280; }
-
 .dropdown-divider { height: 1px; background: var(--border-light); margin: 0 20px; }
 .dropdown-actions { padding: 16px 20px; }
-
 .logout-btn {
-  width: 100%;
-  padding: 12px 16px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border-color);
-  border-radius: 10px;
-  color: var(--text-primary);
-  font-size: 0.95rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s ease;
+  width: 100%; padding: 12px 16px; background: var(--bg-tertiary);
+  border: 1px solid var(--border-color); border-radius: 10px;
+  color: var(--text-primary); font-size: 0.95rem; font-weight: 500;
+  cursor: pointer; transition: all 0.2s ease;
 }
-
-.logout-btn:hover { background: rgba(239, 68, 68, 0.1); border-color: var(--accent-error); color: var(--accent-error); }
+.logout-btn:hover { background: rgba(239,68,68,0.1); border-color: var(--accent-error); color: var(--accent-error); }
 
 .meta-value.qq-glow.bound {
-  font-weight: 800;
-  color: #22c55e;
+  font-weight: 800; color: #22c55e;
   background: linear-gradient(90deg, #22c55e, #4ade80, #22c55e);
   background-size: 200% 100%;
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
   animation: qq-shimmer 2.5s ease-in-out infinite;
 }
 @keyframes qq-shimmer {
@@ -531,229 +485,87 @@ onUnmounted(() => {
   100% { background-position: -200% 0; }
 }
 
-/* ═══════════════════════════════════ 主内容 ═══════════════════════════════════ */
-.home-main {
-  flex: 1;
-  max-width: 820px;
-  margin: 0 auto;
-  width: 100%;
-  padding: 40px 24px 40px;
-  box-sizing: border-box;
-}
+/* 主内容 */
+.home-main { flex: 1; max-width: 820px; margin: 0 auto; width: 100%; padding: 40px 24px 40px; box-sizing: border-box; }
 
-/* ═══════════════════════════════════ 英雄区 ═══════════════════════════════════ */
-.hero-section {
-  text-align: center;
-  margin-bottom: 48px;
-  position: relative;
-}
-
-.hero-glow {
-  position: absolute;
-  top: -60px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 400px;
-  height: 200px;
-  background: radial-gradient(ellipse, rgba(99, 102, 241, 0.2), transparent 70%);
-  pointer-events: none;
-}
-
-.hero-badge {
-  display: inline-block;
-  padding: 4px 14px;
-  border-radius: 20px;
-  background: rgba(99, 102, 241, 0.12);
-  border: 1px solid rgba(99, 102, 241, 0.2);
-  color: #6366f1;
-  font-size: 0.78rem;
-  font-weight: 700;
-  margin-bottom: 16px;
-  position: relative;
-}
-
-.hero-title {
-  margin: 0 0 14px;
-  font-size: clamp(2rem, 5vw, 3rem);
-  font-weight: 800;
-  background: linear-gradient(135deg, #4f46e5, #7c3aed);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  line-height: 1.15;
-}
-
-.hero-desc {
-  margin: 0 auto 28px;
-  max-width: 560px;
-  font-size: 0.95rem;
-  color: var(--text-secondary);
-  line-height: 1.7;
-}
-
+/* 英雄区 */
+.hero-section { text-align: center; margin-bottom: 48px; position: relative; }
+.hero-glow { position: absolute; top: -60px; left: 50%; transform: translateX(-50%); width: 400px; height: 200px; background: radial-gradient(ellipse, rgba(99,102,241,0.2), transparent 70%); pointer-events: none; }
+.hero-badge { display: inline-block; padding: 4px 14px; border-radius: 20px; background: rgba(99,102,241,0.12); border: 1px solid rgba(99,102,241,0.2); color: #6366f1; font-size: 0.78rem; font-weight: 700; margin-bottom: 16px; position: relative; }
+.hero-title { margin: 0 0 14px; font-size: clamp(2rem,5vw,3rem); font-weight: 800; background: linear-gradient(135deg,#4f46e5,#7c3aed); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; line-height: 1.15; }
+.hero-desc { margin: 0 auto 28px; max-width: 560px; font-size: 0.95rem; color: var(--text-secondary); line-height: 1.7; }
 .hero-actions { display: flex; justify-content: center; gap: 12px; }
-
-.hero-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 28px;
-  border-radius: 12px;
-  font-size: 0.95rem;
-  font-weight: 700;
-  cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
-  border: none;
-}
-
-.hero-btn.primary {
-  background: linear-gradient(135deg, #6366f1, #4f46e5);
-  color: white;
-  box-shadow: 0 4px 16px rgba(99, 102, 241, 0.25);
-}
-
-.hero-btn.primary:hover {
-  transform: translateY(-3px) scale(1.03);
-  box-shadow: 0 8px 28px rgba(99, 102, 241, 0.4);
-}
-
+.hero-btn { display: inline-flex; align-items: center; gap: 8px; padding: 12px 28px; border-radius: 12px; font-size: 0.95rem; font-weight: 700; cursor: pointer; transition: all 0.3s cubic-bezier(0.34,1.56,0.64,1); border: none; }
+.hero-btn.primary { background: linear-gradient(135deg,#6366f1,#4f46e5); color: white; box-shadow: 0 4px 16px rgba(99,102,241,0.25); }
+.hero-btn.primary:hover { transform: translateY(-3px) scale(1.03); box-shadow: 0 8px 28px rgba(99,102,241,0.4); }
 .hero-btn.primary:active { transform: translateY(0) scale(0.97); }
 
-/* ═══════════════════════════════════ 统计数字 ═══════════════════════════════════ */
-.stats-section {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
-  margin-bottom: 40px;
-}
+/* 项目进度（分栏 + 3D 滚动） */
+.progress-section { display: flex; gap: 40px; align-items: center; margin-bottom: 48px; }
+.progress-left { flex-shrink: 0; width: 200px; }
+.progress-title { margin: 0 0 8px; font-size: 1.4rem; font-weight: 800; color: var(--text-primary); }
+.progress-desc { margin: 0; font-size: 0.85rem; color: var(--text-muted); line-height: 1.5; }
+.progress-cards { display: flex; gap: 16px; flex: 1; }
 
-.stat-card {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  padding: 28px 20px;
+.progress-card {
+  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 28px 16px;
   background: var(--stat-bg);
   border: 1px solid var(--card-border);
   border-radius: 16px;
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
-  transition: all 0.25s ease;
-}
-
-.stat-card:hover {
-  border-color: var(--card-hover-border);
-  transform: translateY(-3px);
-  box-shadow: 0 8px 24px rgba(99, 102, 241, 0.1);
-}
-
-.stat-value {
-  font-size: 2.2rem;
-  font-weight: 800;
-  background: linear-gradient(135deg, #6366f1, #8b5cf6);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  font-variant-numeric: tabular-nums;
-}
-
-.stat-label { font-size: 0.85rem; color: var(--text-muted); font-weight: 500; }
-
-/* ═══════════════════════════════════ Bento 网格 ═══════════════════════════════════ */
-.bento-section {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 12px;
-  margin-bottom: 40px;
-}
-
-.bento-card {
-  position: relative;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 22px;
-  background: var(--card-bg);
-  border: 1px solid var(--card-border);
-  border-radius: 16px;
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  transition: border-color 0.3s ease, transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.3s ease;
-  cursor: default;
-}
-
-.bento-card:hover {
-  border-color: var(--card-hover-border);
-  transform: translateY(-4px) scale(1.02);
-  box-shadow: 0 12px 32px rgba(99, 102, 241, 0.12);
-}
-
-.bento-glow {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
+  transition: all 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+  transform: perspective(600px) rotateY(25deg) translateX(30px) scale(0.9);
   opacity: 0;
-  transition: opacity 0.3s ease;
-  border-radius: 16px;
 }
+.progress-card.visible {
+  transform: perspective(600px) rotateY(0deg) translateX(0) scale(1);
+  opacity: 1;
+}
+.progress-card:nth-child(2) { transition-delay: 0.12s; }
+.progress-card:nth-child(3) { transition-delay: 0.24s; }
+.progress-card:hover {
+  border-color: var(--card-hover-border);
+  transform: perspective(600px) rotateY(0deg) translateX(0) scale(1.03) !important;
+  box-shadow: 0 8px 24px rgba(99,102,241,0.1);
+}
+.progress-value { font-size: 2.2rem; font-weight: 800; background: linear-gradient(135deg,#6366f1,#8b5cf6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; font-variant-numeric: tabular-nums; line-height: 1; }
+.progress-label { font-size: 0.82rem; color: var(--text-muted); font-weight: 500; text-align: center; }
 
+/* Bento 网格 */
+.bento-section { display: grid; grid-template-columns: repeat(4,1fr); gap: 12px; margin-bottom: 40px; }
+.bento-card { position: relative; overflow: hidden; display: flex; flex-direction: column; gap: 8px; padding: 22px; background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 16px; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); transition: border-color 0.3s ease, transform 0.4s cubic-bezier(0.34,1.56,0.64,1), box-shadow 0.3s ease; cursor: default; }
+.bento-card:hover { border-color: var(--card-hover-border); transform: translateY(-4px) scale(1.02); box-shadow: 0 12px 32px rgba(99,102,241,0.12); }
+.bento-glow { position: absolute; inset: 0; pointer-events: none; opacity: 0; transition: opacity 0.3s ease; border-radius: 16px; }
 .bento-card:hover .bento-glow { opacity: 1; }
-
-.bento-card.lg { grid-column: span 2; grid-row: span 1; }
-.bento-card.md { grid-column: span 1; grid-row: span 1; }
-.bento-card.sm { grid-column: span 1; grid-row: span 1; }
-
+.bento-card.lg { grid-column: span 2; }
+.bento-card.md { grid-column: span 1; }
+.bento-card.sm { grid-column: span 1; }
 .bento-num { font-size: 0.7rem; font-weight: 800; color: #a5b4fc; font-family: monospace; }
 .bento-title { margin: 0; font-size: 0.95rem; font-weight: 700; color: var(--text-primary); }
 .bento-desc { margin: 0; font-size: 0.8rem; color: var(--text-secondary); line-height: 1.5; }
 .bento-card.sm .bento-desc { font-size: 0.75rem; }
 
-/* ═══════════════════════════════════ 技术栈 ═══════════════════════════════════ */
+/* 技术栈 */
 .tech-section { text-align: center; margin-bottom: 40px; }
-
-.tech-label {
-  font-size: 0.75rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 2px;
-  color: var(--text-muted);
-  margin: 0 0 14px;
-}
-
+.tech-label { font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 2px; color: var(--text-muted); margin: 0 0 14px; }
 .tech-row { display: flex; justify-content: center; gap: 24px; flex-wrap: wrap; }
-
-.tech-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: var(--text-muted);
-}
-
+.tech-item { display: flex; align-items: center; gap: 6px; font-size: 0.85rem; font-weight: 600; color: var(--text-muted); }
 .tech-dot { width: 8px; height: 8px; border-radius: 50%; }
+.tech-item:hover .tech-dot { box-shadow: 0 0 10px var(--dot-color, currentColor), 0 0 20px var(--dot-color, currentColor); }
 
-/* ═══════════════════════════════════ 底部 ═══════════════════════════════════ */
-.home-footer {
-  text-align: center;
-  padding: 20px;
-  color: var(--text-muted);
-  font-size: 0.85rem;
-}
+/* 底部 */
+.home-footer { text-align: center; padding: 20px; color: var(--text-muted); font-size: 0.85rem; }
 
-/* ═══════════════════════════════════ 响应式 ═══════════════════════════════════ */
+/* 响应式 */
 @media (max-width: 640px) {
-  .home-nav {
-    margin: 12px;
-    padding: 10px 16px;
-    flex-wrap: wrap;
-    gap: 8px;
-  }
+  .home-nav { margin: 12px; padding: 10px 16px; flex-wrap: wrap; gap: 8px; }
+  .progress-section { flex-direction: column; gap: 20px; }
+  .progress-left { width: 100%; text-align: center; }
+  .progress-cards { flex-direction: column; }
   .bento-section { grid-template-columns: repeat(2, 1fr); }
   .bento-card.lg { grid-column: span 2; }
-  .stats-section { grid-template-columns: repeat(3, 1fr); }
-  .stat-value { font-size: 1.6rem; }
   .hero-title { font-size: 1.8rem; }
 }
 </style>
