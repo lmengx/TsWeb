@@ -80,12 +80,12 @@ async function startServer() {
     console.log('  Setup Token: ' + token)
     console.log('')
     console.log('  请访问:')
-    console.log('  http://localhost:' + port + '/setup?token=' + token)
+    console.log('  http://localhost:' + port + '/setup/intro?token=' + token)
     console.log('')
     app.listen(port, () => {
       console.log('  Web服务器已在端口 ' + port + ' 上运行')
       console.log('')
-      const url = 'http://localhost:' + port + '/setup?token=' + token
+      const url = 'http://localhost:' + port + '/setup/intro?token=' + token
       console.log('  正在打开浏览器...')
       exec('start ' + url, (err) => {
         if (err) {

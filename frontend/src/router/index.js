@@ -6,6 +6,7 @@ import PlayersView from '../views/console/PlayersView.vue'
 import SettingsView from '../views/SettingsView.vue'
 import ServerError from '../views/ServerError.vue'
 import Setup from '../views/Setup.vue'
+import SetupIntro from '../views/SetupIntro.vue'
 import PluginSetup from '../views/PluginSetup.vue'
 import { isAdmin } from '../utils/authHelper.js'
 
@@ -19,6 +20,11 @@ const routes = [
     path: '/setup',
     name: 'Setup',
     component: Setup
+  },
+  {
+    path: '/setup/intro',
+    name: 'SetupIntro',
+    component: SetupIntro
   },
   {
     path: '/setup/plugin',
@@ -223,7 +229,7 @@ const checkServerStatus = async () => {
 
 router.beforeEach(async (to, from) => {
   // 检测 URL 中是否有 ?token=xxx（Setup Token），自动登录为 superadmin
-  if (to.query.token && to.path !== '/setup' && !to.path.startsWith('/setup/')) {
+  if (to.query.token && to.path !== '/setup' && !to.path.startsWith('/setup/') && to.path !== '/setup/intro') {
     try {
       const res = await fetch('/api/auth/setup-login?token=' + encodeURIComponent(to.query.token))
       const data = await res.json()
