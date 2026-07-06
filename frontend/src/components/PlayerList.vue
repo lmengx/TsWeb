@@ -228,7 +228,7 @@ const handleRowClick = (user) => {
         class="search-input"
       />
       <button @click="openCreateModal" class="create-user-btn">+ 创建用户</button>
-      <button @click="openClearAllDataModal" class="clear-all-data-btn">🗑 清空全部角色</button>
+      <button @click="openClearAllDataModal" class="clear-all-data-btn">清空全部角色</button>
     </div>
 
     <!-- 未登录玩家置顶区块 -->

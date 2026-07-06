@@ -301,17 +301,20 @@ const selectPrefix = (prefix) => {
   showPrefixDropdown.value = false
 }
 
-const truncatedUUID = computed(() => {
-  if (!userDetails.value?.UUID) return '未知'
-  const uuid = userDetails.value.UUID
-  return uuid.length > 8 ? uuid.substring(0, 8) + '...' : uuid
+const showIpPopup = ref(false)
+const ipList = computed(() => {
+  if (!userDetails.value?.KnownIPs) return []
+  // 支持逗号、制表符、空格、换行分隔
+  const raw = userDetails.value.KnownIPs
+  // 先尝试 JSON 数组格式
+  try {
+    const parsed = JSON.parse(raw)
+    if (Array.isArray(parsed)) return parsed.filter(Boolean)
+  } catch {}
+  // 按常见分隔符拆分
+  return raw.split(/[,，\t\n\s]+/).filter(Boolean)
 })
-
-const truncatedIP = computed(() => {
-  if (!userDetails.value?.KnownIPs) return '无'
-  const ip = userDetails.value.KnownIPs
-  return ip.length > 25 ? ip.substring(0, 25) + '...' : ip
-})
+const firstIP = computed(() => ipList.value[0] || '无')
 
 const itemImageUrl = computed(() => {
   if (!giveSelectedItemId.value || giveSelectedItemId.value <= 0) return null
@@ -1298,15 +1301,8 @@ onMounted(() => {
           </div>
           <div class="info-item">
             <dt>UUID</dt>
-            <dd class="uuid-with-copy">
-              <span :title="'完整UUID: ' + userDetails.UUID">{{ truncatedUUID }}</span>
-              <button
-                @click="copyToClipboard(userDetails.UUID)"
-                class="copy-badge"
-                title="复制UUID"
-              >
-                复制
-              </button>
+            <dd class="uuid-box" @click="copyToClipboard(userDetails.UUID)" title="点击复制完整UUID">
+              <span class="uuid-text">{{ (userDetails.UUID || '未知').substring(0, 5) }}</span>
             </dd>
           </div>
           <div class="info-item">
@@ -1319,58 +1315,35 @@ onMounted(() => {
           </div>
           <div class="info-item">
             <dt>已知IP</dt>
-            <dd class="ip-with-check">
-              <button
-                @click="checkDuplicateIPs"
-                :disabled="duplicateIPLoading"
-                class="check-badge"
-                :class="{ loading: duplicateIPLoading }"
-                title="检测共享IP"
-              >
-                {{ duplicateIPLoading ? '检测中...' : '检测共享' }}
-              </button>
-              <span class="ip-text" :title="'完整IP: ' + userDetails.KnownIPs">{{ truncatedIP }}</span>
+            <dd class="ip-display">
+              <div class="ip-summary" @click="showIpPopup = true">
+                <span class="ip-text">{{ firstIP }}</span>
+                <span v-if="ipList.length > 1" class="ip-expand-hint">
+                  展开全部
+                </span>
+                <span class="ip-expand-arrow">▶</span>
+              </div>
             </dd>
           </div>
         </dl>
 
-        <div v-if="duplicateIPResult" class="duplicate-ip-result">
-          <button @click="resetDuplicateIPResult" class="close-result-btn">×</button>
-
-          <div v-if="duplicateIPResult.error" class="result-error">
-            <p>❌ {{ duplicateIPResult.error }}</p>
-          </div>
-
-          <div v-else-if="duplicateIPResult.count === 0" class="result-empty">
-            <p>✅ 未发现关联账号</p>
-          </div>
-
-          <div v-else class="result-content">
-            <h4>关联账号组 (共 {{ duplicateIPResult.totalAccounts }} 个账号)</h4>
-            <div class="shared-ips-section">
-              <span class="shared-ips-label">共享IP:</span>
-              <span
-                v-for="(ip, idx) in duplicateIPResult.sharedIPs"
-                :key="idx"
-                class="shared-ip-chip"
-              >
-                {{ ip }}
-              </span>
-            </div>
-            <div class="duplicate-list">
-              <div
-                v-for="user in duplicateIPResult.duplicates"
-                :key="user.ID"
-                class="duplicate-item"
-                @click="goToUser(user.Username)"
-              >
-                <span class="duplicate-id">ID: {{ user.ID }}</span>
-                <span class="duplicate-name">{{ user.Username }}</span>
+        <!-- IP 浮动弹窗 -->
+        <div v-if="showIpPopup" class="ip-popup-overlay" @click.self="showIpPopup = false">
+            <div class="ip-popup">
+              <div class="ip-popup-header">
+                <span>所有已知 IP</span>
+                <button class="ip-popup-close" @click="showIpPopup = false">×</button>
+              </div>
+              <div class="ip-popup-list">
+                <div v-for="(ip, idx) in ipList" :key="idx" class="ip-popup-item">
+                  <span class="ip-popup-idx">{{ idx + 1 }}.</span>
+                  <span class="ip-popup-addr">{{ ip }}</span>
+                </div>
+                <div v-if="ipList.length === 0" class="ip-popup-empty">无</div>
               </div>
             </div>
           </div>
         </div>
-      </div>
 
       <div class="action-section">
         <div class="action-group">
@@ -1386,7 +1359,14 @@ onMounted(() => {
               封禁
             </button>
             <button @click="openClearCharacterModal" class="danger-btn">
-              🗑 清空角色
+              清空角色
+            </button>
+            <button
+              @click="checkDuplicateIPs"
+              :disabled="duplicateIPLoading"
+              class="duplicate-check-btn"
+            >
+              {{ duplicateIPLoading ? '检测中...' : '检测关联账号' }}
             </button>
           </div>
         </div>
@@ -1394,18 +1374,18 @@ onMounted(() => {
         <div class="action-group">
           <h4 class="group-label">互动操作</h4>
           <div class="group-buttons">
-            <button @click="openTpModal" :disabled="!isOnline" class="tp-btn" :class="{ disabled: !isOnline }">
-              传送
-            </button>
-            <button @click="openWhisperModal" :disabled="!isOnline" class="whisper-btn" :class="{ disabled: !isOnline }">
-              私聊
-            </button>
-            <button @click="openGiveModal" class="give-btn">
-              给物品
-            </button>
+              <button @click="openTpModal" :disabled="!isOnline" class="tp-btn" :class="{ disabled: !isOnline }">
+                传送
+              </button>
+              <button @click="openWhisperModal" :disabled="!isOnline" class="whisper-btn" :class="{ disabled: !isOnline }">
+                私聊
+              </button>
+              <button @click="openGiveModal" class="give-btn">
+                给物品
+              </button>
+            </div>
           </div>
         </div>
-      </div>
 
       <div class="daily-stats-section">
         <div class="daily-stats-header">
@@ -2029,6 +2009,53 @@ onMounted(() => {
         </div>
       </div>
     </div>
+
+    <!-- 关联账号检测结果弹窗 -->
+    <div v-if="duplicateIPResult" class="modal-overlay" @click.self="resetDuplicateIPResult">
+      <div class="modal">
+        <div class="modal-header">
+          <h3>关联账号检测</h3>
+          <button @click="resetDuplicateIPResult" class="close-btn">×</button>
+        </div>
+        <div class="modal-body">
+          <div v-if="duplicateIPResult.error" class="result-error">
+            <p>❌ {{ duplicateIPResult.error }}</p>
+          </div>
+
+          <div v-else-if="duplicateIPResult.count === 0" class="result-empty">
+            <p>✅ 未发现关联账号</p>
+          </div>
+
+          <div v-else class="result-content">
+            <h4 class="result-title">关联账号组 (共 {{ duplicateIPResult.totalAccounts }} 个账号)</h4>
+            <div class="shared-ips-section">
+              <span class="shared-ips-label">共享IP:</span>
+              <span
+                v-for="(ip, idx) in duplicateIPResult.sharedIPs"
+                :key="idx"
+                class="shared-ip-chip"
+              >
+                {{ ip }}
+              </span>
+            </div>
+            <div class="duplicate-list">
+              <div
+                v-for="user in duplicateIPResult.duplicates"
+                :key="user.ID"
+                class="duplicate-item"
+                @click="goToUser(user.Username)"
+              >
+                <span class="duplicate-id">ID: {{ user.ID }}</span>
+                <span class="duplicate-name">{{ user.Username }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button @click="resetDuplicateIPResult" class="cancel-btn">关闭</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <Teleport to="body">
@@ -2166,6 +2193,38 @@ onMounted(() => {
   padding: 0 20px;
   margin-bottom: 24px;
   flex-wrap: wrap;
+}
+
+.duplicate-check-btn {
+  padding: 8px 16px;
+  font-weight: 600;
+  color: #fff;
+  background: linear-gradient(90deg, #16a34a, #22c55e, #10b981, #16a34a);
+  background-size: 300% 100%;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  animation: flowLight 3s linear infinite;
+  box-shadow: 0 0 8px rgba(22, 163, 74, 0.35);
+}
+
+.duplicate-check-btn:hover:not(:disabled) {
+  transform: scale(1.05);
+  box-shadow: 0 0 14px rgba(22, 163, 74, 0.6);
+}
+
+.duplicate-check-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  animation: none;
+}
+
+@keyframes flowLight {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
 }
 
 .action-group {
@@ -2460,91 +2519,140 @@ onMounted(() => {
   font-weight: 400;
 }
 
-.uuid-with-copy {
+.uuid-box {
+  cursor: pointer;
+  padding: 6px 10px;
+  background: rgba(99, 102, 241, 0.08);
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  border-radius: var(--radius-sm);
+  transition: all 0.2s ease;
+  display: inline-block;
+}
+
+.uuid-box:hover {
+  background: rgba(99, 102, 241, 0.15);
+  border-color: rgba(99, 102, 241, 0.5);
+}
+
+.uuid-text {
+  font-weight: 700;
+  font-family: 'Courier New', monospace;
+  color: var(--accent-primary);
+  letter-spacing: 0.5px;
+}
+
+.ip-summary {
   display: flex;
   align-items: center;
   gap: 8px;
-}
-
-.copy-badge {
-  padding: 6px 12px;
-  color: #16a34a;
-  border: 1px solid #16a34a;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  font-size: 0.8rem;
-  font-weight: 500;
-  transition: all 0.2s ease;
-}
-
-.copy-badge:hover {
-  color: #15803d;
-  border-color: #15803d;
-}
-
-.ip-with-check {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.ip-text {
-  color: var(--text-primary);
-  font-size: 0.95rem;
-}
-
-.check-badge {
-  padding: 6px 12px;
-  color: #16a34a;
-  border: 1px solid #16a34a;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  font-size: 0.8rem;
-  font-weight: 500;
-  transition: all 0.2s ease;
-}
-
-.check-badge:hover:not(:disabled) {
-  color: #15803d;
-  border-color: #15803d;
-}
-
-.check-badge:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.check-badge.loading {
-  color: var(--text-muted);
-  border-color: var(--text-muted);
-}
-
-.duplicate-ip-result {
-  margin-top: 16px;
-  padding: 16px;
-  background: var(--bg-tertiary);
-  border-radius: var(--radius-lg);
-  position: relative;
-  border: 1px solid var(--border-light);
-}
-
-.close-result-btn {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  background: var(--bg-hover);
-  border: none;
-  color: var(--text-secondary);
-  font-size: 1.1rem;
   cursor: pointer;
   padding: 4px 8px;
   border-radius: var(--radius-sm);
-  transition: all 0.2s ease;
+  transition: background 0.2s ease;
+  user-select: none;
 }
 
-.close-result-btn:hover {
+.ip-summary:hover {
+  background: var(--bg-hover);
+}
+
+.ip-display .ip-text {
   color: var(--text-primary);
+  font-size: 0.95rem;
+  font-weight: 500;
+}
+
+.ip-expand-hint {
+  font-size: 0.75rem;
+  color: var(--accent-primary);
+  background: rgba(99, 102, 241, 0.1);
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+.ip-expand-arrow {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+/* IP 浮动弹窗 */
+.ip-popup-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: rgba(0, 0, 0, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ip-popup {
   background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
+  min-width: 320px;
+  max-width: 480px;
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.ip-popup-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-light);
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.ip-popup-close {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 1.3rem;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+  transition: color 0.2s;
+}
+
+.ip-popup-close:hover {
+  color: var(--text-primary);
+}
+
+.ip-popup-list {
+  padding: 12px 16px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ip-popup-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+  font-family: 'Courier New', monospace;
+  padding: 4px 0;
+}
+
+.ip-popup-idx {
+  color: var(--text-muted);
+  min-width: 24px;
+}
+
+.ip-popup-addr {
+  color: var(--text-primary);
+}
+
+.ip-popup-empty {
+  color: var(--text-muted);
+  text-align: center;
+  padding: 16px;
 }
 
 .result-error {
