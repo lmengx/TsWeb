@@ -922,10 +922,20 @@ const copyToClipboard = async (text) => {
   if (!text) return
   try {
     await navigator.clipboard.writeText(text)
-    alert('已复制到剪贴板')
+    showToast('已复制到剪贴板')
   } catch (err) {
     console.error('复制失败:', err)
   }
+}
+
+// Toast 通知
+const toastMessage = ref('')
+let toastTimer = null
+
+const showToast = (msg) => {
+  toastMessage.value = msg
+  if (toastTimer) clearTimeout(toastTimer)
+  toastTimer = setTimeout(() => { toastMessage.value = '' }, 2000)
 }
 
 const copyQQ = () => {
@@ -1251,9 +1261,10 @@ onMounted(() => {
             <span class="status-dot"></span>
             <span>{{ isOnline ? '在线' : '离线' }}</span>
           </div>
-          <div class="qq-bind-status" :class="{ bound: userDetails.QQ }" @click="copyQQ">
+          <div class="qq-bind-status" :class="{ bound: userDetails.QQ }" @click="copyQQ" :title="userDetails.QQ ? '点击复制 QQ 号' : ''">
             <span class="qq-dot"></span>
-            <span>QQ:{{ userDetails.QQ || '未绑定' }}</span>
+            <span v-if="userDetails.QQ" class="qq-number">QQ:{{ userDetails.QQ }}</span>
+            <span v-else>QQ:未绑定</span>
           </div>
         </template>
       </div>
@@ -2019,6 +2030,12 @@ onMounted(() => {
       </div>
     </div>
   </div>
+
+  <Teleport to="body">
+    <Transition name="toast-fade">
+      <div v-if="toastMessage" class="toast-notification">{{ toastMessage }}</div>
+    </Transition>
+  </Teleport>
 </template>
 
 <style scoped>
@@ -2100,13 +2117,12 @@ onMounted(() => {
 }
 
 .qq-bind-status.bound {
-  background: rgba(234, 179, 8, 0.15);
-  color: #eab308;
+  background: rgba(34, 197, 94, 0.12);
   cursor: pointer;
 }
 
 .qq-bind-status.bound:hover {
-  background: rgba(234, 179, 8, 0.25);
+  background: rgba(34, 197, 94, 0.2);
 }
 
 .qq-dot {
@@ -2117,9 +2133,25 @@ onMounted(() => {
 }
 
 .qq-bind-status.bound .qq-dot {
-  background: #eab308;
-  box-shadow: 0 0 8px rgba(234, 179, 8, 0.6);
-  animation: qq-glow 1.5s ease-in-out infinite;
+  background: #22c55e;
+  box-shadow: 0 0 10px rgba(34, 197, 94, 0.8);
+}
+
+.qq-number {
+  font-weight: 800;
+  color: #22c55e;
+  background: linear-gradient(90deg, #22c55e, #4ade80, #22c55e);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: qq-shimmer 2.5s ease-in-out infinite;
+  text-shadow: none;
+}
+
+@keyframes qq-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
 }
 
 @keyframes qq-glow {
@@ -3799,4 +3831,26 @@ onMounted(() => {
   color: var(--text-muted);
   margin-top: 1px;
 }
+
+/* Toast */
+.toast-notification {
+  position: fixed;
+  bottom: 40px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 14px 28px;
+  background: #1f2937;
+  color: #f3f4f6;
+  border: 1px solid rgba(99, 102, 241, 0.4);
+  border-radius: 12px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  z-index: 9999;
+  pointer-events: none;
+}
+.toast-fade-enter-active { transition: all 0.3s ease; }
+.toast-fade-leave-active { transition: all 0.25s ease; }
+.toast-fade-enter-from { opacity: 0; transform: translateX(-50%) translateY(20px); }
+.toast-fade-leave-to { opacity: 0; transform: translateX(-50%) translateY(-10px); }
 </style>

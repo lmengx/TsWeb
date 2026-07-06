@@ -170,7 +170,7 @@ onUnmounted(() => {
                     </span>
                     <span class="meta-item">
                       <span class="meta-label">QQ 绑定</span>
-                      <span class="meta-value" :class="qqBound ? 'bound' : 'unbound'">
+                      <span class="meta-value qq-glow" :class="qqBound ? 'bound' : 'unbound'">
                         {{ qqBound ? qqNumber : '未绑定' }}
                       </span>
                     </span>
@@ -347,4 +347,19 @@ onUnmounted(() => {
 }
 
 .logout-btn:hover { background: rgba(239, 68, 68, 0.1); border-color: var(--accent-error); color: var(--accent-error); }
+
+.meta-value.qq-glow.bound {
+  font-weight: 800;
+  color: #22c55e;
+  background: linear-gradient(90deg, #22c55e, #4ade80, #22c55e);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: appheader-qq-shimmer 2.5s ease-in-out infinite;
+}
+@keyframes appheader-qq-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
 </style>
