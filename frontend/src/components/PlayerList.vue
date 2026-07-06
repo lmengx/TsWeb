@@ -117,6 +117,59 @@ const executeCreateUser = async () => {
   createLoading.value = false
 }
 
+// 清空全部角色
+const showClearAllDataModal = ref(false)
+const clearAllDataUsername = ref('')
+const clearAllDataPassword = ref('')
+const clearAllDataLoading = ref(false)
+const clearAllDataError = ref('')
+const clearAllDataSuccess = ref('')
+
+const openClearAllDataModal = () => {
+  clearAllDataUsername.value = ''
+  clearAllDataPassword.value = ''
+  clearAllDataError.value = ''
+  clearAllDataSuccess.value = ''
+  showClearAllDataModal.value = true
+}
+
+const closeClearAllDataModal = () => {
+  showClearAllDataModal.value = false
+  clearAllDataUsername.value = ''
+  clearAllDataPassword.value = ''
+}
+
+const executeClearAllData = async () => {
+  if (!clearAllDataUsername.value.trim() || !clearAllDataPassword.value.trim()) {
+    clearAllDataError.value = '用户名和密码不能为空'
+    return
+  }
+
+  clearAllDataLoading.value = true
+  clearAllDataError.value = ''
+  clearAllDataSuccess.value = ''
+
+  try {
+    const response = await post('/api/tshock/clearallcharacter', {
+      username: clearAllDataUsername.value.trim(),
+      password: clearAllDataPassword.value
+    })
+    const result = await response.json()
+
+    if (result.error) {
+      clearAllDataError.value = result.error
+    } else {
+      clearAllDataSuccess.value = result.response || '角色数据已全部清空'
+      emit('refresh')
+      setTimeout(() => closeClearAllDataModal(), 1500)
+    }
+  } catch (err) {
+    clearAllDataError.value = err.message || '清空失败'
+  }
+
+  clearAllDataLoading.value = false
+}
+
 const isUserOnline = (username) => {
   return props.activeUsers.some(name => name.toLowerCase() === username.toLowerCase())
 }
@@ -175,6 +228,7 @@ const handleRowClick = (user) => {
         class="search-input"
       />
       <button @click="openCreateModal" class="create-user-btn">+ 创建用户</button>
+      <button @click="openClearAllDataModal" class="clear-all-data-btn">🗑 清空全部角色</button>
     </div>
 
     <!-- 未登录玩家置顶区块 -->
@@ -287,6 +341,53 @@ const handleRowClick = (user) => {
           <button class="modal-btn cancel" @click="closeCreateModal" :disabled="createLoading">取消</button>
           <button class="modal-btn confirm" @click="executeCreateUser" :disabled="createLoading">
             {{ createLoading ? '创建中...' : '确认创建' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 清空全部角色模态框 -->
+    <div v-if="showClearAllDataModal" class="modal-overlay" @click.self="closeClearAllDataModal">
+      <div class="modal-dialog modal-danger-border">
+        <div class="modal-header">
+          <h3>⚠️ 清空全部角色数据</h3>
+          <button class="modal-close" @click="closeClearAllDataModal">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="danger-warning">
+            <p class="warning-title">🚨 <strong>危险操作 — 不可撤销！</strong></p>
+            <p>此操作将 <strong>永久删除所有玩家的角色数据</strong>（背包、装备、生命魔力、永久增益等）。</p>
+            <p>每个玩家下次登录时将以全新角色进入服务器。</p>
+          </div>
+          <div class="form-group">
+            <label class="form-label">你的用户名</label>
+            <input
+              v-model="clearAllDataUsername"
+              type="text"
+              placeholder="输入你的用户名以确认"
+              class="form-input"
+              autocomplete="off"
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-label">你的密码</label>
+            <input
+              v-model="clearAllDataPassword"
+              type="password"
+              placeholder="输入你的密码以确认"
+              class="form-input"
+              autocomplete="new-password"
+              @keyup.enter="executeClearAllData"
+            />
+          </div>
+
+          <div v-if="clearAllDataError" class="error-msg">{{ clearAllDataError }}</div>
+          <div v-if="clearAllDataSuccess" class="success-msg">{{ clearAllDataSuccess }}</div>
+        </div>
+        <div class="modal-footer">
+          <button class="modal-btn cancel" @click="closeClearAllDataModal" :disabled="clearAllDataLoading">取消</button>
+          <button class="modal-btn confirm danger-confirm" @click="executeClearAllData" :disabled="clearAllDataLoading">
+            {{ clearAllDataLoading ? '执行中...' : '确认清空全部角色' }}
           </button>
         </div>
       </div>
@@ -505,6 +606,58 @@ const handleRowClick = (user) => {
 .create-user-btn:hover {
   transform: translateY(-1px);
   box-shadow: var(--shadow-md);
+}
+
+.clear-all-data-btn {
+  padding: 10px 20px;
+  background: linear-gradient(135deg, #7c3aed, #6d28d9);
+  color: white;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 600;
+  transition: all 0.25s ease;
+  white-space: nowrap;
+  box-shadow: var(--shadow-sm);
+  flex-shrink: 0;
+}
+
+.clear-all-data-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(124, 58, 237, 0.4);
+}
+
+.modal-danger-border {
+  border: 2px solid #7c3aed;
+}
+
+.danger-warning {
+  background: rgba(124, 58, 237, 0.1);
+  border: 1px solid rgba(124, 58, 237, 0.3);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  margin-bottom: 20px;
+}
+
+.danger-warning p {
+  margin: 6px 0;
+  color: var(--text-primary);
+  font-size: 0.9rem;
+}
+
+.danger-warning .warning-title {
+  color: #7c3aed;
+  font-size: 1rem;
+  margin-bottom: 8px;
+}
+
+.modal-btn.confirm.danger-confirm {
+  background: linear-gradient(135deg, #7c3aed, #6d28d9);
+}
+
+.modal-btn.confirm.danger-confirm:hover:not(:disabled) {
+  opacity: 0.85;
 }
 
 /* 未登录玩家置顶区块 */
