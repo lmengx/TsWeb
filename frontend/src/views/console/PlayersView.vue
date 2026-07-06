@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { get } from '../../utils/api.js'
 import { getUnverifiedList } from '../../utils/unverifiedApi.js'
@@ -12,11 +12,12 @@ const activeUsers = ref([])
 const usersLoading = ref(false)
 const unverifiedPlayers = ref([])
 const unverifiedLoading = ref(false)
-const refreshKey = ref(0)
 
-const fetchUsers = async () => {
-  usersLoading.value = true
-  unverifiedLoading.value = true
+const fetchUsers = async (isSilent = false) => {
+  if (!isSilent) {
+    usersLoading.value = true
+    unverifiedLoading.value = true
+  }
   try {
     const [usersRes, activeRes, unverifiedRes] = await Promise.all([
       get('/api/tshock/users'),
@@ -40,14 +41,15 @@ const fetchUsers = async () => {
   } catch (error) {
     if (error.message !== 'Unauthorized') {
       console.error('Failed to fetch users:', error)
-      users.value = []
-      activeUsers.value = []
-      unverifiedPlayers.value = []
+      if (!isSilent) {
+        users.value = []
+        activeUsers.value = []
+        unverifiedPlayers.value = []
+      }
     }
   }
   usersLoading.value = false
   unverifiedLoading.value = false
-  refreshKey.value++
 }
 
 const handleGoToUserDetail = (username) => {
@@ -60,12 +62,14 @@ const handleGoToUnverified = (nickname) => {
 
 onMounted(() => {
   fetchUsers()
+  // 每 10 秒静默刷新，不触发 loading 状态，保留旧数据直到新数据到达
+  const timer = setInterval(() => fetchUsers(true), 10000)
+  onUnmounted(() => clearInterval(timer))
 })
 </script>
 
 <template>
   <PlayerList
-    :key="refreshKey"
     :users="users"
     :active-users="activeUsers"
     :unverified-players="unverifiedPlayers"
