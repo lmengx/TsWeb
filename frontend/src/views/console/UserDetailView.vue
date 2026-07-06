@@ -52,7 +52,6 @@ const invseeLoading = ref(false)
 const invseeError = ref('')
 
 const anomalyItems = computed(() => {
-  console.log('API原始返回:', JSON.stringify(invseeInventory.value))
   const anomalies = []
   for (const item of invseeInventory.value) {
     if (item && item.netID && item.stack) {
