@@ -195,7 +195,105 @@ const resetPage = () => {
   currentPage.value = 1
 }
 
-// 解封相关
+// 多选
+const selectedTickets = ref(new Set())
+
+const toggleSelect = (ticket) => {
+  const set = new Set(selectedTickets.value)
+  if (set.has(ticket)) {
+    set.delete(ticket)
+  } else {
+    set.add(ticket)
+  }
+  selectedTickets.value = set
+}
+
+const isAllSelected = computed(() => {
+  const page = paginatedBanList.value
+  return page.length > 0 && page.every(b => selectedTickets.value.has(b.ticket_number))
+})
+
+const toggleSelectAll = () => {
+  if (isAllSelected.value) {
+    const set = new Set(selectedTickets.value)
+    paginatedBanList.value.forEach(b => set.delete(b.ticket_number))
+    selectedTickets.value = set
+  } else {
+    const set = new Set(selectedTickets.value)
+    paginatedBanList.value.forEach(b => set.add(b.ticket_number))
+    selectedTickets.value = set
+  }
+}
+
+const clearSelection = () => {
+  selectedTickets.value = new Set()
+}
+
+// 批量解封
+const showBatchUnbanModal = ref(false)
+const batchUnbanLoading = ref(false)
+const batchUnbanError = ref('')
+const batchUnbanSuccess = ref('')
+const batchUnbanProgress = ref(0)
+const batchUnbanTotal = ref(0)
+
+const openBatchUnbanModal = () => {
+  batchUnbanError.value = ''
+  batchUnbanSuccess.value = ''
+  batchUnbanProgress.value = 0
+  batchUnbanTotal.value = selectedTickets.value.size
+  showBatchUnbanModal.value = true
+}
+
+const closeBatchUnbanModal = () => {
+  showBatchUnbanModal.value = false
+  batchUnbanLoading.value = false
+  batchUnbanError.value = ''
+  batchUnbanSuccess.value = ''
+  batchUnbanProgress.value = 0
+}
+
+const executeBatchUnban = async () => {
+  batchUnbanLoading.value = true
+  batchUnbanError.value = ''
+  batchUnbanSuccess.value = ''
+
+  const tickets = [...selectedTickets.value]
+  let successCount = 0
+  let failCount = 0
+
+  for (let i = 0; i < tickets.length; i++) {
+    batchUnbanProgress.value = i + 1
+    try {
+      const response = await post('/api/tshock/unban', { ticket: tickets[i] })
+      const result = await response.json()
+      if (result.error) {
+        failCount++
+      } else {
+        successCount++
+      }
+    } catch {
+      failCount++
+    }
+  }
+
+  batchUnbanLoading.value = false
+  batchUnbanProgress.value = tickets.length
+
+  if (failCount === 0) {
+    batchUnbanSuccess.value = `全部解封成功，共 ${successCount} 条`
+  } else {
+    batchUnbanSuccess.value = `解封完成：成功 ${successCount} 条，失败 ${failCount} 条`
+  }
+
+  clearSelection()
+  setTimeout(() => {
+    fetchBanList()
+    closeBatchUnbanModal()
+  }, 1500)
+}
+
+// 解封相关（单条）
 const showUnbanModal = ref(false)
 const unbanTicket = ref('')
 const unbanLoading = ref(false)
@@ -281,6 +379,12 @@ onMounted(() => {
         </button>
       </div>
 
+      <div v-if="selectedTickets.size > 0" class="batch-bar">
+        <span class="batch-info">已选中 {{ selectedTickets.size }} 条</span>
+        <button class="batch-unban-btn" @click="openBatchUnbanModal">批量解封</button>
+        <button class="batch-clear-btn" @click="clearSelection">取消选择</button>
+      </div>
+
       <div v-if="error" class="error-message">{{ error }}</div>
 
       <div v-if="loading" class="loading">
@@ -291,6 +395,9 @@ onMounted(() => {
         <table class="ban-table">
           <thead>
             <tr>
+              <th class="checkbox-th">
+                <input type="checkbox" :checked="isAllSelected" @change="toggleSelectAll" class="select-checkbox" />
+              </th>
               <th class="sortable-th" @click="toggleSort('ticket_number')">
               编号<span class="sort-indicator">{{ sortIndicator('ticket_number') }}</span>
             </th>
@@ -312,7 +419,15 @@ onMounted(() => {
             </tr>
           </thead>
           <tbody>
-            <tr v-for="ban in paginatedBanList" :key="ban.ticket_number">
+            <tr v-for="ban in paginatedBanList" :key="ban.ticket_number" :class="{ 'row-selected': selectedTickets.has(ban.ticket_number) }">
+              <td class="checkbox-cell">
+                <input
+                  type="checkbox"
+                  :checked="selectedTickets.has(ban.ticket_number)"
+                  @change="toggleSelect(ban.ticket_number)"
+                  class="select-checkbox"
+                />
+              </td>
               <td class="ticket-cell">#{{ ban.ticket_number }}</td>
               <td class="type-cell">
                 <span class="type-badge" :class="parseIdentifier(ban.identifier).type.toLowerCase()">
@@ -390,7 +505,7 @@ onMounted(() => {
       </div>
     </div>
 
-    <!-- 解封确认弹窗 -->
+    <!-- 解封确认弹窗（单条） -->
     <div v-if="showUnbanModal" class="modal-overlay" @click.self="closeUnbanModal">
       <div class="modal-dialog">
         <div class="modal-header">
@@ -408,6 +523,36 @@ onMounted(() => {
           <button class="modal-btn cancel" @click="closeUnbanModal" :disabled="unbanLoading">取消</button>
           <button class="modal-btn confirm" @click="executeUnban" :disabled="unbanLoading">
             {{ unbanLoading ? '处理中...' : '确认解封' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 批量解封弹窗 -->
+    <div v-if="showBatchUnbanModal" class="modal-overlay" @click.self="closeBatchUnbanModal">
+      <div class="modal-dialog">
+        <div class="modal-header">
+          <h3>批量解封</h3>
+          <button class="modal-close" @click="closeBatchUnbanModal">×</button>
+        </div>
+        <div class="modal-body">
+          <p>确定要解封选中的 <strong>{{ batchUnbanTotal }}</strong> 条封禁记录吗？</p>
+          <p class="modal-warning">此操作将永久删除所有选中的封禁记录。</p>
+
+          <div v-if="batchUnbanLoading" class="progress-bar-wrapper">
+            <div class="progress-bar">
+              <div class="progress-fill" :style="{ width: (batchUnbanProgress / batchUnbanTotal * 100) + '%' }"></div>
+            </div>
+            <span class="progress-text">{{ batchUnbanProgress }} / {{ batchUnbanTotal }}</span>
+          </div>
+
+          <div v-if="batchUnbanError" class="error-message" style="margin-top: 12px;">{{ batchUnbanError }}</div>
+          <div v-if="batchUnbanSuccess" class="success-message" style="margin-top: 12px;">{{ batchUnbanSuccess }}</div>
+        </div>
+        <div class="modal-footer">
+          <button class="modal-btn cancel" @click="closeBatchUnbanModal" :disabled="batchUnbanLoading">取消</button>
+          <button class="modal-btn confirm" @click="executeBatchUnban" :disabled="batchUnbanLoading">
+            {{ batchUnbanLoading ? '解封中...' : '确认批量解封' }}
           </button>
         </div>
       </div>
@@ -526,6 +671,111 @@ onMounted(() => {
 .refresh-btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+/* 批量操作栏 */
+.batch-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: rgba(99, 102, 241, 0.1);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  border-radius: var(--radius-md);
+  margin-bottom: 16px;
+}
+
+.batch-info {
+  color: var(--accent-primary);
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.batch-unban-btn {
+  padding: 8px 18px;
+  background: linear-gradient(135deg, #7c3aed, #6d28d9);
+  color: white;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 600;
+  transition: all 0.2s ease;
+}
+
+.batch-unban-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(124, 58, 237, 0.4);
+}
+
+.batch-clear-btn {
+  padding: 8px 18px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: all 0.2s ease;
+}
+
+.batch-clear-btn:hover {
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+}
+
+/* 复选框 */
+.checkbox-th {
+  width: 40px;
+  text-align: center;
+  padding: 12px 8px !important;
+}
+
+.checkbox-cell {
+  width: 40px;
+  text-align: center;
+  padding: 12px 8px !important;
+}
+
+.select-checkbox {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent-primary);
+  cursor: pointer;
+}
+
+.row-selected {
+  background: rgba(99, 102, 241, 0.08) !important;
+}
+
+/* 进度条 */
+.progress-bar-wrapper {
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.progress-bar {
+  flex: 1;
+  height: 8px;
+  background: var(--bg-tertiary);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(135deg, var(--accent-primary), #4f46e5);
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.progress-text {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 .error-message {
