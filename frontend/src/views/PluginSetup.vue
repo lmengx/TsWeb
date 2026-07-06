@@ -40,7 +40,7 @@ const strategies = [
     title: '白名单模式',
     desc: '仅允许已注册玩家进入',
     details: [],
-    risk: '最安全，可拓展',
+    risk: '最安全，但复杂，建议搭配QQ扩展',
     features: [],
     tags: ['QQ注册，接入机器人', '管理员手动过白']
   }
@@ -49,15 +49,53 @@ const strategies = [
 const selectedMode = ref('')
 const showConfirm = computed(() => selectedMode.value !== '')
 
+const step = ref('strategy')
+
+const sscConfig = ref(null)
+const sscEnabled = ref(false)
+const sscLoading = ref(false)
+
 const selectMode = (mode) => {
   selectedMode.value = mode
 }
 
-const submitInit = async () => {
+const goToSsc = async () => {
   if (!selectedMode.value) return
+  step.value = 'ssc'
+  sscLoading.value = true
+  try {
+    const res = await fetch(`/api/setup/ssc-config?token=${encodeURIComponent(token)}`)
+    const data = await res.json()
+    if (data.content) {
+      try {
+        const parsed = JSON.parse(data.content)
+        sscConfig.value = parsed
+        sscEnabled.value = parsed.Settings?.Enabled ?? false
+      } catch {}
+    }
+  } catch {}
+  sscLoading.value = false
+}
+
+const submitAll = async () => {
   statusLoading.value = true
   error.value = ''
   success.value = ''
+
+  // 保存 SSC 配置
+  if (sscConfig.value) {
+    sscConfig.value.Settings.Enabled = sscEnabled.value
+    try {
+      await fetch('/api/setup/ssc-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token, content: JSON.stringify(sscConfig.value, null, 2) })
+      })
+    } catch {}
+  }
+
+  // 完成插件初始化
+  // 完成插件初始化
   try {
     const res = await fetch('/api/setup/plugin-init', {
       method: 'POST',
@@ -69,7 +107,7 @@ const submitInit = async () => {
       error.value = data.error
     } else {
       success.value = '插件初始化完成！'
-      setupCompleted.value = true
+      step.value = 'done'
     }
   } catch (err) {
     error.value = '请求失败: ' + err.message
@@ -120,7 +158,7 @@ onMounted(async () => {
         <p>❌ {{ error }}</p>
       </div>
 
-      <template v-else-if="setupCompleted">
+      <template v-else-if="step === 'done'">
         <div class="completed-state">
           <div class="completed-icon">✅</div>
           <h2>已初始化完成</h2>
@@ -130,7 +168,8 @@ onMounted(async () => {
       </template>
 
       <template v-else>
-        <div class="strategy-section">
+        <!-- 进服策略选择 -->
+        <div v-if="step === 'strategy'" class="strategy-section">
           <h3 class="section-title">选择进服策略</h3>
           <p class="section-desc">选择一个策略来控制新玩家的进服方式，策略可随时在控制台修改。</p>
 
@@ -170,21 +209,66 @@ onMounted(async () => {
                 </div>
               </div>
             </div>
+            </div>
+
+          <div class="action-bar">
+            <div v-if="error" class="error-msg">{{ error }}</div>
+            <div v-if="success" class="success-msg">{{ success }}</div>
+            <button
+              @click="goToSsc"
+              :disabled="!showConfirm || statusLoading"
+              class="next-btn"
+            >
+              下一步
+            </button>
+          </div>
+        </div>
+
+        <!-- SSC 开荒配置 -->
+        <div v-if="step === 'ssc'" class="ssc-section">
+          <button class="back-btn" @click="step = 'strategy'">← 返回</button>
+          <h3 class="section-title">SSC配置</h3>
+          <p class="section-desc">配置服务器角色开荒（SSC）相关设置，决定玩家进服后是否使用统一角色数据。</p>
+
+          <div v-if="sscLoading" class="loading-state">
+            <div class="spinner"></div>
+            <p>正在读取配置文件...</p>
           </div>
 
-          <Transition name="fade">
-            <button
-              v-if="showConfirm"
-              @click="submitInit"
-              :disabled="statusLoading"
-              class="confirm-btn"
-            >
-              {{ statusLoading ? '配置中...' : '确认并完成初始化' }}
-            </button>
-          </Transition>
+          <div v-else-if="sscConfig" class="ssc-card">
+            <div class="ssc-row">
+              <div class="ssc-info">
+                <span class="ssc-name">启用强制开荒</span>
+                <span class="ssc-desc">开启后所有玩家进服后将使用服务器统一设定的初始角色数据（背包、血量、魔力等）</span>
+              </div>
+              <label class="ssc-toggle-wrap">
+                <input type="checkbox" v-model="sscEnabled" class="ssc-check" />
+                <span class="ssc-toggle"></span>
+              </label>
+            </div>
+            <div class="ssc-detail-row">
+              <span class="ssc-detail-label">初始生命</span>
+              <span class="ssc-detail-value">{{ sscConfig.Settings?.StartingHealth ?? 100 }}</span>
+            </div>
+            <div class="ssc-detail-row">
+              <span class="ssc-detail-label">初始魔力</span>
+              <span class="ssc-detail-value">{{ sscConfig.Settings?.StartingMana ?? 20 }}</span>
+            </div>
+            <div class="ssc-detail-row">
+              <span class="ssc-detail-label">自动保存间隔</span>
+              <span class="ssc-detail-value">{{ sscConfig.Settings?.ServerSideCharacterSave ?? 5 }} 秒</span>
+            </div>
+          </div>
 
-          <div v-if="error" class="error-msg">{{ error }}</div>
-          <div v-if="success" class="success-msg">{{ success }}</div>
+          <div v-else class="error-state">
+            <p>无法读取 SSC 配置文件，请确认 TShock 已正确安装。</p>
+          </div>
+
+          <div class="action-bar">
+            <button @click="submitAll" :disabled="statusLoading" class="next-btn finish-btn">
+              {{ statusLoading ? '保存中...' : '确认并完成' }}
+            </button>
+          </div>
         </div>
       </template>
     </div>
@@ -198,17 +282,27 @@ onMounted(async () => {
   align-items: center;
   justify-content: center;
   padding: 40px 20px;
-  background: var(--bg-primary);
+  background: linear-gradient(135deg, #e0e7ff, #c7d2fe, #a5b4fc, #c7d2fe, #e0e7ff);
+  background-size: 400% 400%;
+  animation: bgFlow 8s ease infinite;
+}
+
+@keyframes bgFlow {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
 }
 
 .setup-card {
   width: 100%;
   max-width: 960px;
-  background: var(--bg-card);
-  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-radius: 24px;
   padding: 40px;
-  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.15);
-  border: 1px solid var(--border-light);
+  box-shadow: 0 8px 40px rgba(99, 102, 241, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.6);
 }
 
 .setup-header {
@@ -219,12 +313,12 @@ onMounted(async () => {
 .setup-header h1 {
   margin: 0;
   font-size: 1.6rem;
-  color: var(--text-primary);
+  color: #1e1b4b;
 }
 
 .setup-subtitle {
   margin: 8px 0 0;
-  color: var(--text-muted);
+  color: #6b7280;
   font-size: 0.95rem;
 }
 
@@ -300,13 +394,13 @@ onMounted(async () => {
 .section-title {
   margin: 0 0 4px;
   font-size: 1.1rem;
-  color: var(--text-primary);
+  color: #1e1b4b;
 }
 
 .section-desc {
   margin: 0 0 20px;
   font-size: 0.85rem;
-  color: var(--text-muted);
+  color: #6b7280;
 }
 
 /* 横向卡片布局 */
@@ -319,23 +413,42 @@ onMounted(async () => {
 .strategy-card {
   flex: 1;
   min-width: 0;
-  background: var(--bg-primary);
-  border: 2px solid var(--border-light);
-  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.7);
+  border: 2px solid rgba(0, 0, 0, 0.06);
+  border-radius: 16px;
   padding: 20px 18px;
   cursor: pointer;
-  transition: all 0.25s ease;
+  transition: border-color 0.25s ease, background 0.25s ease, box-shadow 0.25s ease, transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
   display: flex;
   flex-direction: column;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  animation: cardEnter 0.5s ease both;
+  opacity: 0;
+}
+
+.strategy-card:nth-child(1) { animation-delay: 0s; }
+.strategy-card:nth-child(2) { animation-delay: 0.1s; }
+.strategy-card:nth-child(3) { animation-delay: 0.2s; }
+
+@keyframes cardEnter {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .strategy-card:hover {
   border-color: rgba(99, 102, 241, 0.3);
+  box-shadow: 0 6px 20px rgba(99, 102, 241, 0.1);
 }
 
 .strategy-card.selected {
   border-color: var(--accent-primary);
-  background: rgba(99, 102, 241, 0.05);
+  background: rgba(99, 102, 241, 0.08);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2), 0 8px 24px rgba(99, 102, 241, 0.15);
+  transform: scale(1.03);
+}
+
+.strategy-card:active {
+  transform: scale(0.97);
 }
 
 .strategy-header {
@@ -352,7 +465,7 @@ onMounted(async () => {
 .strategy-title {
   display: block;
   font-weight: 700;
-  color: var(--text-primary);
+  color: #0f0a3a;
   font-size: 1rem;
   margin-bottom: 4px;
 }
@@ -360,7 +473,7 @@ onMounted(async () => {
 .strategy-desc {
   display: block;
   font-size: 0.8rem;
-  color: var(--text-muted);
+  color: #4b5563;
   line-height: 1.3;
 }
 
@@ -383,9 +496,7 @@ onMounted(async () => {
   color: white;
 }
 
-/* 详情 - 不修改父元素大小 */
-/* 详情 - 浮动显示，不影响父元素大小 */
-/* 详情 - 在卡片内部，不改变父元素大小（父元素已固定高度） */
+/* 详情 - 在卡片内部 */
 .strategy-body {
   margin-top: 14px;
   padding-top: 14px;
@@ -414,24 +525,31 @@ onMounted(async () => {
 }
 
 .risk-badge {
-  padding: 8px 12px;
+  padding: 8px 14px;
   border-radius: 8px;
   font-size: 0.85rem;
-  background: rgba(22, 163, 74, 0.1);
-  color: #16a34a;
   line-height: 1.4;
   margin-bottom: 10px;
   font-weight: 600;
 }
 
-.risk-badge.warning {
-  background: rgba(234, 179, 8, 0.12);
-  color: #ca8a04;
+.risk-badge.danger {
+  background: transparent;
+  color: #ef4444;
+  border: 1.5px solid #ef4444;
 }
 
-.risk-badge.danger {
-  background: rgba(239, 68, 68, 0.1);
-  color: #ef4444;
+.risk-badge.warning {
+  background: transparent;
+  color: #eab308;
+  border: 1.5px solid #eab308;
+}
+
+.risk-badge:not(.danger):not(.warning) {
+  background: transparent;
+  color: #22c55e;
+  border: 1.5px solid #22c55e;
+  box-shadow: 0 0 8px rgba(34, 197, 94, 0.2);
 }
 
 .features-section {
@@ -476,6 +594,130 @@ onMounted(async () => {
   margin-top: 8px;
 }
 
+/* SSC 配置 */
+.ssc-section {
+  width: 100%;
+}
+
+.ssc-section .back-btn {
+  background: none;
+  border: none;
+  color: var(--accent-primary);
+  cursor: pointer;
+  font-size: 0.9rem;
+  padding: 0;
+  margin-bottom: 16px;
+}
+
+.ssc-section .back-btn:hover {
+  text-decoration: underline;
+}
+
+.ssc-card {
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 14px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ssc-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.ssc-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ssc-name {
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: #0f0a3a;
+}
+
+.ssc-desc {
+  font-size: 0.8rem;
+  color: #4b5563;
+  line-height: 1.4;
+}
+
+.ssc-toggle-wrap {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+  flex-shrink: 0;
+  margin-top: 2px;
+  cursor: pointer;
+}
+
+.ssc-check {
+  display: none;
+}
+
+.ssc-toggle {
+  position: absolute;
+  inset: 0;
+  border-radius: 12px;
+  background: #d1d5db;
+  transition: all 0.25s ease;
+}
+
+.ssc-toggle::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: white;
+  transition: all 0.25s ease;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+}
+
+.ssc-check:checked + .ssc-toggle {
+  background: var(--accent-primary);
+}
+
+.ssc-check:checked + .ssc-toggle::after {
+  left: 22px;
+}
+
+.ssc-detail-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.ssc-detail-label {
+  font-size: 0.85rem;
+  color: #4b5563;
+}
+
+.ssc-detail-value {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #0f0a3a;
+}
+
+.finish-btn {
+  background: linear-gradient(135deg, #16a34a, #22c55e) !important;
+}
+
+.finish-btn:hover:not(:disabled) {
+  box-shadow: 0 6px 20px rgba(22, 163, 74, 0.4) !important;
+}
+
 .tag-badge {
   display: inline-block;
   padding: 5px 12px;
@@ -489,50 +731,56 @@ onMounted(async () => {
   border: none;
 }
 
-.confirm-btn {
-  display: block;
-  width: 100%;
+/* 底部操作栏 */
+.action-bar {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 12px;
   margin-top: 20px;
-  padding: 14px;
-  background: linear-gradient(135deg, #16a34a, #22c55e);
+}
+
+.next-btn {
+  padding: 12px 32px;
+  background: linear-gradient(135deg, #6366f1, #4f46e5);
   color: white;
   border: none;
-  border-radius: 12px;
+  border-radius: 10px;
   font-size: 1rem;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.25s ease;
+  transition: opacity 0.25s ease, transform 0.25s ease, box-shadow 0.25s ease;
 }
 
-.confirm-btn:hover:not(:disabled) {
+.next-btn:hover:not(:disabled) {
   transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(22, 163, 74, 0.4);
+  box-shadow: 0 6px 20px rgba(99, 102, 241, 0.4);
 }
 
-.confirm-btn:disabled {
-  opacity: 0.6;
+.next-btn:disabled {
+  opacity: 0.35;
   cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
 }
 
 .error-msg {
-  margin-top: 12px;
-  padding: 10px;
+  padding: 10px 16px;
   background: rgba(239, 68, 68, 0.1);
   border-radius: 8px;
   color: var(--accent-error);
-  text-align: center;
   font-size: 0.85rem;
+  margin-right: auto;
 }
 
 .success-msg {
-  margin-top: 12px;
-  padding: 10px;
+  padding: 10px 16px;
   background: rgba(22, 163, 74, 0.1);
   border-radius: 8px;
   color: #16a34a;
-  text-align: center;
   font-size: 0.85rem;
   font-weight: 500;
+  margin-right: auto;
 }
 
 .fade-enter-active {

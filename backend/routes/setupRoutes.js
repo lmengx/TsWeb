@@ -30,7 +30,7 @@ router.get('/check', async (req, res) => {
   }
   const { isConfigFileExists } = await import('../config.js')
   const exists = await isConfigFileExists()
-  res.json({ configured: exists, needToken: false })
+  res.json({ configured: exists, needToken: false, setupToken: token })
 })
 
 router.post('/init', async (req, res) => {
@@ -232,6 +232,38 @@ router.post('/plugin-init', async (req, res) => {
     await tshockFetch(`/data/config/tsweb/set?mode=${encodeURIComponent(mode)}`)
     // 再标记初始化完成
     const result = await tshockFetch('/data/config/tsweb/complete-init')
+    res.json(result)
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// 读取 SSC 配置
+router.get('/ssc-config', async (req, res) => {
+  const token = req.query.token
+  if (!token || !validateSetupToken(token)) {
+    return res.status(403).json({ error: '无效的 Setup Token' })
+  }
+  try {
+    const result = await tshockService.fileRead('tshock/sscconfig.json')
+    res.json(result)
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// 保存 SSC 配置
+router.post('/ssc-config', async (req, res) => {
+  const token = req.body.token || req.query.token
+  if (!token || !validateSetupToken(token)) {
+    return res.status(403).json({ error: '无效的 Setup Token' })
+  }
+  const { content } = req.body
+  if (!content) {
+    return res.status(400).json({ error: '缺少 content' })
+  }
+  try {
+    const result = await tshockService.fileWrite('tshock/sscconfig.json', content)
     res.json(result)
   } catch (err) {
     res.status(500).json({ error: err.message })
