@@ -2,10 +2,12 @@ import express from 'express'
 import cors from 'cors'
 import path from 'path'
 import { fileURLToPath } from 'url'
-import { loadConfig } from './config.js'
+import { loadConfig, isConfigFileExists } from './config.js'
+import { generateSetupToken } from './setupToken.js'
 import authRoutes from './routes/authRoutes.js'
 import tshockRoutes from './routes/tshockRoutes.js'
 import configRoutes from './routes/configRoutes.js'
+import setupRoutes from './routes/setupRoutes.js'
 import antiCheatRoutes from './routes/antiCheatRoutes.js'
 import resourceRoutes from './routes/resourceRoutes.js'
 import onlineRoutes from './routes/onlineRoutes.js'
@@ -42,6 +44,7 @@ app.use('/api/resources', resourceRoutes)
 app.use('/api/online', onlineRoutes)
 app.use('/api/unverified', unverifiedRoutes)
 app.use('/api/files', fileRoutes)
+app.use('/api/setup', setupRoutes)
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: Date.now() })
@@ -61,50 +64,51 @@ app.get(/^\/.*$/, (req, res) => {
 })
 
 async function startServer() {
+  // 每次启动都生成 Setup Token
+  const token = generateSetupToken()
+
+  const hasConfig = await isConfigFileExists()
+  
+  if (!hasConfig) {
+    const port = 3000
+    console.log('')
+    console.log('='.repeat(58))
+    console.log('  TsWeb 首次启动 - 需要初始化配置')
+    console.log('='.repeat(58))
+    console.log('')
+    console.log('  Setup Token: ' + token)
+    console.log('')
+    console.log('  请访问:')
+    console.log('  http://localhost:' + port + '/setup?token=' + token)
+    console.log('')
+    app.listen(port, () => {
+      console.log('  Web服务器已在端口 ' + port + ' 上运行')
+      console.log('')
+    })
+    return
+  }
+
   const config = await loadConfig()
   const port = config.server.port || 3000
   
   const hasTshockConfig = config.tshock?.host && config.tshock?.port && config.tshock?.apiKey
   
   if (hasTshockConfig) {
+    console.log('')
+    console.log('='.repeat(58))
+    console.log('  Setup Token: ' + token)
+    console.log('='.repeat(58))
+    console.log('  如需修改 TShock 连接配置，请访问:')
+    console.log('  http://localhost:' + port + '/setup?token=' + token)
+    console.log('')
     console.log('Testing TShock connection...')
-    const connectionResult = await tshockService.testConnection()
-    console.log(`TShock connection test: ${connectionResult.message}`)
-    
-    let retryInterval = null
-    
-    const startRetry = () => {
-      if (retryInterval) return
-      retryInterval = setInterval(async () => {
-        console.log('[TShock] Retrying connection...')
-        const result = await tshockService.testConnection()
-        console.log(`[TShock] Retry result: ${result.message}`)
-        
-        if (result.success) {
-          clearInterval(retryInterval)
-          retryInterval = null
-          console.log('[TShock] Connection restored successfully!')
-        }
-      }, 5000)
-    }
-    
-    const checkDisconnect = () => {
-      setInterval(async () => {
-        const isConnected = tshockService.getConnectionStatus()
-        if (!isConnected && !retryInterval) {
-          console.log('[TShock] Connection lost, starting retry...')
-          startRetry()
-        }
-      }, 5000)
-    }
-    
-    if (!tshockService.getConnectionStatus()) {
-      startRetry()
-    }
-    
-    checkDisconnect()
+    tshockService.testConnection().catch(() => {})
   } else {
     console.log('TShock not configured. Status set to disconnected.')
+    console.log('')
+    console.log('  Setup Token: ' + token)
+    console.log('  请访问: http://localhost:' + port + '/setup?token=' + token)
+    console.log('')
   }
   
   app.listen(port, async () => {

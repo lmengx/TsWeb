@@ -146,15 +146,6 @@ onMounted(() => {
             </div>
           </div>
         </div>
-
-        <!-- Boss 限制 -->
-        <div class="section-card">
-          <h3>服务器连接配置</h3>
-          <p class="section-desc">管理服务器连接配置</p>
-          <button @click="goToAppConfig" class="nav-btn">
-            前往应用配置
-          </button>
-        </div>
       </div>
 
       <!-- Toast 通知 -->

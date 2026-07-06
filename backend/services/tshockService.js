@@ -9,10 +9,29 @@ export class TShockService {
     this.baseUrl = null
     this.apiKey = ''
     this.isConnected = false
+    this.retryTimer = null
 
     onConfigUpdate((config) => {
       this.reloadConfig(config)
+      this.startAutoRetry()
     })
+  }
+
+  startAutoRetry() {
+    this.stopAutoRetry()
+    this.testConnection()
+    this.retryTimer = setInterval(() => {
+      if (!this.isConnected) {
+        this.testConnection().catch(() => {})
+      }
+    }, 5000)
+  }
+
+  stopAutoRetry() {
+    if (this.retryTimer) {
+      clearInterval(this.retryTimer)
+      this.retryTimer = null
+    }
   }
 
   async init() {
@@ -63,6 +82,32 @@ export class TShockService {
     } catch (error) {
       this.isConnected = false
       return { success: false, message: `Connection error: ${error.message}` }
+    }
+  }
+
+  async testConnectionWith(host, port, apiKey) {
+    const baseUrl = `${host.startsWith('http://') || host.startsWith('https://') ? host : `http://${host}`}:${port}`
+    const url = `${baseUrl}/tokentest?token=${encodeURIComponent(apiKey)}`
+
+    console.log(`[OUTGOING] Testing TShock connection (temp): GET ${url}`)
+
+    try {
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 3000)
+
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: { 'Accept': 'application/json' },
+        signal: controller.signal
+      })
+
+      clearTimeout(timeoutId)
+      console.log(`[RESPONSE] Status: ${response.status}`)
+
+      return response.status === 200
+    } catch (error) {
+      console.log(`[RESPONSE] Error: ${error.message}`)
+      return false
     }
   }
 

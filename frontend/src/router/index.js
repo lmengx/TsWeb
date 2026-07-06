@@ -4,8 +4,8 @@ import Login from '../views/Login.vue'
 import Console from '../views/Console.vue'
 import PlayersView from '../views/console/PlayersView.vue'
 import SettingsView from '../views/SettingsView.vue'
-import AppSettingsView from '../views/AppSettingsView.vue'
 import ServerError from '../views/ServerError.vue'
+import Setup from '../views/Setup.vue'
 import { isAdmin } from '../utils/authHelper.js'
 
 const routes = [
@@ -13,6 +13,11 @@ const routes = [
     path: '/',
     name: 'Home',
     component: Home
+  },
+  {
+    path: '/setup',
+    name: 'Setup',
+    component: Setup
   },
   {
     path: '/login',
@@ -53,12 +58,6 @@ const routes = [
         path: 'settings',
         name: 'Settings',
         component: SettingsView,
-        meta: { requiresAuth: true, requiresAdmin: true }
-      },
-      {
-        path: 'settings/app',
-        name: 'AppSettings',
-        component: AppSettingsView,
         meta: { requiresAuth: true, requiresAdmin: true }
       },
       {
@@ -217,7 +216,7 @@ const checkServerStatus = async () => {
 }
 
 router.beforeEach(async (to, from) => {
-  if (to.path === '/error/server') {
+  if (to.path === '/error/server' || to.path === '/setup') {
     return true
   }
 
