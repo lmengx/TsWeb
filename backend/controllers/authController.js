@@ -3,6 +3,7 @@ import bcrypt from 'bcrypt'
 import forge from 'node-forge'
 import { getConfig } from '../config.js'
 import tshockService from '../services/tshockService.js'
+import { validateSetupToken } from '../setupToken.js'
 
 let JWT_SECRET = 'your-secret-key-here-change-in-production'
 let CHALLENGE_EXPIRE = 120000
@@ -48,6 +49,26 @@ function generateServerKeyPair() {
 export const getServerKey = (req, res) => {
   const keyData = generateServerKeyPair()
   res.json(keyData)
+}
+
+export const setupLogin = async (req, res) => {
+  const token = req.query.token
+  if (!token || !validateSetupToken(token)) {
+    return res.status(403).json({ error: '无效的 Setup Token' })
+  }
+
+  try {
+    const secret = await getJwtSecret()
+    const expire = await getTokenExpire()
+    const jwtToken = jwt.sign(
+      { username: 'admin', usergroup: 'superadmin' },
+      secret,
+      { expiresIn: expire }
+    )
+    res.json({ success: true, token: jwtToken, userGroup: 'superadmin' })
+  } catch (error) {
+    res.status(500).json({ error: error.message })
+  }
 }
 
 export const login = async (req, res) => {

@@ -104,10 +104,27 @@ export class TShockService {
       clearTimeout(timeoutId)
       console.log(`[RESPONSE] Status: ${response.status}`)
 
-      return response.status === 200
+      if (response.status === 200) {
+        return { success: true }
+      } else if (response.status === 401 || response.status === 403) {
+        return { success: false, type: 'auth', status: response.status, error: `TShock REST 接口返回 ${response.status}，API 密钥无效或权限不足` }
+      } else if (response.status === 404) {
+        return { success: false, type: 'notfound', status: response.status, error: `TShock REST 接口返回 ${response.status}，接口路径可能不正确` }
+      } else {
+        return { success: false, type: 'unknown', status: response.status, error: `TShock REST 接口返回 ${response.status}` }
+      }
     } catch (error) {
       console.log(`[RESPONSE] Error: ${error.message}`)
-      return false
+      if (error.name === 'AbortError') {
+        return { success: false, type: 'timeout', status: 0, error: '连接超时（3秒），目标服务器无响应，请确认地址和端口是否正确' }
+      }
+      if (error.code === 'ECONNREFUSED') {
+        return { success: false, type: 'refused', status: 0, error: '连接被拒绝（ECONNREFUSED），目标服务器未启动或端口错误' }
+      }
+      if (error.code === 'ENOTFOUND' || error.code === 'EAI_AGAIN') {
+        return { success: false, type: 'dns', status: 0, error: '无法解析主机名（' + error.code + '），请检查地址是否正确' }
+      }
+      return { success: false, type: 'error', status: 0, error: '连接失败：请确认目标服务器已开启并且监听对应 REST 端口（' + error.message + '）' }
     }
   }
 

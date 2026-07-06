@@ -4,6 +4,7 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import { loadConfig, isConfigFileExists } from './config.js'
 import { generateSetupToken } from './setupToken.js'
+import { exec } from 'child_process'
 import authRoutes from './routes/authRoutes.js'
 import tshockRoutes from './routes/tshockRoutes.js'
 import configRoutes from './routes/configRoutes.js'
@@ -84,6 +85,13 @@ async function startServer() {
     app.listen(port, () => {
       console.log('  Web服务器已在端口 ' + port + ' 上运行')
       console.log('')
+      const url = 'http://localhost:' + port + '/setup?token=' + token
+      console.log('  正在打开浏览器...')
+      exec('start ' + url, (err) => {
+        if (err) {
+          console.log('  请手动访问: ' + url)
+        }
+      })
     })
     return
   }
