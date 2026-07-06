@@ -220,13 +220,20 @@ router.post('/plugin-init', async (req, res) => {
   if (!token || !validateSetupToken(token)) {
     return res.status(403).json({ error: '无效的 Setup Token' })
   }
-  const { mode } = req.body
+  const { mode, bossLimitMode, bossLimitMinPlayers } = req.body
   if (!mode || !['default', 'auto', 'block'].includes(mode)) {
     return res.status(400).json({ error: 'mode 必须为 default/auto/block' })
   }
   try {
-    // 设置模式
-    const result = await tshockFetch(`/data/config/tsweb/set?mode=${encodeURIComponent(mode)}`)
+    // 设置模式 + BossLimit
+    let path = `/data/config/tsweb/set?mode=${encodeURIComponent(mode)}`
+    if (bossLimitMode && ['disabled', 'playerlimit', 'killrequired'].includes(bossLimitMode)) {
+      path += `&bossLimitMode=${encodeURIComponent(bossLimitMode)}`
+    }
+    if (bossLimitMinPlayers !== undefined && !isNaN(bossLimitMinPlayers)) {
+      path += `&bossLimitMinPlayers=${encodeURIComponent(bossLimitMinPlayers)}`
+    }
+    const result = await tshockFetch(path)
     res.json(result || { status: '200', message: '配置已保存' })
   } catch (err) {
     res.status(500).json({ error: err.message })

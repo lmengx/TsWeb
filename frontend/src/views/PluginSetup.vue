@@ -10,6 +10,9 @@ const statusLoading = ref(false)
 const step = ref('strategy')
 const error = ref('')
 const success = ref('')
+const loading = ref(false)
+const setupCompleted = ref(false)
+const configExists = ref(false)
 
 const strategies = [
   {
@@ -51,6 +54,27 @@ const sscConfig = ref(null)
 const sscEnabled = ref(false)
 const sscLoading = ref(false)
 
+const bossLimitMode = ref('disabled')
+const bossLimitMinPlayers = ref(7)
+
+const bossLimitOptions = [
+  {
+    id: 'disabled',
+    title: '不限制',
+    desc: '不对 Boss 召唤做任何限制'
+  },
+  {
+    id: 'playerlimit',
+    title: '人数限制',
+    desc: '未击败的 Boss 需要达到最低在线人数才能召唤'
+  },
+  {
+    id: 'killrequired',
+    title: '需击败过',
+    desc: '不允许召唤从未击败过的 Boss'
+  }
+]
+
 const selectMode = (mode) => {
   selectedMode.value = mode
 }
@@ -73,6 +97,11 @@ const goToSsc = async () => {
   sscLoading.value = false
 }
 
+const goToBossLimit = () => {
+  step.value = 'bosslimit'
+  // 默认值不变，用户可修改
+}
+
 const submitAll = async () => {
   statusLoading.value = true
   error.value = ''
@@ -91,17 +120,33 @@ const submitAll = async () => {
   }
 
   // 完成插件初始化
-  // 完成插件初始化
   try {
     const res = await fetch('/api/setup/plugin-init', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token, mode: selectedMode.value })
+      body: JSON.stringify({
+        token,
+        mode: selectedMode.value,
+        bossLimitMode: bossLimitMode.value,
+        bossLimitMinPlayers: bossLimitMinPlayers.value
+      })
     })
     const data = await res.json()
     if (data.error) {
       error.value = data.error
     } else {
+      // 自动登录：用 setup token 换取 JWT
+      try {
+        const loginRes = await fetch('/api/auth/setup-login?token=' + encodeURIComponent(token))
+        const loginData = await loginRes.json()
+        if (loginData.success) {
+          localStorage.setItem('user', JSON.stringify({
+            username: 'admin',
+            usergroup: 'superadmin',
+            token: loginData.token
+          }))
+        }
+      } catch {}
       success.value = '插件初始化完成！'
       step.value = 'done'
     }
@@ -246,6 +291,52 @@ onMounted(async () => {
 
           <div v-else class="error-state">
             <p>无法读取 SSC 配置文件，请确认 TShock 已正确安装。</p>
+          </div>
+
+          <div class="action-bar">
+            <button @click="goToBossLimit" :disabled="statusLoading" class="next-btn">
+              下一步
+            </button>
+          </div>
+        </div>
+
+        <!-- BossLimit 配置 -->
+        <div v-if="step === 'bosslimit'" class="bosslimit-section">
+          <button class="back-btn" @click="step = 'ssc'">← 返回</button>
+          <h3 class="section-title">Boss 召唤限制</h3>
+          <p class="section-desc">配置 Boss 召唤的限制策略，防止低人数时 Boss 被误召或恶意召唤。</p>
+
+          <div class="bosslimit-list">
+            <div
+              v-for="b in bossLimitOptions"
+              :key="b.id"
+              class="bosslimit-card"
+              :class="{ selected: bossLimitMode === b.id }"
+              @click="bossLimitMode = b.id"
+            >
+              <div class="bosslimit-header">
+                <span class="bosslimit-check" :class="{ checked: bossLimitMode === b.id }">
+                  <svg v-if="bossLimitMode === b.id" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                    <polyline points="20 6 9 17 4 12"></polyline>
+                  </svg>
+                </span>
+                <div class="bosslimit-meta">
+                  <span class="bosslimit-title">{{ b.title }}</span>
+                  <span class="bosslimit-desc">{{ b.desc }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 人数输入（仅 playerlimit 模式） -->
+          <div v-if="bossLimitMode === 'playerlimit'" class="playerlimit-input-wrap">
+            <label class="playerlimit-label">最低在线人数</label>
+            <div class="playerlimit-control">
+              <button class="num-btn" @click="bossLimitMinPlayers = Math.max(1, bossLimitMinPlayers - 1)">−</button>
+              <input type="number" v-model.number="bossLimitMinPlayers" min="1" class="num-input" />
+              <button class="num-btn" @click="bossLimitMinPlayers++">+</button>
+            </div>
+            <p class="playerlimit-hint">未击败的 Boss 需要至少 {{ bossLimitMinPlayers }} 名在线玩家才能召唤</p>
           </div>
 
           <div class="action-bar">
@@ -776,5 +867,174 @@ onMounted(async () => {
 .fade-enter-from,
 .fade-leave-to {
   opacity: 0;
+}
+
+/* BossLimit 配置 */
+.bosslimit-section {
+  width: 100%;
+}
+
+.bosslimit-section .back-btn {
+  background: none;
+  border: none;
+  color: var(--accent-primary);
+  cursor: pointer;
+  font-size: 0.9rem;
+  padding: 0;
+  margin-bottom: 16px;
+}
+
+.bosslimit-section .back-btn:hover {
+  text-decoration: underline;
+}
+
+.bosslimit-list {
+  display: flex;
+  flex-direction: row;
+  gap: 12px;
+}
+
+.bosslimit-card {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.7);
+  border: 2px solid rgba(0, 0, 0, 0.06);
+  border-radius: 14px;
+  padding: 16px;
+  cursor: pointer;
+  transition: all 0.25s ease;
+}
+
+.bosslimit-card:hover {
+  border-color: rgba(99, 102, 241, 0.3);
+}
+
+.bosslimit-card.selected {
+  border-color: var(--accent-primary);
+  background: rgba(99, 102, 241, 0.08);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
+}
+
+.bosslimit-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.bosslimit-check {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid var(--border-light);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 1px;
+  transition: all 0.25s ease;
+}
+
+.bosslimit-check.checked {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+  color: white;
+}
+
+.bosslimit-meta {
+  flex: 1;
+}
+
+.bosslimit-title {
+  display: block;
+  font-weight: 700;
+  color: #0f0a3a;
+  font-size: 0.95rem;
+  margin-bottom: 3px;
+}
+
+.bosslimit-desc {
+  display: block;
+  font-size: 0.8rem;
+  color: #4b5563;
+  line-height: 1.3;
+}
+
+.playerlimit-input-wrap {
+  margin-top: 20px;
+  padding: 18px 20px;
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 14px;
+  animation: fadeIn 0.25s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.playerlimit-label {
+  display: block;
+  font-weight: 700;
+  font-size: 0.9rem;
+  color: #0f0a3a;
+  margin-bottom: 10px;
+}
+
+.playerlimit-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.num-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  border: 1.5px solid rgba(0, 0, 0, 0.12);
+  background: white;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #0f0a3a;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.num-btn:hover {
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+}
+
+.num-input {
+  width: 72px;
+  height: 36px;
+  text-align: center;
+  font-size: 1rem;
+  font-weight: 700;
+  border: 1.5px solid rgba(0, 0, 0, 0.12);
+  border-radius: 8px;
+  outline: none;
+  color: #0f0a3a;
+  background: white;
+  transition: border-color 0.15s ease;
+  -moz-appearance: textfield;
+}
+
+.num-input::-webkit-outer-spin-button,
+.num-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.num-input:focus {
+  border-color: var(--accent-primary);
+}
+
+.playerlimit-hint {
+  margin: 10px 0 0;
+  font-size: 0.8rem;
+  color: #6b7280;
 }
 </style>
