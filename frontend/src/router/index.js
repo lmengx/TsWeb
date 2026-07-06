@@ -216,6 +216,24 @@ const checkServerStatus = async () => {
 }
 
 router.beforeEach(async (to, from) => {
+  // 检测 URL 中是否有 ?token=xxx（Setup Token），自动登录为 superadmin
+  if (to.query.token && to.path !== '/setup') {
+    try {
+      const res = await fetch('/api/auth/setup-login?token=' + encodeURIComponent(to.query.token))
+      const data = await res.json()
+      if (data.success) {
+        localStorage.setItem('user', JSON.stringify({
+          username: 'admin',
+          usergroup: 'superadmin',
+          token: data.token
+        }))
+        // 去掉 URL 中的 token 参数
+        const path = to.path
+        return { path, query: {}, replace: true }
+      }
+    } catch {}
+  }
+
   if (to.path === '/error/server' || to.path === '/setup') {
     return true
   }
