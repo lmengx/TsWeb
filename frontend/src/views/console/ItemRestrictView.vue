@@ -33,7 +33,6 @@ const openScanSearch = () => {
 
 const handleItemSelect = (item) => {
   if (itemSearchMode.value === 'scan') {
-    showItemSearch.value = false
     handleScanHolders(item.id, item.chinese || item.english || item.id)
     return
   }
@@ -43,6 +42,10 @@ const handleItemSelect = (item) => {
     itemConfigEdit.value.restrictionsMap[progress][index].id = item.id
   }
   showItemSearch.value = false
+}
+
+const handleScanBack = () => {
+  closeScanHolders()
 }
 
 // 按物品ID扫描持有者
@@ -345,22 +348,23 @@ onMounted(() => {
       <div v-else-if="itemConfigEdit">
         <div class="scan-section">
           <div class="scan-toolbar">
-            <button @click="openScanSearch" class="scan-btn scan-search-btn">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <button @click="openScanSearch" class="scan-search-btn">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <circle cx="11" cy="11" r="8"></circle>
                 <path d="M21 21l-4.35-4.35"></path>
                 <path d="M11 8v6M8 11h6"></path>
               </svg>
-              搜索指定物品
+              <span>搜索指定物品</span>
+              <span class="search-hint-badge">按物品查持有者</span>
             </button>
-            <button @click="handleScanItems" :disabled="scanLoading" class="scan-btn">
-              <svg v-if="scanLoading" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="spinner">
+            <button @click="handleScanItems" :disabled="scanLoading" class="scan-all-btn">
+              <svg v-if="scanLoading" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="spinner">
                 <circle cx="12" cy="12" r="10"></circle>
               </svg>
-              <svg v-else width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+              <svg v-else width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9"></path>
               </svg>
-              {{ scanLoading ? '扫描中...' : '手动扫描物品' }}
+              <span>{{ scanLoading ? '扫描中...' : '扫描全部在线玩家' }}</span>
             </button>
           </div>
 
@@ -382,30 +386,6 @@ onMounted(() => {
           </div>
 
           <div v-if="scanError" class="scan-error">{{ scanError }}</div>
-
-          <!-- 按物品扫描持有者结果 -->
-          <div v-if="scanHoldersResults" class="scan-holders-results">
-            <div class="scan-holders-header">
-              <h4>扫描持有者: {{ scanHoldersResults.itemName }} (ID: {{ scanHoldersResults.itemId }})</h4>
-              <button @click="closeScanHolders" class="close-btn">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <line x1="18" y1="6" x2="6" y2="18"></line>
-                  <line x1="6" y1="6" x2="18" y2="18"></line>
-                </svg>
-              </button>
-            </div>
-            <div v-if="scanHoldersResults.players && scanHoldersResults.players.length > 0">
-              <div v-for="player in scanHoldersResults.players" :key="player.name" class="holder-row">
-                <span class="holder-name">{{ player.name }}</span>
-              </div>
-              <div v-if="scanHoldersResults.count > 10" class="holder-more">
-                还有 {{ scanHoldersResults.count - 10 }} 名玩家
-              </div>
-            </div>
-            <div v-else class="no-holders">没有玩家持有该物品</div>
-          </div>
-
-          <div v-if="scanHoldersError" class="scan-error">{{ scanHoldersError }}</div>
         </div>
 
         <div class="config-header">
@@ -644,7 +624,11 @@ onMounted(() => {
     <ItemSearchDialog
       :show="showItemSearch"
       :mode="itemSearchMode"
+      :scan-results="scanHoldersResults"
+      :scan-loading="scanHoldersLoading"
+      :scan-error="scanHoldersError"
       @select="handleItemSelect"
+      @back="handleScanBack"
       @close="showItemSearch = false"
     />
   </div>
@@ -1292,9 +1276,69 @@ onMounted(() => {
 .scan-section {
   margin-bottom: 24px;
   padding: 16px 20px;
-  background: rgba(59, 130, 246, 0.05);
+  background: var(--bg-card);
   border-radius: 12px;
-  border: 1px solid rgba(59, 130, 246, 0.15);
+  border: 1px solid var(--border-light);
+}
+
+.scan-toolbar {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.scan-search-btn,
+.scan-all-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  border-radius: 10px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  white-space: nowrap;
+}
+
+.scan-search-btn {
+  background: linear-gradient(135deg, #6366f1, #4f46e5);
+  color: white;
+  border: none;
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
+}
+
+.scan-search-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(99, 102, 241, 0.4);
+}
+
+.scan-search-btn .search-hint-badge {
+  font-size: 0.7rem;
+  font-weight: 400;
+  opacity: 0.8;
+  margin-left: 2px;
+}
+
+.scan-all-btn {
+  background: transparent;
+  color: var(--text-primary);
+  border: 1px solid var(--border-light);
+}
+
+.scan-all-btn:hover:not(:disabled) {
+  border-color: var(--accent-primary);
+  background: rgba(99, 102, 241, 0.06);
+  color: var(--accent-primary);
+}
+
+.scan-all-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.scan-all-btn .spinner {
+  animation: spin 1s linear infinite;
 }
 
 /* 物品搜索 */
@@ -1495,91 +1539,6 @@ onMounted(() => {
 }
 
 .scan-holders-btn .spinner {
-  animation: spin 1s linear infinite;
-}
-
-.scan-holders-results {
-  margin-top: 20px;
-  padding: 16px;
-  background: rgba(59, 130, 246, 0.05);
-  border: 1px solid rgba(59, 130, 246, 0.15);
-  border-radius: 12px;
-}
-
-.scan-holders-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 12px;
-}
-
-.scan-holders-header h4 {
-  margin: 0;
-  color: var(--text-primary);
-  font-size: 0.95rem;
-}
-
-.holder-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 12px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border-light);
-  border-radius: 8px;
-  margin-bottom: 6px;
-}
-
-.holder-name {
-  color: var(--text-primary);
-  font-weight: 500;
-}
-
-.holder-count {
-  color: #3b82f6;
-  font-weight: 600;
-}
-
-.no-holders {
-  text-align: center;
-  padding: 20px;
-  color: var(--text-muted);
-}
-
-.holder-more {
-  text-align: center;
-  padding: 12px;
-  color: var(--text-muted);
-  font-size: 0.85rem;
-  font-style: italic;
-}
-
-.scan-btn {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 24px;
-  background: linear-gradient(135deg, #3b82f6, #2563eb);
-  color: white;
-  border: none;
-  border-radius: 10px;
-  cursor: pointer;
-  font-size: 0.9rem;
-  font-weight: 500;
-  transition: all 0.25s ease;
-}
-
-.scan-btn:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(59, 130, 246, 0.4);
-}
-
-.scan-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.scan-btn .spinner {
   animation: spin 1s linear infinite;
 }
 

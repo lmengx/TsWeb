@@ -4,10 +4,15 @@ import { loadItemData } from '../api/itemDataApi.js'
 
 const props = defineProps({
   show: Boolean,
-  mode: { type: String, default: 'restrict' }
+  mode: { type: String, default: 'restrict' },
+  scanResults: { type: Object, default: null },
+  scanLoading: { type: Boolean, default: false },
+  scanError: { type: String, default: '' }
 })
 
-const emit = defineEmits(['select', 'close'])
+const emit = defineEmits(['select', 'close', 'back'])
+
+const selectedItem = ref(null)
 
 const searchQuery = ref('')
 const itemData = ref({ list: [], dict: {} })
@@ -102,6 +107,15 @@ const handleImageError = (id) => {
   imageErrors.value = { ...imageErrors.value, [id]: true }
 }
 
+const handleSelect = (item) => {
+  if (props.mode === 'scan') {
+    selectedItem.value = item
+    emit('select', item)
+  } else {
+    emit('select', item)
+  }
+}
+
 const initItemData = async () => {
   itemData.value = await loadItemData()
   dataLoaded.value = true
@@ -132,39 +146,78 @@ watch(() => props.show, (val) => {
           </button>
         </div>
         <div class="search-dialog-body">
-          <input
-            v-model="searchQuery"
-            type="text"
-            placeholder="搜索物品名称或ID（支持多词）..."
-            class="search-input"
-            autofocus
-          />
-          <div class="search-hint">
-            找到 {{ searchResults.length }} 个匹配结果
-          </div>
-          <div class="results-grid">
-            <div
-              v-for="item in searchResults"
-              :key="item.id"
-              class="item-card"
-              @click="emit('select', item)"
-            >
-              <div class="item-image-wrapper">
-                <img
-                  :src="getItemImage(item.id)"
-                  :alt="item.chinese"
-                  class="item-image"
-                  @error="handleImageError(item.id)"
-                />
+          <!-- 选择物品阶段 -->
+          <template v-if="mode !== 'scan' || (!scanResults && !scanLoading && !scanError)">
+            <input
+              v-model="searchQuery"
+              type="text"
+              placeholder="搜索物品名称或ID（支持多词）..."
+              class="search-input"
+              autofocus
+            />
+            <div class="search-hint">
+              找到 {{ searchResults.length }} 个匹配结果
+            </div>
+            <div class="results-grid">
+              <div
+                v-for="item in searchResults"
+                :key="item.id"
+                class="item-card"
+                @click="handleSelect(item)"
+              >
+                <div class="item-image-wrapper">
+                  <img
+                    :src="getItemImage(item.id)"
+                    :alt="item.chinese"
+                    class="item-image"
+                    @error="handleImageError(item.id)"
+                  />
+                </div>
+                <div class="item-info">
+                  <span class="item-name">{{ item.chinese }}</span>
+                  <span class="item-id">ID: {{ item.id }}</span>
+                  <span class="item-english">{{ item.english }}</span>
+                </div>
               </div>
-              <div class="item-info">
-                <span class="item-name">{{ item.chinese }}</span>
-                <span class="item-id">ID: {{ item.id }}</span>
-                <span class="item-english">{{ item.english }}</span>
+              <div v-if="searchResults.length === 0 && searchQuery.trim()" class="no-results">
+                未找到匹配的物品
               </div>
             </div>
-            <div v-if="searchResults.length === 0 && searchQuery.trim()" class="no-results">
-              未找到匹配的物品
+          </template>
+
+          <!-- 扫描中 -->
+          <div v-else-if="scanLoading" class="scan-phase">
+            <div class="scan-loading">
+              <div class="scan-spinner"></div>
+              <p>正在扫描持有者...</p>
+            </div>
+          </div>
+
+          <!-- 扫描结果 -->
+          <div v-else-if="scanError" class="scan-phase">
+            <div class="scan-error-result">
+              <p>❌ {{ scanError }}</p>
+              <button @click="emit('back')" class="back-btn">返回选择物品</button>
+            </div>
+          </div>
+
+          <div v-else-if="scanResults" class="scan-phase">
+            <div class="scan-results-container">
+              <div class="scan-result-header">
+                <h4>扫描持有者: {{ scanResults.itemName }} (ID: {{ scanResults.itemId }})</h4>
+              </div>
+              <div v-if="scanResults.players && scanResults.players.length > 0" class="scan-player-list">
+                <div v-for="player in scanResults.players" :key="player.name" class="scan-player-row">
+                  <span class="scan-player-name">{{ player.name }}</span>
+                </div>
+                <div v-if="scanResults.count > 10" class="scan-player-more">
+                  还有 {{ scanResults.count - 10 }} 名玩家
+                </div>
+              </div>
+              <div v-else class="scan-no-results">
+                <p>没有玩家持有该物品</p>
+              </div>
+              <button @click="emit('back')" class="back-btn">返回选择物品</button>
             </div>
           </div>
         </div>
@@ -335,5 +388,98 @@ watch(() => props.show, (val) => {
   text-align: center;
   padding: 40px;
   color: var(--text-muted);
+}
+
+/* 扫描阶段 */
+.scan-phase {
+  padding: 20px 0;
+}
+
+.scan-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 40px;
+  color: var(--text-muted);
+}
+
+.scan-spinner {
+  width: 36px;
+  height: 36px;
+  border: 3px solid var(--border-light);
+  border-top-color: var(--accent-primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.scan-error-result {
+  text-align: center;
+  padding: 20px;
+  color: var(--accent-error);
+}
+
+.scan-results-container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.scan-result-header h4 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 1rem;
+}
+
+.scan-player-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.scan-player-row {
+  padding: 8px 12px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+}
+
+.scan-player-name {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.scan-player-more {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  padding: 8px;
+}
+
+.scan-no-results {
+  text-align: center;
+  color: var(--text-muted);
+  padding: 20px;
+}
+
+.back-btn {
+  margin-top: 12px;
+  padding: 8px 16px;
+  background: transparent;
+  border: 1px solid var(--accent-primary);
+  border-radius: 8px;
+  color: var(--accent-primary);
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: all 0.2s;
+  align-self: center;
+}
+
+.back-btn:hover {
+  background: rgba(99, 102, 241, 0.1);
 }
 </style>
