@@ -15,15 +15,15 @@ const services = [
     ]
   },
   {
-    title: '小型服务器 + QQ 机器人代部署',
+    title: '小型服务器 或 QQ 机器人代部署',
     price: '100 起',
     items: [
-      '完整部署当前版本的 TSWeb，跑通 QQ 机器人',
+      '完整部署当前版本的 TSWeb 或者 在已有服务器基础上跑通 QQ机器人',
       '现有功能技术支持，使用说明'
     ]
   },
   {
-    title: '机器人进阶开发',
+    title: '插件进阶开发',
     price: '100 起',
     items: [
       '自定义指令开发（查装备、查进度、自定义拓展）',
@@ -36,25 +36,24 @@ const services = [
     title: '中大型服务器完整软件服务',
     price: '2000 起',
     items: [
-      '优选推荐服务商',
-      '域名注册推荐，备案指导',
-      '私域特色网站搭建设计，UI 风格化',
+      '全流程完整服务，从 服务器选型 到 域名备案',
+      '私有特色网站搭建设计，UI 风格化',
       '站群搭建（多世界 / 分流等），稳定性维护'
     ]
   },
   {
-    title: '灵活项目开发',
+    title: '灵活项目开发/技术支持',
     price: '100 / 小时',
     items: [
       'TShock 插件定制',
-      'Web 前后端功能开发，私有功能定制',
+      'Web 前后端功能开发，功能定制',
       '按需报价，灵活沟通'
     ]
   }
 ]
 
 const highlightKeywords = (text) => {
-  const keywords = ['部署', '定制', '开发', '设计', '指导', '保障', '对接', '建议', '监控', '广播', '通知', '定制','自定义']
+  const keywords = ['完整部署', '定制','指令', '开发', '指导', '保障','服务器选型', '广播', '定制','自定义','或者','QQ机器人']
   let result = text
   for (const kw of keywords) {
     result = result.replace(new RegExp(`(${kw})`, 'g'), '<span class="glow-text">$1</span>')
