@@ -1,10 +1,10 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using TShockAPI;
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System.Reflection;
+using TShockAPI;
 using Terraria;
 using TerrariaApi.Server;
 using Rests;
 using System.Data;
 using TShockAPI.DB;
-using TShockAPI;
 
 namespace TShockData
 {
@@ -128,23 +128,120 @@ namespace TShockData
             TShock.Log.ConsoleInfo("[TSWeb] 反作弊配置已重新加载");
         }
 
-        protected override void Dispose(bool Disposing)
-        {
-            if (Disposing)
-            {
-                TShockAPI.Hooks.GeneralHooks.ReloadEvent -= OnReload;
-                PlannedOff.Dispose();
-                BugFixes.Dispose(this);
-                AutoRegister.Dispose(this);
-                ItemRestrict.Dispose();
-                OnlineData.Dispose();
-                RuntimeHooks.Dispose();
-                BossLimit.Dispose();
-                ItemDetection.StopAutoScan();
-                BypassHelper.UnregisterPermissionHook();
-            }
-            base.Dispose(Disposing);
-        }
+		protected override void Dispose(bool Disposing)
+		{
+			if (Disposing)
+			{
+				TShockAPI.Hooks.GeneralHooks.ReloadEvent -= OnReload;
+				PlannedOff.Dispose();
+				BugFixes.Dispose(this);
+				AutoRegister.Dispose(this);
+				ItemRestrict.Dispose();
+				OnlineData.Dispose();
+				RuntimeHooks.Dispose();
+				BossLimit.Dispose();
+				ItemDetection.StopAutoScan();
+				BypassHelper.UnregisterPermissionHook();
+
+				CleanupChatCommands();
+				CleanupRestApiRoutes();
+			}
+			base.Dispose(Disposing);
+		}
+
+		/// <summary>
+		/// 清理 TSWeb 注册的所有聊天命令
+		/// </summary>
+		private static void CleanupChatCommands()
+		{
+			var tswebCommandNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+			{
+				"runas", "banp", "remove", "find",
+				"进度", "bossinfo",
+				"planoff",
+				"autoregister", "ar",
+				"export", "导出",
+				"pwd", "密码",
+				"scan", "扫描",
+				"projlist", "违禁弹幕",
+				"scanlist", "违禁物品",
+				"bosslimit", "进度锁",
+			};
+
+			Commands.ChatCommands.RemoveAll(cmd =>
+				cmd.Names.Any(name => tswebCommandNames.Contains(name)));
+
+			TShock.Log.ConsoleInfo("[TSWeb] 聊天命令已清理");
+		}
+
+		/// <summary>
+		/// 清理 TSWeb 注册的所有 REST API 路由
+		/// </summary>
+		private static void CleanupRestApiRoutes()
+		{
+			var tswebRoutes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+			{
+				"/data/users/invsee",
+				"/data/users/editinv",
+				"/data/users/query_detail",
+				"/data/users/stats",
+				"/data/users/stats/set",
+				"/data/users/duplicateips",
+				"/data/users/allduplicateips",
+				"/data/users/ban",
+				"/data/users/unban",
+				"/data/groups/list",
+				"/data/groups/get",
+				"/data/groups/create",
+				"/data/groups/delete",
+				"/data/groups/update",
+				"/data/groups/permission/add",
+				"/data/groups/permission/remove",
+				"/data/users/getpassword",
+				"/data/users/clearcharacter",
+				"/data/users/clearallcharacter",
+				"/data/anticheat/proj-config/getprojconfig",
+				"/data/anticheat/proj-config/saveprojconfig",
+				"/data/anticheat/item-config/getitemconfig",
+				"/data/anticheat/item-config/saveitemconfig",
+				"/data/anticheat/item-config/scanall",
+				"/data/anticheat/item-config/scan-by-id",
+				"/data/boss/progress",
+				"/data/config/tsweb",
+				"/data/config/tsweb/set",
+				"/data/online/hourly",
+				"/data/online/ranking",
+				"/data/online/player",
+				"/data/users/unverified/list",
+				"/data/users/unverified/detail",
+				"/data/users/unverified/register",
+				"/data/users/unverified/force-login",
+				"/data/users/unverified/kick",
+				"/data/users/unverified/ban",
+				"/data/files/read",
+				"/data/files/write",
+				"/data/files/list",
+				"/data/files/tree",
+				"/data/qq/bind",
+				"/data/qq/register",
+				"/data/qq/reset-password",
+			};
+
+			try
+			{
+				var commandsField = typeof(Rests.Rest).GetField("commands",
+					BindingFlags.NonPublic | BindingFlags.Instance);
+				if (commandsField?.GetValue(TShock.RestApi) is List<Rests.RestCommand> cmdList)
+				{
+					var removed = cmdList.RemoveAll(c => tswebRoutes.Contains(c.UriTemplate));
+					TShock.Log.ConsoleInfo($"[TSWeb] REST API 路由已清理: {removed} 条");
+				}
+			}
+			catch (Exception ex)
+			{
+				TShock.Log.ConsoleError($"[TSWeb] REST API 路由清理失败: {ex.Message}");
+			}
+		}
 
 		
 	}
