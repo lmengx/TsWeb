@@ -17,6 +17,16 @@ import fileRoutes from './routes/fileRoutes.js'
 import { loadRules as loadFileAccessRules } from './services/fileAccessService.js'
 import tshockService from './services/tshockService.js'
 
+// =====================================================
+// 全局错误保护 - 防止未捕获异常/拒绝导致进程退出
+// =====================================================
+process.on('uncaughtException', (err) => {
+  console.error('[FATAL] 未捕获异常:', err)
+})
+process.on('unhandledRejection', (reason) => {
+  console.error('[FATAL] 未处理的Promise拒绝:', reason)
+})
+
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
@@ -64,12 +74,25 @@ app.get(/^\/.*$/, (req, res) => {
   res.sendFile(path.join(frontendDistPath, 'index.html'))
 })
 
-async function startServer() {
-  // 每次启动都生成 Setup Token
-  const token = generateSetupToken()
+// =====================================================
+// 加载文件访问白名单（提前加载，避免在 listen 回调中做异步操作）
+// =====================================================
+async function loadFileRules() {
+  try {
+    await loadFileAccessRules()
+    console.log('[FileAccess] 文件访问白名单已加载')
+  } catch (err) {
+    console.warn('[FileAccess] 白名单加载失败:', err.message)
+  }
+}
 
+// =====================================================
+// 启动服务器
+// =====================================================
+async function startServer() {
+  const token = generateSetupToken()
   const hasConfig = await isConfigFileExists()
-  
+
   if (!hasConfig) {
     const port = 3000
     console.log('')
@@ -82,6 +105,10 @@ async function startServer() {
     console.log('  请访问:')
     console.log('  http://localhost:' + port + '/setup/intro?token=' + token)
     console.log('')
+
+    // 首次启动不阻塞，先加载白名单再 listen
+    loadFileRules()
+
     app.listen(port, '0.0.0.0', () => {
       console.log('  Web服务器已在端口 ' + port + ' 上运行')
       console.log('  可访问地址: http://0.0.0.0:' + port + '/setup/intro?token=' + token)
@@ -99,9 +126,9 @@ async function startServer() {
   const config = await loadConfig()
   const port = config.server.port || 3000
   const host = config.server.host || '0.0.0.0'
-  
+
   const hasTshockConfig = config.tshock?.host && config.tshock?.port && config.tshock?.apiKey
-  
+
   if (hasTshockConfig) {
     console.log('')
     console.log('='.repeat(58))
@@ -119,18 +146,15 @@ async function startServer() {
     console.log('  请访问: http://localhost:' + port + '/setup?token=' + token)
     console.log('')
   }
-  
-  app.listen(port, host, async () => {
+
+  // 提前加载白名单（不阻塞 listen）
+  loadFileRules()
+
+  // 启动 HTTP 服务 — 使用普通同步回调，避免 async 回调的 Promise 陷阱
+  app.listen(port, host, () => {
     console.log(`Server running on http://${host}:${port}`)
     if (config.tshock?.host && config.tshock?.port) {
       console.log(`TShock API: ${config.tshock.host}:${config.tshock.port}`)
-    }
-    // 加载文件访问白名单
-    try {
-      await loadFileAccessRules()
-      console.log('[FileAccess] 文件访问白名单已加载')
-    } catch (err) {
-      console.warn('[FileAccess] 白名单加载失败:', err.message)
     }
   })
 }
