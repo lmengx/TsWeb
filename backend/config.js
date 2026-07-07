@@ -44,7 +44,7 @@ export async function saveConfig(newConfig) {
 
 export async function saveNewConfig(setupData) {
   config = {
-    server: { port: 3000 },
+    server: { port: 3000, host: '0.0.0.0' },
     tshock: {
       host: setupData.host || '',
       port: parseInt(setupData.port) || 7878,

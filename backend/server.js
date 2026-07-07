@@ -82,11 +82,11 @@ async function startServer() {
     console.log('  请访问:')
     console.log('  http://localhost:' + port + '/setup/intro?token=' + token)
     console.log('')
-    app.listen(port, () => {
+    app.listen(port, '0.0.0.0', () => {
       console.log('  Web服务器已在端口 ' + port + ' 上运行')
+      console.log('  可访问地址: http://0.0.0.0:' + port + '/setup/intro?token=' + token)
       console.log('')
       const url = 'http://localhost:' + port + '/setup/intro?token=' + token
-      console.log('  正在打开浏览器...')
       exec('start ' + url, (err) => {
         if (err) {
           console.log('  请手动访问: ' + url)
@@ -98,6 +98,7 @@ async function startServer() {
 
   const config = await loadConfig()
   const port = config.server.port || 3000
+  const host = config.server.host || '0.0.0.0'
   
   const hasTshockConfig = config.tshock?.host && config.tshock?.port && config.tshock?.apiKey
   
@@ -119,8 +120,8 @@ async function startServer() {
     console.log('')
   }
   
-  app.listen(port, async () => {
-    console.log(`Server running on http://localhost:${port}`)
+  app.listen(port, host, async () => {
+    console.log(`Server running on http://${host}:${port}`)
     if (config.tshock?.host && config.tshock?.port) {
       console.log(`TShock API: ${config.tshock.host}:${config.tshock.port}`)
     }
