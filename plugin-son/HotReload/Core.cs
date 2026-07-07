@@ -74,10 +74,10 @@ public static class Core
         {
             if (_initialized) return;
 
-            TShock.Log.ConsoleInfo("[HotReload] 首次初始化，扫描当前已加载插件...");
+            //TShock.Log.ConsoleInfo("[HotReload] 首次初始化，扫描当前已加载插件...");
             ScanLoadedPlugins();
             _initialized = true;
-            TShock.Log.ConsoleInfo($"[HotReload] 初始化完成，已跟踪 {_records.Count} 个插件");
+            TShock.Log.ConsoleInfo($"[HotReload] 已跟踪 {_records.Count} 个插件");
         }
     }
 
@@ -130,6 +130,86 @@ public static class Core
     // ══════════════════════════════════════════════════════════
     //  扫描（目录态）
     // ══════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// 扫描 ServerPlugins 目录，找出不在运行状态的 dll。
+    /// 返回 = 磁盘上所有 dll - 已加载且哈希匹配的
+    /// 包含：新增文件、dll 已被覆盖、已被主动卸载
+    /// </summary>
+    public static List<PluginRecord> GetUnloadedFromDisk()
+    {
+        EnsureInitialized();
+
+        var result = new List<PluginRecord>();
+        if (!Directory.Exists(ServerPluginsPath))
+            return result;
+
+        var id = _records.Count > 0 ? _records.Max(r => r.Id) + 1 : 1;
+
+        foreach (var dll in Directory.GetFiles(ServerPluginsPath, "*.dll"))
+        {
+            var asmName = Path.GetFileNameWithoutExtension(dll);
+            var existing = _records.FirstOrDefault(r =>
+                string.Equals(r.AssemblyName, asmName, StringComparison.OrdinalIgnoreCase));
+
+            if (existing != null && existing.IsLoaded)
+            {
+                // 已加载 → 检查哈希是否匹配
+                var currentHash = ComputeFileHash(dll);
+                if (string.Equals(existing.FileHash, currentHash, StringComparison.OrdinalIgnoreCase))
+                    continue; // 哈希匹配，在正常运行，跳过
+
+                // 已加载但哈希变了 → dll 被覆盖
+                result.Add(new PluginRecord
+                {
+                    Id = existing.Id,
+                    DisplayName = existing.DisplayName,
+                    AssemblyName = asmName,
+                    DllFileName = Path.GetFileName(dll),
+                    FullPath = dll,
+                    Version = existing.Version,
+                    Author = existing.Author,
+                    FileHash = currentHash,
+                    IsLoaded = false,
+                    IsProtected = existing.IsProtected,
+                });
+                continue;
+            }
+
+            if (existing != null && !existing.IsLoaded)
+            {
+                // 在记录中但未加载 → 曾被主动卸载
+                result.Add(new PluginRecord
+                {
+                    Id = existing.Id,
+                    DisplayName = existing.DisplayName,
+                    AssemblyName = asmName,
+                    DllFileName = Path.GetFileName(dll),
+                    FullPath = dll,
+                    Version = existing.Version,
+                    Author = existing.Author,
+                    FileHash = ComputeFileHash(dll),
+                    IsLoaded = false,
+                    IsProtected = existing.IsProtected,
+                });
+                continue;
+            }
+
+            // 完全不在记录中 → 新增文件
+            result.Add(new PluginRecord
+            {
+                Id = id++,
+                AssemblyName = asmName,
+                DllFileName = Path.GetFileName(dll),
+                FullPath = dll,
+                FileHash = ComputeFileHash(dll),
+                IsLoaded = false,
+                IsProtected = ProtectedAssemblyNames.Contains(asmName),
+            });
+        }
+
+        return result;
+    }
 
     /// <summary>
     /// 扫描 ServerPlugins 目录，找出：
@@ -299,7 +379,7 @@ public static class Core
     {
         EnsureInitialized();
 
-        var changes = ScanDirectory();
+        var changes = GetUnloadedFromDisk();
         PluginRecord? targetChange = null;
 
         // 尝试按序号或名称匹配变更列表
@@ -464,10 +544,7 @@ public static class Core
             string.Equals(r.DllFileName, target, StringComparison.OrdinalIgnoreCase));
     }
 
-    /// <summary>
-    /// 计算文件的 SHA256 哈希（十六进制小写）。
-    /// </summary>
-    private static string ComputeFileHash(string filePath)
+    internal static string ComputeFileHash(string filePath)
     {
         if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath))
             return "";
