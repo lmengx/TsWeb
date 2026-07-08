@@ -94,8 +94,10 @@ public static class BossLimitQuit
                 if (!shouldPunish) return;
 
                 TShock.Log.ConsoleInfo($"[BossLimitQuit] {name} 曾在 BOSS {bossName} 存活时退出，已执行死亡惩罚");
+
                 target.KillPlayer();
-                target.SendWarningMessage($"检测到你曾在 BOSS [{bossName}] 战斗中退出，已对你执行死亡惩罚！");
+
+                target.SendWarningMessage($"检测到你曾在 BOSS [{bossName}] 战斗中退出，已对你执行死亡惩罚！60 秒后重生");
                 return;
             }
         });
