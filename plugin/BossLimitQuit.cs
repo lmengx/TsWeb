@@ -4,6 +4,7 @@ using System.Linq;
 using Terraria;
 using TerrariaApi.Server;
 using TShockAPI;
+using Rests;
 
 namespace TShockData;
 
@@ -217,6 +218,44 @@ public static class BossLimitQuit
         double baseLife = currentLifeMax / (1.0 + 0.35 * (originalPlayerCount - 1));
         int extraHP = (int)(baseLife * 0.35);
         return Math.Max(extraHP, 1);
+    }
+
+    // ═══════════════════════════════════════════════
+    // REST API
+    // ═══════════════════════════════════════════════
+
+    public static object GetStatusJson(RestRequestArgs args)
+    {
+        var config = AutoRegister.Config;
+        int trackedBosses, trackedPlayers;
+        var bossList = new List<object>();
+
+        lock (ActiveBosses)
+        {
+            trackedBosses = ActiveBosses.Count;
+            trackedPlayers = ActiveBosses.Sum(r => r.Damagers.Count);
+            foreach (var r in ActiveBosses)
+            {
+                bossList.Add(new
+                {
+                    bossName = r.BossName,
+                    npcType = r.NPCType,
+                    damagerCount = r.Damagers.Count,
+                    damagers = r.Damagers.ToList(),
+                    onlineOnSpawn = r.SpawnPlayerCount
+                });
+            }
+        }
+
+        return new
+        {
+            status = "200",
+            quitLimitEnabled = config.QuitLimitEnabled,
+            lateCompEnabled = config.LateCompEnabled,
+            trackedBosses,
+            trackedPlayers,
+            activeBosses = bossList
+        };
     }
 
     // ═══════════════════════════════════════════════

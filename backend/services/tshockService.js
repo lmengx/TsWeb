@@ -1437,6 +1437,18 @@ export class TShockService {
     }
   }
 
+  async getBossLimitStatus() {
+    if (!this.baseUrl) await this.init()
+    const url = `${this.baseUrl}/data/bosslimit/status${this.apiKey ? `?token=${encodeURIComponent(this.apiKey)}` : ''}`
+    console.log(`[OUTGOING] GET ${url}`)
+    try {
+      const response = await fetch(url, { method: 'GET', headers: { 'Accept': 'application/json' } })
+      return await response.json()
+    } catch (error) {
+      return { status: '500', error: error.message }
+    }
+  }
+
   // ===== 文件管理 =====
 
   async fileRead(relativePath) {

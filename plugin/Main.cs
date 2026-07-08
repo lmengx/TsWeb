@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System.Reflection;
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System.Reflection;
 using TShockAPI;
 using Terraria;
 using TerrariaApi.Server;
@@ -70,6 +70,7 @@ namespace TShockData
             TShockAPI.Commands.ChatCommands.Add(new Command("", BossProgress.GetBossInfo, "进度", "bossinfo"));
 
             TShock.RestApi.Register(new SecureRestCommand("/data/boss/progress", BossProgress.GetBossInfoJson, ""));
+            TShock.RestApi.Register(new SecureRestCommand("/data/bosslimit/status", BossLimitQuit.GetStatusJson, ""));
             TShock.RestApi.Register(new SecureRestCommand("/data/config/tsweb", AutoRegister.GetConfigJson, ""));
             TShock.RestApi.Register(new SecureRestCommand("/data/config/tsweb/set", AutoRegister.SetConfigJson, "data.rest.invsee"));
 
@@ -209,7 +210,8 @@ namespace TShockData
 				"/data/anticheat/item-config/saveitemconfig",
 				"/data/anticheat/item-config/scanall",
 				"/data/anticheat/item-config/scan-by-id",
-				"/data/boss/progress",
+                "/data/boss/progress",
+                "/data/bosslimit/status",
 				"/data/config/tsweb",
 				"/data/config/tsweb/set",
 				"/data/online/hourly",

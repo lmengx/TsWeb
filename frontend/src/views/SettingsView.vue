@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, watch, nextTick } from 'vue'
+import { ref, onMounted, watch, nextTick, onUnmounted } from 'vue'
 import { get, post } from '../utils/api.js'
 import { useRouter } from 'vue-router'
 
@@ -13,6 +13,13 @@ let ready = false
 const registerMode = ref('default')
 const bossLimitMode = ref('disabled')
 const bossLimitMinPlayers = ref(7)
+const quitLimitEnabled = ref(false)
+const lateCompEnabled = ref(false)
+
+// BossLimit 活跃追踪状态
+const bossLimitStatus = ref(null)
+const statusLoading = ref(false)
+let statusTimer = null
 
 const registerModeOptions = [
   { value: 'default', label: '默认模式 - 允许手动注册' },
@@ -37,7 +44,9 @@ const autoSave = () => {
         mode: registerMode.value,
         bossLimitMode: bossLimitMode.value,
         bossLimitEnabled: bossLimitMode.value !== 'disabled',
-        bossLimitMinPlayers: bossLimitMinPlayers.value
+        bossLimitMinPlayers: bossLimitMinPlayers.value,
+        quitLimitEnabled: quitLimitEnabled.value,
+        lateCompEnabled: lateCompEnabled.value
       })
       const data = await res.json()
       if (data.status === '200') {
@@ -55,6 +64,22 @@ const autoSave = () => {
 watch(registerMode, autoSave)
 watch(bossLimitMode, autoSave)
 watch(bossLimitMinPlayers, autoSave)
+watch(quitLimitEnabled, autoSave)
+watch(lateCompEnabled, autoSave)
+
+const fetchBossLimitStatus = async () => {
+  statusLoading.value = true
+  try {
+    const res = await get('/api/config/bosslimit/status')
+    const data = await res.json()
+    if (data.status === '200') {
+      bossLimitStatus.value = data
+    }
+  } catch {
+    // 静默失败，不阻塞页面
+  }
+  statusLoading.value = false
+}
 
 const fetchConfig = async () => {
   loading.value = true
@@ -65,12 +90,17 @@ const fetchConfig = async () => {
     if (data.mode !== undefined) registerMode.value = data.mode
     if (data.bossLimitMode !== undefined) bossLimitMode.value = data.bossLimitMode
     if (data.bossLimitMinPlayers !== undefined) bossLimitMinPlayers.value = data.bossLimitMinPlayers
+    if (data.quitLimitEnabled !== undefined) quitLimitEnabled.value = data.quitLimitEnabled
+    if (data.lateCompEnabled !== undefined) lateCompEnabled.value = data.lateCompEnabled
     await nextTick()
   } catch (err) {
     error.value = '加载配置失败: ' + err.message
   }
   ready = true
   loading.value = false
+
+  // 加载 bosslimit 活跃追踪状态
+  fetchBossLimitStatus()
 }
 
 const goToAppConfig = () => {
@@ -79,6 +109,12 @@ const goToAppConfig = () => {
 
 onMounted(() => {
   fetchConfig()
+  // 每 10 秒刷新一次活跃追踪状态
+  statusTimer = setInterval(fetchBossLimitStatus, 10000)
+})
+
+onUnmounted(() => {
+  if (statusTimer) clearInterval(statusTimer)
 })
 </script>
 
@@ -142,6 +178,58 @@ onMounted(() => {
               <button class="num-btn" @click="bossLimitMinPlayers = Math.max(1, bossLimitMinPlayers - 1)">−</button>
               <span class="num-value">{{ bossLimitMinPlayers }}</span>
               <button class="num-btn" @click="bossLimitMinPlayers = Math.min(999, bossLimitMinPlayers + 1)">+</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Boss 退出惩罚 + 晚入补偿 -->
+        <div class="section-card">
+          <h3>Boss 退出惩罚 & 晚入补偿</h3>
+          <p class="section-desc">控制玩家在 Boss 战中退出或晚入的行为处理</p>
+
+          <div class="toggle-row">
+            <span class="toggle-label">退出惩罚</span>
+            <span class="toggle-hint">战斗中退出的玩家上线后将被击杀</span>
+            <label class="switch">
+              <input type="checkbox" v-model="quitLimitEnabled" />
+              <span class="slider"></span>
+            </label>
+          </div>
+
+          <div class="toggle-row">
+            <span class="toggle-label">晚入补偿</span>
+            <span class="toggle-hint">新加入的玩家按比例增加 Boss 血量</span>
+            <label class="switch">
+              <input type="checkbox" v-model="lateCompEnabled" />
+              <span class="slider"></span>
+            </label>
+          </div>
+
+          <!-- 活跃追踪状态 -->
+          <div v-if="bossLimitStatus" class="tracking-status">
+            <div class="tracking-header">
+              <span class="tracking-title">当前活跃追踪</span>
+              <span v-if="statusLoading" class="tracking-refresh">刷新中...</span>
+            </div>
+            <div class="tracking-grid">
+              <div class="tracking-stat">
+                <span class="stat-number">{{ bossLimitStatus.trackedBosses ?? 0 }}</span>
+                <span class="stat-label">追踪 BOSS</span>
+              </div>
+              <div class="tracking-stat">
+                <span class="stat-number">{{ bossLimitStatus.trackedPlayers ?? 0 }}</span>
+                <span class="stat-label">伤害者</span>
+              </div>
+            </div>
+            <div v-if="bossLimitStatus.activeBosses && bossLimitStatus.activeBosses.length > 0" class="tracking-detail">
+              <div v-for="(boss, idx) in bossLimitStatus.activeBosses" :key="idx" class="boss-track-row">
+                <span class="boss-track-name">{{ boss.bossName }}</span>
+                <span class="boss-track-dmg">{{ boss.damagerCount }} 人伤害</span>
+                <span class="boss-track-spawn">出现时 {{ boss.onlineOnSpawn }}人在线</span>
+              </div>
+            </div>
+            <div v-else class="tracking-idle">
+              当前无活跃 Boss 战
             </div>
           </div>
         </div>
@@ -435,5 +523,107 @@ onMounted(() => {
   background: rgba(239, 68, 68, 0.1);
   border-radius: var(--radius-md);
   display: inline-block;
+}
+
+.toggle-hint {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  flex: 1;
+  margin-left: 8px;
+}
+
+/* ====== 活跃追踪状态 ====== */
+.tracking-status {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-color);
+}
+
+.tracking-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.tracking-title {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--text-primary);
+}
+
+.tracking-refresh {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.tracking-grid {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.tracking-stat {
+  flex: 1;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-md);
+  padding: 12px;
+  text-align: center;
+}
+
+.stat-number {
+  display: block;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--accent-primary);
+}
+
+.stat-label {
+  display: block;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+.tracking-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.boss-track-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  font-size: 0.85rem;
+}
+
+.boss-track-name {
+  font-weight: 600;
+  color: var(--text-primary);
+  min-width: 0;
+  flex: 1;
+}
+
+.boss-track-dmg {
+  color: var(--accent-error);
+  font-size: 0.8rem;
+}
+
+.boss-track-spawn {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+
+.tracking-idle {
+  text-align: center;
+  padding: 16px;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-md);
 }
 </style>
