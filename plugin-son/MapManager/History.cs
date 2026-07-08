@@ -1072,7 +1072,7 @@ public class MapManager : TerrariaPlugin
         }
         catch (Exception ex)
         {
-            TShock.Log.ConsoleError($"LogEdit 异常: {ex}");
+            TShock.Log.ConsoleError($"LogEdit异常 etype={etype} X={X} Y={Y} type={type} account={account} style={style} alt={alt} random={random} dir={direction} msg={ex.Message}");
         }
     }
 
