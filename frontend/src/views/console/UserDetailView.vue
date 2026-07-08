@@ -1218,6 +1218,39 @@ const refreshPlayerStats = () => {
   if (username) fetchPlayerStats(username)
 }
 
+const buildExportData = () => {
+  const username = userDetails.value?.Username || userDetails.value?.name || 'unknown'
+  return {
+    playerName: username,
+    exportedAt: new Date().toISOString(),
+    stats: { ...tempStats.value },
+    inventory: invseeInventory.value.filter(i => i && i.netID && i.netID > 0).map(i => ({
+      netId: i.netID,
+      stack: i.stack,
+      prefix: i.prefix
+    }))
+  }
+}
+
+const exportPlayerDataCopy = () => {
+  const data = buildExportData()
+  const json = JSON.stringify(data, null, 2)
+  copyToClipboard(json)
+}
+
+const exportPlayerDataDownload = () => {
+  const data = buildExportData()
+  const json = JSON.stringify(data, null, 2)
+  const username = userDetails.value?.Username || userDetails.value?.name || 'unknown'
+  const blob = new Blob([json], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${username}.json`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 const refreshInventory = () => {
   const username = userDetails.value?.Username || userDetails.value?.name
   if (username) fetchInventory(username)
@@ -1482,6 +1515,16 @@ onMounted(() => {
       <div class="stats-section">
         <div class="stats-header">
           <h3>角色属性</h3>
+          <div class="export-group" v-if="playerStats">
+            <button @click="exportPlayerDataCopy" class="export-btn" title="复制为 JSON">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              复制
+            </button>
+            <button @click="exportPlayerDataDownload" class="export-btn" title="下载为 JSON 文件">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              导出
+            </button>
+          </div>
         </div>
         
         <div v-if="statsLoading" class="loading-state">
@@ -3582,6 +3625,32 @@ onMounted(() => {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 20px;
+}
+
+.export-group {
+  display: flex;
+  gap: 6px;
+}
+
+.export-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.export-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
 }
 
 .stats-header h3 {
