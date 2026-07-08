@@ -1226,6 +1226,7 @@ const importError = ref('')
 const importLoading = ref(false)
 const importSuccess = ref('')
 const importConfirmData = ref(null)
+const importClearUnspecified = ref(false)
 
 const buildExportData = () => {
   const username = userDetails.value?.Username || userDetails.value?.name || 'unknown'
@@ -1332,7 +1333,11 @@ const executeImport = async () => {
       stats: importParsedData.value.stats || {},
       inventory: importParsedData.value.inventory || []
     }
-    const res = await post('/api/tshock/batch-edit', { player: username, data })
+    const res = await post('/api/tshock/batch-edit', {
+      player: username,
+      data,
+      clearUnspecified: importClearUnspecified.value
+    })
     const result = await res.json()
     if (result.error) {
       importError.value = '导入失败: ' + result.error
@@ -2262,6 +2267,10 @@ onMounted(() => {
                 <span class="ie-confirm-label">包含物品</span>
                 <span class="ie-confirm-value">{{ importConfirmData.hasInventory ? importConfirmData.itemCount + ' 件' : '否' }}</span>
               </div>
+              <label class="ie-clear-check">
+                <input type="checkbox" v-model="importClearUnspecified" />
+                清除未指定的格子物品
+              </label>
               <p v-if="importConfirmData.daysAgo > 7" class="ie-warning">数据已导出超过 7 天，部分物品或属性可能已变更。</p>
               <button @click="executeImport" :disabled="importLoading" class="submit-btn">
                 {{ importLoading ? '导入中...' : '确认导入' }}
@@ -4441,5 +4450,33 @@ onMounted(() => {
   background: rgba(245, 158, 11, 0.1);
   border-radius: var(--radius-sm);
   margin: 0 0 12px;
+}
+
+.ie-clear-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  background: rgba(239, 68, 68, 0.06);
+  border: 1px solid rgba(239, 68, 68, 0.15);
+  border-radius: var(--radius-sm);
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.ie-clear-check:hover {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+.ie-clear-check input[type="checkbox"] {
+  accent-color: #ef4444;
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
 }
 </style>

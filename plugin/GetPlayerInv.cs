@@ -599,20 +599,38 @@ namespace TShockData
                 }
 
                 // === 导入背包 ===
-                if (!string.IsNullOrEmpty(invCompact))
+                bool hasInventoryWork = false;
+                string strinventory = "";
+                using (QueryResult res = db.QueryReader("SELECT Inventory FROM tsCharacter WHERE Account = @0", account.ID))
                 {
-                    string strinventory = "";
-                    using (QueryResult res = db.QueryReader("SELECT Inventory FROM tsCharacter WHERE Account = @0", account.ID))
+                    if (res.Read())
+                        strinventory = res.Get<string>("Inventory");
+                }
+
+                if (!string.IsNullOrEmpty(strinventory))
+                {
+                    string[] arr = strinventory.Split('~');
+                    int changedCount = 0;
+
+                    // 如果指定了 clear，先清空所有格子（无论是否有导入物品）
+                    string? clearParam = args.Parameters["clear"];
+                    if (clearParam == "1")
                     {
-                        if (res.Read())
-                            strinventory = res.Get<string>("Inventory");
+                        for (int i = 0; i < arr.Length; i++)
+                        {
+                            string[] slotParts = arr[i].Split(',');
+                            slotParts[0] = "0";
+                            slotParts[1] = "0";
+                            slotParts[2] = "0";
+                            arr[i] = string.Join(",", slotParts);
+                        }
+                        changedCount++;
+                        hasInventoryWork = true;
                     }
 
-                    if (!string.IsNullOrEmpty(strinventory))
+                    // 写入导入的物品
+                    if (!string.IsNullOrEmpty(invCompact))
                     {
-                        string[] arr = strinventory.Split('~');
-                        int changedCount = 0;
-
                         string[] items = invCompact.Split('|', StringSplitOptions.RemoveEmptyEntries);
                         foreach (string itemStr in items)
                         {
@@ -634,12 +652,13 @@ namespace TShockData
                             arr[slot] = string.Join(",", slotParts);
                             changedCount++;
                         }
+                        hasInventoryWork = true;
+                    }
 
-                        if (changedCount > 0)
-                        {
-                            db.Query("UPDATE tsCharacter SET Inventory = @0 WHERE Account = @1", string.Join("~", arr), account.ID);
-                            TShock.Log.ConsoleInfo($"[BatchEdit] 背包更新 {changedCount} 个格子");
-                        }
+                    if (changedCount > 0)
+                    {
+                        db.Query("UPDATE tsCharacter SET Inventory = @0 WHERE Account = @1", string.Join("~", arr), account.ID);
+                        TShock.Log.ConsoleInfo($"[BatchEdit] 背包更新 {changedCount} 个格子");
                     }
                 }
 

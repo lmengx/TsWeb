@@ -498,7 +498,7 @@ export class TShockService {
     }
   }
 
-  async batchEdit(player, data) {
+  async batchEdit(player, data, clearUnspecified = false) {
     if (!this.baseUrl) {
       await this.init()
     }
@@ -508,6 +508,9 @@ export class TShockService {
     const statsStr = JSON.stringify(data.stats || {})
 
     let url = `${this.baseUrl}/data/users/batch-edit?player=${encodeURIComponent(player)}&stats=${encodeURIComponent(statsStr)}&inv=${encodeURIComponent(invCompact)}`
+    if (clearUnspecified) {
+      url += `&clear=1`
+    }
     if (this.apiKey) {
       url += `&token=${encodeURIComponent(this.apiKey)}`
     }
