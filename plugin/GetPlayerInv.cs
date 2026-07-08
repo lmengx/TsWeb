@@ -2,6 +2,7 @@ using Rests;
 using System;
 using System.Collections.Generic;
 using System.Data;
+using Newtonsoft.Json.Linq;
 using Terraria;
 using TerrariaApi.Server;
 using TShockAPI;
@@ -466,6 +467,202 @@ namespace TShockData
             }
             
             return offlineInvList;
+        }
+
+        public static object BatchEdit(RestRequestArgs args)
+        {
+            string playerName = args.Parameters["player"];
+            string statsJson = args.Parameters["stats"];
+            string invCompact = args.Parameters["inv"] ?? "";
+
+            TShock.Log.ConsoleInfo($"[BatchEdit] player={playerName}, stats长度={statsJson?.Length ?? 0}, inv长度={invCompact.Length}");
+
+            var account = TShock.UserAccounts.GetUserAccountByName(playerName);
+            if (account == null)
+            {
+                // 尝试用 ID 查找
+                if (int.TryParse(playerName, out int accountId))
+                {
+                    account = TShock.UserAccounts.GetUserAccountByID(accountId);
+                }
+                if (account == null)
+                {
+                    return new RestObject("404")
+                    {
+                        { "error", $"找不到玩家: {playerName}" },
+                        { "debug_player", playerName }
+                    };
+                }
+            }
+
+            // 在线则先同步内存→DB
+            var onlinePlayers = TSPlayer.FindByNameOrID(playerName);
+            TSPlayer? onlinePlayer = null;
+            if (onlinePlayers.Count > 0 && onlinePlayers[0].Active)
+            {
+                onlinePlayer = onlinePlayers[0];
+                onlinePlayer.PlayerData.CopyCharacter(onlinePlayer);
+                TShock.CharacterDB.InsertPlayerData(onlinePlayer);
+            }
+
+            try
+            {
+                IDbConnection db = TShock.DB;
+
+                // === 导入属性 ===
+                if (!string.IsNullOrEmpty(statsJson))
+                {
+                    JObject stats;
+                    try
+                    {
+                        stats = JObject.Parse(statsJson);
+                    }
+                    catch (Exception ex)
+                    {
+                        TShock.Log.ConsoleError($"[BatchEdit] stats JSON 解析失败: {ex.Message}");
+                        return new RestObject("400")
+                        {
+                            { "error", $"stats JSON 解析失败: {ex.Message}" }
+                        };
+                    }
+
+                    if (stats.HasValues)
+                    {
+                        var charData = TShock.CharacterDB.GetPlayerData(null, account.ID);
+                        if (charData != null && charData.exists)
+                        {
+                            List<string> updateFields = new List<string>();
+                            List<object> updateValues = new List<object>();
+                            int paramIndex = 0;
+
+                            void tryInt(string key, ref int field, string dbCol)
+                            {
+                                JToken? t = stats[key];
+                                if (t != null && t.Type == JTokenType.Integer)
+                                {
+                                    field = t.Value<int>();
+                                    updateFields.Add(dbCol + " = @" + paramIndex);
+                                    updateValues.Add(field);
+                                    paramIndex++;
+                                }
+                            }
+                            void tryBool(string key, ref int? field, string dbCol)
+                            {
+                                JToken? t = stats[key];
+                                if (t != null && t.Type == JTokenType.Boolean)
+                                {
+                                    field = t.Value<bool>() ? 1 : 0;
+                                    updateFields.Add(dbCol + " = @" + paramIndex);
+                                    updateValues.Add(field);
+                                    paramIndex++;
+                                }
+                            }
+                            void tryBoolInt(string key, ref int field, string dbCol)
+                            {
+                                JToken? t = stats[key];
+                                if (t != null && t.Type == JTokenType.Boolean)
+                                {
+                                    field = t.Value<bool>() ? 1 : 0;
+                                    updateFields.Add(dbCol + " = @" + paramIndex);
+                                    updateValues.Add(field);
+                                    paramIndex++;
+                                }
+                            }
+
+                            tryInt("maxHealth", ref charData.maxHealth, "MaxHealth");
+                            tryInt("maxMana", ref charData.maxMana, "MaxMana");
+                            tryInt("health", ref charData.health, "Health");
+                            tryInt("mana", ref charData.mana, "Mana");
+                            tryInt("questsCompleted", ref charData.questsCompleted, "QuestsCompleted");
+
+                            tryBool("extraSlot", ref charData.extraSlot, "ExtraSlot");
+                            tryBoolInt("unlockedBiomeTorches", ref charData.unlockedBiomeTorches, "UnlockedBiomeTorches");
+                            tryBoolInt("ateArtisanBread", ref charData.ateArtisanBread, "AteArtisanBread");
+                            tryBoolInt("usedAegisCrystal", ref charData.usedAegisCrystal, "UsedAegisCrystal");
+                            tryBoolInt("usedAegisFruit", ref charData.usedAegisFruit, "UsedAegisFruit");
+                            tryBoolInt("usedArcaneCrystal", ref charData.usedArcaneCrystal, "UsedArcaneCrystal");
+                            tryBoolInt("usedGalaxyPearl", ref charData.usedGalaxyPearl, "UsedGalaxyPearl");
+                            tryBoolInt("usedGummyWorm", ref charData.usedGummyWorm, "UsedGummyWorm");
+                            tryBoolInt("usedAmbrosia", ref charData.usedAmbrosia, "UsedAmbrosia");
+                            tryBoolInt("unlockedSuperCart", ref charData.unlockedSuperCart, "UnlockedSuperCart");
+                            tryBoolInt("enabledSuperCart", ref charData.enabledSuperCart, "EnabledSuperCart");
+
+                            if (updateFields.Count > 0)
+                            {
+                                string sql = "UPDATE tsCharacter SET " + string.Join(", ", updateFields) + " WHERE Account = @" + paramIndex;
+                                updateValues.Add(account.ID);
+                                db.Query(sql, updateValues.ToArray());
+                                TShock.Log.ConsoleInfo($"[BatchEdit] 属性更新 {updateFields.Count} 个字段");
+                            }
+                        }
+                    }
+                }
+
+                // === 导入背包 ===
+                if (!string.IsNullOrEmpty(invCompact))
+                {
+                    string strinventory = "";
+                    using (QueryResult res = db.QueryReader("SELECT Inventory FROM tsCharacter WHERE Account = @0", account.ID))
+                    {
+                        if (res.Read())
+                            strinventory = res.Get<string>("Inventory");
+                    }
+
+                    if (!string.IsNullOrEmpty(strinventory))
+                    {
+                        string[] arr = strinventory.Split('~');
+                        int changedCount = 0;
+
+                        string[] items = invCompact.Split('|', StringSplitOptions.RemoveEmptyEntries);
+                        foreach (string itemStr in items)
+                        {
+                            string[] parts = itemStr.Split(',');
+                            if (parts.Length < 4) continue;
+
+                            if (!int.TryParse(parts[0], out int slot)) continue;
+                            if (!int.TryParse(parts[1], out int netId)) continue;
+                            if (!int.TryParse(parts[2], out int stack)) continue;
+                            if (!int.TryParse(parts[3], out int prefix)) continue;
+
+                            if (slot < 0 || slot >= arr.Length || netId <= 0)
+                                continue;
+
+                            string[] slotParts = arr[slot].Split(',');
+                            slotParts[0] = netId.ToString();
+                            slotParts[1] = stack.ToString();
+                            slotParts[2] = prefix.ToString();
+                            arr[slot] = string.Join(",", slotParts);
+                            changedCount++;
+                        }
+
+                        if (changedCount > 0)
+                        {
+                            db.Query("UPDATE tsCharacter SET Inventory = @0 WHERE Account = @1", string.Join("~", arr), account.ID);
+                            TShock.Log.ConsoleInfo($"[BatchEdit] 背包更新 {changedCount} 个格子");
+                        }
+                    }
+                }
+
+                // 在线 → 从 DB 重新加载并同步客户端
+                if (onlinePlayer != null)
+                {
+                    onlinePlayer.PlayerData = TShock.CharacterDB.GetPlayerData(onlinePlayer, account.ID);
+                    onlinePlayer.PlayerData.RestoreCharacter(onlinePlayer);
+                }
+
+                return new RestObject()
+                {
+                    { "response", "批量导入成功" }
+                };
+            }
+            catch (Exception ex)
+            {
+                TShock.Log.ConsoleError($"[BatchEdit] 异常: {ex}");
+                return new RestObject("500")
+                {
+                    { "error", ex.Message }
+                };
+            }
         }
     }
 }

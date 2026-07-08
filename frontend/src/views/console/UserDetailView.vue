@@ -1218,13 +1218,23 @@ const refreshPlayerStats = () => {
   if (username) fetchPlayerStats(username)
 }
 
+const showImportExportModal = ref(false)
+const importExportTab = ref('export')
+const importJson = ref('')
+const importParsedData = ref(null)
+const importError = ref('')
+const importLoading = ref(false)
+const importSuccess = ref('')
+const importConfirmData = ref(null)
+
 const buildExportData = () => {
   const username = userDetails.value?.Username || userDetails.value?.name || 'unknown'
   return {
     playerName: username,
     exportedAt: new Date().toISOString(),
     stats: { ...tempStats.value },
-    inventory: invseeInventory.value.filter(i => i && i.netID && i.netID > 0).map(i => ({
+    inventory: invseeInventory.value.filter(i => i && i.netID && i.netID > 0).map((i, idx) => ({
+      slot: i.slot !== undefined ? i.slot : idx,
       netId: i.netID,
       stack: i.stack,
       prefix: i.prefix
@@ -1234,8 +1244,7 @@ const buildExportData = () => {
 
 const exportPlayerDataCopy = () => {
   const data = buildExportData()
-  const json = JSON.stringify(data, null, 2)
-  copyToClipboard(json)
+  copyToClipboard(JSON.stringify(data, null, 2))
 }
 
 const exportPlayerDataDownload = () => {
@@ -1249,6 +1258,93 @@ const exportPlayerDataDownload = () => {
   a.download = `${username}.json`
   a.click()
   URL.revokeObjectURL(url)
+}
+
+const switchImportExportTab = (tab) => {
+  importExportTab.value = tab
+  importJson.value = ''
+  importParsedData.value = null
+  importError.value = ''
+  importSuccess.value = ''
+  importConfirmData.value = null
+}
+
+const handleImportFileUpload = (e) => {
+  const file = e.target.files?.[0]
+  if (!file) return
+  const reader = new FileReader()
+  reader.onload = (ev) => {
+    importJson.value = ev.target?.result || ''
+    parseImportData()
+  }
+  reader.readAsText(file)
+  e.target.value = ''
+}
+
+const parseImportData = () => {
+  importError.value = ''
+  importParsedData.value = null
+  importConfirmData.value = null
+  importSuccess.value = ''
+  if (!importJson.value.trim()) return
+  try {
+    const data = JSON.parse(importJson.value)
+    if (!data.stats && !data.inventory) {
+      importError.value = 'JSON 格式无效：缺少 stats 或 inventory 字段'
+      return
+    }
+    if (!data.exportedAt) {
+      importError.value = 'JSON 格式无效：缺少导出时间 exportedAt'
+      return
+    }
+    const exportDate = new Date(data.exportedAt)
+    if (isNaN(exportDate.getTime())) {
+      importError.value = '导出时间格式无效'
+      return
+    }
+    const daysAgo = Math.floor((Date.now() - exportDate.getTime()) / 86400000)
+    importConfirmData.value = {
+      hasStats: !!data.stats,
+      hasInventory: !!(data.inventory && data.inventory.length > 0),
+      itemCount: data.inventory?.length || 0,
+      exportedAt: data.exportedAt,
+      daysAgo
+    }
+    importParsedData.value = data
+  } catch {
+    importError.value = 'JSON 解析失败，请检查格式'
+  }
+}
+
+const executeImport = async () => {
+  if (!importParsedData.value) return
+  importLoading.value = true
+  importError.value = ''
+  importSuccess.value = ''
+  const username = userDetails.value?.Username || userDetails.value?.name
+  if (!username) {
+    importError.value = '无法获取玩家名'
+    importLoading.value = false
+    return
+  }
+  try {
+    const data = {
+      stats: importParsedData.value.stats || {},
+      inventory: importParsedData.value.inventory || []
+    }
+    const res = await post('/api/tshock/batch-edit', { player: username, data })
+    const result = await res.json()
+    if (result.error) {
+      importError.value = '导入失败: ' + result.error
+    } else {
+      importSuccess.value = result.response || '导入成功'
+      fetchInventory(username)
+      fetchPlayerStats(username)
+    }
+  } catch (err) {
+    importError.value = '导入失败: ' + err.message
+  }
+  importLoading.value = false
 }
 
 const refreshInventory = () => {
@@ -1516,13 +1612,9 @@ onMounted(() => {
         <div class="stats-header">
           <h3>角色属性</h3>
           <div class="export-group" v-if="playerStats">
-            <button @click="exportPlayerDataCopy" class="export-btn" title="复制为 JSON">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-              复制
-            </button>
-            <button @click="exportPlayerDataDownload" class="export-btn" title="下载为 JSON 文件">
+            <button @click="showImportExportModal = true" class="export-btn" title="导入/导出角色数据">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-              导出
+              导入/导出
             </button>
           </div>
         </div>
@@ -2110,6 +2202,77 @@ onMounted(() => {
       </div>
     </div>
   </div>
+
+    <!-- 导入/导出弹窗 -->
+    <div v-if="showImportExportModal" class="modal-overlay" @click.self="showImportExportModal = false">
+      <div class="modal ie-modal">
+        <div class="modal-header">
+          <h3>角色数据</h3>
+          <button @click="showImportExportModal = false" class="close-btn">×</button>
+        </div>
+
+        <!-- 选项卡 -->
+        <div class="ie-tabs">
+          <button class="ie-tab" :class="{ active: importExportTab === 'export' }" @click="switchImportExportTab('export')">导出</button>
+          <button class="ie-tab" :class="{ active: importExportTab === 'import' }" @click="switchImportExportTab('import')">导入</button>
+        </div>
+
+        <div class="modal-body">
+          <!-- 导出面板 -->
+          <div v-if="importExportTab === 'export'">
+            <p class="ie-desc">导出 {{ userDetails?.Username || userDetails?.name }} 的属性和背包数据（不含账号信息）。</p>
+            <div class="ie-actions">
+              <button @click="exportPlayerDataCopy" class="ie-action-btn">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                复制到剪贴板
+              </button>
+              <button @click="exportPlayerDataDownload" class="ie-action-btn primary">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                下载 {{ userDetails?.Username || userDetails?.name || 'player' }}.json
+              </button>
+            </div>
+            <div class="ie-json-preview">
+              <pre>{{ JSON.stringify(buildExportData(), null, 2) }}</pre>
+            </div>
+          </div>
+
+          <!-- 导入面板 -->
+          <div v-else>
+            <p class="ie-desc">粘贴或上传从 TSWeb 导出的 JSON 文件，将属性和背包数据写入当前玩家。</p>
+            
+            <div class="ie-import-methods">
+              <textarea v-model="importJson" class="ie-textarea" placeholder="在此粘贴 JSON 数据..." rows="6" @input="parseImportData"></textarea>
+              <label class="ie-file-label">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                上传 .json 文件
+                <input type="file" accept=".json" class="ie-file-input" @change="handleImportFileUpload" />
+              </label>
+            </div>
+
+            <div v-if="importError" class="give-error">{{ importError }}</div>
+
+            <div v-if="importConfirmData" class="ie-import-preview">
+              <div class="ie-confirm-info">
+                <span class="ie-confirm-label">导出时间</span>
+                <span class="ie-confirm-value">{{ importConfirmData.exportedAt }}</span>
+                <span class="ie-confirm-label">距今</span>
+                <span class="ie-confirm-value">{{ importConfirmData.daysAgo }} 天</span>
+                <span class="ie-confirm-label">包含属性</span>
+                <span class="ie-confirm-value">{{ importConfirmData.hasStats ? '是' : '否' }}</span>
+                <span class="ie-confirm-label">包含物品</span>
+                <span class="ie-confirm-value">{{ importConfirmData.hasInventory ? importConfirmData.itemCount + ' 件' : '否' }}</span>
+              </div>
+              <p v-if="importConfirmData.daysAgo > 7" class="ie-warning">数据已导出超过 7 天，部分物品或属性可能已变更。</p>
+              <button @click="executeImport" :disabled="importLoading" class="submit-btn">
+                {{ importLoading ? '导入中...' : '确认导入' }}
+              </button>
+            </div>
+
+            <div v-if="importSuccess" class="give-success">{{ importSuccess }}</div>
+          </div>
+        </div>
+      </div>
+    </div>
 
   <Teleport to="body">
     <Transition name="toast-fade">
@@ -4099,4 +4262,184 @@ onMounted(() => {
 .toast-fade-leave-active { transition: all 0.25s ease; }
 .toast-fade-enter-from { opacity: 0; transform: translateX(-50%) translateY(20px); }
 .toast-fade-leave-to { opacity: 0; transform: translateX(-50%) translateY(-10px); }
+
+/* 导入/导出弹窗 */
+.ie-modal {
+  max-width: 640px;
+}
+
+.ie-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.ie-tab {
+  flex: 1;
+  padding: 12px;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.ie-tab:hover {
+  color: var(--text-primary);
+}
+
+.ie-tab.active {
+  color: var(--accent-primary);
+  border-bottom-color: var(--accent-primary);
+}
+
+.ie-desc {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  margin: 0 0 16px;
+  line-height: 1.5;
+}
+
+.ie-actions {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.ie-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 18px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.ie-action-btn:hover {
+  border-color: var(--accent-primary);
+  background: rgba(99, 102, 241, 0.1);
+  color: var(--accent-primary);
+}
+
+.ie-action-btn.primary {
+  background: linear-gradient(135deg, var(--accent-primary), #4f46e5);
+  border-color: transparent;
+  color: white;
+}
+
+.ie-action-btn.primary:hover {
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
+}
+
+.ie-json-preview {
+  max-height: 300px;
+  overflow-y: auto;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 14px;
+}
+
+.ie-json-preview pre {
+  margin: 0;
+  font-size: 0.75rem;
+  font-family: 'Courier New', monospace;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-all;
+  line-height: 1.5;
+}
+
+.ie-import-methods {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.ie-textarea {
+  width: 100%;
+  padding: 12px;
+  background: var(--bg-tertiary);
+  border: 2px solid var(--border-color);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  font-family: 'Courier New', monospace;
+  resize: vertical;
+  transition: border-color 0.2s ease;
+  box-sizing: border-box;
+}
+
+.ie-textarea:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+}
+
+.ie-file-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 18px;
+  background: var(--bg-tertiary);
+  border: 1px dashed var(--border-color);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  width: fit-content;
+}
+
+.ie-file-label:hover {
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+}
+
+.ie-file-input {
+  display: none;
+}
+
+.ie-import-preview {
+  margin-top: 16px;
+}
+
+.ie-confirm-info {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px 16px;
+  padding: 14px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  margin-bottom: 16px;
+}
+
+.ie-confirm-label {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.ie-confirm-value {
+  font-size: 0.85rem;
+  color: var(--text-primary);
+}
+
+.ie-warning {
+  font-size: 0.8rem;
+  color: #f59e0b;
+  padding: 8px 12px;
+  background: rgba(245, 158, 11, 0.1);
+  border-radius: var(--radius-sm);
+  margin: 0 0 12px;
+}
 </style>

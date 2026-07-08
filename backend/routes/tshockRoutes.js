@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { executeCommand, testCommand, getUsers, getActiveUsers, getInventory, getUserList, checkDuplicateIPs, getAllDuplicateIPs, editInventory, getGroups, getGroup, createGroup, updateGroup, deleteGroup, addGroupPermission, removeGroupPermission, banPlayer, unbanPlayer, createUser, getSelfInfo, getBossProgress, getBanList, scanItems, scanItemById, getPlayerStats, setPlayerStats, clearCharacter, clearAllCharacter } from '../controllers/tshockController.js'
+import { executeCommand, testCommand, getUsers, getActiveUsers, getInventory, getUserList, checkDuplicateIPs, getAllDuplicateIPs, editInventory, batchEdit, getGroups, getGroup, createGroup, updateGroup, deleteGroup, addGroupPermission, removeGroupPermission, banPlayer, unbanPlayer, createUser, getSelfInfo, getBossProgress, getBanList, scanItems, scanItemById, getPlayerStats, setPlayerStats, clearCharacter, clearAllCharacter } from '../controllers/tshockController.js'
 import { verifyToken, requireRole } from '../middlewares/authMiddleware.js'
 
 const router = Router()
@@ -14,6 +14,7 @@ router.post('/user/create', verifyToken, requireRole('admin'), createUser)
 router.get('/duplicateips', verifyToken, requireRole('admin'), checkDuplicateIPs)
 router.get('/allduplicateips', verifyToken, requireRole('admin'), getAllDuplicateIPs)
 router.post('/editinv', verifyToken, requireRole('admin'), editInventory)
+router.post('/batch-edit', verifyToken, requireRole('admin'), batchEdit)
 router.get('/groups', verifyToken, getGroups)
 router.get('/groups/get', verifyToken, getGroup)
 router.post('/groups/create', verifyToken, requireRole('admin'), createGroup)

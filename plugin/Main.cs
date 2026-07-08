@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System.Reflection;
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System.Reflection;
 using TShockAPI;
 using Terraria;
 using TerrariaApi.Server;
@@ -21,6 +21,7 @@ namespace TShockData
 			RuntimeHooks.Initialize();
 
             BossLimit.Initialize();
+            BossLimit.InitQuit(this);
 
             BypassHelper.RegisterPermissionHook();
 
@@ -32,6 +33,7 @@ namespace TShockData
 
 			TShock.RestApi.Register(new SecureRestCommand("/data/users/invsee", GetPlayerInv.GetInv, "data.rest.invsee"));
 			TShock.RestApi.Register(new SecureRestCommand("/data/users/editinv", GetPlayerInv.EditInv, "data.rest.invsee"));
+			TShock.RestApi.Register(new SecureRestCommand("/data/users/batch-edit", GetPlayerInv.BatchEdit, "data.rest.invsee"));
 			TShock.RestApi.Register(new SecureRestCommand("/data/users/query_detail", QueryUsers.QueryUsersList, "data.rest.invsee"));
 			TShock.RestApi.Register(new SecureRestCommand("/data/users/stats", PlayerStats.GetPlayerStats, "data.rest.invsee"));
 			TShock.RestApi.Register(new SecureRestCommand("/data/users/stats/set", PlayerStats.SetPlayerStats, "data.rest.invsee"));
@@ -183,6 +185,7 @@ namespace TShockData
 			{
 				"/data/users/invsee",
 				"/data/users/editinv",
+				"/data/users/batch-edit",
 				"/data/users/query_detail",
 				"/data/users/stats",
 				"/data/users/stats/set",

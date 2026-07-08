@@ -498,6 +498,43 @@ export class TShockService {
     }
   }
 
+  async batchEdit(player, data) {
+    if (!this.baseUrl) {
+      await this.init()
+    }
+
+    // 只传非空物品的 slot/netId/stack/prefix，减少 URL 长度
+    const invCompact = (data.inventory || []).map(i => `${i.slot},${i.netId},${i.stack},${i.prefix}`).join('|')
+    const statsStr = JSON.stringify(data.stats || {})
+
+    let url = `${this.baseUrl}/data/users/batch-edit?player=${encodeURIComponent(player)}&stats=${encodeURIComponent(statsStr)}&inv=${encodeURIComponent(invCompact)}`
+    if (this.apiKey) {
+      url += `&token=${encodeURIComponent(this.apiKey)}`
+    }
+
+    console.log(`[OUTGOING] GET ${url.substring(0, 500)}...`)
+
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: { 'Accept': 'application/json' }
+      })
+
+      console.log(`[RESPONSE] Status: ${response.status}`)
+      const text = await response.text()
+      console.log(`[RESPONSE] Body: ${text}`)
+
+      try {
+        return JSON.parse(text)
+      } catch {
+        return { error: 'Invalid JSON', rawResponse: text }
+      }
+    } catch (error) {
+      this.isConnected = false
+      return { error: error.message }
+    }
+  }
+
   async getGroups() {
     if (!this.baseUrl) {
       await this.init()

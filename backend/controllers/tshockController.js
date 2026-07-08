@@ -101,6 +101,17 @@ export const editInventory = async (req, res) => {
   res.json(result)
 }
 
+export const batchEdit = async (req, res) => {
+  const { player, data } = req.body
+
+  if (!player || !data) {
+    return res.status(400).json({ error: 'player and data are required' })
+  }
+
+  const result = await tshockService.batchEdit(player, data)
+  res.json(result)
+}
+
 export const getGroups = async (req, res) => {
   const result = await tshockService.getGroups()
   res.json(result)
