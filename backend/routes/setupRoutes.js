@@ -6,6 +6,10 @@ import { exec } from 'child_process'
 import { promisify } from 'util'
 import fs from 'fs/promises'
 import path from 'path'
+import { fileURLToPath } from 'url'
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
 
 const execAsync = promisify(exec)
 
@@ -136,17 +140,55 @@ router.post('/auto-read', async (req, res) => {
       return res.json({ success: false, error: '配置文件中未找到 RestApiPort' })
     }
     const restPort = settings.RestApiPort
-    const tokenKey = generateRandomToken(35)
+
+    // 检查是否已有 TSWeb 的 superadmin token，有则复用
+    let tokenKey
+    let reused = false
+    if (settings.ApplicationRestTokens) {
+      for (const [k, v] of Object.entries(settings.ApplicationRestTokens)) {
+        if (v.Username === 'TSWeb' && v.UserGroupName === 'superadmin') {
+          tokenKey = k
+          reused = true
+          break
+        }
+      }
+    }
+    if (!tokenKey) {
+      tokenKey = generateRandomToken(35)
+    }
+
     settings.RestApiEnabled = true
     if (!settings.ApplicationRestTokens) {
       settings.ApplicationRestTokens = {}
     }
-    settings.ApplicationRestTokens[tokenKey] = {
-      Username: 'TSWeb',
-      UserGroupName: 'superadmin'
+    if (!reused) {
+      settings.ApplicationRestTokens[tokenKey] = {
+        Username: 'TSWeb',
+        UserGroupName: 'superadmin'
+      }
     }
     await fs.writeFile(configPath, JSON.stringify(config, null, 2), 'utf8')
-    res.json({ success: true, restPort, tokenKey, configPath })
+
+    // 自动复制插件 DLL
+    const pluginDir = path.join(serverDir, 'ServerPlugins')
+    const pluginDst = path.join(pluginDir, 'TsWeb.dll')
+    try {
+      await fs.access(pluginDst)
+      // 文件已存在，跳过
+    } catch {
+      // 文件不存在，尝试复制
+      const pluginSrc = path.join(__dirname, '../res/TsWeb.dll')
+      try {
+        await fs.access(pluginSrc)
+        await fs.mkdir(pluginDir, { recursive: true })
+        await fs.copyFile(pluginSrc, pluginDst)
+        console.log(`[Setup] 已复制插件: ${pluginSrc} -> ${pluginDst}`)
+      } catch (copyErr) {
+        console.warn(`[Setup] 插件复制失败: ${copyErr.message}`)
+      }
+    }
+
+    res.json({ success: true, restPort, tokenKey, configPath, reused })
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
@@ -198,17 +240,35 @@ router.post('/auto-remote', async (req, res) => {
       return res.json({ success: false, error: '配置文件中未找到 RestApiPort' })
     }
     const restPort = settings.RestApiPort
-    const tokenKey = generateRandomToken(35)
+
+    // 检查是否已有 TSWeb 的 superadmin token，有则复用
+    let tokenKey
+    let reused = false
+    if (settings.ApplicationRestTokens) {
+      for (const [k, v] of Object.entries(settings.ApplicationRestTokens)) {
+        if (v.Username === 'TSWeb' && v.UserGroupName === 'superadmin') {
+          tokenKey = k
+          reused = true
+          break
+        }
+      }
+    }
+    if (!tokenKey) {
+      tokenKey = generateRandomToken(35)
+    }
+
     settings.RestApiEnabled = true
     if (!settings.ApplicationRestTokens) {
       settings.ApplicationRestTokens = {}
     }
-    settings.ApplicationRestTokens[tokenKey] = {
-      Username: 'TSWeb',
-      UserGroupName: 'superadmin'
+    if (!reused) {
+      settings.ApplicationRestTokens[tokenKey] = {
+        Username: 'TSWeb',
+        UserGroupName: 'superadmin'
+      }
     }
     const modifiedRaw = JSON.stringify(config, null, 2)
-    res.json({ success: true, restPort, tokenKey, modifiedRaw })
+    res.json({ success: true, restPort, tokenKey, modifiedRaw, reused })
   } catch (err) {
     res.status(500).json({ error: err.message })
   }

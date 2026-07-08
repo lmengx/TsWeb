@@ -371,8 +371,7 @@ const goBack = () => {
         <div class="manage-section">
           <h3 class="manage-title">服务器连接</h3>
           <div class="form-group">
-            <label class="form-label">服务器地址</label>
-            <input v-model="manageHost" type="text" class="form-input" />
+            <input v-model="manageHost" type="text" placeholder="服务器地址" class="form-input" />
           </div>
           <div class="form-group">
             <label class="form-label">REST API 端口</label>
@@ -390,6 +389,7 @@ const goBack = () => {
           <button class="submit-btn" @click="updateConnection" :disabled="manageLoading" style="margin-top:12px">
             {{ manageLoading ? '更新中...' : '更新连接配置' }}
           </button>
+          <div class="reconfig-link" @click="step = 'method'">不会配置？重新使用自动配置工具初始化</div>
         </div>
 
         <div class="manage-section" style="margin-top:24px">
@@ -441,7 +441,6 @@ const goBack = () => {
         <h2>检测 TShock 服务器</h2>
         <div class="probe-instructions">
           <div class="probe-header">
-            <span class="probe-icon">🎮</span>
             <div>
               <p class="probe-title">请先启动 TShock 服务端</p>
               <p class="probe-sub">确保 TShock 已在<strong>本机</strong>运行，并监听默认端口 <strong>7777</strong></p>
@@ -834,6 +833,21 @@ const goBack = () => {
   border: 1px solid rgba(0, 0, 0, 0.06);
   border-radius: 14px;
   padding: 20px;
+}
+
+.reconfig-link {
+  text-align: right;
+  font-size: 0.8rem;
+  color: #6366f1;
+  cursor: pointer;
+  margin-top: 10px;
+  opacity: 0.75;
+  transition: opacity 0.2s ease;
+}
+
+.reconfig-link:hover {
+  opacity: 1;
+  text-decoration: underline;
 }
 
 .manage-title {
