@@ -1231,7 +1231,6 @@ const importClearUnspecified = ref(false)
 const buildExportData = () => {
   const username = userDetails.value?.Username || userDetails.value?.name || 'unknown'
   return {
-    playerName: username,
     exportedAt: new Date().toISOString(),
     stats: { ...tempStats.value },
     inventory: invseeInventory.value.filter(i => i && i.netID && i.netID > 0).map((i, idx) => ({
