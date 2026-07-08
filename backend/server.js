@@ -17,6 +17,7 @@ import fileRoutes from './routes/fileRoutes.js'
 import presetRoutes from './routes/presetRoutes.js'
 import { loadRules as loadFileAccessRules } from './services/fileAccessService.js'
 import tshockService from './services/tshockService.js'
+import readline from 'readline'
 
 // =====================================================
 // 全局错误保护 - 防止未捕获异常/拒绝导致进程退出
@@ -164,3 +165,50 @@ async function startServer() {
 startServer().catch(err => {
   console.error('Failed to start server:', err)
 })
+
+// ── 控制台命令 ──
+function startConsole() {
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+    prompt: '> '
+  })
+
+  console.log('')
+  console.log('可用命令: setup - 打开管理页面, exit - 退出')
+  rl.prompt()
+
+  rl.on('line', async (line) => {
+    const cmd = line.trim().toLowerCase()
+    if (cmd === 'setup' || cmd === 'open' || cmd === 's') {
+      try {
+        const config = await loadConfig()
+        const port = config?.server?.port || 3000
+        const token = generateSetupToken()
+        const url = `http://localhost:${port}/setup?token=${token}`
+        const { exec } = await import('child_process')
+        exec(`start ${url}`, (err) => {
+          if (err) {
+            console.log('请手动访问: ' + url)
+          }
+        })
+        console.log('管理页面已打开: ' + url)
+      } catch (err) {
+        console.log('操作失败:', err.message)
+      }
+    } else if (cmd === 'exit' || cmd === 'quit' || cmd === 'q') {
+      console.log('正在退出...')
+      process.exit(0)
+    } else if (cmd) {
+      console.log('未知命令: ' + cmd + '  (可用: setup, exit)')
+    }
+    rl.prompt()
+  })
+
+  rl.on('close', () => {
+    console.log('退出控制台')
+    process.exit(0)
+  })
+}
+
+setTimeout(startConsole, 1000)
