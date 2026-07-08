@@ -958,6 +958,7 @@ const dailyStartDate = ref(toLocalDateString(new Date(Date.now() - 4 * 86400000)
 const dailyData = ref([])
 const dailyLoading = ref(false)
 const dailyMaxMin = ref(1)
+const totalMinutes = ref(0)
 const dailyMode = ref('detail')
 const todayStr = toLocalDateString(new Date())
 const expandedDay = ref(todayStr)
@@ -1009,6 +1010,8 @@ const fetchDailyStats = async (username) => {
     }
     dailyData.value = bars
     dailyMaxMin.value = Math.max(1, ...bars.map(b => b.minutes))
+    // 计算该年总游玩时长
+    totalMinutes.value = Object.values(dayMap).reduce((s, v) => s + v, 0)
   } catch (e) {
     dailyData.value = []
     dailyMaxMin.value = 1
@@ -1345,6 +1348,8 @@ onMounted(() => {
           </div>
         </div>
 
+      <div class="detail-grid">
+        <div class="detail-left">
       <div class="action-section">
         <div class="action-group">
           <h4 class="group-label">管理操作</h4>
@@ -1371,7 +1376,7 @@ onMounted(() => {
           </div>
         </div>
         
-        <div class="action-group">
+          <div class="action-group">
           <h4 class="group-label">互动操作</h4>
           <div class="group-buttons">
               <button @click="openTpModal" :disabled="!isOnline" class="tp-btn" :class="{ disabled: !isOnline }">
@@ -1386,15 +1391,18 @@ onMounted(() => {
             </div>
           </div>
         </div>
+        </div>
 
+        <div class="detail-right">
       <div class="daily-stats-section">
         <div class="daily-stats-header">
           <div class="daily-header-left">
             <button @click="toggleMode" class="mode-toggle-btn" :title="dailyMode === 'overview' ? '切换到详情' : '切换到总览'">
-              {{ dailyMode === 'overview' ? '📊 总览' : '📋 详情' }}
+              {{ dailyMode === 'overview' ? '总览' : '详情' }}
             </button>
           </div>
           <h3>{{ dailyMode === 'overview' ? '30日在线趋势' : '近5日在线' }}</h3>
+          <div class="playtime-header-badge" v-if="totalMinutes > 0">总游玩 <strong>{{ formatDuration(totalMinutes) }}</strong></div>
           <div class="daily-nav" v-if="dailyMode === 'detail'">
             <button @click="shiftDaily(-5)" class="daily-nav-btn" title="往前5天">◀</button>
             <input type="date" v-model="dailyStartDate" class="filter-date" />
@@ -1407,7 +1415,7 @@ onMounted(() => {
           <div v-if="overviewLoading" class="loading-state"><p>加载中...</p></div>
           <div v-else class="overview-chart-container">
             <div class="overview-summary">
-              <span>📊 近30天累计: <strong>{{ formatDuration(overviewTotalMin) }}</strong> | 活跃天数: {{ overviewActiveDays }}/30</span>
+                  <span>近30天累计: <strong>{{ formatDuration(overviewTotalMin) }}</strong> | 活跃天数: {{ overviewActiveDays }}/30</span>
             </div>
             <div class="overview-chart">
               <div
@@ -1466,6 +1474,8 @@ onMounted(() => {
               </div>
             </div>
           </template>
+        </div>
+          </div>
         </div>
       </div>
 
@@ -2072,6 +2082,41 @@ onMounted(() => {
   flex-direction: column;
   overflow-y: auto;
   padding: 0;
+  max-width: 1400px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.detail-layout {
+  display: grid;
+  grid-template-columns: 1fr 360px;
+  gap: 20px;
+  padding: 0 20px;
+  margin-bottom: 24px;
+  align-items: start;
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: 1fr 360px;
+  gap: 20px;
+  padding: 0 20px;
+  margin-bottom: 24px;
+  align-items: start;
+}
+
+.detail-left {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+}
+
+.detail-right {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
 }
 
 .page-header {
@@ -2188,11 +2233,13 @@ onMounted(() => {
 
 .action-section {
   display: flex;
-  justify-content: center;
-  gap: 30px;
-  padding: 0 20px;
-  margin-bottom: 24px;
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: 16px;
+  background: var(--bg-card);
+  border-radius: var(--radius-xl);
+  padding: 20px 24px;
+  box-shadow: var(--shadow-lg);
+  border: 1px solid var(--border-light);
 }
 
 .duplicate-check-btn {
@@ -2231,6 +2278,8 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  flex: 1;
+  min-width: 0;
 }
 
 .group-label {
@@ -3697,8 +3746,7 @@ onMounted(() => {
 .daily-stats-section {
   background: var(--bg-card);
   border-radius: var(--radius-xl);
-  padding: 20px 24px;
-  margin: 0 20px 24px;
+  padding: 16px 18px;
   box-shadow: var(--shadow-lg);
   border: 1px solid var(--border-light);
 }
@@ -3706,36 +3754,56 @@ onMounted(() => {
 .daily-stats-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  margin-bottom: 14px;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
 }
 
 .daily-stats-header h3 {
   margin: 0;
-  font-size: 1.05rem;
+  font-size: 0.95rem;
   font-weight: 600;
   color: var(--text-primary);
   flex: 1;
-  text-align: center;
+  min-width: 0;
 }
 
-.daily-header-left { min-width: 80px; }
+.daily-header-left { 
+  display: flex;
+  align-items: center;
+}
 
 .mode-toggle-btn {
-  padding: 4px 10px;
+  padding: 3px 8px;
   border: 1px solid var(--border-light);
   border-radius: var(--radius-sm, 6px);
   background: var(--bg-input);
   color: var(--text-primary);
   cursor: pointer;
-  font-size: 0.8rem;
+  font-size: 0.72rem;
   transition: all 0.15s;
+  white-space: nowrap;
 }
 
 .mode-toggle-btn:hover {
   background: var(--bg-hover);
   border-color: var(--accent-primary);
+}
+
+.playtime-header-badge {
+  font-size: 0.75rem;
+  color: var(--accent-secondary);
+  font-weight: 600;
+  white-space: nowrap;
+  padding: 3px 10px;
+  background: rgba(34, 197, 94, 0.1);
+  border-radius: 20px;
+  border: 1px solid rgba(34, 197, 94, 0.2);
+  line-height: 1.4;
+}
+
+.playtime-header-badge strong {
+  font-weight: 700;
 }
 
 .daily-nav {
@@ -3765,13 +3833,13 @@ onMounted(() => {
 }
 
 .filter-date {
-  padding: 5px 10px;
+  padding: 4px 8px;
   border: 1px solid var(--border-light);
   border-radius: var(--radius-sm, 6px);
   background: var(--bg-input);
   color: var(--text-primary);
-  font-size: 0.8rem;
-  width: 130px;
+  font-size: 0.72rem;
+  width: 115px;
 }
 
 .daily-stats-body { min-height: 60px; }
@@ -3780,12 +3848,13 @@ onMounted(() => {
 .overview-chart-container {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .overview-summary {
-  font-size: 0.8rem;
+  font-size: 0.72rem;
   color: var(--text-secondary);
+  line-height: 1.4;
 }
 
 .overview-summary strong {
@@ -3797,7 +3866,7 @@ onMounted(() => {
   display: flex;
   align-items: flex-end;
   gap: 1px;
-  height: 58px;
+  height: 40px;
 }
 
 .overview-col {
@@ -3839,7 +3908,7 @@ onMounted(() => {
 
 .daily-cards {
   display: flex;
-  gap: 6px;
+  gap: 4px;
 }
 
 .daily-card {
@@ -3847,8 +3916,8 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
-  padding: 8px 4px 6px;
+  gap: 3px;
+  padding: 6px 2px 4px;
   border-radius: var(--radius-md, 8px);
   background: var(--bg-tertiary);
   border: 1px solid var(--border-light);
@@ -3863,15 +3932,15 @@ onMounted(() => {
 }
 
 .daily-card-date {
-  font-size: 0.7rem;
+  font-size: 0.6rem;
   color: var(--text-secondary);
   font-variant-numeric: tabular-nums;
 }
 
 .daily-card-bar {
   width: 100%;
-  height: 48px;
-  border-radius: 4px;
+  height: 36px;
+  border-radius: 3px;
   background: var(--bg-input);
   display: flex;
   align-items: flex-end;
@@ -3880,13 +3949,13 @@ onMounted(() => {
 
 .daily-card-fill {
   width: 100%;
-  border-radius: 4px;
+  border-radius: 3px;
   min-height: 2px;
   transition: height 0.3s ease;
 }
 
 .daily-card-min {
-  font-size: 0.7rem;
+  font-size: 0.6rem;
   font-weight: 500;
   color: var(--text-primary);
   font-variant-numeric: tabular-nums;
@@ -3894,24 +3963,24 @@ onMounted(() => {
 
 /* 逐时详情（卡片下方全宽行） */
 .hourly-detail {
-  margin-top: 10px;
-  padding: 10px 12px;
+  margin-top: 8px;
+  padding: 8px 10px;
   background: var(--bg-tertiary);
   border-radius: var(--radius-md, 8px);
   border: 1px solid var(--border-light);
 }
 
 .hourly-detail-head {
-  font-size: 0.75rem;
+  font-size: 0.68rem;
   color: var(--text-secondary);
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 
 .hourly-mini-chart {
   display: flex;
   align-items: flex-end;
   gap: 1px;
-  height: 40px;
+  height: 32px;
 }
 
 .hourly-mini-col {
