@@ -36,6 +36,12 @@ namespace TShockData
         [JsonProperty("新BOSS召唤最低人数")]
         public int BossLimitMinPlayers { get; set; } = 7;
 
+        [JsonProperty("QuitLimitEnabled")]
+        public bool QuitLimitEnabled { get; set; } = false;
+
+        [JsonProperty("LateCompEnabled")]
+        public bool LateCompEnabled { get; set; } = false;
+
         public RegisterMode GetMode()
         {
             return AutoRegisterMode.ToLower() switch
@@ -399,7 +405,9 @@ namespace TShockData
                 mode = Config.AutoRegisterMode,
                 bossLimitMode = Config.BossLimitMode,
                 bossLimitEnabled = Config.BossLimitEnabled,
-                bossLimitMinPlayers = Config.BossLimitMinPlayers
+                bossLimitMinPlayers = Config.BossLimitMinPlayers,
+                quitLimitEnabled = Config.QuitLimitEnabled,
+                lateCompEnabled = Config.LateCompEnabled
             };
         }
 
@@ -430,8 +438,14 @@ namespace TShockData
                 var blmp = args.Parameters["bossLimitMinPlayers"];
                 if (!string.IsNullOrEmpty(blmp) && int.TryParse(blmp, out var num) && num > 0)
                     Config.BossLimitMinPlayers = num;
+                var qle = args.Parameters["quitLimitEnabled"];
+                if (!string.IsNullOrEmpty(qle))
+                    Config.QuitLimitEnabled = qle.ToLower() == "true";
+                var lce = args.Parameters["lateCompEnabled"];
+                if (!string.IsNullOrEmpty(lce))
+                    Config.LateCompEnabled = lce.ToLower() == "true";
                 SaveConfig();
-                TShock.Log.ConsoleInfo($"[TSWeb] REST 更新配置: mode={Config.AutoRegisterMode}, bossLimitMode={Config.BossLimitMode}, minPlayers={Config.BossLimitMinPlayers}");
+                TShock.Log.ConsoleInfo($"[TSWeb] REST 更新配置: mode={Config.AutoRegisterMode}, bossLimitMode={Config.BossLimitMode}, minPlayers={Config.BossLimitMinPlayers}, quitLimit={Config.QuitLimitEnabled}, lateComp={Config.LateCompEnabled}");
                 return new { status = "200", message = "配置已保存" };
             }
             catch (Exception ex)
