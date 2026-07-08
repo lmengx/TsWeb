@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Terraria;
+using Terraria.ID;
 using TerrariaApi.Server;
 using TShockAPI;
 using Rests;
@@ -94,11 +95,14 @@ public static class BossLimitQuit
 
                 if (!shouldPunish) return;
 
-                TShock.Log.ConsoleInfo($"[BossLimitQuit] {name} 曾在 BOSS {bossName} 存活时退出，已执行死亡惩罚");
+                TShock.Log.ConsoleInfo($"[BossLimitQuit] {name} 曾在 BOSS {bossName} 存活时退出，已施加 debuff 惩罚");
 
-                target.KillPlayer();
+                // 织网 + 石化，持续 60 秒
+                // time 单位 tick，60*60=3600 tick = 60 秒
+                target.SetBuff(BuffID.Webbed, 60 * 60, true);
+                target.SetBuff(BuffID.Stoned, 60 * 60, true);
 
-                target.SendWarningMessage($"检测到你曾在 BOSS [{bossName}] 战斗中退出，已对你执行死亡惩罚！60 秒后重生");
+                target.SendWarningMessage($"检测到你曾在 BOSS [{bossName}] 战斗中退出，已施加织网和石化惩罚，持续 60 秒！");
                 return;
             }
         });
