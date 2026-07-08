@@ -1,0 +1,321 @@
+{
+  "exportedAt": "2026-07-08T04:42:09.440Z",
+  "stats": {
+    "maxHealth": 1000,
+    "maxMana": 20,
+    "questsCompleted": 0,
+    "extraSlot": false,
+    "unlockedBiomeTorches": false,
+    "ateArtisanBread": false,
+    "usedAegisCrystal": false,
+    "usedAegisFruit": false,
+    "usedArcaneCrystal": false,
+    "usedGalaxyPearl": false,
+    "usedGummyWorm": false,
+    "usedAmbrosia": false,
+    "unlockedSuperCart": false,
+    "enabledSuperCart": false
+  },
+  "inventory": [
+    {
+      "slot": 0,
+      "netId": 4956,
+      "stack": 9999,
+      "prefix": 0
+    },
+    {
+      "slot": 1,
+      "netId": 2786,
+      "stack": 9999,
+      "prefix": 0
+    },
+    {
+      "slot": 2,
+      "netId": 3522,
+      "stack": 9999,
+      "prefix": 0
+    },
+    {
+      "slot": 3,
+      "netId": 3930,
+      "stack": 9999,
+      "prefix": 0
+    },
+    {
+      "slot": 4,
+      "netId": 5134,
+      "stack": 9999,
+      "prefix": 0
+    },
+    {
+      "slot": 5,
+      "netId": 496,
+      "stack": 9999,
+      "prefix": 0
+    },
+    {
+      "slot": 6,
+      "netId": 3611,
+      "stack": 9999,
+      "prefix": 0
+    },
+    {
+      "slot": 7,
+      "netId": 5335,
+      "stack": 9999,
+      "prefix": 0
+    },
+    {
+      "slot": 8,
+      "netId": 5358,
+      "stack": 9999,
+      "prefix": 0
+    },
+    {
+      "slot": 9,
+      "netId": 3213,
+      "stack": 9999,
+      "prefix": 0
+    },
+    {
+      "slot": 10,
+      "netId": 560,
+      "stack": 9999,
+      "prefix": 0
+    },
+    {
+      "slot": 11,
+      "netId": 3601,
+      "stack": 9999,
+      "prefix": 0
+    },
+    {
+      "slot": 13,
+      "netId": 780,
+      "stack": 9999,
+      "prefix": 0
+    },
+    {
+      "slot": 14,
+      "netId": 781,
+      "stack": 9999,
+      "prefix": 0
+    },
+    {
+      "slot": 15,
+      "netId": 782,
+      "stack": 9999,
+      "prefix": 0
+    },
+    {
+      "slot": 16,
+      "netId": 784,
+      "stack": 9999,
+      "prefix": 0
+    },
+    {
+      "slot": 17,
+      "netId": 783,
+      "stack": 9999,
+      "prefix": 0
+    },
+    {
+      "slot": 19,
+      "netId": 3569,
+      "stack": 9999,
+      "prefix": 0
+    },
+    {
+      "slot": 29,
+      "netId": 5005,
+      "stack": 9999,
+      "prefix": 0
+    },
+    {
+      "slot": 30,
+      "netId": 36,
+      "stack": 9999,
+      "prefix": 0
+    },
+    {
+      "slot": 31,
+      "netId": 9,
+      "stack": 9999,
+      "prefix": 0
+    },
+    {
+      "slot": 32,
+      "netId": 3723,
+      "stack": 9999,
+      "prefix": 0
+    },
+    {
+      "slot": 33,
+      "netId": 2274,
+      "stack": 9999,
+      "prefix": 0
+    },
+    {
+      "slot": 34,
+      "netId": 1702,
+      "stack": 9999,
+      "prefix": 0
+    },
+    {
+      "slot": 35,
+      "netId": 1702,
+      "stack": 9999,
+      "prefix": 0
+    },
+    {
+      "slot": 36,
+      "netId": 4485,
+      "stack": 9999,
+      "prefix": 0
+    },
+    {
+      "slot": 37,
+      "netId": 4484,
+      "stack": 9999,
+      "prefix": 0
+    },
+    {
+      "slot": 38,
+      "netId": 3214,
+      "stack": 9999,
+      "prefix": 0
+    },
+    {
+      "slot": 47,
+      "netId": 346,
+      "stack": 9999,
+      "prefix": 0
+    },
+    {
+      "slot": 48,
+      "netId": 4131,
+      "stack": 9999,
+      "prefix": 0
+    },
+    {
+      "slot": 49,
+      "netId": 3813,
+      "stack": 9999,
+      "prefix": 0
+    },
+    {
+      "slot": 50,
+      "netId": 74,
+      "stack": 9999,
+      "prefix": 0
+    },
+    {
+      "slot": 51,
+      "netId": 74,
+      "stack": 9999,
+      "prefix": 0
+    },
+    {
+      "slot": 52,
+      "netId": 74,
+      "stack": 9999,
+      "prefix": 0
+    },
+    {
+      "slot": 53,
+      "netId": 74,
+      "stack": 9999,
+      "prefix": 0
+    },
+    {
+      "slot": 54,
+      "netId": 4458,
+      "stack": 9999,
+      "prefix": 0
+    },
+    {
+      "slot": 55,
+      "netId": 530,
+      "stack": 9999,
+      "prefix": 0
+    },
+    {
+      "slot": 56,
+      "netId": 530,
+      "stack": 9999,
+      "prefix": 0
+    },
+    {
+      "slot": 57,
+      "netId": 849,
+      "stack": 9999,
+      "prefix": 0
+    },
+    {
+      "slot": 59,
+      "netId": 2763,
+      "stack": 1,
+      "prefix": 0
+    },
+    {
+      "slot": 60,
+      "netId": 2764,
+      "stack": 1,
+      "prefix": 0
+    },
+    {
+      "slot": 61,
+      "netId": 2765,
+      "stack": 1,
+      "prefix": 0
+    },
+    {
+      "slot": 62,
+      "netId": 4954,
+      "stack": 1,
+      "prefix": 0
+    },
+    {
+      "slot": 63,
+      "netId": 4989,
+      "stack": 1,
+      "prefix": 0
+    },
+    {
+      "slot": 64,
+      "netId": 3110,
+      "stack": 1,
+      "prefix": 0
+    },
+    {
+      "slot": 65,
+      "netId": 984,
+      "stack": 1,
+      "prefix": 0
+    },
+    {
+      "slot": 66,
+      "netId": 5000,
+      "stack": 1,
+      "prefix": 0
+    },
+    {
+      "slot": 99,
+      "netId": 74,
+      "stack": 9999,
+      "prefix": 0
+    },
+    {
+      "slot": 100,
+      "netId": 74,
+      "stack": 9999,
+      "prefix": 0
+    },
+    {
+      "slot": 179,
+      "netId": 72,
+      "stack": 34,
+      "prefix": 0
+    }
+  ]
+}

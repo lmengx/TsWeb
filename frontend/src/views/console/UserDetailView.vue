@@ -1227,6 +1227,27 @@ const importLoading = ref(false)
 const importSuccess = ref('')
 const importConfirmData = ref(null)
 const importClearUnspecified = ref(false)
+const presetExportOpen = ref(false)
+const presetImportOpen = ref(false)
+const selectedImportMethod = ref('')
+
+const selectImportMethod = (method) => {
+  selectedImportMethod.value = method
+  if (method === 'preset') {
+    loadPresetList()
+  }
+}
+
+const handleDropFile = (e) => {
+  const file = e.dataTransfer?.files?.[0]
+  if (!file) return
+  const reader = new FileReader()
+  reader.onload = (ev) => {
+    importJson.value = ev.target?.result || ''
+    parseImportData()
+  }
+  reader.readAsText(file)
+}
 
 const buildExportData = () => {
   const username = userDetails.value?.Username || userDetails.value?.name || 'unknown'
@@ -1313,6 +1334,85 @@ const parseImportData = () => {
     importParsedData.value = data
   } catch {
     importError.value = 'JSON 解析失败，请检查格式'
+  }
+}
+
+// === 预设管理 ===
+const presetList = ref([])
+const presetLoading = ref(false)
+const presetName = ref('')
+const presetSaving = ref(false)
+const presetSaveError = ref('')
+const presetSaveSuccess = ref('')
+const presetsLoaded = ref(false)
+
+const exportAsPreset = async () => {
+  const name = presetName.value.trim()
+  if (!name) {
+    presetSaveError.value = '请输入预设名称'
+    return
+  }
+  presetSaving.value = true
+  presetSaveError.value = ''
+  presetSaveSuccess.value = ''
+  try {
+    const data = buildExportData()
+    const res = await fetch('/api/presets/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, data })
+    })
+    const result = await res.json()
+    if (result.success) {
+      presetSaveSuccess.value = `预设「${result.name}」已保存`
+      presetName.value = ''
+      loadPresetList()
+    } else {
+      presetSaveError.value = result.error || '保存失败'
+    }
+  } catch (err) {
+    presetSaveError.value = '保存失败: ' + err.message
+  }
+  presetSaving.value = false
+}
+
+const loadPresetList = async () => {
+  presetLoading.value = true
+  try {
+    const res = await fetch('/api/presets/list')
+    const result = await res.json()
+    presetList.value = result.presets || []
+    presetsLoaded.value = true
+  } catch (err) {
+    console.error('加载预设列表失败:', err)
+  }
+  presetLoading.value = false
+}
+
+const loadPreset = async (name) => {
+  try {
+    const res = await fetch(`/api/presets/read?name=${encodeURIComponent(name)}`)
+    const result = await res.json()
+    if (result.success) {
+      importJson.value = JSON.stringify(result.data, null, 2)
+      parseImportData()
+    } else {
+      importError.value = result.error || '读取预设失败'
+    }
+  } catch (err) {
+    importError.value = '读取预设失败: ' + err.message
+  }
+}
+
+const deletePreset = async (name) => {
+  try {
+    const res = await fetch(`/api/presets/delete?name=${encodeURIComponent(name)}`, { method: 'DELETE' })
+    const result = await res.json()
+    if (result.success) {
+      loadPresetList()
+    }
+  } catch (err) {
+    console.error('删除预设失败:', err)
   }
 }
 
@@ -2238,19 +2338,78 @@ onMounted(() => {
             <div class="ie-json-preview">
               <pre>{{ JSON.stringify(buildExportData(), null, 2) }}</pre>
             </div>
+
+            <div class="ie-preset-section">
+              <div class="ie-preset-header" @click="presetExportOpen = !presetExportOpen">
+                <span class="ie-preset-toggle">{{ presetExportOpen ? '▼' : '▶' }}</span>
+                <span>导出为预设</span>
+              </div>
+              <div v-if="presetExportOpen" class="ie-preset-body">
+                <div class="ie-preset-row">
+                  <input v-model="presetName" type="text" class="form-input" placeholder="输入预设名称" @keyup.enter="exportAsPreset" />
+                  <button @click="exportAsPreset" :disabled="presetSaving" class="ie-action-btn" style="flex-shrink:0">
+                    {{ presetSaving ? '保存中...' : '保存' }}
+                  </button>
+                </div>
+                <div v-if="presetSaveError" class="give-error" style="margin-top:8px">{{ presetSaveError }}</div>
+                <div v-if="presetSaveSuccess" class="give-success" style="margin-top:8px">{{ presetSaveSuccess }}</div>
+              </div>
+            </div>
           </div>
 
           <!-- 导入面板 -->
           <div v-else>
-            <p class="ie-desc">粘贴或上传从 TSWeb 导出的 JSON 文件，将属性和背包数据写入当前玩家。</p>
-            
-            <div class="ie-import-methods">
-              <textarea v-model="importJson" class="ie-textarea" placeholder="在此粘贴 JSON 数据..." rows="6" @input="parseImportData"></textarea>
-              <label class="ie-file-label">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                上传 .json 文件
-                <input type="file" accept=".json" class="ie-file-input" @change="handleImportFileUpload" />
-              </label>
+            <p class="ie-desc">选择一种方式导入属性和背包数据到当前玩家：</p>
+
+            <!-- 三张选择卡片 -->
+            <div class="ie-method-picker">
+              <div class="ie-pick-card" :class="{ active: selectedImportMethod === 'preset' }" @click="selectImportMethod('preset')">
+                <span class="ie-pick-icon">📦</span>
+                <span class="ie-pick-label">从预设导入</span>
+                <span class="ie-pick-desc">一键快速导入</span>
+              </div>
+              <div class="ie-pick-card" :class="{ active: selectedImportMethod === 'paste' }" @click="selectImportMethod('paste')">
+                <span class="ie-pick-icon">📋</span>
+                <span class="ie-pick-label">粘贴 JSON</span>
+                <span class="ie-pick-desc">手动粘贴数据</span>
+              </div>
+              <div class="ie-pick-card" :class="{ active: selectedImportMethod === 'upload' }" @click="selectImportMethod('upload')">
+                <span class="ie-pick-icon">📁</span>
+                <span class="ie-pick-label">上传文件</span>
+                <span class="ie-pick-desc">选择 .json 文件</span>
+              </div>
+            </div>
+
+            <!-- 预设内容 -->
+            <div v-if="selectedImportMethod === 'preset'" class="ie-method-panel">
+              <div v-if="presetLoading" class="loading-state" style="padding:16px"><p>加载中...</p></div>
+              <div v-else-if="presetList.length === 0" class="ie-panel-empty">
+                <p>暂无预设，请先在导出面板中保存预设。</p>
+                <button class="ie-action-btn" @click="importExportTab = 'export'">去导出</button>
+              </div>
+              <div v-else class="ie-preset-list">
+                <div v-for="p in presetList" :key="p.name" class="ie-preset-item" @click="loadPreset(p.name)">
+                  <div class="ie-preset-item-info">
+                    <span class="ie-preset-item-name">{{ p.name }}</span>
+                    <span class="ie-preset-item-date">{{ new Date(p.lastModified).toLocaleString('zh-CN') }}</span>
+                  </div>
+                  <button class="ie-preset-item-del" @click.stop="deletePreset(p.name)" title="删除">×</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- 粘贴内容 -->
+            <div v-if="selectedImportMethod === 'paste'" class="ie-method-panel">
+              <textarea v-model="importJson" class="ie-textarea" placeholder="在此粘贴 JSON 数据..." rows="8" @input="parseImportData"></textarea>
+            </div>
+
+            <!-- 上传内容 -->
+            <div v-if="selectedImportMethod === 'upload'" class="ie-method-panel">
+              <div class="ie-upload-zone" @click="$refs.importFileInput.click()" @dragover.prevent @drop.prevent="handleDropFile">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                <span class="ie-upload-text">点击选择或拖拽 .json 文件到此处</span>
+                <input ref="importFileInput" type="file" accept=".json" class="ie-file-input" @change="handleImportFileUpload" />
+              </div>
             </div>
 
             <div v-if="importError" class="give-error">{{ importError }}</div>
@@ -4477,5 +4636,259 @@ onMounted(() => {
   width: 16px;
   height: 16px;
   cursor: pointer;
+}
+
+/* 预设 */
+.ie-preset-section {
+  margin-top: 16px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.ie-preset-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px;
+  background: var(--bg-tertiary);
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  user-select: none;
+  transition: background 0.2s;
+}
+
+.ie-preset-header:hover {
+  background: var(--bg-hover);
+}
+
+.ie-preset-toggle {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  width: 14px;
+  flex-shrink: 0;
+}
+
+.ie-preset-body {
+  padding: 12px 14px;
+  border-top: 1px solid var(--border-light);
+}
+
+.ie-preset-row {
+  display: flex;
+  gap: 8px;
+}
+
+.ie-preset-row .form-input {
+  flex: 1;
+}
+
+.ie-preset-empty {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  padding: 8px 0;
+  text-align: center;
+}
+
+.ie-preset-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.ie-preset-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.ie-preset-item:hover {
+  background: var(--bg-hover);
+}
+
+.ie-preset-item-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.ie-preset-item-name {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.ie-preset-item-date {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+.ie-preset-item-del {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1.1rem;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  transition: all 0.15s;
+  line-height: 1;
+}
+
+.ie-preset-item-del:hover {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+/* 导入方式卡片 */
+.ie-method-card {
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.ie-method-card + .ie-method-card {
+  margin-top: 12px;
+}
+
+.ie-method-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border-light);
+}
+
+.ie-method-icon {
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.ie-method-title {
+  flex: 1;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.ie-method-toggle {
+  font-size: 0.75rem;
+  color: var(--accent-primary);
+  background: none;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  padding: 2px 10px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+/* 导入方式三卡片选择器 */
+.ie-method-picker {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.ie-pick-card {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 18px 8px;
+  background: var(--bg-tertiary);
+  border: 2px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.ie-pick-card:hover {
+  border-color: var(--accent-primary);
+  background: rgba(99, 102, 241, 0.06);
+}
+
+.ie-pick-card.active {
+  border-color: var(--accent-primary);
+  background: rgba(99, 102, 241, 0.1);
+  box-shadow: 0 0 0 1px var(--accent-primary);
+}
+
+.ie-pick-icon {
+  font-size: 1.6rem;
+  line-height: 1;
+}
+
+.ie-pick-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.ie-pick-desc {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.ie-method-panel {
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  margin-bottom: 16px;
+}
+
+.ie-panel-empty {
+  text-align: center;
+  padding: 24px;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.ie-panel-empty p {
+  margin: 0 0 12px;
+}
+
+.ie-upload-zone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 32px 20px;
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: all 0.2s;
+}
+
+.ie-upload-zone:hover {
+  background: rgba(99, 102, 241, 0.04);
+  color: var(--accent-primary);
+}
+
+.ie-upload-text {
+  font-size: 0.85rem;
+}
+
+.ie-method-panel .ie-textarea {
+  border: none;
+  border-radius: 0;
+}
+
+.ie-method-panel .ie-textarea:focus {
+  box-shadow: none;
+}
+
+.ie-method-panel .ie-preset-list {
+  padding: 8px;
 }
 </style>
