@@ -5,18 +5,18 @@ import { getConfig } from '../config.js'
 import tshockService from '../services/tshockService.js'
 import { validateSetupToken } from '../setupToken.js'
 
-let JWT_SECRET = 'your-secret-key-here-change-in-production'
 let CHALLENGE_EXPIRE = 120000
 
 const serverKeyPairs = new Map()
 
 async function getJwtSecret() {
-  if (JWT_SECRET === 'your-secret-key-here-change-in-production') {
-    const config = await getConfig()
-    JWT_SECRET = config.security.jwtSecret || 'your-secret-key-here-change-in-production'
-    CHALLENGE_EXPIRE = config.security.challengeExpire || 120000
-  }
-  return JWT_SECRET
+  const config = await getConfig()
+  return config?.security?.jwtSecret || 'fallback-secret'
+}
+
+async function getChallengeExpire() {
+  const config = await getConfig()
+  return config?.security?.challengeExpire || 120000
 }
 
 async function getTokenExpire() {

@@ -1,14 +1,9 @@
 import jwt from 'jsonwebtoken'
 import { getConfig } from '../config.js'
 
-let JWT_SECRET = 'your-secret-key-here-change-in-production'
-
 async function getJwtSecret() {
-  if (JWT_SECRET === 'your-secret-key-here-change-in-production') {
-    const config = await getConfig()
-    JWT_SECRET = config.security.jwtSecret || 'your-secret-key-here-change-in-production'
-  }
-  return JWT_SECRET
+  const config = await getConfig()
+  return config?.security?.jwtSecret || 'fallback-secret'
 }
 
 export const verifyToken = async (req, res, next) => {
