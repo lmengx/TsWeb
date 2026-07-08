@@ -90,6 +90,47 @@ async function loadFileRules() {
 }
 
 // =====================================================
+// 带端口容错的 listen 辅助函数
+// 端口被占用时自动 +1 重试，最多尝试 10 次
+// =====================================================
+function listenWithFallback(app, port, host, onListening) {
+  const maxAttempts = 10
+  let currentPort = port
+  let attempts = 0
+
+  function tryListen() {
+    const server = app.listen(currentPort, host)
+
+    server.on('listening', () => {
+      console.log(`  Web服务器已在端口 ${currentPort} 上运行`)
+      console.log(`  可访问地址: http://${host === '0.0.0.0' ? 'localhost' : host}:${currentPort}`)
+      if (currentPort !== port) {
+        console.log(`  [注意] 原先端口 ${port} 被占用，自动切换到了端口 ${currentPort}`)
+      }
+      if (onListening) onListening(currentPort)
+    })
+
+    server.on('error', (err) => {
+      if (err.code === 'EADDRINUSE' && attempts < maxAttempts) {
+        attempts++
+        console.warn(`  [WARN] 端口 ${currentPort} 已被占用，尝试端口 ${currentPort + 1}... (${attempts}/${maxAttempts})`)
+        currentPort++
+        // 立即重试下一个端口
+        setImmediate(tryListen)
+      } else if (err.code === 'EADDRINUSE') {
+        console.error('  [ERROR] 已尝试 10 个端口均被占用，无法启动服务器')
+        console.error('  请手动关闭占用端口的程序后重启')
+        // 不退出进程，让控制台命令仍然可用
+      } else {
+        console.error('  [ERROR] 服务器启动失败:', err.message)
+      }
+    })
+  }
+
+  tryListen()
+}
+
+// =====================================================
 // 启动服务器
 // =====================================================
 async function startServer() {
@@ -105,18 +146,15 @@ async function startServer() {
     console.log('')
     console.log('  Setup Token: ' + token)
     console.log('')
-    console.log('  请访问:')
-    console.log('  http://localhost:' + port + '/setup/intro?token=' + token)
-    console.log('')
 
     // 首次启动不阻塞，先加载白名单再 listen
     loadFileRules()
 
-    app.listen(port, '0.0.0.0', () => {
-      console.log('  Web服务器已在端口 ' + port + ' 上运行')
-      console.log('  可访问地址: http://0.0.0.0:' + port + '/setup/intro?token=' + token)
+    listenWithFallback(app, port, '0.0.0.0', (actualPort) => {
+      console.log('  请访问:')
+      console.log('  http://localhost:' + actualPort + '/setup/intro?token=' + token)
       console.log('')
-      const url = 'http://localhost:' + port + '/setup/intro?token=' + token
+      const url = 'http://localhost:' + actualPort + '/setup/intro?token=' + token
       exec('start ' + url, (err) => {
         if (err) {
           console.log('  请手动访问: ' + url)
@@ -153,9 +191,10 @@ async function startServer() {
   // 提前加载白名单（不阻塞 listen）
   loadFileRules()
 
-  // 启动 HTTP 服务 — 使用普通同步回调，避免 async 回调的 Promise 陷阱
-  app.listen(port, host, () => {
-    console.log(`Server running on http://${host}:${port}`)
+  // 启动 HTTP 服务 — 使用带端口容错的 listen
+  listenWithFallback(app, port, host, (actualPort) => {
+    const displayHost = host === '0.0.0.0' ? 'localhost' : host
+    console.log(`Server running on http://${displayHost}:${actualPort}`)
     if (config.tshock?.host && config.tshock?.port) {
       console.log(`TShock API: ${config.tshock.host}:${config.tshock.port}`)
     }
