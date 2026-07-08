@@ -102,13 +102,13 @@ export const editInventory = async (req, res) => {
 }
 
 export const batchEdit = async (req, res) => {
-  const { player, data } = req.body
+  const { player, data, clearUnspecified } = req.body
 
   if (!player || !data) {
     return res.status(400).json({ error: 'player and data are required' })
   }
 
-  const result = await tshockService.batchEdit(player, data)
+  const result = await tshockService.batchEdit(player, data, !!clearUnspecified)
   res.json(result)
 }
 
