@@ -30,6 +30,9 @@ process.on('unhandledRejection', (reason) => {
   console.error('[FATAL] 未处理的Promise拒绝:', reason)
 })
 
+// 设置控制台标题
+process.title = 'TSWeb--made by lmx12330'
+
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
