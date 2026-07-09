@@ -1552,34 +1552,36 @@ onMounted(() => {
           <div class="info-item">
             <dt>已知IP</dt>
             <dd class="ip-display">
-              <div class="ip-summary" @click="showIpPopup = true">
+              <div class="ip-summary" @click="showIpPopup = !showIpPopup">
                 <span class="ip-text">{{ firstIP }}</span>
-                <span v-if="ipList.length > 1" class="ip-expand-hint">
-                  展开全部
-                </span>
-                <span class="ip-expand-arrow">▶</span>
+                <span v-if="ipList.length > 1" class="ip-count-badge">+{{ ipList.length - 1 }}</span>
+                <svg class="ip-chevron" :class="{ open: showIpPopup }" viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
+                  <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"/>
+                </svg>
               </div>
+              <!-- IP 弹出卡片 -->
+              <Transition name="ip-fade">
+                <div v-if="showIpPopup" class="ip-popover" @click.stop>
+                  <div class="ip-popover-arrow"></div>
+                  <div class="ip-popover-header">
+                    <span>所有已知 IP</span>
+                    <span class="ip-popover-count">{{ ipList.length }} 个</span>
+                  </div>
+                  <div class="ip-popover-list">
+                    <div v-for="(ip, idx) in ipList" :key="idx" class="ip-popover-item">
+                      <span class="ip-popover-dot"></span>
+                      <span class="ip-popover-addr">{{ ip }}</span>
+                    </div>
+                    <div v-if="ipList.length === 0" class="ip-popover-empty">无 IP 记录</div>
+                  </div>
+                </div>
+              </Transition>
+              <!-- 点击外部关闭的透明层 -->
+              <div v-if="showIpPopup" class="ip-backdrop" @click="showIpPopup = false"></div>
             </dd>
           </div>
         </dl>
-
-        <!-- IP 浮动弹窗 -->
-        <div v-if="showIpPopup" class="ip-popup-overlay" @click.self="showIpPopup = false">
-            <div class="ip-popup">
-              <div class="ip-popup-header">
-                <span>所有已知 IP</span>
-                <button class="ip-popup-close" @click="showIpPopup = false">×</button>
-              </div>
-              <div class="ip-popup-list">
-                <div v-for="(ip, idx) in ipList" :key="idx" class="ip-popup-item">
-                  <span class="ip-popup-idx">{{ idx + 1 }}.</span>
-                  <span class="ip-popup-addr">{{ ip }}</span>
-                </div>
-                <div v-if="ipList.length === 0" class="ip-popup-empty">无</div>
-              </div>
-            </div>
-          </div>
-        </div>
+      </div>
 
       <div class="detail-grid">
         <div class="detail-left">
@@ -1624,7 +1626,7 @@ onMounted(() => {
             </div>
           </div>
         </div>
-        </div>
+      </div>
 
         <div class="detail-right">
       <div class="daily-stats-section">
@@ -2964,18 +2966,23 @@ onMounted(() => {
 }
 
 .ip-summary {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   cursor: pointer;
-  padding: 4px 8px;
+  padding: 4px 10px;
   border-radius: var(--radius-sm);
-  transition: background 0.2s ease;
+  transition: all 0.2s ease;
   user-select: none;
+  position: relative;
 }
 
 .ip-summary:hover {
   background: var(--bg-hover);
+}
+
+.ip-display {
+  position: relative;
 }
 
 .ip-display .ip-text {
@@ -2984,97 +2991,137 @@ onMounted(() => {
   font-weight: 500;
 }
 
-.ip-expand-hint {
-  font-size: 0.75rem;
-  color: var(--accent-primary);
-  background: rgba(99, 102, 241, 0.1);
-  padding: 2px 8px;
-  border-radius: 10px;
-}
-
-.ip-expand-arrow {
+.ip-count-badge {
   font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--accent-primary);
+  background: rgba(99, 102, 241, 0.12);
+  padding: 1px 7px;
+  border-radius: 10px;
+  line-height: 1.4;
+}
+
+.ip-chevron {
   color: var(--text-muted);
+  transition: transform 0.25s ease;
 }
 
-/* IP 浮动弹窗 */
-.ip-popup-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 9999;
-  background: rgba(0, 0, 0, 0.3);
-  display: flex;
-  align-items: center;
-  justify-content: center;
+.ip-chevron.open {
+  transform: rotate(180deg);
 }
 
-.ip-popup {
+/* IP 弹出卡片 (popover) */
+.ip-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 999;
   background: var(--bg-card);
   border: 1px solid var(--border-light);
   border-radius: var(--radius-lg);
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
-  min-width: 320px;
-  max-width: 480px;
-  max-height: 70vh;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.2);
+  min-width: 280px;
+  max-width: 400px;
+  max-height: 300px;
   display: flex;
   flex-direction: column;
+  transform-origin: top left;
 }
 
-.ip-popup-header {
+.ip-popover-arrow {
+  position: absolute;
+  top: -5px;
+  left: 24px;
+  width: 10px;
+  height: 10px;
+  background: var(--bg-card);
+  border-left: 1px solid var(--border-light);
+  border-top: 1px solid var(--border-light);
+  transform: rotate(45deg);
+  z-index: -1;
+}
+
+.ip-popover-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 16px;
+  padding: 10px 14px;
   border-bottom: 1px solid var(--border-light);
   font-weight: 600;
-  font-size: 0.95rem;
+  font-size: 0.88rem;
 }
 
-.ip-popup-close {
-  background: none;
-  border: none;
-  color: var(--text-secondary);
-  font-size: 1.3rem;
-  cursor: pointer;
-  padding: 0 4px;
-  line-height: 1;
-  transition: color 0.2s;
+.ip-popover-count {
+  font-weight: 400;
+  font-size: 0.78rem;
+  color: var(--text-muted);
 }
 
-.ip-popup-close:hover {
-  color: var(--text-primary);
-}
-
-.ip-popup-list {
-  padding: 12px 16px;
+.ip-popover-list {
+  padding: 6px 8px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 2px;
 }
 
-.ip-popup-item {
+.ip-popover-item {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 0.9rem;
+  font-size: 0.85rem;
   font-family: 'Courier New', monospace;
-  padding: 4px 0;
+  padding: 5px 8px;
+  border-radius: var(--radius-sm);
+  transition: background 0.15s;
 }
 
-.ip-popup-idx {
-  color: var(--text-muted);
-  min-width: 24px;
+.ip-popover-item:hover {
+  background: var(--bg-hover);
 }
 
-.ip-popup-addr {
+.ip-popover-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent-primary);
+  flex-shrink: 0;
+  opacity: 0.5;
+}
+
+.ip-popover-addr {
   color: var(--text-primary);
 }
 
-.ip-popup-empty {
+.ip-popover-empty {
   color: var(--text-muted);
   text-align: center;
-  padding: 16px;
+  padding: 20px;
+  font-size: 0.85rem;
+}
+
+/* IP 弹出卡片动画 */
+.ip-fade-enter-active {
+  transition: all 0.2s ease-out;
+}
+.ip-fade-leave-active {
+  transition: all 0.15s ease-in;
+}
+.ip-fade-enter-from {
+  opacity: 0;
+  transform: translateY(-6px) scale(0.96);
+}
+.ip-fade-leave-to {
+  opacity: 0;
+  transform: translateY(-4px) scale(0.97);
+}
+
+/* 点击外部关闭的透明层 */
+.ip-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 998;
+  background: transparent;
 }
 
 .result-error {
