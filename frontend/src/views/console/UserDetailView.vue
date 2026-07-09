@@ -321,25 +321,46 @@ const ipLocations = ref({})
 const ipLookupLoading = ref(false)
 const firstIpLoaded = ref(false)
 
-// 自动查询第一个 IP 的地理位置（未展开时显示）
+// 判断是否为本地/内网 IP
+const isLocalIp = (ip) => {
+  if (!ip) return true
+  if (ip === '::1' || ip === 'localhost' || ip === '127.0.0.1') return true
+  if (ip.startsWith('10.') || ip.startsWith('192.168.')) return true
+  if (ip.startsWith('172.') && /^172\.(1[6-9]|2\d|3[01])/.test(ip)) return true
+  return false
+}
+
+// 自动查询第一个可查的外网 IP，本地 IP 直接跳过
 const queryFirstIpLocation = async () => {
-  const ip = ipList.value[0]
-  if (!ip || firstIpLoaded.value) return
+  if (firstIpLoaded.value) return
   ipLookupLoading.value = true
-  try {
-    const res = await fetch(`/api/ip-lookup?ip=${encodeURIComponent(ip)}`)
-    const data = await res.json()
-    if (data && !data.err) {
-      ipLocations.value = { [ip]: data }
+  for (const ip of ipList.value) {
+    if (isLocalIp(ip)) {
+      // 本地 IP 直接标记，不发起请求
+      ipLocations.value = { ...ipLocations.value, [ip]: { pro: '', city: '', addr: '', _local: true } }
       firstIpLoaded.value = true
+      continue
     }
-  } catch {}
+    try {
+      const res = await fetch(`/api/ip-lookup?ip=${encodeURIComponent(ip)}`)
+      const data = await res.json()
+      if (data && !data.err && data.pro) {
+        ipLocations.value = { ...ipLocations.value, [ip]: data }
+        firstIpLoaded.value = true
+        break
+      }
+    } catch {}
+  }
   ipLookupLoading.value = false
 }
 
 // 手动查询单个 IP（展开后点击按钮触发）
 const querySingleIp = async (ip) => {
   if (ipLocations.value[ip]) return // 已有缓存
+  if (isLocalIp(ip)) {
+    ipLocations.value = { ...ipLocations.value, [ip]: { pro: '', city: '', addr: '', _local: true } }
+    return
+  }
   ipLocations.value = { ...ipLocations.value, [ip]: { _loading: true } }
   try {
     const res = await fetch(`/api/ip-lookup?ip=${encodeURIComponent(ip)}`)
@@ -356,7 +377,9 @@ const querySingleIp = async (ip) => {
 
 const formatIpLocation = (ip) => {
   const loc = ipLocations.value[ip]
-  if (!loc || loc._loading) return ''
+  if (!loc) return ''
+  if (loc._local) return '本地 IP'
+  if (loc._loading) return ''
   if (loc._err) return loc._err
   const parts = []
   if (loc.pro) parts.push(loc.pro)
@@ -3066,16 +3089,18 @@ onMounted(() => {
 }
 
 .ip-loc-badge {
-  font-size: 0.7rem;
-  color: var(--text-muted);
-  background: var(--bg-tertiary);
-  padding: 1px 7px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--accent-secondary);
+  background: rgba(16, 185, 129, 0.1);
+  padding: 2px 9px;
   border-radius: 10px;
   line-height: 1.4;
-  max-width: 200px;
+  max-width: 220px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  border: 1px solid rgba(16, 185, 129, 0.15);
 }
 
 .ip-chevron {
