@@ -293,7 +293,7 @@ namespace TShockData
                 {
                     return new RestObject("404")
                     {
-                        { "error", "该QQ未绑定任何角色" }
+                        { "error", "你还没有绑定角色" }
                     };
                 }
 
