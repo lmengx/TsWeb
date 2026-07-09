@@ -8,6 +8,7 @@ import ServerError from '../views/ServerError.vue'
 import Setup from '../views/Setup.vue'
 import SetupIntro from '../views/SetupIntro.vue'
 import PluginSetup from '../views/PluginSetup.vue'
+import NotFound from '../views/NotFound.vue'
 import { isAdmin } from '../utils/authHelper.js'
 
 const routes = [
@@ -203,6 +204,11 @@ const routes = [
         meta: { requiresAuth: true }
       }
     ]
+  },
+  {
+    path: '/:pathMatch(.*)*',
+    name: 'NotFound',
+    component: NotFound
   }
 ]
 
