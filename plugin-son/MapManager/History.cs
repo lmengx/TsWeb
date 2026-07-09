@@ -20,7 +20,7 @@ public class MapManager : TerrariaPlugin
     public const int SaveCount = 10;
 
     private readonly bool[] AwaitingHistory = new bool[256];
-    public override string Author => "Cracker64 & Zaicon & Cai & 肝帝熙恩";
+    public override string Author => "lmx12330";
 
     readonly CancellationTokenSource Cancel = new();
     private readonly BlockingCollection<HCommand> CommandQueue = new();
@@ -676,10 +676,10 @@ public class MapManager : TerrariaPlugin
         }
     }
 
-    readonly bool[] breakableBottom = new bool[693];
-    readonly bool[] breakableTop = new bool[693];
-    readonly bool[] breakableSides = new bool[693];
-    readonly bool[] breakableWall = new bool[693];
+    readonly bool[] breakableBottom = new bool[5000];
+    readonly bool[] breakableTop = new bool[5000];
+    readonly bool[] breakableSides = new bool[5000];
+    readonly bool[] breakableWall = new bool[5000];
     public static readonly int[] breakableBottomIndex = { 4, 10, 11, 13, 14, 15, 16, 17, 18, 21, 26, 27, 29, 33, 35, 49, 50, 55, 77, 78,
         79, 81, 82, 85, 86, 87, 88, 89, 90, 92, 93, 94, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 114, 125, 128, 129, 132, 133,
         134, 135, 136, 138, 139, 142, 143, 144, 149, 173, 174, 178, 186, 187, 207, 209, 212, 215, 216, 217, 218, 219, 220, 228, 231, 235,
@@ -712,7 +712,7 @@ public class MapManager : TerrariaPlugin
             case 20: //trykilltile
                 var tileType = Main.tile[X, Y].type;
                 byte pStyle = 0;
-                if (Main.tile[X, Y].active() && !Main.tileCut[tileType] && tileType != 127)
+                if (Main.tile[X, Y].active() && tileType < 645 && !Main.tileCut[tileType] && tileType != 127)
                 {
                     AdjustFurniture(ref X, ref Y, ref pStyle);
                     //Don't repeat the same tile, and it is possible to create something that breaks thousands of tiles with one edit, is this a sane limit?
