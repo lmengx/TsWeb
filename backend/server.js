@@ -18,6 +18,7 @@ import presetRoutes from './routes/presetRoutes.js'
 import { loadRules as loadFileAccessRules } from './services/fileAccessService.js'
 import tshockService from './services/tshockService.js'
 import readline from 'readline'
+import iconv from 'iconv-lite'
 
 // =====================================================
 // 全局错误保护 - 防止未捕获异常/拒绝导致进程退出
@@ -71,6 +72,26 @@ app.get('/api/status', (req, res) => {
     connected: isConnected,
     message: isConnected ? 'TShock服务器已连接' : '服务器连接失败，请联系管理员配置后重启服务'
   })
+})
+
+// IP 地理位置查询代理（绕过前端 CORS 限制，处理 GBK 编码）
+app.get('/api/ip-lookup', async (req, res) => {
+  const { ip } = req.query
+  if (!ip) return res.status(400).json({ error: 'Missing ip parameter' })
+  try {
+    const response = await fetch(`https://whois.pconline.com.cn/ipJson.jsp?ip=${encodeURIComponent(ip)}&json=true`)
+    // 读取原始 buffer，pconline 返回 GBK 编码
+    const buffer = Buffer.from(await response.arrayBuffer())
+    const text = iconv.decode(buffer, 'gbk')
+    try {
+      const data = JSON.parse(text)
+      res.json(data)
+    } catch {
+      res.json({ ip, pro: '', city: '', addr: '', err: 'parse error' })
+    }
+  } catch (err) {
+    res.json({ ip, pro: '', city: '', addr: '', err: err.message })
+  }
 })
 
 app.get(/^\/.*$/, (req, res) => {

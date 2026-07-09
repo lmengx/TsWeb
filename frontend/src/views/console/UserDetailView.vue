@@ -316,6 +316,63 @@ const ipList = computed(() => {
 })
 const firstIP = computed(() => ipList.value[0] || '无')
 
+// IP 地理位置查询
+const ipLocations = ref({})
+const ipLookupLoading = ref(false)
+const firstIpLoaded = ref(false)
+
+// 自动查询第一个 IP 的地理位置（未展开时显示）
+const queryFirstIpLocation = async () => {
+  const ip = ipList.value[0]
+  if (!ip || firstIpLoaded.value) return
+  ipLookupLoading.value = true
+  try {
+    const res = await fetch(`/api/ip-lookup?ip=${encodeURIComponent(ip)}`)
+    const data = await res.json()
+    if (data && !data.err) {
+      ipLocations.value = { [ip]: data }
+      firstIpLoaded.value = true
+    }
+  } catch {}
+  ipLookupLoading.value = false
+}
+
+// 手动查询单个 IP（展开后点击按钮触发）
+const querySingleIp = async (ip) => {
+  if (ipLocations.value[ip]) return // 已有缓存
+  ipLocations.value = { ...ipLocations.value, [ip]: { _loading: true } }
+  try {
+    const res = await fetch(`/api/ip-lookup?ip=${encodeURIComponent(ip)}`)
+    const data = await res.json()
+    if (data && !data.err) {
+      ipLocations.value = { ...ipLocations.value, [ip]: data }
+    } else {
+      ipLocations.value = { ...ipLocations.value, [ip]: { _err: '无数据' } }
+    }
+  } catch {
+    ipLocations.value = { ...ipLocations.value, [ip]: { _err: '查询失败' } }
+  }
+}
+
+const formatIpLocation = (ip) => {
+  const loc = ipLocations.value[ip]
+  if (!loc || loc._loading) return ''
+  if (loc._err) return loc._err
+  const parts = []
+  if (loc.pro) parts.push(loc.pro)
+  if (loc.city && loc.city !== loc.pro) parts.push(loc.city)
+  if (loc.addr) {
+    const addr = loc.addr.replace(loc.pro, '').replace(loc.city || '', '').trim()
+    if (addr) parts.push(addr)
+  }
+  return parts.join(' ') || '未知'
+}
+
+// 用户信息加载完成后自动查询第一个 IP
+watch(userDetails, (val) => {
+  if (val) queryFirstIpLocation()
+})
+
 const itemImageUrl = computed(() => {
   if (!giveSelectedItemId.value || giveSelectedItemId.value <= 0) return null
   return `/assets/img/img/Item_${giveSelectedItemId.value}.png`
@@ -1554,6 +1611,7 @@ onMounted(() => {
             <dd class="ip-display">
               <div class="ip-summary" @click="showIpPopup = !showIpPopup">
                 <span class="ip-text">{{ firstIP }}</span>
+                <span v-if="ipLocations[firstIP] && !ipLocations[firstIP]._loading && !ipLocations[firstIP]._err" class="ip-loc-badge">{{ formatIpLocation(firstIP) }}</span>
                 <span v-if="ipList.length > 1" class="ip-count-badge">+{{ ipList.length - 1 }}</span>
                 <svg class="ip-chevron" :class="{ open: showIpPopup }" viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
                   <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"/>
@@ -1570,7 +1628,13 @@ onMounted(() => {
                   <div class="ip-popover-list">
                     <div v-for="(ip, idx) in ipList" :key="idx" class="ip-popover-item">
                       <span class="ip-popover-dot"></span>
-                      <span class="ip-popover-addr">{{ ip }}</span>
+                      <div class="ip-popover-info">
+                        <span class="ip-popover-addr">{{ ip }}</span>
+                        <span v-if="ipLocations[ip] && ipLocations[ip]._loading" class="ip-popover-location loading">查询中...</span>
+                        <span v-else-if="ipLocations[ip] && !ipLocations[ip]._err" class="ip-popover-location">{{ formatIpLocation(ip) }}</span>
+                        <span v-else-if="ipLocations[ip] && ipLocations[ip]._err" class="ip-popover-location error">{{ ipLocations[ip]._err }}</span>
+                      </div>
+                      <button v-if="!ipLocations[ip] || ipLocations[ip]._err" class="ip-lookup-btn" @click="querySingleIp(ip)" title="查询地理位置">查询</button>
                     </div>
                     <div v-if="ipList.length === 0" class="ip-popover-empty">无 IP 记录</div>
                   </div>
@@ -3001,6 +3065,19 @@ onMounted(() => {
   line-height: 1.4;
 }
 
+.ip-loc-badge {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  background: var(--bg-tertiary);
+  padding: 1px 7px;
+  border-radius: 10px;
+  line-height: 1.4;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .ip-chevron {
   color: var(--text-muted);
   transition: transform 0.25s ease;
@@ -3067,11 +3144,10 @@ onMounted(() => {
 
 .ip-popover-item {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
   font-size: 0.85rem;
-  font-family: 'Courier New', monospace;
-  padding: 5px 8px;
+  padding: 6px 8px;
   border-radius: var(--radius-sm);
   transition: background 0.15s;
 }
@@ -3087,10 +3163,56 @@ onMounted(() => {
   background: var(--accent-primary);
   flex-shrink: 0;
   opacity: 0.5;
+  margin-top: 7px;
+}
+
+.ip-popover-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
 }
 
 .ip-popover-addr {
   color: var(--text-primary);
+  font-family: 'Courier New', monospace;
+}
+
+.ip-popover-location {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ip-popover-location.loading {
+  color: var(--text-muted);
+  opacity: 0.6;
+}
+
+.ip-popover-location.error {
+  color: var(--accent-error);
+  opacity: 0.7;
+}
+
+.ip-lookup-btn {
+  flex-shrink: 0;
+  font-size: 0.72rem;
+  padding: 2px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-left: auto;
+}
+
+.ip-lookup-btn:hover {
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
 }
 
 .ip-popover-empty {
