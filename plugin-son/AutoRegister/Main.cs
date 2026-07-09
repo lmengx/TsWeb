@@ -250,6 +250,11 @@ namespace TShockData
             if (newAccount != null)
             {
                 TryAutoLogin(player, newAccount);
+
+                // 欢迎新玩家广播
+                var welcomeMsg = $"[欢迎] 欢迎新玩家 {player.Name} 加入服务器！";
+                TSPlayer.All.SendSuccessMessage(welcomeMsg);
+                TShock.Log.ConsoleInfo($"[AutoRegister] 新玩家欢迎广播已发送: {player.Name}");
             }
         }
 
