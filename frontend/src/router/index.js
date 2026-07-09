@@ -52,7 +52,7 @@ const routes = [
         path: '',
         name: 'ConsoleHome',
         redirect: (to) => {
-          return isAdmin() ? '/console/terminal' : '/console/profile'
+          return isAdmin() ? '/console/online' : '/console/profile'
         }
       },
       {

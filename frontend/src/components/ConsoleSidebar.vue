@@ -23,6 +23,7 @@ onMounted(async () => {
 const sidebarItems = [
   { id: 'profile', name: '个人资料', path: '/console/profile' },
   { id: 'progress', name: '世界进度', path: '/console/progress' },
+  { id: 'online', name: '数据统计', path: '/console/online', adminOnly: true },
   { 
     id: 'tools', 
     name: '工具', 
@@ -34,7 +35,6 @@ const sidebarItems = [
     ]
   },
   { id: 'terminal', name: '控制台', path: '/console/terminal', adminOnly: true },
-  { id: 'online', name: '在线统计', path: '/console/online', adminOnly: true },
   { id: 'players', name: '玩家管理', path: '/console/players', adminOnly: true },
   { id: 'groups', name: '组管理', path: '/console/groups', adminOnly: true },
   {
