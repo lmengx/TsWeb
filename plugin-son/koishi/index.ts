@@ -10,4 +10,5 @@ export function apply(ctx: Context, config: Config) {
   ctx.plugin(require('./plugins/group'), config)
   ctx.plugin(require('./plugins/private'), config)
   ctx.plugin(require('./plugins/join'), config)
+  ctx.plugin(require('./plugins/misc'), config)
 }
