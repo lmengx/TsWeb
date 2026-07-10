@@ -349,12 +349,7 @@ onMounted(() => {
 
 <template>
   <div class="ban-list-view">
-    <div class="page-header">
-      <h2>封禁列表</h2>
-    </div>
-
-    <div class="section">
-      <div class="content-header">
+    <div class="ban-toolbar">
         <div class="search-box">
           <input
             v-model="searchQuery"
@@ -369,13 +364,13 @@ onMounted(() => {
           <span class="checkbox-label">仅生效中</span>
         </label>
         <button @click="fetchBanList" :disabled="loading" class="refresh-btn">
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M21 2v6h-6"></path>
             <path d="M3 12a9 9 0 0 1 15-6.7L21 8"></path>
             <path d="M3 22v-6h6"></path>
             <path d="M21 12a9 9 0 0 1-15 6.7L3 16"></path>
           </svg>
-          {{ loading ? '刷新中...' : '刷新' }}
+          {{ loading ? '...' : '' }}
         </button>
       </div>
 
@@ -461,37 +456,26 @@ onMounted(() => {
           </tbody>
         </table>
 
-        <div v-if="totalPages > 1" class="pagination">
-          <button
-            class="page-btn prev"
-            :disabled="currentPage === 1"
-            @click="goToPage(currentPage - 1)"
-          >
-            ‹
-          </button>
-
-          <button
-            v-for="page in displayedPages"
-            :key="page"
-            class="page-btn"
-            :class="{ active: page === currentPage, ellipsis: page === '...' }"
-            :disabled="page === '...'"
-            @click="goToPage(page)"
-          >
-            {{ page }}
-          </button>
-
-          <button
-            class="page-btn next"
-            :disabled="currentPage === totalPages"
-            @click="goToPage(currentPage + 1)"
-          >
-            ›
-          </button>
-        </div>
-
-        <div class="pagination-info">
-          显示 {{ (currentPage - 1) * pageSize + 1 }} - {{ Math.min(currentPage * pageSize, totalItems) }} 条，共 {{ totalItems }} 条
+        <!-- 分页栏 + 大小选择 -->
+        <div class="pagination-bar">
+          <div class="pagination-info">共 {{ totalItems }} 条，{{ totalPages }} 页</div>
+          <div class="pagination-controls">
+            <button class="page-btn" :disabled="currentPage <= 1" @click="goToPage(1)">«</button>
+            <button class="page-btn" :disabled="currentPage <= 1" @click="goToPage(currentPage - 1)">‹</button>
+            <span class="page-indicator">{{ currentPage }} / {{ totalPages }}</span>
+            <button class="page-btn" :disabled="currentPage >= totalPages" @click="goToPage(currentPage + 1)">›</button>
+            <button class="page-btn" :disabled="currentPage >= totalPages" @click="goToPage(totalPages)">»</button>
+          </div>
+          <div class="pagination-size">
+            <label>每页</label>
+            <select v-model="pageSize" @change="currentPage = 1">
+              <option :value="10">10</option>
+              <option :value="20">20</option>
+              <option :value="50">50</option>
+              <option :value="100">100</option>
+            </select>
+            <label>条</label>
+          </div>
         </div>
       </div>
 
@@ -503,7 +487,28 @@ onMounted(() => {
         </svg>
         <p>暂无封禁记录</p>
       </div>
-    </div>
+
+      <!-- 分页栏（固定在底部） -->
+      <div v-if="!loading && paginatedBanList.length > 0" class="pagination-bar">
+        <div class="pagination-info">共 {{ totalItems }} 条，{{ totalPages }} 页</div>
+        <div class="pagination-controls">
+          <button class="page-btn" :disabled="currentPage <= 1" @click="goToPage(1)">«</button>
+          <button class="page-btn" :disabled="currentPage <= 1" @click="goToPage(currentPage - 1)">‹</button>
+          <span class="page-indicator">{{ currentPage }} / {{ totalPages }}</span>
+          <button class="page-btn" :disabled="currentPage >= totalPages" @click="goToPage(currentPage + 1)">›</button>
+          <button class="page-btn" :disabled="currentPage >= totalPages" @click="goToPage(totalPages)">»</button>
+        </div>
+        <div class="pagination-size">
+          <label>每页</label>
+          <select v-model="pageSize" @change="currentPage = 1">
+            <option :value="10">10</option>
+            <option :value="20">20</option>
+            <option :value="50">50</option>
+            <option :value="100">100</option>
+          </select>
+          <label>条</label>
+        </div>
+      </div>
 
     <!-- 解封确认弹窗（单条） -->
     <div v-if="showUnbanModal" class="modal-overlay" @click.self="closeUnbanModal">
@@ -562,34 +567,16 @@ onMounted(() => {
 
 <style scoped>
 .ban-list-view {
-  padding: 20px;
+  padding: 0;
   width: 100%;
+  display: flex; flex-direction: column; height: 100%;
 }
 
-.page-header {
-  margin-bottom: 16px;
-}
-
-.page-header h2 {
-  margin: 0;
-  color: var(--text-primary);
-  font-size: 1.5rem;
-}
-
-.section {
-  background: var(--bg-card);
-  border-radius: var(--radius-xl);
-  padding: 20px;
-  box-shadow: var(--shadow-md);
-  border: 1px solid var(--border-light);
-}
-
-.content-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 16px;
-  gap: 16px;
+.ban-toolbar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-light);
+  flex-shrink: 0;
 }
 
 .search-box {
@@ -810,7 +797,7 @@ onMounted(() => {
 }
 
 .ban-table-wrapper {
-  overflow-x: auto;
+  flex: 1; overflow-y: auto; overflow-x: auto;
 }
 
 .ban-table {
@@ -934,58 +921,34 @@ onMounted(() => {
   font-weight: 600;
 }
 
-.pagination {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: 8px;
-  margin-top: 20px;
+/* ── 分页栏 ── */
+.pagination-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  flex-wrap: wrap; gap: 10px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border-light);
+  font-size: 0.82rem; color: var(--text-secondary);
+  flex-shrink: 0;
 }
-
+.pagination-controls { display: flex; align-items: center; gap: 4px; }
+.pagination-info { white-space: nowrap; }
+.pagination-size { display: flex; align-items: center; gap: 6px; }
+.pagination-size select {
+  padding: 4px 6px; border: 1px solid var(--border-light); border-radius: 6px;
+  background: var(--bg-input); color: var(--text-primary); font-size: 0.8rem;
+  outline: none; cursor: pointer;
+}
+.pagination-size select:hover { border-color: var(--accent-primary); }
 .page-btn {
-  min-width: 36px;
-  height: 36px;
-  padding: 0 10px;
-  background: var(--bg-tertiary);
-  border: 2px solid var(--border-color);
-  border-radius: var(--radius-md);
-  color: var(--text-primary);
-  font-size: 0.9rem;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  width: 30px; height: 30px; border-radius: 6px;
+  border: 1px solid var(--border-light); background: var(--bg-tertiary);
+  color: var(--text-primary); font-size: 0.85rem; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: all 0.15s;
 }
-
-.page-btn:hover:not(:disabled):not(.ellipsis) {
-  border-color: var(--accent-primary);
-  color: var(--accent-primary);
-}
-
-.page-btn.active {
-  background: linear-gradient(135deg, var(--accent-primary), #4f46e5);
-  border-color: var(--accent-primary);
-  color: white;
-}
-
-.page-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.page-btn.ellipsis {
-  border: none;
-  background: transparent;
-  cursor: default;
-}
-
-.pagination-info {
-  text-align: center;
-  margin-top: 12px;
-  font-size: 0.85rem;
-  color: var(--text-muted);
-}
+.page-btn:hover:not(:disabled) { background: var(--accent-primary); color: #fff; border-color: var(--accent-primary); }
+.page-btn:disabled { opacity: 0.3; cursor: default; }
+.page-indicator { min-width: 60px; text-align: center; font-weight: 600; color: var(--text-primary); }
 
 .action-cell {
   min-width: 80px;

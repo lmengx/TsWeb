@@ -327,9 +327,6 @@ onMounted(() => {
             </div>
           </div>
         </div>
-        <div class="card-footer card-footer-action">
-          查看全部 {{ banCount }} 条封禁 ›
-        </div>
       </div>
     </div>
 
