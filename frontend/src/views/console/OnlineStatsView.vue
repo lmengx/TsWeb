@@ -1,8 +1,19 @@
 <script setup>
 import { ref, computed, watch, onMounted, Transition } from 'vue'
+import { useRouter } from 'vue-router'
 import { get } from '../../utils/api.js'
 import BanListView from './BanListView.vue'
 import ConsoleTerminal from '../../components/ConsoleTerminal.vue'
+
+const router = useRouter()
+
+const openPlayersPage = () => {
+  window.open(router.resolve({ name: 'Players' }).href, '_blank')
+}
+
+const openPlayerDetail = (name) => {
+  window.open(router.resolve({ name: 'UserDetail', params: { username: name } }).href, '_blank')
+}
 
 const toLocalDateString = (date) => {
   const y = date.getFullYear()
@@ -88,9 +99,15 @@ const rankTypes = [
 const rankLabel = computed(() => rankTypes.find(t => t.key === rankType.value)?.label ?? '在线时长')
 const rankFmt = computed(() => rankTypes.find(t => t.key === rankType.value)?.fmt ?? ((v) => v))
 
+// ── 模态框独立格式化器 ──
+const rankModalFmt = computed(() => rankTypes.find(t => t.key === rankModalType.value)?.fmt ?? ((v) => v))
+
 const rankData = ref([])
 const rankLoading = ref(false)
 const rankKey = ref(0)
+
+// 请求序列号，用于忽略过期响应
+let rankFetchSeq = 0
 
 // 模态框分页状态
 const showRankModal = ref(false)
@@ -101,9 +118,11 @@ const rankModalPageSize = ref(10)
 const rankModalTotal = ref(0)
 
 const fetchRank = async (type, page = 1, pageSize = 5) => {
+  const seq = ++rankFetchSeq
   try {
     const res = await get(`/api/online/ranking/stats?type=${type}&page=${page}&pageSize=${pageSize}`)
     const json = await res.json()
+    if (seq !== rankFetchSeq) return json // 已过期，忽略
     if (pageSize <= 5 && page === 1) {
       rankData.value = json.ranking || []
       rankType.value = type
@@ -247,7 +266,7 @@ onMounted(() => {
     <!-- 四个等高大框 -->
     <div class="stat-cards">
       <!-- Box 1: 当前在线 -->
-      <div class="stat-card">
+      <div class="stat-card clickable" @click="openPlayersPage">
         <div class="card-header-row">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line>
@@ -258,7 +277,7 @@ onMounted(() => {
         <div class="card-body-scroll">
           <div v-if="activePlayers.length === 0" class="card-empty">暂无玩家在线</div>
           <div v-else class="online-tags">
-            <span v-for="name in activePlayers" :key="name" class="online-tag">
+            <span v-for="name in activePlayers" :key="name" class="online-tag clickable-tag" @click.stop="openPlayerDetail(name)" title="查看玩家详情">
               <span class="dot"></span>{{ name }}
             </span>
           </div>
@@ -298,7 +317,7 @@ onMounted(() => {
           <div v-if="rankData.length === 0" class="card-empty">暂无数据</div>
           <Transition v-else mode="out-in" name="rank-fade">
             <div class="rank-mini-list" :key="rankKey">
-              <div v-for="(item, idx) in rankData" :key="item.name" class="rank-mini-item">
+              <div v-for="(item, idx) in rankData" :key="item.name" class="rank-mini-item clickable-tag" @click.stop="openPlayerDetail(item.name)" title="查看玩家详情">
                 <span class="rank-num" :class="{ 'gold-1': idx === 0, silver: idx === 1, bronze: idx === 2 }">{{ idx + 1 }}</span>
                 <span class="rank-name" :class="{ 'gold-1': idx === 0, silver: idx === 1, bronze: idx === 2 }">{{ item.name }}</span>
                 <span class="rank-val">{{ rankFmt(item.value) }}</span>
@@ -401,8 +420,8 @@ onMounted(() => {
                     <tr v-for="(item, idx) in rankModalData" :key="item.name"
                       :class="{ 'row-gold': (rankModalPage-1)*rankModalPageSize+idx === 0, 'row-silver': (rankModalPage-1)*rankModalPageSize+idx === 1, 'row-bronze': (rankModalPage-1)*rankModalPageSize+idx === 2 }">
                       <td class="col-r"><span class="rank-num" :class="{ 'gold-1': (rankModalPage-1)*rankModalPageSize+idx === 0, silver: (rankModalPage-1)*rankModalPageSize+idx === 1, bronze: (rankModalPage-1)*rankModalPageSize+idx === 2 }">{{ (rankModalPage-1)*rankModalPageSize + idx + 1 }}</span></td>
-                      <td class="col-n" :class="{ 'gold-1': (rankModalPage-1)*rankModalPageSize+idx === 0, silver: (rankModalPage-1)*rankModalPageSize+idx === 1, bronze: (rankModalPage-1)*rankModalPageSize+idx === 2 }">{{ item.name }}</td>
-                      <td class="col-v">{{ rankFmt(item.value) }}</td>
+                      <td class="col-n clickable-cell" :class="{ 'gold-1': (rankModalPage-1)*rankModalPageSize+idx === 0, silver: (rankModalPage-1)*rankModalPageSize+idx === 1, bronze: (rankModalPage-1)*rankModalPageSize+idx === 2 }" @click.stop="openPlayerDetail(item.name)" title="查看玩家详情">{{ item.name }}</td>
+                      <td class="col-v">{{ rankModalFmt(item.value) }}</td>
                     </tr>
                   </tbody>
                 </table>
@@ -486,6 +505,7 @@ onMounted(() => {
 /* ── 在线玩家 ── */
 .online-tags { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
 .online-tag { display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; background: var(--bg-tertiary); border-radius: 8px; font-size: 0.82rem; font-weight: 500; color: var(--text-primary); border: 1px solid var(--border-light); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.online-tag.clickable-tag:hover { border-color: #22c55e !important; background: rgba(34, 197, 94, 0.06); }
 .dot { width: 6px; height: 6px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 6px rgba(34, 197, 94, 0.5); }
 
 /* ── 排行榜 ── */
@@ -498,6 +518,10 @@ onMounted(() => {
 
 .rank-mini-list { display: flex; flex-direction: column; gap: 5px; }
 .rank-mini-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px; background: var(--bg-tertiary); border-radius: 8px; font-size: 0.82rem; border: 1px solid var(--border-light); }
+
+/* ── 可点击标签 ── */
+.clickable-tag { cursor: pointer; transition: all 0.2s ease; }
+.clickable-tag:hover { border-color: var(--accent-primary) !important; background: rgba(99, 102, 241, 0.06); }
 
 /* ── 排名序号：纯数字，无背景圆 ── */
 .rank-num { 
@@ -644,6 +668,8 @@ onMounted(() => {
 .rank-modal-table tbody tr.row-bronze { background: rgba(205, 127, 50, 0.06); }
 .col-r { width: 48px; text-align: center; }
 .col-n { font-weight: 500; }
+.clickable-cell { cursor: pointer; transition: box-shadow 0.15s; border-radius: 4px; }
+.clickable-cell:hover { box-shadow: inset 0 0 0 200px rgba(99, 102, 241, 0.08); }
 .col-n.gold-1, .col-n.silver, .col-n.bronze {
   font-weight: 800;
   background-size: 200% auto;
