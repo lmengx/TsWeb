@@ -112,7 +112,7 @@ async function sendCommand() {
   // 在日志中回显输入
   logs.value.push({
     id: Date.now(),
-    text: `> ${cmd}`,
+    segments: [{ t: `> ${cmd}`, c: null }],
     time: new Date().toLocaleTimeString('zh-CN', { hour12: false })
   })
 
@@ -137,7 +137,7 @@ async function sendCommand() {
   } catch (err) {
     logs.value.push({
       id: Date.now() + 1,
-      text: `[错误] ${err.message}`,
+      segments: [{ t: `[错误] ${err.message}`, c: null }],
       time: ''
     })
   }
