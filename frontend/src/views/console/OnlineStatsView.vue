@@ -1,6 +1,7 @@
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, Transition } from 'vue'
 import { get } from '../../utils/api.js'
+import BanListView from './BanListView.vue'
 
 const toLocalDateString = (date) => {
   const y = date.getFullYear()
@@ -12,12 +13,29 @@ const toLocalDateString = (date) => {
 const today = toLocalDateString(new Date())
 const currentHour = new Date().getHours()
 
-// ==================== 顶部统计卡片 ====================
-const statsOnline = ref(0)
-const statsTotal = ref(0)
-const statsQQ = ref(0)
-const statsBans = ref(0)
-const statsLoading = ref(true)
+// ── 数字动画 ──
+const animateValue = (targetRef, end, duration = 800) => {
+  if (targetRef.value === end) return
+  const start = targetRef.value
+  const startTime = performance.now()
+  const diff = end - start
+  const tick = (now) => {
+    const elapsed = now - startTime
+    const progress = Math.min(elapsed / duration, 1)
+    const eased = 1 - Math.pow(1 - progress, 3)
+    targetRef.value = Math.round(start + diff * eased)
+    if (progress < 1) requestAnimationFrame(tick)
+  }
+  requestAnimationFrame(tick)
+}
+
+// ── 统计数据 ──
+const onlineCount = ref(0)
+const totalUsers = ref(0)
+const qqCount = ref(0)
+const banCount = ref(0)
+const activePlayers = ref([])
+const recentBans = ref([])
 
 const fetchStats = async () => {
   const [activeRes, userRes, banRes] = await Promise.allSettled([
@@ -26,69 +44,150 @@ const fetchStats = async () => {
     get('/api/tshock/banlist'),
   ])
 
+  let online = 0
   try {
     const a = await activeRes.value.json()
-    statsOnline.value = a.activeusers ? a.activeusers.split('\t').filter(n => n.trim()).length : 0
-  } catch { statsOnline.value = 0 }
+    const list = a.activeusers ? a.activeusers.split('\t').filter(n => n.trim()) : []
+    online = list.length
+    activePlayers.value = list
+  } catch {}
+  animateValue(onlineCount, online)
 
   try {
     const u = await userRes.value.json()
     if (u.users) {
-      statsTotal.value = u.users.length
-      statsQQ.value = u.users.filter(x => x.QQ && x.QQ.trim()).length
+      animateValue(totalUsers, u.users.length)
+      const qq = u.users.filter(x => x.QQ && x.QQ.trim()).length
+      animateValue(qqCount, qq)
     }
-  } catch { statsTotal.value = 0; statsQQ.value = 0 }
+  } catch {}
 
   try {
     const b = await banRes.value.json()
-    statsBans.value = b.bans ? b.bans.length : (b.banslist ? b.banslist.length : 0)
-  } catch { statsBans.value = 0 }
-
-  statsLoading.value = false
+    let bans = []
+    if (b.bans) bans = b.bans
+    else if (b.banslist) bans = b.banslist
+    animateValue(banCount, bans.length)
+    recentBans.value = bans.slice(0, 3)
+  } catch {}
 }
 
-// ==================== 当前在线玩家 ====================
-const activePlayers = ref([])
-const activeLoading = ref(false)
+// ── 封禁模态框 ──
+const showBanModal = ref(false)
+const openBanModal = () => { showBanModal.value = true }
+const closeBanModal = () => { showBanModal.value = false }
 
-const fetchActivePlayers = async () => {
-  activeLoading.value = true
+// ── 排行榜切换 ──
+const rankType = ref('online')
+const rankTypes = [
+  { key: 'online', label: '在线时长', unit: 'min', fmt: (v) => { const h = Math.floor(v / 60); const m = v % 60; return h > 0 ? `${h}h ${m}m` : `${m}m` } },
+  { key: 'deaths', label: '死亡', unit: '次', fmt: (v) => `${v}次` },
+  { key: 'fishing', label: '钓鱼任务', unit: '个', fmt: (v) => `${v}个` },
+]
+const rankLabel = computed(() => rankTypes.find(t => t.key === rankType.value)?.label ?? '在线时长')
+const rankFmt = computed(() => rankTypes.find(t => t.key === rankType.value)?.fmt ?? ((v) => v))
+
+const rankData = ref([])
+const rankLoading = ref(false)
+const rankKey = ref(0)
+
+// 模态框分页状态
+const showRankModal = ref(false)
+const rankModalType = ref('online')
+const rankModalData = ref([])
+const rankModalPage = ref(1)
+const rankModalPageSize = ref(10)
+const rankModalTotal = ref(0)
+
+const fetchRank = async (type, page = 1, pageSize = 5) => {
   try {
-    const res = await get('/api/tshock/activeusers')
+    const res = await get(`/api/online/ranking/stats?type=${type}&page=${page}&pageSize=${pageSize}`)
     const json = await res.json()
-    activePlayers.value = json.activeusers
-      ? json.activeusers.split('\t').filter(n => n.trim())
-      : []
-  } catch { activePlayers.value = [] }
-  activeLoading.value = false
+    if (pageSize <= 5 && page === 1) {
+      rankData.value = json.ranking || []
+      rankType.value = type
+      rankKey.value++
+    }
+    return json
+  } catch { return { ranking: [], total: 0 } }
 }
 
-// ==================== 排行榜 ====================
-const rankingMode = ref('today')
-const rankingData = ref([])
-const rankingLoading = ref(false)
-
-const fetchRanking = async () => {
-  rankingLoading.value = true
-  try {
-    const res = await get(`/api/online/ranking?mode=${rankingMode.value}`)
-    const json = await res.json()
-    rankingData.value = json.ranking || []
-  } catch { rankingData.value = [] }
-  rankingLoading.value = false
+const openRankModal = async () => {
+  stopAutoCycle()
+  rankModalType.value = rankType.value
+  rankModalPage.value = 1
+  rankModalPageSize.value = 10
+  const json = await fetchRank(rankType.value, 1, 10)
+  rankModalData.value = json.ranking || []
+  rankModalTotal.value = json.total || 0
+  showRankModal.value = true
 }
 
-const formatDuration = (min) => {
-  const h = Math.floor(min / 60)
-  const m = min % 60
-  if (h > 0 && m > 0) return `${h}h ${m}m`
-  if (h > 0) return `${h}h`
-  return `${m}m`
+const closeRankModal = () => { showRankModal.value = false }
+
+const rankModalTotalPages = computed(() => Math.max(1, Math.ceil(rankModalTotal.value / rankModalPageSize.value)))
+
+const goRankModalPage = async (p) => {
+  if (p < 1 || p > rankModalTotalPages.value) return
+  rankModalPage.value = p
+  const json = await fetchRank(rankModalType.value, p, rankModalPageSize.value)
+  rankModalData.value = json.ranking || []
 }
 
-watch(rankingMode, fetchRanking)
+const setRankModalPageSize = async (size) => {
+  rankModalPageSize.value = size
+  rankModalPage.value = 1
+  const json = await fetchRank(rankModalType.value, 1, size)
+  rankModalData.value = json.ranking || []
+  rankModalTotal.value = json.total || 0
+}
 
-// ==================== 逐时在线 ====================
+// ── 排行榜自动切换 ──
+let autoCycleTimer = null
+const autoCycleEnabled = ref(true)
+const rankHovering = ref(false)
+
+const startAutoCycle = () => {
+  stopAutoCycle()
+  if (!autoCycleEnabled.value) return
+  autoCycleTimer = setInterval(() => {
+    if (rankHovering.value) return
+    const keys = rankTypes.map(t => t.key)
+    const idx = keys.indexOf(rankType.value)
+    const nextType = keys[(idx + 1) % keys.length]
+    fetchRank(nextType, 1, 5)
+  }, 5000)
+}
+
+const stopAutoCycle = () => {
+  if (autoCycleTimer) {
+    clearInterval(autoCycleTimer)
+    autoCycleTimer = null
+  }
+}
+
+const onRankMouseEnter = () => {
+  rankHovering.value = true
+}
+
+const onRankMouseLeave = () => {
+  rankHovering.value = false
+  if (autoCycleEnabled.value) {
+    stopAutoCycle()
+    startAutoCycle()
+  }
+}
+
+const toggleRankType = () => {
+  stopAutoCycle()
+  autoCycleEnabled.value = false
+  const keys = rankTypes.map(t => t.key)
+  const idx = keys.indexOf(rankType.value)
+  const nextType = keys[(idx + 1) % keys.length]
+  fetchRank(nextType, 1, 5)
+}
+
+// ── 逐时在线 ──
 const hourlyDate = ref(today)
 const hourlyData = ref([])
 const hourlyLoading = ref(false)
@@ -112,10 +211,7 @@ const fetchHourly = async () => {
 
 const barHeights = computed(() => {
   const bars = new Array(24).fill(0)
-  hourlyData.value.forEach(h => {
-    const hour = h.hour_ts % 100
-    if (hour >= 0 && hour < 24) bars[hour] = (h.online_players || []).length
-  })
+  hourlyData.value.forEach(h => { const hour = h.hour_ts % 100; if (hour >= 0 && hour < 24) bars[hour] = (h.online_players || []).length })
   return bars
 })
 
@@ -123,481 +219,455 @@ const showHourlyTooltip = (hour, event) => {
   const h = hourlyData.value.find(h => (h.hour_ts % 100) === hour)
   hourlyTooltip.value = { show: true, hour, x: event.clientX, y: event.clientY, names: h ? (h.online_players || []) : [] }
 }
-
 const hideHourlyTooltip = () => { hourlyTooltip.value.show = false }
 
 watch(hourlyDate, fetchHourly)
 
+// ── 工具函数 ──
+const ticksToDate = (ticks) => { try { return new Date((ticks - 621355968000000000) / 10000).toLocaleString('zh-CN') } catch { return '-' } }
+const parseIdentifier = (v) => {
+  if (!v) return { type: '未知', value: '-' }
+  if (v.startsWith('ip:')) return { type: 'IP', value: v.substring(3) }
+  if (v.startsWith('uuid:')) { const u = v.substring(5); return { type: 'UUID', value: u.length > 12 ? u.substring(0, 12) + '...' : u } }
+  if (v.startsWith('acc:')) return { type: '账户', value: v.substring(4) }
+  return { type: '未知', value: v }
+}
+
 onMounted(() => {
   fetchStats()
-  fetchActivePlayers()
-  fetchRanking()
+  fetchRank('online', 1, 5)
   fetchHourly()
+  startAutoCycle()
 })
 </script>
 
 <template>
   <div class="dashboard">
-    <!-- 顶部统计卡片 -->
-    <section class="stat-row">
-      <div class="stat-card" v-for="s in [
-        { label: '当前在线', value: statsOnline, icon: 'online', color: '#22c55e' },
-        { label: '总注册用户', value: statsTotal, icon: 'users', color: '#6366f1' },
-        { label: 'QQ 绑定', value: statsQQ, icon: 'qq', color: '#3b82f6' },
-        { label: '封禁数量', value: statsBans, icon: 'ban', color: '#ef4444' },
-      ]" :key="s.label">
-        <div class="stat-icon" :style="{ background: s.color + '18', color: s.color }">
-          <!-- online -->
-          <svg v-if="s.icon === 'online'" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <!-- 四个等高大框 -->
+    <div class="stat-cards">
+      <!-- Box 1: 当前在线 -->
+      <div class="stat-card">
+        <div class="card-header-row">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line>
           </svg>
-          <!-- users -->
-          <svg v-else-if="s.icon === 'users'" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
-          </svg>
-          <!-- qq -->
-          <svg v-else-if="s.icon === 'qq'" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M12 2a5 5 0 0 0-5 5v1a5 5 0 0 0 10 0V7a5 5 0 0 0-5-5Z"></path><path d="M5 13c-1.5 2-2 4-2 6 3 1 6.5 1.5 9 1.5S18 20 21 19c0-2-.5-4-2-6"></path><path d="M8 11c0 2 1.5 3 4 3s4-1 4-3"></path>
-          </svg>
-          <!-- ban -->
-          <svg v-else width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="10"></circle><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"></line>
-          </svg>
+          <span class="card-title">当前在线</span>
+          <span class="card-badge green-badge">{{ onlineCount }}</span>
         </div>
-        <div class="stat-body">
-          <span class="stat-value" v-if="!statsLoading">{{ s.value }}</span>
-          <span class="stat-value loading-pulse" v-else></span>
-          <span class="stat-label">{{ s.label }}</span>
+        <div class="card-body-scroll">
+          <div v-if="activePlayers.length === 0" class="card-empty">暂无玩家在线</div>
+          <div v-else class="online-tags">
+            <span v-for="name in activePlayers" :key="name" class="online-tag">
+              <span class="dot"></span>{{ name }}
+            </span>
+          </div>
         </div>
       </div>
-    </section>
 
-    <div class="dashboard-grid">
-      <!-- 当前在线玩家 -->
-      <section class="card active-card">
-        <div class="card-header">
-          <h3>当前在线</h3>
-          <span class="badge" :class="activePlayers.length > 0 ? 'badge-online' : 'badge-offline'">
-            {{ activePlayers.length }}
-          </span>
+      <!-- Box 2: 注册 & 绑定 -->
+      <div class="stat-card">
+        <div class="card-header-row">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+          </svg>
+          <span class="card-title">注册 & 绑定</span>
         </div>
-        <div class="card-body">
-          <div v-if="activeLoading" class="loading">加载中...</div>
-          <div v-else-if="activePlayers.length === 0" class="empty">暂无玩家在线</div>
-          <ul v-else class="player-list">
-            <li v-for="name in activePlayers" :key="name" class="player-item">
-              <span class="player-dot"></span>
-              <span class="player-name">{{ name }}</span>
-            </li>
-          </ul>
+        <div class="card-body-scroll" style="display:flex;flex-direction:column;justify-content:center;gap:16px;padding:10px 0;">
+          <div class="big-stat-row">
+            <span class="big-stat-label">注册总数</span>
+            <span class="big-stat-value">{{ totalUsers }}</span>
+          </div>
+          <div class="big-stat-row">
+            <span class="big-stat-label">QQ 绑定</span>
+            <span class="big-stat-value qq-val">{{ qqCount }}</span>
+          </div>
         </div>
-      </section>
+      </div>
 
-      <!-- 逐时在线 -->
-      <section class="card hourly-card">
-        <div class="card-header">
-          <h3>每小时在线</h3>
-          <input type="date" v-model="hourlyDate" class="filter-date" />
+      <!-- Box 3: 排行榜 -->
+      <div class="stat-card clickable" @click="openRankModal" @mouseenter="onRankMouseEnter" @mouseleave="onRankMouseLeave">
+        <div class="card-header-row">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="6 9 12 4 18 9"></polyline><path d="M18 9l3-3v2a9 9 0 0 1-9 9c-4.97 0-9-4.03-9-9V6l3 3"></path>
+          </svg>
+          <span class="card-title">{{ rankLabel }}</span>
+          <button class="switch-btn" @click.stop="toggleRankType" title="切换排行类型">⟳</button>
         </div>
-        <div class="card-body">
-          <div v-if="hourlyLoading" class="loading">加载中...</div>
-          <div v-else class="bar-chart">
-            <div v-for="h in 24" :key="h - 1" class="bar-col" :class="{ future: h - 1 > maxVisibleHour }"
-              @mouseenter="h - 1 <= maxVisibleHour && showHourlyTooltip(h - 1, $event)"
-              @mouseleave="hideHourlyTooltip">
-              <div v-if="h - 1 <= maxVisibleHour" class="bar"
-                :style="{ height: maxHourlyCount > 0 ? Math.max(4, (barHeights[h - 1] / maxHourlyCount) * 140) + 'px' : '4px' }">
+        <div class="card-body-scroll">
+          <div v-if="rankData.length === 0" class="card-empty">暂无数据</div>
+          <Transition v-else mode="out-in" name="rank-fade">
+            <div class="rank-mini-list" :key="rankKey">
+              <div v-for="(item, idx) in rankData" :key="item.name" class="rank-mini-item">
+                <span class="rank-num" :class="{ gold: idx === 0, silver: idx === 1, bronze: idx === 2 }">{{ idx + 1 }}</span>
+                <span class="rank-name" :class="{ gold: idx === 0, silver: idx === 1, bronze: idx === 2 }">{{ item.name }}</span>
+                <span class="rank-val">{{ rankFmt(item.value) }}</span>
               </div>
-              <div v-else class="bar future-bar"></div>
-              <span class="bar-label">{{ String(h - 1).padStart(2, '0') }}</span>
+            </div>
+          </Transition>
+        </div>
+      </div>
+
+      <!-- Box 4: 封禁 -->
+      <div class="stat-card clickable" @click="openBanModal">
+        <div class="card-header-row">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"></circle><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"></line>
+          </svg>
+          <span class="card-title">封禁记录</span>
+          <span class="card-badge red-badge">{{ banCount }}</span>
+        </div>
+        <div class="card-body-scroll">
+          <div v-if="recentBans.length === 0" class="card-empty">暂无封禁记录</div>
+          <div v-else class="ban-mini-list">
+            <div v-for="ban in recentBans" :key="ban.ticket_number" class="ban-mini-item">
+              <span class="ban-type" :class="parseIdentifier(ban.identifier).type.toLowerCase()">{{ parseIdentifier(ban.identifier).type }}</span>
+              <span class="ban-target">{{ parseIdentifier(ban.identifier).value }}</span>
+              <span class="ban-date">{{ ticksToDate(ban.start_date_ticks) }}</span>
             </div>
           </div>
         </div>
-      </section>
-    </div>
-
-    <!-- 排行榜 -->
-    <section class="card ranking-card">
-      <div class="card-header">
-        <h3>在线时长排行</h3>
-        <div class="select-wrapper">
-          <select v-model="rankingMode" class="filter-select">
-            <option value="today">今天</option>
-            <option value="24h">24小时内</option>
-            <option value="7d">最近7天</option>
-            <option value="30d">最近30天</option>
-            <option value="all">累计</option>
-          </select>
+        <div class="card-footer card-footer-action">
+          查看全部 {{ banCount }} 条封禁 ›
         </div>
       </div>
+    </div>
+
+    <!-- 每小时在线 -->
+    <section class="card hourly-card">
+      <div class="card-header">
+        <h3>每小时在线</h3>
+        <input type="date" v-model="hourlyDate" class="filter-date" />
+      </div>
       <div class="card-body">
-        <div v-if="rankingLoading" class="loading">加载中...</div>
-        <div v-else-if="rankingData.length === 0" class="empty">暂无数据</div>
-        <table v-else class="ranking-table">
-          <thead>
-            <tr>
-              <th class="col-rank">#</th>
-              <th class="col-name">玩家</th>
-              <th class="col-time">时长</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="(item, idx) in rankingData" :key="item.uid">
-              <td class="col-rank">{{ idx + 1 }}</td>
-              <td class="col-name">{{ item.uid }}</td>
-              <td class="col-time">{{ formatDuration(item.total_min) }}</td>
-            </tr>
-          </tbody>
-        </table>
+        <div v-if="hourlyLoading" class="loading">加载中...</div>
+        <div v-else class="bar-chart">
+          <div v-for="h in 24" :key="h - 1" class="bar-col" :class="{ future: h - 1 > maxVisibleHour }"
+            @mouseenter="h - 1 <= maxVisibleHour && showHourlyTooltip(h - 1, $event)" @mouseleave="hideHourlyTooltip">
+            <div v-if="h - 1 <= maxVisibleHour" class="bar" :style="{ height: maxHourlyCount > 0 ? Math.max(4, (barHeights[h - 1] / maxHourlyCount) * 140) + 'px' : '4px' }"></div>
+            <div v-else class="bar future-bar"></div>
+            <span class="bar-label">{{ String(h - 1).padStart(2, '0') }}</span>
+          </div>
+        </div>
       </div>
     </section>
 
     <!-- Tooltip -->
     <Teleport to="body">
-      <div v-if="hourlyTooltip.show" class="hourly-tooltip"
-        :style="{ left: hourlyTooltip.x + 12 + 'px', top: hourlyTooltip.y - 10 + 'px' }">
+      <div v-if="hourlyTooltip.show" class="hourly-tooltip" :style="{ left: hourlyTooltip.x + 12 + 'px', top: hourlyTooltip.y - 10 + 'px' }">
         <div class="tooltip-hour">{{ String(hourlyTooltip.hour).padStart(2, '0') }}:00</div>
         <div class="tooltip-count">{{ hourlyTooltip.names.length }}人在线</div>
         <div v-if="hourlyTooltip.names.length > 0" class="tooltip-ids">{{ hourlyTooltip.names.join(', ') }}</div>
+      </div>
+    </Teleport>
+
+    <!-- 封禁模态框 -->
+    <Teleport to="body">
+      <div v-if="showBanModal" class="modal-overlay" @click.self="closeBanModal">
+        <div class="modal-container" @click.self.stop>
+          <div class="modal-header-bar">
+            <h2>封禁列表</h2>
+            <button class="modal-close-btn" @click="closeBanModal">✕</button>
+          </div>
+          <div class="modal-body-area"><BanListView /></div>
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- 排行榜模态框 -->
+    <Teleport to="body">
+      <div v-if="showRankModal" class="modal-overlay" @click.self="closeRankModal">
+        <div class="modal-container modal-rank-container" @click.self.stop>
+          <div class="modal-header-bar">
+            <h2>排行榜 — {{ rankTypes.find(t => t.key === rankModalType)?.label }}</h2>
+            <button class="modal-close-btn" @click="closeRankModal">✕</button>
+          </div>
+          <div class="modal-body-area">
+            <div v-if="rankModalData.length === 0" class="loading">暂无数据</div>
+            <template v-else>
+              <!-- 表头统计信息 -->
+              <div class="rank-modal-stats">
+                <span class="rms-label">{{ rankTypes.find(t => t.key === rankModalType)?.label }}排行</span>
+                <span class="rms-total">共 {{ rankModalTotal }} 人</span>
+              </div>
+              <div class="rank-modal-table-wrap">
+                <table class="rank-modal-table">
+                  <thead>
+                    <tr><th class="col-r">#</th><th class="col-n">玩家</th><th class="col-v">数值</th></tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="(item, idx) in rankModalData" :key="item.name"
+                      :class="{ 'row-gold': (rankModalPage-1)*rankModalPageSize+idx === 0, 'row-silver': (rankModalPage-1)*rankModalPageSize+idx === 1, 'row-bronze': (rankModalPage-1)*rankModalPageSize+idx === 2 }">
+                      <td class="col-r"><span class="rank-num" :class="{ gold: (rankModalPage-1)*rankModalPageSize+idx === 0, silver: (rankModalPage-1)*rankModalPageSize+idx === 1, bronze: (rankModalPage-1)*rankModalPageSize+idx === 2 }">{{ (rankModalPage-1)*rankModalPageSize + idx + 1 }}</span></td>
+                      <td class="col-n" :class="{ gold: (rankModalPage-1)*rankModalPageSize+idx === 0, silver: (rankModalPage-1)*rankModalPageSize+idx === 1, bronze: (rankModalPage-1)*rankModalPageSize+idx === 2 }">{{ item.name }}</td>
+                      <td class="col-v">{{ rankFmt(item.value) }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <!-- 分页栏 -->
+              <div class="pagination-bar">
+                <div class="pagination-info">共 {{ rankModalTotal }} 条，{{ rankModalTotalPages }} 页</div>
+                <div class="pagination-controls">
+                  <button class="page-btn" :disabled="rankModalPage <= 1" @click="goRankModalPage(1)">«</button>
+                  <button class="page-btn" :disabled="rankModalPage <= 1" @click="goRankModalPage(rankModalPage - 1)">‹</button>
+                  <span class="page-indicator">{{ rankModalPage }} / {{ rankModalTotalPages }}</span>
+                  <button class="page-btn" :disabled="rankModalPage >= rankModalTotalPages" @click="goRankModalPage(rankModalPage + 1)">›</button>
+                  <button class="page-btn" :disabled="rankModalPage >= rankModalTotalPages" @click="goRankModalPage(rankModalTotalPages)">»</button>
+                </div>
+                <div class="pagination-size">
+                  <label>每页</label>
+                  <select v-model="rankModalPageSize" @change="setRankModalPageSize(Number(rankModalPageSize))">
+                    <option :value="10">10</option>
+                    <option :value="20">20</option>
+                    <option :value="50">50</option>
+                    <option :value="100">100</option>
+                  </select>
+                  <label>条</label>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
       </div>
     </Teleport>
   </div>
 </template>
 
 <style scoped>
-.dashboard {
-  padding: 20px;
-  max-width: 1200px;
-  margin: 0 auto;
-}
+.dashboard { padding: 20px; max-width: 1200px; margin: 0 auto; }
 
-/* ===== 顶部统计卡片 ===== */
-.stat-row {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 14px;
-  margin-bottom: 20px;
-}
+/* ── 四个等高卡片 ── */
+  .stat-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 18px; }
 
 .stat-card {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  padding: 20px;
-  background: var(--bg-card);
-  border: 1px solid var(--border-light);
-  border-radius: 14px;
+  display: flex; flex-direction: column;
+  background: var(--bg-card); border: 1px solid var(--border-light); border-radius: 14px;
+  padding: 18px; min-height: 300px;
   transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.25s ease;
 }
+.stat-card:hover { transform: translateY(-3px); box-shadow: 0 8px 28px rgba(0, 0, 0, 0.07); }
+.stat-card.clickable { cursor: pointer; }
+.stat-card.clickable:hover { border-color: rgba(99, 102, 241, 0.3); }
 
-.stat-card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+.card-header-row { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; flex-shrink: 0; }
+.card-title { font-size: 0.95rem; font-weight: 700; color: var(--text-primary); flex: 1; }
+.card-badge { padding: 2px 10px; border-radius: 20px; font-size: 0.75rem; font-weight: 700; }
+.green-badge { background: rgba(34, 197, 94, 0.15); color: #22c55e; }
+.red-badge { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
+
+.card-body-scroll { flex: 1; overflow-y: auto; min-height: 0; }
+.card-empty { color: var(--text-muted); font-size: 0.85rem; padding: 10px 0; }
+.card-footer { flex-shrink: 0; padding-top: 12px; margin-top: 12px; border-top: 1px solid var(--border-light); font-size: 0.82rem; color: var(--text-secondary); }
+.card-footer strong { color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.card-footer-action { color: var(--accent-primary); font-weight: 600; font-size: 0.82rem; }
+.dual-footer { display: flex; justify-content: space-between; align-items: center; }
+.dual-footer .qq-val { background: linear-gradient(135deg, #3b82f6, #6366f1); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+
+/* ── 大号统计行 ── */
+.big-stat-row { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.big-stat-label { font-size: 0.82rem; color: var(--text-secondary); }
+.big-stat-value { font-size: 2.2rem; font-weight: 800; color: var(--text-primary); font-variant-numeric: tabular-nums; line-height: 1.1; }
+.big-stat-value.qq-val { background: linear-gradient(135deg, #3b82f6, #6366f1); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+
+/* ── 在线玩家 ── */
+.online-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.online-tag { display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; background: var(--bg-tertiary); border-radius: 8px; font-size: 0.82rem; font-weight: 500; color: var(--text-primary); border: 1px solid var(--border-light); }
+.dot { width: 6px; height: 6px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 6px rgba(34, 197, 94, 0.5); }
+
+/* ── 排行榜 ── */
+.switch-btn {
+  background: var(--bg-tertiary); border: 1px solid var(--border-light); border-radius: 6px;
+  width: 28px; height: 28px; font-size: 1rem; cursor: pointer; color: var(--text-secondary);
+  display: flex; align-items: center; justify-content: center; transition: all 0.2s;
 }
+.switch-btn:hover { background: rgba(245, 158, 11, 0.12); border-color: #f59e0b; color: #f59e0b; }
 
-.stat-icon {
-  width: 48px;
-  height: 48px;
-  border-radius: 14px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
+.rank-mini-list { display: flex; flex-direction: column; gap: 5px; }
+.rank-mini-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px; background: var(--bg-tertiary); border-radius: 8px; font-size: 0.82rem; border: 1px solid var(--border-light); }
 
-.stat-body {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.stat-value {
-  font-size: 1.8rem;
-  font-weight: 800;
-  color: var(--text-primary);
+/* ── 排名序号：纯数字，无背景圆 ── */
+.rank-num { 
+  width: 18px; text-align: center; 
+  font-size: 0.78rem; font-weight: 700; 
+  color: var(--text-muted); flex-shrink: 0; 
   font-variant-numeric: tabular-nums;
-  line-height: 1.2;
+}
+.rank-name { flex: 1; font-weight: 500; color: var(--text-primary); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ── 前三流光动效 ── */
+.rank-num.gold, .rank-name.gold,
+.rank-num.silver, .rank-name.silver,
+.rank-num.bronze, .rank-name.bronze {
+  font-weight: 800;
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: shimmer 2.5s linear infinite;
+}
+.rank-num.gold, .rank-name.gold { background-image: linear-gradient(90deg, #f59e0b, #fbbf24, #f59e0b, #d97706, #f59e0b); }
+.rank-num.silver, .rank-name.silver {
+  background-image: linear-gradient(90deg,
+    #9ca3af 0%, #e5e7eb 10%, #ffffff 18%, #e5e7eb 25%, #9ca3af 35%,
+    #9ca3af 45%, #e5e7eb 55%, #ffffff 63%, #e5e7eb 70%, #9ca3af 80%
+  );
+  background-size: 300% auto;
+  animation: shimmer 2s linear infinite;
+}
+.rank-num.bronze, .rank-name.bronze { background-image: linear-gradient(90deg, #cd7f32, #f59e0b, #cd7f32, #a0522d, #cd7f32); }
+
+@keyframes shimmer {
+  0% { background-position: 0% center; }
+  100% { background-position: 200% center; }
 }
 
-.stat-value.loading-pulse {
-  width: 48px;
-  height: 32px;
-  border-radius: 6px;
-  background: var(--bg-tertiary);
-  animation: pulse 1.5s ease-in-out infinite;
+.rank-val { color: var(--text-secondary); font-weight: 600; font-size: 0.78rem; font-variant-numeric: tabular-nums; flex-shrink: 0; }
+
+.rank-fade-enter-active,
+.rank-fade-leave-active {
+  transition: opacity 0.25s ease;
+}
+.rank-fade-enter-from,
+.rank-fade-leave-to {
+  opacity: 0;
 }
 
-@keyframes pulse {
-  0%, 100% { opacity: 0.5; }
-  50% { opacity: 0.2; }
-}
+/* ── 封禁迷你列表 ── */
+.ban-mini-list { display: flex; flex-direction: column; gap: 5px; }
+.ban-mini-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px; background: var(--bg-tertiary); border-radius: 8px; font-size: 0.8rem; border: 1px solid var(--border-light); }
+.ban-type { padding: 1px 6px; border-radius: 5px; font-size: 0.65rem; font-weight: 700; flex-shrink: 0; }
+.ban-type.ip { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
+.ban-type.uuid { background: rgba(139, 92, 246, 0.15); color: #8b5cf6; }
+.ban-type.账户 { background: rgba(22, 163, 74, 0.15); color: #16a34a; }
+.ban-type.未知 { background: rgba(156, 163, 175, 0.15); color: #6b7280; }
+.ban-target { flex: 1; font-weight: 500; color: var(--text-primary); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ban-date { color: var(--text-muted); font-size: 0.72rem; flex-shrink: 0; }
 
-.stat-label {
-  font-size: 0.82rem;
-  color: var(--text-secondary);
-  font-weight: 500;
-}
+/* ── 柱状图 ── */
+.hourly-card { background: var(--bg-card); border: 1px solid var(--border-light); border-radius: 14px; overflow: hidden; }
+.card-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--border-light); }
+.card-header h3 { font-size: 1rem; font-weight: 600; color: var(--text-primary); margin: 0; }
+.card-body { padding: 14px 18px; }
+.bar-chart { display: flex; align-items: flex-end; gap: 2px; height: 170px; padding-top: 6px; }
+.bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; cursor: pointer; }
+.bar-col.future { cursor: default; }
+.bar { width: 100%; max-width: 20px; border-radius: 3px 3px 0 0; background: linear-gradient(180deg, #6366f1, #4f46e5); min-height: 4px; transition: opacity 0.15s; }
+.bar-col:hover .bar { opacity: 0.75; }
+.future-bar { width: 100%; max-width: 20px; border-radius: 3px 3px 0 0; background: var(--border-light); min-height: 4px; }
+.bar-label { margin-top: 3px; font-size: 0.55rem; color: var(--text-secondary); }
 
-/* ===== 网格布局 ===== */
-.dashboard-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-  margin-bottom: 16px;
-}
+/* ── 模态框 ── */
+.modal-overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.5); display: flex; align-items: center; justify-content: center; z-index: 10000; animation: fadeIn 0.2s ease; }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+.modal-container { background: var(--bg-primary); border-radius: 16px; width: 90vw; height: 85vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3); animation: scaleIn 0.25s cubic-bezier(0.34, 1.56, 0.64, 1); }
+.modal-rank-container { width: 70vw; height: 80vh; }
+@keyframes scaleIn { from { transform: scale(0.85); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+.modal-header-bar { display: flex; align-items: center; justify-content: space-between; padding: 18px 22px; border-bottom: 1px solid var(--border-light); flex-shrink: 0; }
+.modal-header-bar h2 { margin: 0; font-size: 1.2rem; color: var(--text-primary); }
+.modal-close-btn { width: 34px; height: 34px; border-radius: 10px; border: 1px solid var(--border-light); background: var(--bg-tertiary); color: var(--text-secondary); font-size: 1rem; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
+.modal-close-btn:hover { background: rgba(239, 68, 68, 0.1); border-color: #ef4444; color: #ef4444; }
+.modal-body-area { flex: 1; overflow-y: auto; padding: 0; display: flex; flex-direction: column; }
 
-/* ===== 通用卡片 ===== */
-.card {
-  background: var(--bg-card);
-  border: 1px solid var(--border-light);
-  border-radius: 14px;
-  overflow: hidden;
-}
-
-.card-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 16px 20px;
+/* ── 模态框表头统计 ── */
+.rank-modal-stats {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 20px;
   border-bottom: 1px solid var(--border-light);
-}
-
-.card-header h3 {
-  font-size: 1.05rem;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin: 0;
-}
-
-.card-body {
-  padding: 16px 20px;
-}
-
-/* ===== 在线玩家列表 ===== */
-.active-card .card-body {
-  max-height: 320px;
-  overflow-y: auto;
-}
-
-.player-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.player-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 14px;
-  background: var(--bg-tertiary);
-  border-radius: 10px;
-  border: 1px solid var(--border-light);
-  transition: background 0.2s;
-}
-
-.player-item:hover {
-  background: var(--bg-hover);
-}
-
-.player-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #22c55e;
-  box-shadow: 0 0 8px rgba(34, 197, 94, 0.5);
   flex-shrink: 0;
 }
+.rms-label { font-weight: 700; font-size: 0.9rem; color: var(--text-primary); }
+.rms-total { font-size: 0.78rem; color: var(--text-secondary); background: var(--bg-tertiary); padding: 2px 10px; border-radius: 10px; }
 
-.player-name {
-  font-size: 0.9rem;
-  font-weight: 500;
-  color: var(--text-primary);
+/* ── 排行榜模态表格 ── */
+.rank-modal-table-wrap { flex: 1; overflow-y: auto; }
+.rank-modal-table { width: 100%; border-collapse: collapse; }
+.rank-modal-table thead { position: sticky; top: 0; z-index: 1; }
+.rank-modal-table thead tr { background: var(--bg-secondary); }
+.rank-modal-table th {
+  text-align: left; padding: 10px 16px;
+  font-size: 0.75rem; font-weight: 700; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.5px;
+  border-bottom: 2px solid var(--border-light);
+}
+.rank-modal-table td { padding: 9px 16px; font-size: 0.88rem; border-bottom: 1px solid var(--border-light); color: var(--text-primary); }
+.rank-modal-table tbody tr:nth-child(even) { background: var(--bg-tertiary); }
+.rank-modal-table tbody tr:hover td { background-color: var(--bg-hover); }
+.rank-modal-table tbody tr.row-gold { background: rgba(245, 158, 11, 0.06); }
+.rank-modal-table tbody tr.row-silver { background: rgba(156, 163, 175, 0.06); }
+.rank-modal-table tbody tr.row-bronze { background: rgba(205, 127, 50, 0.06); }
+.col-r { width: 48px; text-align: center; }
+.col-n { font-weight: 500; }
+.col-n.gold, .col-n.silver, .col-n.bronze {
+  font-weight: 800;
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: shimmer 2.5s linear infinite;
+}
+.col-n.gold { background-image: linear-gradient(90deg, #f59e0b, #fbbf24, #f59e0b, #d97706, #f59e0b); }
+.col-n.silver {
+  background-image: linear-gradient(90deg,
+    #9ca3af 0%, #e5e7eb 10%, #ffffff 18%, #e5e7eb 25%, #9ca3af 35%,
+    #9ca3af 45%, #e5e7eb 55%, #ffffff 63%, #e5e7eb 70%, #9ca3af 80%
+  );
+  background-size: 300% auto;
+  animation: shimmer 2s linear infinite;
+}
+.col-n.bronze { background-image: linear-gradient(90deg, #cd7f32, #f59e0b, #cd7f32, #a0522d, #cd7f32); }
+.col-v {
+  width: 90px; text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600; color: var(--text-secondary);
 }
 
-.badge {
-  padding: 2px 10px;
-  border-radius: 20px;
-  font-size: 0.78rem;
-  font-weight: 700;
-}
+/* ── 筛选 ── */
+.filter-date { padding: 6px 28px 6px 12px; border: 1px solid var(--border-light); border-radius: 6px; background: var(--bg-input); color: var(--text-primary); font-size: 0.85rem; cursor: pointer; outline: none; transition: border-color 0.2s; -webkit-appearance: none; -moz-appearance: none; appearance: none; min-width: 110px; }
+.filter-date:hover { border-color: var(--accent-primary); }
+.filter-date:focus { border-color: var(--accent-primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-primary) 20%, transparent); }
 
-.badge-online {
-  background: rgba(34, 197, 94, 0.15);
-  color: #22c55e;
-}
-
-.badge-offline {
-  background: rgba(107, 114, 128, 0.15);
-  color: #6b7280;
-}
-
-/* ===== 逐时柱状图 ===== */
-.bar-chart {
-  display: flex;
-  align-items: flex-end;
-  gap: 2px;
-  height: 180px;
-  padding-top: 8px;
-}
-
-.bar-col {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: flex-end;
-  height: 100%;
-  cursor: pointer;
-}
-
-.bar-col.future { cursor: default; }
-
-.bar {
-  width: 100%;
-  max-width: 22px;
-  border-radius: 3px 3px 0 0;
-  background: linear-gradient(180deg, #6366f1, #4f46e5);
-  min-height: 4px;
-  transition: opacity 0.15s;
-}
-
-.bar-col:hover .bar { opacity: 0.75; }
-
-.future-bar {
-  width: 100%;
-  max-width: 22px;
-  border-radius: 3px 3px 0 0;
-  background: var(--border-light);
-  min-height: 4px;
-}
-
-.bar-label {
-  margin-top: 4px;
-  font-size: 0.6rem;
-  color: var(--text-secondary);
-}
-
-/* ===== 排行榜 ===== */
-.ranking-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-.ranking-table th {
-  text-align: left;
-  padding: 8px 12px;
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: var(--text-secondary);
-  border-bottom: 1px solid var(--border-light);
-  text-transform: uppercase;
-}
-
-.ranking-table td {
-  padding: 8px 12px;
-  font-size: 0.9rem;
-  border-bottom: 1px solid var(--border-light);
-  color: var(--text-primary);
-}
-
-.ranking-table tr:hover td {
-  background: var(--bg-hover);
-}
-
-.col-rank { width: 40px; color: var(--text-secondary); }
-.col-time { width: 80px; text-align: right; font-variant-numeric: tabular-nums; }
-
-/* ===== 筛选 ===== */
-.filter-select, .filter-date {
-  padding: 7px 32px 7px 14px;
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  background: var(--bg-input);
-  color: var(--text-primary);
-  font-size: 0.875rem;
-  cursor: pointer;
-  outline: none;
-  transition: border-color 0.2s, box-shadow 0.2s;
-  -webkit-appearance: none;
-  -moz-appearance: none;
-  appearance: none;
-  min-width: 120px;
-}
-
-.filter-select:hover, .filter-date:hover { border-color: var(--accent-primary); }
-.filter-select:focus, .filter-date:focus {
-  border-color: var(--accent-primary);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-primary) 20%, transparent);
-}
-
-.filter-select option {
-  background: var(--bg-card);
-  color: var(--text-primary);
-  padding: 6px 12px;
-}
-
-.select-wrapper {
-  position: relative;
-  display: inline-flex;
-}
-
-.select-wrapper::after {
-  content: '';
-  position: absolute;
-  right: 12px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 0;
-  height: 0;
-  border-left: 5px solid transparent;
-  border-right: 5px solid transparent;
-  border-top: 5px solid var(--text-secondary);
-  pointer-events: none;
-}
-
-/* ===== Tooltip ===== */
-.hourly-tooltip {
-  position: fixed;
-  z-index: 9999;
-  background: var(--bg-card);
-  border: 1px solid var(--border-light);
-  border-radius: 8px;
-  padding: 10px 14px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
-  pointer-events: none;
-  font-size: 0.8rem;
-  color: var(--text-primary);
-}
-
+/* ── Tooltip ── */
+.hourly-tooltip { position: fixed; z-index: 9999; background: var(--bg-card); border: 1px solid var(--border-light); border-radius: 8px; padding: 10px 14px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12); pointer-events: none; font-size: 0.8rem; color: var(--text-primary); }
 .tooltip-hour { font-weight: 600; margin-bottom: 2px; }
 .tooltip-count { color: var(--accent-primary); }
+.tooltip-ids { margin-top: 4px; color: var(--text-secondary); font-size: 0.7rem; max-width: 200px; word-break: break-all; }
 
-.tooltip-ids {
-  margin-top: 4px;
-  color: var(--text-secondary);
-  font-size: 0.7rem;
-  max-width: 200px;
-  word-break: break-all;
+.loading { text-align: center; padding: 20px 0; color: var(--text-secondary); font-size: 0.85rem; }
+
+/* ── 分页栏 ── */
+.pagination-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  flex-wrap: wrap; gap: 10px;
+  padding: 14px 12px 6px; border-top: 1px solid var(--border-light);
+  font-size: 0.82rem; color: var(--text-secondary);
 }
-
-/* ===== 通用 ===== */
-.loading, .empty {
-  text-align: center;
-  padding: 24px 0;
-  color: var(--text-secondary);
-  font-size: 0.9rem;
+.pagination-info { white-space: nowrap; }
+.pagination-controls { display: flex; align-items: center; gap: 4px; }
+.page-btn {
+  width: 30px; height: 30px; border-radius: 6px;
+  border: 1px solid var(--border-light); background: var(--bg-tertiary);
+  color: var(--text-primary); font-size: 0.85rem; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: all 0.15s;
 }
-
-@media (max-width: 860px) {
-  .stat-row { grid-template-columns: repeat(2, 1fr); }
-  .dashboard-grid { grid-template-columns: 1fr; }
+.page-btn:hover:not(:disabled) { background: var(--accent-primary); color: #fff; border-color: var(--accent-primary); }
+.page-btn:disabled { opacity: 0.3; cursor: default; }
+.page-indicator { min-width: 60px; text-align: center; font-weight: 600; color: var(--text-primary); }
+.pagination-size {
+  display: flex; align-items: center; gap: 6px;
 }
+.pagination-size select {
+  padding: 4px 6px; border: 1px solid var(--border-light); border-radius: 6px;
+  background: var(--bg-input); color: var(--text-primary); font-size: 0.8rem;
+  outline: none; cursor: pointer;
+}
+.pagination-size select:hover { border-color: var(--accent-primary); }
 
-@media (max-width: 480px) {
-  .stat-row { grid-template-columns: 1fr; }
+@media (max-width: 960px) {
+  .stat-cards { grid-template-columns: repeat(2, 1fr); }
+  .modal-rank-container { width: 90vw; }
+}
+@media (max-width: 540px) {
+  .stat-cards { grid-template-columns: 1fr; }
 }
 </style>

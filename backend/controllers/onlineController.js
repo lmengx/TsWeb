@@ -24,3 +24,11 @@ export const getPlayerCalendar = async (req, res) => {
   const result = await onlineService.getPlayerCalendar(name, yearNum)
   res.json(result)
 }
+
+export const getRankingStats = async (req, res) => {
+  const type = req.query.type || 'online'
+  const page = parseInt(req.query.page) || 1
+  const pageSize = parseInt(req.query.pageSize) || 10
+  const result = await onlineService.getRankingStats(type, page, pageSize)
+  res.json(result)
+}

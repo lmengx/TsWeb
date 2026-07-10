@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System.Reflection;
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System.Reflection;
 using TShockAPI;
 using Terraria;
 using TerrariaApi.Server;
@@ -95,6 +95,7 @@ namespace TShockData
             TShock.RestApi.Register(new SecureRestCommand("/data/online/hourly", OnlineData.GetHourlyOnline, "data.rest.invsee"));
             TShock.RestApi.Register(new SecureRestCommand("/data/online/ranking", OnlineData.GetRanking, "data.rest.invsee"));
             TShock.RestApi.Register(new SecureRestCommand("/data/online/player", OnlineData.GetPlayerCalendar, "data.rest.invsee"));
+            TShock.RestApi.Register(new SecureRestCommand("/data/online/ranking/stats", OnlineData.GetRankingStats, "data.rest.invsee"));
 
             TShock.RestApi.Register(new SecureRestCommand("/data/users/unverified/list", UnverifiedManager.GetUnverifiedList, "data.rest.invsee"));
             TShock.RestApi.Register(new SecureRestCommand("/data/users/unverified/detail", UnverifiedManager.GetDetail, "data.rest.invsee"));
@@ -216,7 +217,8 @@ namespace TShockData
 				"/data/config/tsweb/set",
 				"/data/online/hourly",
 				"/data/online/ranking",
-				"/data/online/player",
+                "/data/online/player",
+                "/data/online/ranking/stats",
 				"/data/users/unverified/list",
 				"/data/users/unverified/detail",
 				"/data/users/unverified/register",

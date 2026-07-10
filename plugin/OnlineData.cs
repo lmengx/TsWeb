@@ -176,6 +176,132 @@ namespace TShockData
         }
 
         /// <summary>
+        /// GET /data/online/ranking/stats?type=online|deaths|fishing&page=1&pageSize=10
+        /// 通用排行榜：在线时长 / PVE死亡数 / 钓鱼任务数
+        /// 过滤值为0的记录，支持分页，返回 total 总数
+        /// </summary>
+        public static object GetRankingStats(RestRequestArgs args)
+        {
+            try
+            {
+                string type = "online";
+                try { type = args.Parameters["type"]?.ToLower() ?? "online"; } catch { }
+
+                int page = GetOptionalIntParam(args, "page", 1);
+                int pageSize = GetOptionalIntParam(args, "pageSize", 10);
+                if (page < 1) page = 1;
+                if (pageSize < 1) pageSize = 1;
+                if (pageSize > 1000) pageSize = 1000;
+
+                int offset = (page - 1) * pageSize;
+                var ranking = new List<Dictionary<string, object>>();
+                int total = 0;
+
+                if (type == "online")
+                {
+                    // 总数（过滤0值）
+                    using (var cntReader = TShock.DB.QueryReader(
+                        "SELECT COUNT(*) AS cnt FROM (SELECT uid FROM player_daily_stat " +
+                        "GROUP BY uid HAVING SUM(daily_min) > 0) sub"))
+                    {
+                        if (cntReader.Read()) total = cntReader.Get<int>("cnt");
+                    }
+
+                    using (var reader = TShock.DB.QueryReader(
+                        "SELECT uid, SUM(daily_min) AS total_min FROM player_daily_stat " +
+                        "GROUP BY uid HAVING total_min > 0 ORDER BY total_min DESC LIMIT @0 OFFSET @1", pageSize, offset))
+                    {
+                        while (reader.Read())
+                        {
+                            string uid = reader.Get<string>("uid");
+                            int totalMin = 0;
+                            try { totalMin = reader.Get<int>("total_min"); } catch { }
+                            ranking.Add(new Dictionary<string, object>
+                            {
+                                { "name", uid },
+                                { "value", totalMin },
+                                { "unit", "min" }
+                            });
+                        }
+                    }
+                }
+                else if (type == "deaths")
+                {
+                    using (var cntReader = TShock.DB.QueryReader(
+                        "SELECT COUNT(*) AS cnt FROM tsCharacter c " +
+                        "JOIN Users u ON c.Account = u.ID WHERE c.deathsPVE > 0"))
+                    {
+                        if (cntReader.Read()) total = cntReader.Get<int>("cnt");
+                    }
+
+                    using (var reader = TShock.DB.QueryReader(
+                        "SELECT u.Username, c.deathsPVE FROM tsCharacter c " +
+                        "JOIN Users u ON c.Account = u.ID " +
+                        "WHERE c.deathsPVE > 0 ORDER BY c.deathsPVE DESC LIMIT @0 OFFSET @1", pageSize, offset))
+                    {
+                        while (reader.Read())
+                        {
+                            string name = reader.Get<string>("Username");
+                            int deaths = 0;
+                            try { deaths = reader.Get<int>("deathsPVE"); } catch { }
+                            ranking.Add(new Dictionary<string, object>
+                            {
+                                { "name", name },
+                                { "value", deaths },
+                                { "unit", "次" }
+                            });
+                        }
+                    }
+                }
+                else if (type == "fishing")
+                {
+                    using (var cntReader = TShock.DB.QueryReader(
+                        "SELECT COUNT(*) AS cnt FROM tsCharacter c " +
+                        "JOIN Users u ON c.Account = u.ID WHERE c.questsCompleted > 0"))
+                    {
+                        if (cntReader.Read()) total = cntReader.Get<int>("cnt");
+                    }
+
+                    using (var reader = TShock.DB.QueryReader(
+                        "SELECT u.Username, c.questsCompleted FROM tsCharacter c " +
+                        "JOIN Users u ON c.Account = u.ID " +
+                        "WHERE c.questsCompleted > 0 ORDER BY c.questsCompleted DESC LIMIT @0 OFFSET @1", pageSize, offset))
+                    {
+                        while (reader.Read())
+                        {
+                            string name = reader.Get<string>("Username");
+                            int quests = 0;
+                            try { quests = reader.Get<int>("questsCompleted"); } catch { }
+                            ranking.Add(new Dictionary<string, object>
+                            {
+                                { "name", name },
+                                { "value", quests },
+                                { "unit", "个" }
+                            });
+                        }
+                    }
+                }
+                else
+                {
+                    return new RestObject("400") { { "error", $"Unknown type: {type}" } };
+                }
+
+                return new RestObject
+                {
+                    { "type", type },
+                    { "page", page },
+                    { "pageSize", pageSize },
+                    { "total", total },
+                    { "ranking", ranking }
+                };
+            }
+            catch (Exception ex)
+            {
+                return new RestObject("500") { { "error", ex.Message } };
+            }
+        }
+
+        /// <summary>
         /// 安全获取可选参数值，若不存在或解析失败返回默认值
         /// </summary>
         private static int GetOptionalIntParam(RestRequestArgs args, string key, int defaultValue)

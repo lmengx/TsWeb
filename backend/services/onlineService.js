@@ -74,6 +74,20 @@ class OnlineService {
       return { error: error.message }
     }
   }
+
+  async getRankingStats(type, page = 1, pageSize = 10) {
+    await this.init()
+    const url = `${baseUrl}/data/online/ranking/stats?type=${encodeURIComponent(type)}&page=${encodeURIComponent(page)}&pageSize=${encodeURIComponent(pageSize)}&token=${encodeURIComponent(apiKey)}`
+    console.log(`[OUTGOING] GET ${url}`)
+    try {
+      const res = await fetch(url, { headers: { 'Accept': 'application/json' } })
+      const text = await res.text()
+      console.log(`[RESPONSE] Status: ${res.status}`)
+      try { return JSON.parse(text) } catch { return { error: 'Invalid JSON', raw: text } }
+    } catch (error) {
+      return { error: error.message }
+    }
+  }
 }
 
 export default new OnlineService()
