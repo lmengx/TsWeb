@@ -1216,6 +1216,48 @@ const isPlayerOnlineAtHour = (dateStr, hour) => {
   return h.online_players.some(n => n.toLowerCase() === username?.toLowerCase())
 }
 
+// 获取某小时在线总人数
+const getHourlyCount = (dateStr, hour) => {
+  const targetTs = parseInt(dateStr.replace(/-/g, '')) * 100 + hour
+  const h = hourlyDetail.value.find(h => h.hour_ts === targetTs)
+  if (!h || !h.online_players) return 0
+  return h.online_players.length
+}
+
+// 热力图最高值
+const maxHourlyCount = computed(() => {
+  if (!hourlyDetail.value.length) return 1
+  return Math.max(1, ...hourlyDetail.value.map(h => h.online_players?.length || 0))
+})
+
+// 热力等级 (0-4)
+const heatmapLevel = (dateStr, hour) => {
+  const count = getHourlyCount(dateStr, hour)
+  if (count === 0) return 0
+  const ratio = count / maxHourlyCount.value
+  if (ratio <= 0.25) return 1
+  if (ratio <= 0.5) return 2
+  if (ratio <= 0.75) return 3
+  return 4
+}
+
+// 热力格子 CSS 类
+const heatmapCellClass = (dateStr, hour) => {
+  const level = heatmapLevel(dateStr, hour)
+  const hasPlayer = isPlayerOnlineAtHour(dateStr, hour)
+  return [`heat-lv-${level}`, { 'has-player': hasPlayer }]
+}
+
+// 热力格子提示
+const heatmapCellTitle = (dateStr, hour) => {
+  const count = getHourlyCount(dateStr, hour)
+  const isOnline = isPlayerOnlineAtHour(dateStr, hour)
+  const timeStr = `${String(hour).padStart(2, '0')}:00`
+  let title = `${timeStr} - ${count} 人在线`
+  if (isOnline) title += ' ✓ 该玩家在线'
+  return title
+}
+
 watch(dailyStartDate, (newVal) => {
   if (!validateDate(newVal)) {
     const today = new Date()
@@ -1782,17 +1824,25 @@ onMounted(() => {
             <div v-if="expandedDay" class="hourly-detail">
               <div class="hourly-detail-head">
                 <span>{{ expandedDay }} 逐时在线</span>
+                <span class="hourly-legend">
+                  <span>在线人数</span>
+                  <span class="legend-cell lv-1"></span>
+                  <span class="legend-cell lv-2"></span>
+                  <span class="legend-cell lv-3"></span>
+                  <span class="legend-cell lv-4"></span>
+                  <span class="legend-divider">|</span>
+                  <span class="legend-dot"></span>
+                  <span>该玩家在线</span>
+                </span>
               </div>
               <div v-if="hourlyDetailLoading" class="loading-state"><p>加载中...</p></div>
-              <div v-else class="hourly-mini-chart">
-                <div v-for="h in 24" :key="h-1" class="hourly-mini-col">
-                  <div
-                    class="hourly-mini-bar"
-                    :class="{ online: isPlayerOnlineAtHour(expandedDay, h-1) }"
-                    :title="`${String(h-1).padStart(2,'0')}:00`"
-                  ></div>
-                  <span class="hourly-mini-label">{{ h-1 }}</span>
+              <div v-else class="hourly-heatmap">
+                <div v-for="h in 24" :key="h-1" class="hourly-cell" :class="heatmapCellClass(expandedDay, h-1)" :title="heatmapCellTitle(expandedDay, h-1)">
+                  <span v-if="isPlayerOnlineAtHour(expandedDay, h-1)" class="hourly-dot"></span>
                 </div>
+              </div>
+              <div class="hourly-axis">
+                <span v-for="h in 24" :key="h-1" class="hourly-axis-label">{{ h-1 }}</span>
               </div>
             </div>
           </template>
@@ -4564,42 +4614,105 @@ onMounted(() => {
 }
 
 .hourly-detail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 8px;
   font-size: 0.68rem;
   color: var(--text-secondary);
   margin-bottom: 6px;
 }
 
-.hourly-mini-chart {
+.hourly-legend {
   display: flex;
-  align-items: flex-end;
-  gap: 1px;
-  height: 32px;
+  align-items: center;
+  gap: 3px;
+  font-size: 0.6rem;
+  color: var(--text-muted);
 }
 
-.hourly-mini-col {
+.legend-cell {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+}
+
+.legend-cell.lv-1 { background: rgba(64, 196, 99, 0.25); }
+.legend-cell.lv-2 { background: rgba(64, 196, 99, 0.5); }
+.legend-cell.lv-3 { background: rgba(64, 196, 99, 0.75); }
+.legend-cell.lv-4 { background: rgba(64, 196, 99, 1); }
+
+.legend-divider {
+  margin: 0 2px;
+  color: var(--border-light);
+}
+
+.legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #38bdf8, #34d399);
+  display: inline-block;
+  vertical-align: middle;
+}
+
+/* 热力图 */
+.hourly-heatmap {
+  display: flex;
+  gap: 2px;
+  height: 36px;
+}
+
+.hourly-cell {
   flex: 1;
   display: flex;
-  flex-direction: column;
   align-items: center;
-  justify-content: flex-end;
-}
-
-.hourly-mini-bar {
-  width: 100%;
-  border-radius: 1px 1px 0 0;
+  justify-content: center;
+  border-radius: 3px;
   background: var(--border-light);
-  min-height: 2px;
-  height: 100%;
+  transition: opacity 0.15s;
+  cursor: default;
+  position: relative;
 }
 
-.hourly-mini-bar.online {
-  background: #40c463;
+.hourly-cell:hover { opacity: 0.8; }
+
+/* 热力等级 */
+.hourly-cell.heat-lv-0 { background: var(--border-light); }
+.hourly-cell.heat-lv-1 { background: rgba(64, 196, 99, 0.25); }
+.hourly-cell.heat-lv-2 { background: rgba(64, 196, 99, 0.5); }
+.hourly-cell.heat-lv-3 { background: rgba(64, 196, 99, 0.75); }
+.hourly-cell.heat-lv-4 { background: rgba(64, 196, 99, 1); }
+
+/* 玩家在线动态渐变圆点（蓝绿呼吸） */
+.hourly-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #38bdf8, #34d399);
+  background-size: 200% 200%;
+  animation: dotBreath 3s ease-in-out infinite;
+  box-shadow: 0 0 5px rgba(56, 189, 248, 0.5);
 }
 
-.hourly-mini-label {
+@keyframes dotBreath {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+.hourly-axis {
+  display: flex;
+  gap: 2px;
+  margin-top: 3px;
+}
+
+.hourly-axis-label {
+  flex: 1;
+  text-align: center;
   font-size: 0.4rem;
   color: var(--text-muted);
-  margin-top: 1px;
+  font-variant-numeric: tabular-nums;
 }
 
 /* Toast */
