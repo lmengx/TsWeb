@@ -2,6 +2,7 @@
 import { ref, computed, watch, onMounted, Transition } from 'vue'
 import { get } from '../../utils/api.js'
 import BanListView from './BanListView.vue'
+import ConsoleTerminal from '../../components/ConsoleTerminal.vue'
 
 const toLocalDateString = (date) => {
   const y = date.getFullYear()
@@ -332,8 +333,13 @@ onMounted(() => {
       </div>
     </div>
 
-    <!-- 每小时在线 -->
-    <section class="card hourly-card">
+    <!-- 底部双栏：终端 + 每小时在线 -->
+    <div class="bottom-split">
+      <section class="card terminal-wrapper">
+        <ConsoleTerminal />
+      </section>
+    </div>
+      <section class="card hourly-card">
       <div class="card-header">
         <h3>每小时在线</h3>
         <input type="date" v-model="hourlyDate" class="filter-date" />
@@ -543,6 +549,14 @@ onMounted(() => {
 .ban-target { flex: 1; font-weight: 500; color: var(--text-primary); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ban-date { color: var(--text-muted); font-size: 0.72rem; flex-shrink: 0; }
 
+/* ── 底部双栏 ── */
+.bottom-split {
+  display: grid; grid-template-columns: 1fr 1.2fr; gap: 14px;
+  margin-bottom: 18px;
+}
+.terminal-wrapper { display: flex; flex-direction: column; min-height: 340px; padding: 0; overflow: hidden; }
+.terminal-wrapper .terminal-card { border: none; border-radius: 0; height: 100%; }
+
 /* ── 柱状图 ── */
 .hourly-card { background: var(--bg-card); border: 1px solid var(--border-light); border-radius: 14px; overflow: hidden; }
 .card-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--border-light); }
@@ -665,6 +679,7 @@ onMounted(() => {
 
 @media (max-width: 960px) {
   .stat-cards { grid-template-columns: repeat(2, 1fr); }
+  .bottom-split { grid-template-columns: 1fr; }
   .modal-rank-container { width: 90vw; }
 }
 @media (max-width: 540px) {

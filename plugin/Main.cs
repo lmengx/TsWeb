@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System.Reflection;
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System.Reflection;
 using TShockAPI;
 using Terraria;
 using TerrariaApi.Server;
@@ -97,6 +97,11 @@ namespace TShockData
             TShock.RestApi.Register(new SecureRestCommand("/data/online/player", OnlineData.GetPlayerCalendar, "data.rest.invsee"));
             TShock.RestApi.Register(new SecureRestCommand("/data/online/ranking/stats", OnlineData.GetRankingStats, "data.rest.invsee"));
 
+            // 控制台命令执行（SSE 配套）
+            TShock.RestApi.Register(new SecureRestCommand("/data/online/log/command", SSELogCommand.Execute, "data.rest.invsee"));
+
+            SSELogger.Initialize(this);
+
             TShock.RestApi.Register(new SecureRestCommand("/data/users/unverified/list", UnverifiedManager.GetUnverifiedList, "data.rest.invsee"));
             TShock.RestApi.Register(new SecureRestCommand("/data/users/unverified/detail", UnverifiedManager.GetDetail, "data.rest.invsee"));
             TShock.RestApi.Register(new SecureRestCommand("/data/users/unverified/register", UnverifiedManager.RegisterAndLogin, "data.rest.invsee"));
@@ -142,6 +147,7 @@ namespace TShockData
 				AutoRegister.Dispose(this);
 				ItemRestrict.Dispose();
 				OnlineData.Dispose();
+				SSELogger.Dispose();
 				RuntimeHooks.Dispose();
 				BossLimit.Dispose();
 				ItemDetection.StopAutoScan();
@@ -219,6 +225,7 @@ namespace TShockData
 				"/data/online/ranking",
                 "/data/online/player",
                 "/data/online/ranking/stats",
+                "/data/online/log/command",
 				"/data/users/unverified/list",
 				"/data/users/unverified/detail",
 				"/data/users/unverified/register",
@@ -230,8 +237,10 @@ namespace TShockData
 				"/data/files/list",
 				"/data/files/tree",
 				"/data/qq/bind",
-				"/data/qq/register",
+                "/data/qq/register",
 				"/data/qq/reset-password",
+				"/data/online/log/stream",
+				"/data/online/log/command",
 			};
 
 			try

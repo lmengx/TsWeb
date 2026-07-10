@@ -88,6 +88,26 @@ class OnlineService {
       return { error: error.message }
     }
   }
+
+  async execCommand(cmd) {
+    await this.init()
+    const url = `${baseUrl}/data/online/log/command?cmd=${encodeURIComponent(cmd)}&token=${encodeURIComponent(apiKey)}`
+    try {
+      const res = await fetch(url, { headers: { 'Accept': 'application/json' } })
+      const text = await res.text()
+      try { return JSON.parse(text) } catch { return { error: 'Invalid JSON', raw: text } }
+    } catch (error) {
+      return { error: error.message }
+    }
+  }
+
+  /**
+   * 获取 SSE 流的 URL（前端直接连接用）
+   */
+  getSSEUrl() {
+    // 前端通过后端代理 SSE，或者直接连接 TShock 端口
+    return `/api/online/log/stream`
+  }
 }
 
 export default new OnlineService()
