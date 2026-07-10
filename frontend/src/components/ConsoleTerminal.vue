@@ -9,6 +9,26 @@ const connected = ref(false)
 let eventSource = null
 const MAX_LOG = 200
 
+// ── ConsoleColor → CSS 颜色映射 ──
+const colorMap = {
+  Black: '#1a1a1a',
+  DarkBlue: '#3355cc',
+  DarkGreen: '#339933',
+  DarkCyan: '#339999',
+  DarkRed: '#cc3333',
+  DarkMagenta: '#993399',
+  DarkYellow: '#b8860b',
+  Gray: '#cccccc',
+  DarkGray: '#666666',
+  Blue: '#4488ff',
+  Green: '#44cc44',
+  Cyan: '#44cccc',
+  Red: '#ff4444',
+  Magenta: '#ff44ff',
+  Yellow: '#ffcc00',
+  White: '#ffffff',
+}
+
 function getToken() {
   try {
     const user = localStorage.getItem('user')
@@ -44,9 +64,28 @@ function connectSSE() {
       if (data.connected) return
       if (Array.isArray(data)) {
         data.forEach(line => {
+          // line 是 LogSegment[] 序列化 JSON 字符串
+          // '[{"t":"text","c":"Red"},{"t":"normal","c":null}]'
+          let segments = []
+          try {
+            if (typeof line === 'string') {
+              // 尝试解析为 LogSegment[] JSON
+              const parsed = JSON.parse(line)
+              if (Array.isArray(parsed)) {
+                segments = parsed
+              } else {
+                segments = [{ t: line, c: null }]
+              }
+            } else if (Array.isArray(line)) {
+              segments = line
+            }
+          } catch {
+            segments = [{ t: String(line), c: null }]
+          }
+
           logs.value.push({
             id: Date.now() + Math.random(),
-            text: line,
+            segments,
             time: new Date().toLocaleTimeString('zh-CN', { hour12: false })
           })
         })
@@ -94,18 +133,7 @@ async function sendCommand() {
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
       body: JSON.stringify({ cmd, executor: username })
     })
-    const json = await res.json()
-    if (json.response) {
-      logs.value.push({
-        id: Date.now() + 1,
-        text: json.response,
-        time: new Date().toLocaleTimeString('zh-CN', { hour12: false })
-      })
-      if (logs.value.length > MAX_LOG) {
-        logs.value = logs.value.slice(-MAX_LOG)
-      }
-      scrollToBottom()
-    }
+    // 命令输出走 Console → LogInterceptor → SSE 流，无需再重复显示
   } catch (err) {
     logs.value.push({
       id: Date.now() + 1,
@@ -143,10 +171,15 @@ function onInputKeydown(e) {
       <div v-if="logs.length === 0" class="terminal-empty">
         {{ connected ? '[' + new Date().toLocaleTimeString('zh-CN', { hour12: false }) + '] 已连接到控制台' : '未连接' }}
       </div>
-      <div v-for="log in logs" :key="log.id" class="terminal-line">
-        <span class="line-time">{{ log.time }}</span>
-        <span class="line-text" v-text="log.text"></span>
-      </div>
+        <div v-for="log in logs" :key="log.id" class="terminal-line">
+          <span class="line-time">{{ log.time }}</span>
+          <span class="line-text">
+            <template v-for="(seg, si) in log.segments" :key="si">
+              <span v-if="seg.c" :style="{ color: colorMap[seg.c] || seg.c }">{{ seg.t }}</span>
+              <template v-else>{{ seg.t }}</template>
+            </template>
+          </span>
+        </div>
     </div>
     <div class="terminal-input-row">
       <span class="input-prefix">❯</span>

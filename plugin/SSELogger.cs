@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Net;
@@ -16,13 +15,28 @@ using TShockAPI;
 namespace TShockData
 {
     /// <summary>
+    /// 一个带颜色的文本片段
+    /// </summary>
+    public class LogSegment
+    {
+        [JsonProperty("t")]
+        public string Text { get; set; } = "";
+
+        /// <summary>ConsoleColor 名称，如 "Red"、"Green"、"Gray"，null 表示默认色</summary>
+        [JsonProperty("c")]
+        public string? Color { get; set; }
+    }
+
+    /// <summary>
     /// 拦截 Console 输出，同时写入原始输出流和内存缓冲区
-    /// 重写所有 Write/WriteLine 重载以确保不遗漏任何输出
+    /// 捕获 Console.ForegroundColor 信息，以结构化的 LogSegment 形式存储
     /// </summary>
     public class LogInterceptor : TextWriter
     {
         private readonly TextWriter _original;
-        private readonly StringBuilder _lineBuffer = new();
+        private readonly List<LogSegment> _segments = new();
+        private StringBuilder _currentText = new();
+        private ConsoleColor? _currentColor = null;
 
         public LogInterceptor(TextWriter original)
         {
@@ -33,14 +47,62 @@ namespace TShockData
         public override IFormatProvider FormatProvider => _original.FormatProvider;
         public override string NewLine => _original.NewLine;
 
+        /// <summary>
+        /// 检查 ForegroundColor 是否变化，若变化则关闭当前段、开启新段
+        /// </summary>
+        private void CheckColor()
+        {
+            var cc = Console.ForegroundColor;
+            if (_currentColor.HasValue && _currentColor.Value == cc)
+                return; // 颜色未变
+
+            // 颜色变了 → 保存当前段
+            FlushCurrentSegment();
+            _currentColor = cc;
+        }
+
+        /// <summary>
+        /// 将 _currentText 中的内容作为一个 LogSegment 提交
+        /// </summary>
+        private void FlushCurrentSegment()
+        {
+            if (_currentText.Length == 0) return;
+            _segments.Add(new LogSegment
+            {
+                Text = _currentText.ToString(),
+                Color = _currentColor?.ToString()
+            });
+            _currentText.Clear();
+        }
+
+        /// <summary>
+        /// 提交当前段 + 刷新整行为 JSON 字符串，推送到 SSE 环形缓冲区
+        /// </summary>
+        private void FlushLine()
+        {
+            FlushCurrentSegment();
+            _currentColor = null;
+
+            if (_segments.Count == 0) return;
+
+            // 序列化为 JSON 数组
+            var json = JsonConvert.SerializeObject(_segments);
+            _segments.Clear();
+
+            SSELogger.AddLogLine(json);
+        }
+
         // ──────────── Write(char) ────────────
         public override void Write(char value)
         {
             _original.Write(value);
             if (value == '\n')
-                FlushLineBuffer();
+                FlushLine();
             else if (value != '\r')
-                _lineBuffer.Append(value);
+            {
+                CheckColor();
+                _currentText.Append(value);
+            }
         }
 
         // ──────────── Write(char[]) ────────────
@@ -48,7 +110,12 @@ namespace TShockData
         {
             if (buffer == null) return;
             _original.Write(buffer);
-            AppendChars(buffer, 0, buffer.Length);
+            CheckColor();
+            foreach (var c in buffer)
+            {
+                if (c == '\n') FlushLine();
+                else if (c != '\r') _currentText.Append(c);
+            }
         }
 
         // ──────────── Write(char[], int, int) ────────────
@@ -56,7 +123,13 @@ namespace TShockData
         {
             if (buffer == null) return;
             _original.Write(buffer, index, count);
-            AppendChars(buffer, index, count);
+            CheckColor();
+            for (int i = index; i < index + count; i++)
+            {
+                var c = buffer[i];
+                if (c == '\n') FlushLine();
+                else if (c != '\r') _currentText.Append(c);
+            }
         }
 
         // ──────────── Write(string) ────────────
@@ -64,7 +137,12 @@ namespace TShockData
         {
             if (value == null) return;
             _original.Write(value);
-            AppendString(value);
+            CheckColor();
+            foreach (var c in value)
+            {
+                if (c == '\n') FlushLine();
+                else if (c != '\r') _currentText.Append(c);
+            }
         }
 
         // ──────────── Write(StringBuilder) ────────────
@@ -72,13 +150,12 @@ namespace TShockData
         {
             if (value == null) return;
             _original.Write(value);
+            CheckColor();
             for (int i = 0; i < value.Length; i++)
             {
                 var c = value[i];
-                if (c == '\n')
-                    FlushLineBuffer();
-                else if (c != '\r')
-                    _lineBuffer.Append(c);
+                if (c == '\n') FlushLine();
+                else if (c != '\r') _currentText.Append(c);
             }
         }
 
@@ -86,7 +163,7 @@ namespace TShockData
         public override void WriteLine()
         {
             _original.WriteLine();
-            FlushLineBuffer();
+            FlushLine();
         }
 
         // ──────────── WriteLine(char[]) ────────────
@@ -94,8 +171,10 @@ namespace TShockData
         {
             if (buffer == null) { WriteLine(); return; }
             _original.WriteLine(buffer);
-            AppendChars(buffer, 0, buffer.Length);
-            FlushLineBuffer();
+            CheckColor();
+            foreach (var c in buffer)
+                if (c != '\r') _currentText.Append(c);
+            FlushLine();
         }
 
         // ──────────── WriteLine(char[], int, int) ────────────
@@ -103,17 +182,21 @@ namespace TShockData
         {
             if (buffer == null) { WriteLine(); return; }
             _original.WriteLine(buffer, index, count);
-            AppendChars(buffer, index, count);
-            FlushLineBuffer();
+            CheckColor();
+            for (int i = index; i < index + count; i++)
+                if (buffer[i] != '\r') _currentText.Append(buffer[i]);
+            FlushLine();
         }
 
         // ──────────── WriteLine(string) ────────────
         public override void WriteLine(string? value)
         {
             _original.WriteLine(value);
+            CheckColor();
             if (value != null)
-                AppendString(value);
-            FlushLineBuffer();
+                foreach (var c in value)
+                    if (c != '\r') _currentText.Append(c);
+            FlushLine();
         }
 
         // ──────────── WriteLine(StringBuilder) ────────────
@@ -121,51 +204,10 @@ namespace TShockData
         {
             if (value == null) { WriteLine(); return; }
             _original.WriteLine(value);
+            CheckColor();
             for (int i = 0; i < value.Length; i++)
-            {
-                var c = value[i];
-                if (c != '\r')
-                    _lineBuffer.Append(c);
-            }
-            FlushLineBuffer();
-        }
-
-        // ──────────── 辅助方法 ────────────
-
-        private void AppendChars(char[] buffer, int index, int count)
-        {
-            for (int i = index; i < index + count; i++)
-            {
-                var c = buffer[i];
-                if (c == '\n')
-                    FlushLineBuffer();
-                else if (c != '\r')
-                    _lineBuffer.Append(c);
-            }
-        }
-
-        private void AppendString(string value)
-        {
-            for (int i = 0; i < value.Length; i++)
-            {
-                var c = value[i];
-                if (c == '\n')
-                    FlushLineBuffer();
-                else if (c != '\r')
-                    _lineBuffer.Append(c);
-            }
-        }
-
-        private void FlushLineBuffer()
-        {
-            if (_lineBuffer.Length > 0)
-            {
-                var line = _lineBuffer.ToString();
-                _lineBuffer.Clear();
-
-                // 写入共享环形缓冲区
-                SSELogger.AddLogLine(line);
-            }
+                if (value[i] != '\r') _currentText.Append(value[i]);
+            FlushLine();
         }
     }
 
@@ -174,7 +216,7 @@ namespace TShockData
     /// </summary>
     public static class SSELogger
     {
-        // 日志环形缓冲区（所有客户端共享读取，各自跟踪位置）
+        // 日志环形缓冲区 — 每项是 LogSegment 序列化的 JSON 数组字符串
         private static readonly List<string> _logHistory = new();
         private static readonly object _logLock = new();
         private const int MaxLogLines = 1000;
@@ -323,7 +365,6 @@ namespace TShockData
 
         /// <summary>
         /// 枚举 RequestReceived 事件的所有 handler，移除属于 SSELogger 的
-        /// 这样即使旧程序集的拦截器残留（HotReload），也能精确清除
         /// </summary>
         private static void RemoveAllSSELoggerHandlers()
         {
@@ -331,7 +372,6 @@ namespace TShockData
 
             try
             {
-                // 尝试多种可能的编译器生成的后台字段名
                 var field = _listener.GetType().GetField("RequestReceived",
                         BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public)
                     ?? _listener.GetType().GetField("_requestReceived",
@@ -346,7 +386,6 @@ namespace TShockData
 
                 foreach (var handler in delegateInstance.GetInvocationList())
                 {
-                    // 检查 handler 是否属于 SSELogger（任何程序集）
                     if (handler.Method.DeclaringType?.Name == "SSELogger")
                     {
                         _requestEvent.RemoveEventHandler(_listener, handler);
@@ -383,7 +422,6 @@ namespace TShockData
         {
             try
             {
-                // 鉴权 — 从 URL 参数取 token
                 var token = e.Request.Parameters["token"];
                 if (string.IsNullOrEmpty(token) || !ValidateToken(token))
                 {
@@ -406,21 +444,18 @@ namespace TShockData
                 stream.Write(headerBytes, 0, headerBytes.Length);
                 stream.Flush();
 
-                // 标记已处理，阻止 HttpServer 发送任何响应
                 e.IsHandled = true;
 
-                // 发送初始 SSE 数据
                 var init = Encoding.UTF8.GetBytes("data: {\"connected\":true}\n\n");
                 stream.Write(init, 0, init.Length);
                 stream.Flush();
 
-                // 创建客户端对象，记录当前日志位置
                 var addr = e.Context.RemoteEndPoint?.ToString() ?? "unknown";
                 var client = new SSEClient(stream, addr);
 
                 lock (_clientLock)
                 {
-                    client.ReadIndex = _logHistory.Count; // 从当前位置开始
+                    client.ReadIndex = _logHistory.Count;
                     _sseClients.Add(client);
                 }
 
@@ -440,7 +475,6 @@ namespace TShockData
                 {
                     List<string>? lines = null;
 
-                    // 从环形缓冲区读取新行
                     lock (_logLock)
                     {
                         int count = _logHistory.Count - client.ReadIndex;
@@ -455,26 +489,19 @@ namespace TShockData
 
                     if (lines != null && lines.Count > 0)
                     {
-                        var json = Newtonsoft.Json.JsonConvert.SerializeObject(lines);
+                        var json = JsonConvert.SerializeObject(lines);
                         var data = Encoding.UTF8.GetBytes($"data: {json}\n\n");
                         await client.Stream.WriteAsync(data, 0, data.Length, client.CTS.Token);
                         await client.Stream.FlushAsync(client.CTS.Token);
                     }
                     else
                     {
-                        // 无新日志时延长休眠，减少 CPU 空转
                         await Task.Delay(1000, client.CTS.Token);
                     }
                 }
             }
-            catch (OperationCanceledException)
-            {
-                // 主动取消，正常
-            }
-            catch
-            {
-                // 客户端断开
-            }
+            catch (OperationCanceledException) { }
+            catch { }
             finally
             {
                 lock (_clientLock) _sseClients.Remove(client);
@@ -483,7 +510,8 @@ namespace TShockData
         }
 
         /// <summary>
-        /// 添加一行日志到环形缓冲区，所有连接的客户端都能读取到
+        /// 添加一行日志到环形缓冲区
+        /// line 已经是 LogSegment[] 序列化的 JSON 字符串
         /// </summary>
         public static void AddLogLine(string line)
         {
@@ -496,7 +524,7 @@ namespace TShockData
         }
 
         /// <summary>
-        /// 验证 REST token — 要求 superadmin 或拥有 data.rest.invsee 权限
+        /// 验证 REST token
         /// </summary>
         private static bool ValidateToken(string token)
         {
@@ -506,7 +534,6 @@ namespace TShockData
             if (secure.Tokens.TryGetValue(token, out var td) ||
                 secure.AppTokens.TryGetValue(token, out td))
             {
-                // owner 和 superadmin 默认拥有所有权限，直接放行
                 if (td.UserGroupName == "superadmin" || td.UserGroupName == "owner")
                     return true;
 
@@ -525,7 +552,6 @@ namespace TShockData
             _initialized = false;
             _hooksInstalled = false;
 
-            // 停止定时器
             _retryTimer?.Dispose();
             _retryTimer = null;
 
@@ -539,7 +565,6 @@ namespace TShockData
                 _sseClients.Clear();
             }
 
-            // 移除所有 SSELogger 残留的拦截器
             RemoveAllSSELoggerHandlers();
             _ourDelegate = null;
             _originalOnRequest = null;
