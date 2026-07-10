@@ -65,8 +65,10 @@ function connectSSE() {
 }
 
 async function sendCommand() {
-  const cmd = inputCmd.value.trim()
-  if (!cmd) return
+  const raw = inputCmd.value.trim()
+  if (!raw) return
+
+  const cmd = raw.startsWith('/') ? raw : '/' + raw
 
   // 在日志中回显输入
   logs.value.push({
@@ -79,10 +81,18 @@ async function sendCommand() {
 
   try {
     const token = getToken()
+    let username = 'SSE-Console'
+    try {
+      const user = localStorage.getItem('user')
+      if (user) {
+        const parsed = JSON.parse(user)
+        username = parsed.username || parsed.name || 'SSE-Console'
+      }
+    } catch {}
     const res = await fetch('/api/online/log/command', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-      body: JSON.stringify({ cmd })
+      body: JSON.stringify({ cmd, executor: username })
     })
     const json = await res.json()
     if (json.response) {
@@ -118,10 +128,6 @@ function onInputKeydown(e) {
     sendCommand()
   }
 }
-
-function clearLogs() {
-  logs.value = []
-}
 </script>
 
 <template>
@@ -131,14 +137,11 @@ function clearLogs() {
         <span class="status-dot" :class="{ connected }"></span>
         服务器控制台
       </span>
-      <div class="terminal-header-actions">
-        <span class="log-count">{{ logs.length }} 条</span>
-        <button class="terminal-clear-btn" @click="clearLogs" title="清屏">✕</button>
-      </div>
+      <span class="log-count">{{ logs.length }} 条</span>
     </div>
     <div class="terminal-body" ref="logContainer">
       <div v-if="logs.length === 0" class="terminal-empty">
-        {{ connected ? '等待日志...' : '未连接' }}
+        {{ connected ? '[' + new Date().toLocaleTimeString('zh-CN', { hour12: false }) + '] 已连接到控制台' : '未连接' }}
       </div>
       <div v-for="log in logs" :key="log.id" class="terminal-line">
         <span class="line-time">{{ log.time }}</span>
@@ -191,21 +194,13 @@ function clearLogs() {
 
 .log-count { font-size: 0.72rem; color: var(--text-muted); }
 
-.terminal-clear-btn {
-  width: 22px; height: 22px; border-radius: 5px;
-  border: 1px solid var(--border-light); background: var(--bg-tertiary);
-  color: var(--text-muted); font-size: 0.65rem; cursor: pointer;
-  display: flex; align-items: center; justify-content: center;
-}
-.terminal-clear-btn:hover { background: rgba(239, 68, 68, 0.1); border-color: #ef4444; color: #ef4444; }
-
 .terminal-body {
-  flex: 1; overflow-y: auto; padding: 8px 12px;
+  flex: 1; overflow-y: auto; overflow-x: hidden; padding: 6px 10px;
   font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'Consolas', monospace;
   font-size: 0.75rem;
-  line-height: 1.5;
+  line-height: 1.6;
   background: var(--bg-secondary);
-  min-height: 0;
+  min-height: 0; min-width: 0;
 }
 
 .terminal-empty {
@@ -216,11 +211,11 @@ function clearLogs() {
 .terminal-line {
   display: flex; gap: 8px;
   padding: 1px 0;
-  word-break: break-all;
+  min-width: 0;
 }
 
 .line-time { color: var(--text-muted); flex-shrink: 0; opacity: 0.6; font-size: 0.7rem; min-width: 70px; }
-.line-text { color: var(--text-primary); }
+.line-text { color: var(--text-primary); overflow-wrap: break-word; word-break: break-all; min-width: 0; }
 
 .terminal-input-row {
   display: flex; align-items: center; gap: 8px;

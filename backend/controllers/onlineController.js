@@ -143,12 +143,13 @@ export const streamLogs = async (req, res) => {
 
 export const execCommand = async (req, res) => {
   const { cmd } = req.body
+  const executor = req.user?.username || 'SSE-Console'
   if (!cmd) {
     return res.status(400).json({ error: 'Missing cmd parameter' })
   }
-  console.log('[SSE CMD] 执行命令:', cmd)
+  console.log('[SSE CMD] 执行命令:', cmd, 'by', executor)
   try {
-    const result = await onlineService.execCommand(cmd)
+    const result = await onlineService.execCommand(cmd, executor)
     console.log('[SSE CMD] 结果:', JSON.stringify(result).substring(0, 100))
     res.json(result)
   } catch (err) {

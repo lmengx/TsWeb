@@ -299,8 +299,8 @@ onMounted(() => {
           <Transition v-else mode="out-in" name="rank-fade">
             <div class="rank-mini-list" :key="rankKey">
               <div v-for="(item, idx) in rankData" :key="item.name" class="rank-mini-item">
-                <span class="rank-num" :class="{ gold: idx === 0, silver: idx === 1, bronze: idx === 2 }">{{ idx + 1 }}</span>
-                <span class="rank-name" :class="{ gold: idx === 0, silver: idx === 1, bronze: idx === 2 }">{{ item.name }}</span>
+                <span class="rank-num" :class="{ 'gold-1': idx === 0, silver: idx === 1, bronze: idx === 2 }">{{ idx + 1 }}</span>
+                <span class="rank-name" :class="{ 'gold-1': idx === 0, silver: idx === 1, bronze: idx === 2 }">{{ item.name }}</span>
                 <span class="rank-val">{{ rankFmt(item.value) }}</span>
               </div>
             </div>
@@ -338,24 +338,24 @@ onMounted(() => {
       <section class="card terminal-wrapper">
         <ConsoleTerminal />
       </section>
-    </div>
       <section class="card hourly-card">
-      <div class="card-header">
-        <h3>每小时在线</h3>
-        <input type="date" v-model="hourlyDate" class="filter-date" />
-      </div>
-      <div class="card-body">
-        <div v-if="hourlyLoading" class="loading">加载中...</div>
-        <div v-else class="bar-chart">
-          <div v-for="h in 24" :key="h - 1" class="bar-col" :class="{ future: h - 1 > maxVisibleHour }"
-            @mouseenter="h - 1 <= maxVisibleHour && showHourlyTooltip(h - 1, $event)" @mouseleave="hideHourlyTooltip">
-            <div v-if="h - 1 <= maxVisibleHour" class="bar" :style="{ height: maxHourlyCount > 0 ? Math.max(4, (barHeights[h - 1] / maxHourlyCount) * 140) + 'px' : '4px' }"></div>
-            <div v-else class="bar future-bar"></div>
-            <span class="bar-label">{{ String(h - 1).padStart(2, '0') }}</span>
+        <div class="card-header">
+          <h3>每小时在线</h3>
+          <input type="date" v-model="hourlyDate" class="filter-date" />
+        </div>
+        <div class="card-body">
+          <div v-if="hourlyLoading" class="loading">加载中...</div>
+          <div v-else class="bar-chart">
+            <div v-for="h in 24" :key="h - 1" class="bar-col" :class="{ future: h - 1 > maxVisibleHour }"
+              @mouseenter="h - 1 <= maxVisibleHour && showHourlyTooltip(h - 1, $event)" @mouseleave="hideHourlyTooltip">
+              <div v-if="h - 1 <= maxVisibleHour" class="bar" :style="{ height: maxHourlyCount > 0 ? Math.max(4, (barHeights[h - 1] / maxHourlyCount) * 140) + 'px' : '4px' }"></div>
+              <div v-else class="bar future-bar"></div>
+              <span class="bar-label">{{ String(h - 1).padStart(2, '0') }}</span>
+            </div>
           </div>
         </div>
-      </div>
-    </section>
+      </section>
+    </div>
 
     <!-- Tooltip -->
     <Teleport to="body">
@@ -403,8 +403,8 @@ onMounted(() => {
                   <tbody>
                     <tr v-for="(item, idx) in rankModalData" :key="item.name"
                       :class="{ 'row-gold': (rankModalPage-1)*rankModalPageSize+idx === 0, 'row-silver': (rankModalPage-1)*rankModalPageSize+idx === 1, 'row-bronze': (rankModalPage-1)*rankModalPageSize+idx === 2 }">
-                      <td class="col-r"><span class="rank-num" :class="{ gold: (rankModalPage-1)*rankModalPageSize+idx === 0, silver: (rankModalPage-1)*rankModalPageSize+idx === 1, bronze: (rankModalPage-1)*rankModalPageSize+idx === 2 }">{{ (rankModalPage-1)*rankModalPageSize + idx + 1 }}</span></td>
-                      <td class="col-n" :class="{ gold: (rankModalPage-1)*rankModalPageSize+idx === 0, silver: (rankModalPage-1)*rankModalPageSize+idx === 1, bronze: (rankModalPage-1)*rankModalPageSize+idx === 2 }">{{ item.name }}</td>
+                      <td class="col-r"><span class="rank-num" :class="{ 'gold-1': (rankModalPage-1)*rankModalPageSize+idx === 0, silver: (rankModalPage-1)*rankModalPageSize+idx === 1, bronze: (rankModalPage-1)*rankModalPageSize+idx === 2 }">{{ (rankModalPage-1)*rankModalPageSize + idx + 1 }}</span></td>
+                      <td class="col-n" :class="{ 'gold-1': (rankModalPage-1)*rankModalPageSize+idx === 0, silver: (rankModalPage-1)*rankModalPageSize+idx === 1, bronze: (rankModalPage-1)*rankModalPageSize+idx === 2 }">{{ item.name }}</td>
                       <td class="col-v">{{ rankFmt(item.value) }}</td>
                     </tr>
                   </tbody>
@@ -440,15 +440,26 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.dashboard { padding: 20px; max-width: 1200px; margin: 0 auto; }
+.dashboard { padding: 20px 32px; max-width: 1920px; margin: 0 auto; }
 
 /* ── 四个等高卡片 ── */
-  .stat-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 18px; }
+.stat-cards {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin-bottom: 18px;
+}
+.stat-cards > * { min-width: 0; }
 
 .stat-card {
   display: flex; flex-direction: column;
   background: var(--bg-card); border: 1px solid var(--border-light); border-radius: 14px;
-  padding: 18px; min-height: 300px;
+  padding: 20px;
+  min-height: 300px;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  overflow: hidden;
   transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.25s ease;
 }
 .stat-card:hover { transform: translateY(-3px); box-shadow: 0 8px 28px rgba(0, 0, 0, 0.07); }
@@ -461,7 +472,7 @@ onMounted(() => {
 .green-badge { background: rgba(34, 197, 94, 0.15); color: #22c55e; }
 .red-badge { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
 
-.card-body-scroll { flex: 1; overflow-y: auto; min-height: 0; }
+.card-body-scroll { flex: 1; overflow-y: auto; overflow-x: hidden; min-width: 0; }
 .card-empty { color: var(--text-muted); font-size: 0.85rem; padding: 10px 0; }
 .card-footer { flex-shrink: 0; padding-top: 12px; margin-top: 12px; border-top: 1px solid var(--border-light); font-size: 0.82rem; color: var(--text-secondary); }
 .card-footer strong { color: var(--text-primary); font-variant-numeric: tabular-nums; }
@@ -476,8 +487,8 @@ onMounted(() => {
 .big-stat-value.qq-val { background: linear-gradient(135deg, #3b82f6, #6366f1); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
 
 /* ── 在线玩家 ── */
-.online-tags { display: flex; flex-wrap: wrap; gap: 6px; }
-.online-tag { display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; background: var(--bg-tertiary); border-radius: 8px; font-size: 0.82rem; font-weight: 500; color: var(--text-primary); border: 1px solid var(--border-light); }
+.online-tags { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.online-tag { display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; background: var(--bg-tertiary); border-radius: 8px; font-size: 0.82rem; font-weight: 500; color: var(--text-primary); border: 1px solid var(--border-light); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dot { width: 6px; height: 6px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 6px rgba(34, 197, 94, 0.5); }
 
 /* ── 排行榜 ── */
@@ -500,31 +511,55 @@ onMounted(() => {
 }
 .rank-name { flex: 1; font-weight: 500; color: var(--text-primary); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* ── 前三流光动效 ── */
-.rank-num.gold, .rank-name.gold,
-.rank-num.silver, .rank-name.silver,
-.rank-num.bronze, .rank-name.bronze {
+/* ── 第一名：烈焰金·极光（最终版）── */
+.rank-num.gold-1, .rank-name.gold-1 {
   font-weight: 800;
-  background-size: 200% auto;
+  background-image: linear-gradient(90deg, #f97316, #ef4444, #e879f9, #818cf8, #e879f9, #ef4444, #f97316);
+  background-size: 400% auto;
+  background-clip: text;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
-  background-clip: text;
-  animation: shimmer 2.5s linear infinite;
+  animation: shimmer-smooth 3s ease-in-out infinite alternate;
 }
-.rank-num.gold, .rank-name.gold { background-image: linear-gradient(90deg, #f59e0b, #fbbf24, #f59e0b, #d97706, #f59e0b); }
+
+/* ── 银：双高光扫光 ── */
 .rank-num.silver, .rank-name.silver {
+  font-weight: 800;
   background-image: linear-gradient(90deg,
     #9ca3af 0%, #e5e7eb 10%, #ffffff 18%, #e5e7eb 25%, #9ca3af 35%,
     #9ca3af 45%, #e5e7eb 55%, #ffffff 63%, #e5e7eb 70%, #9ca3af 80%
   );
   background-size: 300% auto;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
   animation: shimmer 2s linear infinite;
 }
-.rank-num.bronze, .rank-name.bronze { background-image: linear-gradient(90deg, #cd7f32, #f59e0b, #cd7f32, #a0522d, #cd7f32); }
+
+/* ── 铜：古朴铜色流光 ── */
+.rank-num.bronze, .rank-name.bronze {
+  font-weight: 800;
+  background-image: linear-gradient(90deg, #cd7f32, #f59e0b, #cd7f32, #a0522d, #cd7f32);
+  background-size: 200% auto;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: shimmer 2.5s linear infinite;
+}
+
+@keyframes shimmer-smooth {
+  0% { background-position: 0% center; }
+  100% { background-position: 100% center; }
+}
 
 @keyframes shimmer {
   0% { background-position: 0% center; }
   100% { background-position: 200% center; }
+}
+
+@keyframes glow-pulse {
+  0%, 100% { filter: brightness(1); }
+  50% { filter: brightness(1.4); }
 }
 
 .rank-val { color: var(--text-secondary); font-weight: 600; font-size: 0.78rem; font-variant-numeric: tabular-nums; flex-shrink: 0; }
@@ -549,16 +584,17 @@ onMounted(() => {
 .ban-target { flex: 1; font-weight: 500; color: var(--text-primary); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ban-date { color: var(--text-muted); font-size: 0.72rem; flex-shrink: 0; }
 
-/* ── 底部双栏 ── */
+/* ── 底部双栏：终端（固定10行）+ 每小时在线 ── */
 .bottom-split {
-  display: grid; grid-template-columns: 1fr 1.2fr; gap: 14px;
-  margin-bottom: 18px;
+  display: grid; grid-template-columns: 1.2fr 1.8fr; gap: 14px;
+  height: 280px; min-height: 0;
 }
-.terminal-wrapper { display: flex; flex-direction: column; min-height: 340px; padding: 0; overflow: hidden; }
+.bottom-split > * { min-width: 0; }
+.terminal-wrapper { display: flex; flex-direction: column; padding: 0; overflow: hidden; }
 .terminal-wrapper .terminal-card { border: none; border-radius: 0; height: 100%; }
 
 /* ── 柱状图 ── */
-.hourly-card { background: var(--bg-card); border: 1px solid var(--border-light); border-radius: 14px; overflow: hidden; }
+.hourly-card { background: var(--bg-card); border: 1px solid var(--border-light); border-radius: 14px; overflow: hidden; display: flex; flex-direction: column; }
 .card-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--border-light); }
 .card-header h3 { font-size: 1rem; font-weight: 600; color: var(--text-primary); margin: 0; }
 .card-body { padding: 14px 18px; }
@@ -611,7 +647,7 @@ onMounted(() => {
 .rank-modal-table tbody tr.row-bronze { background: rgba(205, 127, 50, 0.06); }
 .col-r { width: 48px; text-align: center; }
 .col-n { font-weight: 500; }
-.col-n.gold, .col-n.silver, .col-n.bronze {
+.col-n.gold-1, .col-n.silver, .col-n.bronze {
   font-weight: 800;
   background-size: 200% auto;
   -webkit-background-clip: text;
@@ -619,7 +655,11 @@ onMounted(() => {
   background-clip: text;
   animation: shimmer 2.5s linear infinite;
 }
-.col-n.gold { background-image: linear-gradient(90deg, #f59e0b, #fbbf24, #f59e0b, #d97706, #f59e0b); }
+.col-n.gold-1 {
+  background-image: linear-gradient(90deg, #f97316, #ef4444, #e879f9, #818cf8, #e879f9, #ef4444, #f97316);
+  background-size: 400% auto;
+  animation: shimmer-smooth 3s ease-in-out infinite alternate;
+}
 .col-n.silver {
   background-image: linear-gradient(90deg,
     #9ca3af 0%, #e5e7eb 10%, #ffffff 18%, #e5e7eb 25%, #9ca3af 35%,

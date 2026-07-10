@@ -506,8 +506,12 @@ namespace TShockData
             if (secure.Tokens.TryGetValue(token, out var td) ||
                 secure.AppTokens.TryGetValue(token, out td))
             {
+                // owner 和 superadmin 默认拥有所有权限，直接放行
+                if (td.UserGroupName == "superadmin" || td.UserGroupName == "owner")
+                    return true;
+
                 var group = TShock.Groups.GetGroupByName(td.UserGroupName);
-                return group != null && (group.Name == "superadmin" || group.HasPermission("data.rest.invsee"));
+                return group != null && group.HasPermission("data.rest.invsee");
             }
             return false;
         }

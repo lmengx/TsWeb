@@ -89,9 +89,9 @@ class OnlineService {
     }
   }
 
-  async execCommand(cmd) {
+  async execCommand(cmd, executor = 'SSE-Console') {
     await this.init()
-    const url = `${baseUrl}/data/online/log/command?cmd=${encodeURIComponent(cmd)}&token=${encodeURIComponent(apiKey)}`
+    const url = `${baseUrl}/data/online/log/command?cmd=${encodeURIComponent(cmd)}&executor=${encodeURIComponent(executor)}&token=${encodeURIComponent(apiKey)}`
     try {
       const res = await fetch(url, { headers: { 'Accept': 'application/json' } })
       const text = await res.text()

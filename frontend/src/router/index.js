@@ -201,7 +201,7 @@ const routes = [
         path: 'about',
         name: 'About',
         component: () => import('../views/console/AboutView.vue'),
-        meta: { requiresAuth: true }
+        meta: { requiresAuth: true, requiresAdmin: true }
       }
     ]
   },

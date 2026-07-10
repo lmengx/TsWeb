@@ -21,19 +21,8 @@ onMounted(async () => {
 })
 
 const sidebarItems = [
-  { id: 'profile', name: '个人资料', path: '/console/profile' },
-  { id: 'progress', name: '世界进度', path: '/console/progress' },
-  { id: 'online', name: '数据统计', path: '/console/online', adminOnly: true },
-  { 
-    id: 'tools', 
-    name: '工具', 
-    path: '/console/tools',
-    children: [
-      { id: 'item-search', name: '物品查询', path: '/console/tools/item-search' },
-      { id: 'gradient-text', name: '彩色文字', path: '/console/tools/gradient-text' },
-      { id: 'resources', name: '资源下载', path: '/console/tools/resources' }
-    ]
-  },
+  // ═══ 管理 ═══
+  { id: 'online', name: '总览', path: '/console/online', adminOnly: true },
   { id: 'terminal', name: '控制台', path: '/console/terminal', adminOnly: true },
   { id: 'players', name: '玩家管理', path: '/console/players', adminOnly: true },
   { id: 'groups', name: '组管理', path: '/console/groups', adminOnly: true },
@@ -48,10 +37,23 @@ const sidebarItems = [
         { id: 'duplicate-ip', name: '共享IP检测', path: '/console/anticheat/duplicate-ip' }
       ]
   },
-  { id: 'banlist', name: '封禁列表', path: '/console/banlist', adminOnly: true },
   { id: 'files', name: '配置文件', path: '/console/files', adminOnly: true },
   { id: 'settings', name: '设置', path: '/console/settings', adminOnly: true },
-  { id: 'about', name: '关于', path: '/console/about' }
+
+  // ═══ 用户 ═══
+  { id: 'profile', name: '个人资料', path: '/console/profile' },
+  { id: 'progress', name: '世界进度', path: '/console/progress' },
+  { 
+    id: 'tools', 
+    name: '工具', 
+    path: '/console/tools',
+    children: [
+      { id: 'item-search', name: '物品查询', path: '/console/tools/item-search' },
+      { id: 'gradient-text', name: '彩色文字', path: '/console/tools/gradient-text' },
+      { id: 'resources', name: '资源下载', path: '/console/tools/resources' }
+    ]
+  },
+  { id: 'about', name: '关于', path: '/console/about', adminOnly: true }
 ]
 
 const adminSidebarItems = computed(() => {
@@ -90,7 +92,9 @@ import { computed } from 'vue'
 <template>
   <aside class="sidebar glass">
     <nav class="sidebar-nav">
-      <template v-for="item in adminSidebarItems" :key="item.id">
+      <template v-for="(item, idx) in adminSidebarItems" :key="item.id">
+        <!-- 管理与用户的分隔线 -->
+        <div v-if="idx > 0 && !item.adminOnly && adminSidebarItems[idx - 1]?.adminOnly" class="sidebar-divider"></div>
         <div v-if="item.children && item.children.length > 0" class="sidebar-item-group">
           <div
             class="sidebar-item parent-item"
@@ -147,6 +151,13 @@ import { computed } from 'vue'
   flex-direction: column;
   gap: 2px;
   padding: 0 8px;
+}
+
+.sidebar-divider {
+  height: 1px;
+  background: var(--border-light);
+  margin: 8px 14px 6px;
+  flex-shrink: 0;
 }
 
 .sidebar-item {

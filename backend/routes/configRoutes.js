@@ -9,7 +9,7 @@ router.post('/file', verifyToken, requireRole('admin'), saveConfigFile)
 router.get('/tsweb', verifyToken, requireRole('admin'), getTsWebConfig)
 router.post('/tsweb', verifyToken, requireRole('admin'), setTsWebConfig)
 router.get('/bosslimit/status', verifyToken, requireRole('admin'), getBossLimitStatus)
-router.get('/license-check', getLicenseCheck)
-router.post('/license-close', postLicenseClose)
+router.get('/license-check', verifyToken, requireRole('admin'), getLicenseCheck)
+router.post('/license-close', verifyToken, requireRole('admin'), postLicenseClose)
 
 export default router
