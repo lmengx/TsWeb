@@ -1,60 +1,113 @@
-﻿using LazyAPI.Attributes;
-using LazyAPI.ConfigFiles;
+using Newtonsoft.Json;
+using TShockAPI;
+using TShockAPI.Hooks;
 
 namespace HouseRegion;
 
-[Config]
-public class Config : JsonConfigBase<Config>
+public class Config
 {
-    [LocalizedPropertyName(CultureType.Chinese, "进出房屋提示")]
-    [LocalizedPropertyName(CultureType.English, "JoinRegionText")]
-    public bool HouseRegion = true;
+    private static Config? _instance;
+    private static readonly string FilePath = Path.Combine(TShock.SavePath, "HouseRegion.json");
 
-    [LocalizedPropertyName(CultureType.Chinese, "房屋最大面积")]
-    [LocalizedPropertyName(CultureType.English, "HouseMaxSize")]
-    public int HouseMaxSize = 1000;
+    [JsonProperty("进出房屋提示")]
+    public bool JoinRegionText { get; set; } = true;
 
-    [LocalizedPropertyName(CultureType.Chinese, "房屋最小宽度")]
-    [LocalizedPropertyName(CultureType.English, "MinWidth")]
-    public int MinWidth = 15;
+    [JsonProperty("房屋最大面积")]
+    public int HouseMaxSize { get; set; } = 1000;
 
-    [LocalizedPropertyName(CultureType.Chinese, "房屋最小高度")]
-    [LocalizedPropertyName(CultureType.English, "MinHeight")]
-    public int MinHeight = 10;
+    [JsonProperty("房屋最小宽度")]
+    public int MinWidth { get; set; } = 15;
 
-    [LocalizedPropertyName(CultureType.Chinese, "房屋最大数量")]
-    [LocalizedPropertyName(CultureType.English, "HouseMaxNumber")]
-    public int HouseMaxNumber = 2;
+    [JsonProperty("房屋最小高度")]
+    public int MinHeight { get; set; } = 10;
 
-    [LocalizedPropertyName(CultureType.Chinese, "禁止锁房屋")]
-    [LocalizedPropertyName(CultureType.English, "ProhibitLockHouse")]
-    public bool LimitLockHouse = false;
+    [JsonProperty("房屋最大数量")]
+    public int HouseMaxNumber { get; set; } = 2;
 
-    [LocalizedPropertyName(CultureType.Chinese, "保护宝石锁")]
-    [LocalizedPropertyName(CultureType.English, "ProtectiveGemstoneLock")]
-    public bool ProtectiveGemstoneLock = false;
+    [JsonProperty("禁止锁房屋")]
+    public bool LimitLockHouse { get; set; } = false;
 
-    [LocalizedPropertyName(CultureType.Chinese, "始终保护箱子")]
-    [LocalizedPropertyName(CultureType.English, "ProtectiveChest")]
-    public bool ProtectiveChest = true;
+    [JsonProperty("保护宝石锁")]
+    public bool ProtectiveGemstoneLock { get; set; } = false;
 
-    [LocalizedPropertyName(CultureType.Chinese, "冻结警告破坏者")]
-    [LocalizedPropertyName(CultureType.English, "WarningSpoiler")]
-    public bool WarningSpoiler = true;
+    [JsonProperty("始终保护箱子")]
+    public bool ProtectiveChest { get; set; } = true;
 
-    [LocalizedPropertyName(CultureType.Chinese, "禁止分享所有者")]
-    [LocalizedPropertyName(CultureType.English, "ProhibitSharingOwner")]
-    public bool ProhibitSharingOwner = false;
+    [JsonProperty("冻结警告破坏者")]
+    public bool WarningSpoiler { get; set; } = true;
 
-    [LocalizedPropertyName(CultureType.Chinese, "禁止分享使用者")]
-    [LocalizedPropertyName(CultureType.English, "ProhibitSharingUser")]
-    public bool ProhibitSharingUser = false;
+    [JsonProperty("禁止分享所有者")]
+    public bool ProhibitSharingOwner { get; set; } = false;
 
-    [LocalizedPropertyName(CultureType.Chinese, "禁止所有者修改使用者")]
-    [LocalizedPropertyName(CultureType.English, "ProhibitOwnerModifyingUser")]
-    public bool ProhibitOwnerModifyingUser = true;
-    
-    [LocalizedPropertyName(CultureType.Chinese, "禁止TP房屋")]
-    [LocalizedPropertyName(CultureType.English, "ProhibitTPHouse")]
-    public bool ProhibitTPHouse = false;
+    [JsonProperty("禁止分享使用者")]
+    public bool ProhibitSharingUser { get; set; } = false;
+
+    [JsonProperty("禁止所有者修改使用者")]
+    public bool ProhibitOwnerModifyingUser { get; set; } = true;
+
+    [JsonProperty("禁止TP房屋")]
+    public bool ProhibitTPHouse { get; set; } = false;
+
+    public static Config Instance
+    {
+        get
+        {
+            if (_instance == null)
+            {
+                Load();
+            }
+            return _instance!;
+        }
+    }
+
+    public static void Load()
+    {
+        try
+        {
+            if (File.Exists(FilePath))
+            {
+                var json = File.ReadAllText(FilePath);
+                _instance = JsonConvert.DeserializeObject<Config>(json) ?? new Config();
+            }
+            else
+            {
+                _instance = new Config();
+                Save();
+            }
+        }
+        catch
+        {
+            _instance = new Config();
+        }
+
+        GeneralHooks.ReloadEvent += OnReload;
+    }
+
+    private static void OnReload(ReloadEventArgs args)
+    {
+        try
+        {
+            if (File.Exists(FilePath))
+            {
+                var json = File.ReadAllText(FilePath);
+                _instance = JsonConvert.DeserializeObject<Config>(json) ?? new Config();
+            }
+            args.Player.SendSuccessMessage("[HouseRegion] 配置已重新加载。");
+        }
+        catch (Exception ex)
+        {
+            TShock.Log.Error("[HouseRegion] 配置重载失败: " + ex);
+        }
+    }
+
+    public static void Save()
+    {
+        var dir = Path.GetDirectoryName(FilePath);
+        if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+        {
+            Directory.CreateDirectory(dir);
+        }
+        var json = JsonConvert.SerializeObject(_instance ?? new Config(), Formatting.Indented);
+        File.WriteAllText(FilePath, json);
+    }
 }
