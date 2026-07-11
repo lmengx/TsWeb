@@ -1,232 +1,365 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Timers;
+using Timer = System.Timers.Timer;
 using Terraria;
 using TerrariaApi.Server;
 using TShockAPI;
 
 namespace TeleportRequest
 {
-	[ApiVersion(1, 16)]
+	[ApiVersion(2, 1)]
 	public class TeleportRequest : TerrariaPlugin
 	{
-		public override string Author
-		{
-			get { return "MarioE"; }
-		}
-		public Config Config = new Config();
-		public override string Description
-		{
-			get { return "Adds teleportation accept commands."; }
-		}
-		public override string Name
-		{
-			get { return "Teleport"; }
-		}
-		private Timer Timer;
-		private bool[] TPAllows = new bool[256];
-		private TPRequest[] TPRequests = new TPRequest[256];
-		public override Version Version
-		{
-			get { return Assembly.GetExecutingAssembly().GetName().Version; }
-		}
+		public override string Author => "lmx12330";
+		public override string Description => "tp重写：允许/需同意/拒绝";
+		public override string Name => "Teleport";
+		public override Version Version => Assembly.GetExecutingAssembly().GetName().Version;
 
-		public TeleportRequest(Main game)
-			: base(game)
+		private Config _config = new Config();
+		private Timer _timer;
+		private readonly TPRequest[] _requests = new TPRequest[256];
+		private bool _disposed;
+
+		// 本插件注册的所有命令，用于卸载时清理
+		private static readonly HashSet<string> OwnedCommands = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
 		{
-			for (int i = 0; i < TPRequests.Length; i++)
-				TPRequests[i] = new TPRequest();
+			"tp", "tpa", "tpd", "tpmode"
+		};
+
+		public TeleportRequest(Main game) : base(game)
+		{
+			for (int i = 0; i < _requests.Length; i++)
+				_requests[i] = new TPRequest();
 		}
 
 		protected override void Dispose(bool disposing)
 		{
+			if (_disposed)
+				return;
+
 			if (disposing)
 			{
-				ServerApi.Hooks.GameInitialize.Deregister(this, OnInitialize);
+				// 停止定时器
+				_timer?.Stop();
+				_timer?.Dispose();
+
+				// 注销 hooks
 				ServerApi.Hooks.ServerLeave.Deregister(this, OnLeave);
-				Timer.Dispose();
+				TShockAPI.Hooks.GeneralHooks.ReloadEvent -= OnReload;
+
+				// 清理所有注册的命令
+				Commands.ChatCommands.RemoveAll(cmd =>
+					cmd.Names.Any(n => OwnedCommands.Contains(n)));
+
+				_disposed = true;
 			}
 		}
+
 		public override void Initialize()
 		{
-			ServerApi.Hooks.GameInitialize.Register(this, OnInitialize);
+			// ========== 移除 TShock 自带的 /tp ==========
+			Commands.ChatCommands.RemoveAll(cmd =>
+				cmd.Names.Any(n => n.Equals("tp", StringComparison.OrdinalIgnoreCase)));
+
+			// ========== 注册命令 ==========
+
+			Commands.ChatCommands.Add(new Command("", TP, "tp")
+			{
+				AllowServer = false,
+				HelpText = "传送到目标玩家。有 tshock.tp.override 则直接传送，否则根据对方模式决定。"
+			});
+
+			Commands.ChatCommands.Add(new Command("", TPAccept, "tpa")
+			{
+				AllowServer = false,
+				HelpText = "同意传送请求。"
+			});
+
+			Commands.ChatCommands.Add(new Command("", TPDeny, "tpd")
+			{
+				AllowServer = false,
+				HelpText = "拒绝传送请求。"
+			});
+
+			Commands.ChatCommands.Add(new Command("", TPModeCmd, "tpmode")
+			{
+				AllowServer = false,
+				HelpText = "设置传送模式：agree(允许)/request(需同意)/block(拒绝)。block 需要 tshock.tp.block 权限。"
+			});
+
+			// ========== 加载持久数据 ==========
+
+			LoadConfig();
+			TPModeStore.Initialize(TShock.SavePath);
+
+			// ========== 启动定时器 ==========
+
+			StartTimer();
+
+			// ========== 注册事件 ==========
+
 			ServerApi.Hooks.ServerLeave.Register(this, OnLeave);
+			TShockAPI.Hooks.GeneralHooks.ReloadEvent += OnReload;
 		}
 
-		void OnElapsed(object sender, ElapsedEventArgs e)
+		// ================================================================
+		//  生命周期辅助方法
+		// ================================================================
+
+		private void LoadConfig()
 		{
-			for (int i = 0; i < TPRequests.Length; i++)
-			{
-				TPRequest tpr = TPRequests[i];
-				if (tpr.timeout > 0)
-				{
-					TSPlayer dst = TShock.Players[tpr.dst];
-					TSPlayer src = TShock.Players[i];
-
-					tpr.timeout--;
-					if (tpr.timeout == 0)
-					{
-						src.SendErrorMessage("Your teleport request timed out.");
-						dst.SendInfoMessage("{0}'s teleport request timed out.", src.Name);
-					}
-					else
-					{
-						string msg = "{0} is requesting to teleport to you. (/tpaccept or /tpdeny)";
-						if (tpr.dir)
-							msg = "You are requested to teleport to {0}. (/tpaccept or /tpdeny)";
-						dst.SendInfoMessage(msg, src.Name);
-					}
-				}
-			}
+			var configPath = Path.Combine(TShock.SavePath, "tpconfig.json");
+			if (File.Exists(configPath))
+				_config = Config.Read(configPath);
+			_config.Write(configPath);
 		}
-		void OnInitialize(EventArgs e)
+
+		private void StartTimer()
 		{
-			Commands.ChatCommands.Add(new Command("tprequest.accept", TPAccept, "tpaccept")
-			{
-				AllowServer = false,
-				HelpText = "Accepts a teleport request."
-			});
-			Commands.ChatCommands.Add(new Command("tprequest.autodeny", TPAutoDeny, "tpautodeny")
-			{
-				AllowServer = false,
-				HelpText = "Toggles automatic denial of teleport requests."
-			});
-			Commands.ChatCommands.Add(new Command("tprequest.deny", TPDeny, "tpdeny")
-			{
-				AllowServer = false,
-				HelpText = "Denies a teleport request."
-			});
-			Commands.ChatCommands.Add(new Command("tprequest.tpahere", TPAHere, "tpahere")
-			{
-				AllowServer = false,
-				HelpText = "Sends a request for someone to teleport to you."
-			});
-			Commands.ChatCommands.Add(new Command("tprequest.tpa", TPA, "tpa")
-			{
-				AllowServer = false,
-				HelpText = "Sends a request to teleport to someone."
-			});
+			_timer?.Stop();
+			_timer?.Dispose();
 
-			if (File.Exists(Path.Combine(TShock.SavePath, "tpconfig.json")))
-				Config = Config.Read(Path.Combine(TShock.SavePath, "tpconfig.json"));
-			Config.Write(Path.Combine(TShock.SavePath, "tpconfig.json"));
-			Timer = new Timer(Config.Interval * 1000);
-			Timer.Elapsed += OnElapsed;
-			Timer.Start();
+			_timer = new Timer(_config.Interval * 1000);
+			_timer.Elapsed += OnTimerElapsed;
+			_timer.Start();
 		}
+
+		// ================================================================
+		//  热重载事件
+		// ================================================================
+
+		private void OnReload(TShockAPI.Hooks.ReloadEventArgs e)
+		{
+			LoadConfig();
+			TPModeStore.Initialize(TShock.SavePath);
+			StartTimer();
+
+			// 清理过期请求
+			for (int i = 0; i < _requests.Length; i++)
+				_requests[i].timeout = 0;
+
+			TShock.Log.ConsoleInfo("[Teleport] 配置已重新加载");
+		}
+
+		// ================================================================
+		//  玩家离开事件
+		// ================================================================
+
 		void OnLeave(LeaveEventArgs e)
 		{
-			TPAllows[e.Who] = false;
-			TPRequests[e.Who].timeout = 0;
+			_requests[e.Who].timeout = 0;
 		}
 
-		void TPA(CommandArgs e)
+		// ================================================================
+		//  定时器：请求提醒 & 超时
+		// ================================================================
+
+		void OnTimerElapsed(object sender, ElapsedEventArgs e)
+		{
+			for (int i = 0; i < _requests.Length; i++)
+			{
+				var req = _requests[i];
+				if (req.timeout <= 0)
+					continue;
+
+				var src = TShock.Players[i];
+				var dst = TShock.Players[req.dst];
+
+				if (src == null || dst == null)
+				{
+					req.timeout = 0;
+					continue;
+				}
+
+				req.timeout--;
+				if (req.timeout == 0)
+				{
+					src.SendErrorMessage("你的传送请求已超时。");
+					dst.SendInfoMessage("{0} 的传送请求已超时。", src.Name);
+				}
+				else
+				{
+					dst.SendInfoMessage("{0} 请求传送到你所在位置。(/tpa 或 /tpd)", src.Name);
+				}
+			}
+		}
+
+		// ================================================================
+		//  /tp <玩家名> — 主传送命令
+		// ================================================================
+		void TP(CommandArgs e)
 		{
 			if (e.Parameters.Count == 0)
 			{
-				e.Player.SendErrorMessage("Invalid syntax! Proper syntax: /tpa <player>");
+				e.Player.SendErrorMessage("语法错误：/tp <玩家名>");
 				return;
 			}
 
-			string plrName = String.Join(" ", e.Parameters.ToArray());
-			var players = TShock.Utils.FindPlayer(plrName);
+			string plrName = string.Join(" ", e.Parameters);
+			var players = TSPlayer.FindByNameOrID(plrName);
 			if (players.Count == 0)
-				e.Player.SendErrorMessage("Invalid player!");
-			else if (players.Count > 1)
-				e.Player.SendErrorMessage("More than one player matched!");
-			else if ((!players[0].TPAllow || TPAllows[players[0].Index]) && !e.Player.Group.HasPermission(Permissions.tpoverride))
-				e.Player.SendErrorMessage("You cannot teleport to {0}.", players[0].Name);
-			else
 			{
-				for (int i = 0; i < TPRequests.Length; i++)
-				{
-					TPRequest tpr = TPRequests[i];
-					if (tpr.timeout > 0 && tpr.dst == players[0].Index)
+				e.Player.SendErrorMessage("未找到该玩家。");
+				return;
+			}
+			if (players.Count > 1)
+			{
+				e.Player.SendErrorMessage("匹配到多个玩家，请指定更准确的名称。");
+				return;
+			}
+
+			var target = players[0];
+			if (target == e.Player)
+			{
+				e.Player.SendErrorMessage("不能传送到自己。");
+				return;
+			}
+
+			// ---- 有 tshock.tp.override 权限 → 直接传送（绕过所有检查） ----
+			if (e.Player.HasPermission("tshock.tp.override"))
+			{
+				if (e.Player.Teleport(target.X, target.Y))
+					e.Player.SendSuccessMessage("已传送到 {0}。", target.Name);
+				return;
+			}
+
+			// ---- 根据目标玩家的传送模式判定 ----
+			var mode = TPModeStore.GetMode(target.Index);
+			switch (mode)
+			{
+				case TPMode.Agree:
+					if (e.Player.Teleport(target.X, target.Y))
+						e.Player.SendSuccessMessage("已传送到 {0}。", target.Name);
+					break;
+
+				case TPMode.Request:
+					for (int i = 0; i < _requests.Length; i++)
 					{
-						e.Player.SendErrorMessage("{0} already has a teleport request.", players[0].Name);
-						return;
+						if (_requests[i].timeout > 0 && _requests[i].dst == target.Index)
+						{
+							e.Player.SendErrorMessage("{0} 已有待处理的传送请求。", target.Name);
+							return;
+						}
 					}
-				}
-				TPRequests[e.Player.Index].dir = false;
-				TPRequests[e.Player.Index].dst = (byte)players[0].Index;
-				TPRequests[e.Player.Index].timeout = Config.Timeout + 1;
-				e.Player.SendSuccessMessage("Sent a teleport request to {0}.", players[0].Name);
+
+					_requests[e.Player.Index].dir = false;
+					_requests[e.Player.Index].dst = (byte)target.Index;
+					_requests[e.Player.Index].timeout = _config.Timeout + 1;
+					e.Player.SendSuccessMessage("已向 {0} 发送传送请求。", target.Name);
+					break;
+
+				case TPMode.Block:
+					e.Player.SendErrorMessage("目标玩家拒绝了传送请求。");
+					break;
 			}
 		}
+
+		// ================================================================
+		//  /tpa — 同意传送请求
+		// ================================================================
 		void TPAccept(CommandArgs e)
 		{
-			for (int i = 0; i < TPRequests.Length; i++)
+			for (int i = 0; i < _requests.Length; i++)
 			{
-				TPRequest tpr = TPRequests[i];
-				if (tpr.timeout > 0 && tpr.dst == e.Player.Index)
+				var req = _requests[i];
+				if (req.timeout <= 0 || req.dst != e.Player.Index)
+					continue;
+
+				var src = TShock.Players[i];
+				if (src == null)
 				{
-					TSPlayer plr1 = tpr.dir ? e.Player : TShock.Players[i];
-					TSPlayer plr2 = tpr.dir ? TShock.Players[i] : e.Player;
-					if (plr1.Teleport(plr2.X, plr2.Y))
-					{
-						plr1.SendSuccessMessage("Teleported to {0}.", plr2.Name);
-						plr2.SendSuccessMessage("{0} teleported to you.", plr1.Name);
-					}
-					tpr.timeout = 0;
-					return;
+					req.timeout = 0;
+					continue;
 				}
-			}
-			e.Player.SendErrorMessage("You have no pending teleport requests.");
-		}
-		void TPAHere(CommandArgs e)
-		{
-			if (e.Parameters.Count == 0)
-			{
-				e.Player.SendErrorMessage("Invalid syntax! Proper syntax: /tpahere <player>");
+
+				if (src.Teleport(e.Player.X, e.Player.Y))
+				{
+					src.SendSuccessMessage("已传送到 {0}。", e.Player.Name);
+					e.Player.SendSuccessMessage("{0} 已传送到你所在位置。", src.Name);
+				}
+				req.timeout = 0;
 				return;
 			}
 
-			string plrName = String.Join(" ", e.Parameters.ToArray());
-			var players = TShock.Utils.FindPlayer(plrName);
-			if (players.Count == 0)
-				e.Player.SendErrorMessage("Invalid player!");
-			else if (players.Count > 1)
-				e.Player.SendErrorMessage("More than one player matched!");
-			else if ((!players[0].TPAllow || TPAllows[players[0].Index]) && !e.Player.Group.HasPermission(Permissions.tpoverride))
-				e.Player.SendErrorMessage("You cannot teleport {0}.", players[0].Name);
-			else
-			{
-				for (int i = 0; i < TPRequests.Length; i++)
-				{
-					TPRequest tpr = TPRequests[i];
-					if (tpr.timeout > 0 && tpr.dst == players[0].Index)
-					{
-						e.Player.SendErrorMessage("{0} already has a teleport request.", players[0].Name);
-						return;
-					}
-				}
-				TPRequests[e.Player.Index].dir = true;
-				TPRequests[e.Player.Index].dst = (byte)players[0].Index;
-				TPRequests[e.Player.Index].timeout = Config.Timeout + 1;
-				e.Player.SendSuccessMessage("Sent a teleport request to {0}.", players[0].Name);
-			}
+			e.Player.SendErrorMessage("没有待处理的传送请求。");
 		}
-		void TPAutoDeny(CommandArgs e)
-		{
-			TPAllows[e.Player.Index] = !TPAllows[e.Player.Index];
-			e.Player.SendInfoMessage("{0}abled TP override denial.", TPAllows[e.Player.Index] ? "En" : "Dis");
-		}
+
+		// ================================================================
+		//  /tpd — 拒绝传送请求
+		// ================================================================
 		void TPDeny(CommandArgs e)
 		{
-			for (int i = 0; i < TPRequests.Length; i++)
+			for (int i = 0; i < _requests.Length; i++)
 			{
-				TPRequest tpr = TPRequests[i];
-				if (tpr.timeout > 0 && tpr.dst == e.Player.Index)
-				{
-					e.Player.SendSuccessMessage("Denied {0}'s teleport request.", TShock.Players[i].Name);
-					TShock.Players[i].SendErrorMessage("{0} denied your teleport request.", e.Player.Name);
-					return;
-				}
+				var req = _requests[i];
+				if (req.timeout <= 0 || req.dst != e.Player.Index)
+					continue;
+
+				var src = TShock.Players[i];
+				e.Player.SendSuccessMessage("已拒绝 {0} 的传送请求。", src?.Name ?? "未知");
+				src?.SendErrorMessage("{0} 拒绝了你的传送请求。", e.Player.Name);
+				req.timeout = 0;
+				return;
 			}
-			e.Player.SendErrorMessage("You have no pending teleport requests.");
+
+			e.Player.SendErrorMessage("没有待处理的传送请求。");
+		}
+
+		// ================================================================
+		//  /tpmode <agree|request|block> — 设置传送模式
+		// ================================================================
+		void TPModeCmd(CommandArgs e)
+		{
+			if (e.Parameters.Count == 0)
+			{
+				var current = TPModeStore.GetMode(e.Player.Index);
+				var modeName = current switch
+				{
+					TPMode.Agree   => "允许 (agree)",
+					TPMode.Request => "需同意 (request)",
+					TPMode.Block   => "拒绝 (block)",
+					_              => "允许 (agree)"
+				};
+				e.Player.SendInfoMessage("当前传送模式：{0}", modeName);
+				e.Player.SendInfoMessage("用法：/tpmode <agree|request|block> (可用首字母简写)");
+				return;
+			}
+
+			var input = e.Parameters[0].ToLowerInvariant();
+			TPMode? parsed = input switch
+			{
+				"agree" or "a" or "ag" or "agr" or "agre" => TPMode.Agree,
+				"request" or "r" or "re" or "req" or "requ" or "reque" or "reques" => TPMode.Request,
+				"block" or "b" or "bl" or "blo" or "bloc" => TPMode.Block,
+				_ => null
+			};
+
+			if (parsed == null)
+			{
+				e.Player.SendErrorMessage("无效模式。可用：agree / request / block");
+				return;
+			}
+
+			if (parsed == TPMode.Block && !e.Player.HasPermission("tshock.tp.block"))
+			{
+				e.Player.SendErrorMessage("你没有设置拒绝模式的权限 (需要 tshock.tp.block)。");
+				return;
+			}
+
+			TPModeStore.SetMode(e.Player.Index, parsed.Value);
+
+			var display = parsed.Value switch
+			{
+				TPMode.Agree   => "允许 (agree)",
+				TPMode.Request => "需同意 (request)",
+				TPMode.Block   => "拒绝 (block)",
+				_              => ""
+			};
+			e.Player.SendSuccessMessage("已设置传送模式为：{0}", display);
 		}
 	}
 }
