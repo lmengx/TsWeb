@@ -498,7 +498,7 @@ const fetchUserDetails = async (username) => {
   loading.value = true
   error.value = ''
   try {
-    const response = await get(`/api/tshock/userlist?username=${encodeURIComponent(username)}`)
+    const response = await get(`/api/tshock/userdata?username=${encodeURIComponent(username)}`)
     const result = await response.json()
 
     if (result.status === '200' && result.users && result.users.length > 0) {
@@ -918,7 +918,7 @@ const searchPlayers = async () => {
 
   tpSearchLoading.value = true
   try {
-    const response = await get(`/api/tshock/userlist?username=${encodeURIComponent(tpSearchQuery.value)}`)
+    const response = await get(`/api/tshock/userdata?username=${encodeURIComponent(tpSearchQuery.value)}`)
     const result = await response.json()
 
     if (result.status === '200' && result.users) {

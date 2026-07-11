@@ -351,6 +351,46 @@ export class TShockService {
     }
   }
 
+  async getUserData(username = null) {
+    if (!this.baseUrl) {
+      await this.init()
+    }
+
+    const headers = {
+      'Accept': 'application/json'
+    }
+
+    let url = `${this.baseUrl}/data/users/query_detail`
+    if (username) {
+      url += `?username=${encodeURIComponent(username)}`
+    }
+    if (this.apiKey) {
+      url += (username ? '&' : '?') + `token=${encodeURIComponent(this.apiKey)}`
+    }
+
+    console.log(`[OUTGOING] GET ${url}`)
+
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        headers
+      })
+
+      console.log(`[RESPONSE] Status: ${response.status}`)
+      const text = await response.text()
+      console.log(`[RESPONSE] Body: ${text}`)
+
+      try {
+        return JSON.parse(text)
+      } catch {
+        return { error: 'Invalid JSON', rawResponse: text }
+      }
+    } catch (error) {
+      this.isConnected = false
+      return { error: error.message }
+    }
+  }
+
   async getUserList(username = null) {
     if (!this.baseUrl) {
       await this.init()

@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using Rests;
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using Rests;
 using System;
 using System.Collections.Generic;
 using System.Data;
@@ -58,6 +58,21 @@ namespace TShockData
                         user.Add("LastAccessed", res.Get<string>("LastAccessed"));
                         user.Add("KnownIPs", res.Get<string>("KnownIPs"));
                         user.Add("QQ", res.Get<string>("QQ") ?? "");
+                        
+                        // 检查玩家是否在线
+                        bool isOnline = false;
+                        foreach (var plr in TShock.Players)
+                        {
+                            if (plr != null && plr.Account != null && 
+                                plr.Account.Name.Equals(res.Get<string>("Username"), StringComparison.OrdinalIgnoreCase) && 
+                                plr.Active)
+                            {
+                                isOnline = true;
+                                break;
+                            }
+                        }
+                        user.Add("IsOnline", isOnline);
+                        
                         users.Add(user);
                     }
                 }

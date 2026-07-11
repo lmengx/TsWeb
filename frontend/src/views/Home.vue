@@ -38,30 +38,17 @@ const loadUser = () => {
 }
 
 const fetchStatus = async () => {
-  try {
-    const res = await get('/api/status')
-    const data = await res.json()
-    serverConnected.value = data.connected
-  } catch { serverConnected.value = false }
   if (user.value?.username) {
     try {
-      const res = await get('/api/tshock/activeusers')
-      const data = await res.json()
-      if (data.activeusers) {
-        const names = data.activeusers.split('\t').filter(n => n.trim())
-        userOnline.value = names.some(n => n.toLowerCase() === user.value.username.toLowerCase())
-      } else { userOnline.value = false }
-    } catch { userOnline.value = false }
-  }
-  if (user.value?.username) {
-    try {
-      const res = await get('/api/tshock/userlist?username=' + encodeURIComponent(user.value.username))
+      const res = await get('/api/tshock/userdata?username=' + encodeURIComponent(user.value.username))
+      serverConnected.value = true
       const data = await res.json()
       if (data.status === '200' && data.users?.[0]) {
+        userOnline.value = !!data.users[0].IsOnline
         qqNumber.value = data.users[0].QQ || ''
         qqBound.value = !!qqNumber.value
       }
-    } catch { qqBound.value = false }
+    } catch { serverConnected.value = false; userOnline.value = false; qqBound.value = false }
   }
 }
 

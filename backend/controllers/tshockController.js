@@ -64,9 +64,9 @@ export const getInventory = async (req, res) => {
   res.json({ status: '200', inventory: result })
 }
 
-export const getUserList = async (req, res) => {
+export const getUserData = async (req, res) => {
   const { username } = req.query
-  const result = await tshockService.getUserList(username)
+  const result = await tshockService.getUserData(username)
   res.json(result)
 }
 
@@ -231,10 +231,9 @@ export const getSelfInfo = async (req, res) => {
     return res.status(400).json({ error: 'username not found in token' })
   }
   
-  const [userResult, invResult, onlineResult] = await Promise.all([
-    tshockService.getUserList(username),
+  const [userResult, invResult] = await Promise.all([
+    tshockService.getUserData(username),
     tshockService.getInventory(username),
-    tshockService.getActiveUsers()
   ])
   
   const userInfo = userResult.status === '200' && userResult.users && userResult.users.length > 0 
@@ -243,9 +242,7 @@ export const getSelfInfo = async (req, res) => {
     
   const inventory = invResult.error ? null : invResult
   
-  const isOnline = onlineResult && onlineResult.activeusers 
-    ? onlineResult.activeusers.split('\t').some(name => name.trim().toLowerCase() === username.toLowerCase())
-    : false
+  const isOnline = userInfo ? !!userInfo.IsOnline : false
   
   res.json({
     username,

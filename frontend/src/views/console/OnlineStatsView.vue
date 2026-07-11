@@ -15,6 +15,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   if (mql) mql.removeEventListener('change', onMediaChange)
+  stopAutoCycle()
 })
 
 const onMediaChange = (e) => { isMobile.value = e.matches }
@@ -67,7 +68,7 @@ const recentBans = ref([])
 const fetchStats = async () => {
   const [activeRes, userRes, banRes] = await Promise.allSettled([
     get('/api/tshock/activeusers'),
-    get('/api/tshock/userlist'),
+    get('/api/tshock/userdata'),
     get('/api/tshock/banlist'),
   ])
 
