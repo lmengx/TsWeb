@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using Rests;
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using Rests;
 using System;
 using System.Collections.Generic;
 using System.Data;
@@ -51,12 +51,9 @@ namespace TShockData
                         Dictionary<string, object> user = new Dictionary<string, object>();
                         user.Add("ID", res.Get<int>("ID"));
                         user.Add("Username", res.Get<string>("Username"));
-                        user.Add("Password", res.Get<string>("Password"));
-                        user.Add("UUID", res.Get<string>("UUID"));
                         user.Add("Usergroup", res.Get<string>("Usergroup"));
                         user.Add("Registered", res.Get<string>("Registered"));
                         user.Add("LastAccessed", res.Get<string>("LastAccessed"));
-                        user.Add("KnownIPs", res.Get<string>("KnownIPs"));
                         user.Add("QQ", res.Get<string>("QQ") ?? "");
                         
                         // 检查玩家是否在线

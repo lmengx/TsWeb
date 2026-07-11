@@ -42,12 +42,12 @@ const loadUser = () => {
 const fetchStatus = async () => {
   if (user.value?.username) {
     try {
-      const res = await get('/api/tshock/userdata?username=' + encodeURIComponent(user.value.username))
+      const res = await get('/api/user/selfinfo')
       serverConnected.value = true
       const data = await res.json()
-      if (data.status === '200' && data.users?.[0]) {
-        userOnline.value = !!data.users[0].IsOnline
-        qqNumber.value = data.users[0].QQ || ''
+      if (data.username) {
+        userOnline.value = data.isOnline || false
+        qqNumber.value = data.qq || ''
         qqBound.value = !!qqNumber.value
       }
     } catch { serverConnected.value = false; userOnline.value = false; qqBound.value = false }

@@ -15,6 +15,7 @@ import onlineRoutes from './routes/onlineRoutes.js'
 import unverifiedRoutes from './routes/unverifiedRoutes.js'
 import fileRoutes from './routes/fileRoutes.js'
 import presetRoutes from './routes/presetRoutes.js'
+import userRoutes from './routes/userRoutes.js'
 import { loadRules as loadFileAccessRules } from './services/fileAccessService.js'
 import tshockService from './services/tshockService.js'
 import readline from 'readline'
@@ -62,6 +63,7 @@ app.use('/api/online', onlineRoutes)
 app.use('/api/unverified', unverifiedRoutes)
 app.use('/api/files', fileRoutes)
 app.use('/api/presets', presetRoutes)
+app.use('/api/user', userRoutes)
 app.use('/api/setup', setupRoutes)
 
 app.get('/api/health', (req, res) => {

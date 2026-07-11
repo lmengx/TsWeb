@@ -32,28 +32,37 @@ const formatLocalDate = (dateStr) => {
 const fetchSelfInfo = async () => {
   loading.value = true
   error.value = ''
-  
+
   try {
-    const response = await get('/api/tshock/self')
-    const result = await response.json()
-    
-    if (result.success && result.userInfo) {
-      userDetails.value = result.userInfo
-      
-      if (result.inventory && result.inventory.status === '200' && result.inventory.inventory) {
-        inventory.value = result.inventory.inventory.inventory || result.inventory.inventory
-      } else if (result.inventory && result.inventory.error) {
-        inventoryError.value = result.inventory.error
+    const [infoRes, invRes] = await Promise.all([
+      get('/api/user/selfinfo'),
+      get('/api/user/selfinventory')
+    ])
+    const info = await infoRes.json()
+    const inv = await invRes.json()
+
+    if (info.username) {
+      userDetails.value = {
+        Username: info.username,
+        Usergroup: info.group,
+        QQ: info.qq,
+        Registered: info.registered,
+        LastAccessed: info.lastAccessed
       }
-      
-      isOnline.value = result.isOnline || false
+      isOnline.value = info.isOnline || false
+
+      if (!inv.error) {
+        inventory.value = inv.items || []
+      } else {
+        inventoryError.value = inv.error
+      }
     } else {
-      error.value = result.error || '获取信息失败'
+      error.value = info.error || '获取信息失败'
     }
   } catch (err) {
     error.value = '加载失败: ' + err.message
   }
-  
+
   loading.value = false
   inventoryLoading.value = false
 }
@@ -92,6 +101,10 @@ onMounted(() => {
           <div class="info-item">
             <dt>用户组</dt>
             <dd>{{ userDetails.Usergroup || userDetails.group || '默认' }}</dd>
+          </div>
+          <div class="info-item">
+            <dt>QQ 绑定</dt>
+            <dd>{{ userDetails.QQ || userDetails.qq || '未绑定' }}</dd>
           </div>
           <div class="info-item">
             <dt>注册时间</dt>
