@@ -1,8 +1,23 @@
 <script setup>
-import { ref, computed, watch, onMounted, Transition } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, Transition } from 'vue'
 import { useRouter } from 'vue-router'
 import { get } from '../../utils/api.js'
 import BanListView from './BanListView.vue'
+
+const isMobile = ref(false)
+let mql = null
+
+onMounted(() => {
+  mql = window.matchMedia('(max-width: 767px)')
+  isMobile.value = mql.matches
+  mql.addEventListener('change', onMediaChange)
+})
+
+onUnmounted(() => {
+  if (mql) mql.removeEventListener('change', onMediaChange)
+})
+
+const onMediaChange = (e) => { isMobile.value = e.matches }
 import ConsoleTerminal from '../../components/ConsoleTerminal.vue'
 
 const router = useRouter()
@@ -350,8 +365,8 @@ onMounted(() => {
     </div>
 
     <!-- 底部双栏：终端 + 每小时在线 -->
-    <div class="bottom-split">
-      <section class="card terminal-wrapper">
+    <div class="bottom-split" :class="{ mobile: isMobile }">
+      <section v-if="!isMobile" class="card terminal-wrapper">
         <ConsoleTerminal />
       </section>
       <section class="card hourly-card">
@@ -744,6 +759,16 @@ onMounted(() => {
   .stat-cards { grid-template-columns: repeat(2, 1fr); }
   .bottom-split { grid-template-columns: 1fr; }
   .modal-rank-container { width: 90vw; }
+}
+@media (max-width: 767px) {
+  .dashboard { padding: 8px 8px 0; }
+  .stat-cards { gap: 8px; }
+  .stat-card { min-height: 200px; padding: 12px; }
+  .bottom-split.mobile { grid-template-columns: 1fr; height: auto; min-height: 220px; }
+  .bottom-split.mobile .hourly-card { border-radius: 10px; }
+  .bottom-split.mobile .bar-chart { height: 130px; }
+  .big-stat-value { font-size: 1.6rem; }
+  .card-body-scroll { overflow-y: visible; }
 }
 @media (max-width: 540px) {
   .stat-cards { grid-template-columns: 1fr; }

@@ -903,4 +903,107 @@ const handleModalClose = () => {
 .extra-cell:hover .item-index {
   opacity: 1;
 }
+
+/* ── 移动端 ── */
+@media (max-width: 767px) {
+  .bag-grid,
+  .inventory-grid {
+    grid-template-columns: repeat(10, 1fr) !important;
+    gap: 3px;
+  }
+  .inventory-item,
+  .equipment-cell,
+  .extra-cell {
+    width: auto;
+    height: auto;
+    aspect-ratio: 1;
+    min-width: 0;
+  }
+  .inventory-item img,
+  .equipment-cell img,
+  .extra-cell img {
+    width: 75%;
+    height: 75%;
+  }
+  .main-inventory-area {
+    flex: 1 1 100% !important;
+    width: 100%;
+  }
+  .main-inventory-area .inventory-section {
+    flex: 1 1 100% !important;
+  }
+  .main-bag-section .bag-with-extras {
+    flex-wrap: wrap;
+    gap: 3px;
+  }
+  .bag-with-extras .bag-grid {
+    width: 100%;
+  }
+  .bag-with-extras .extra-column,
+  .bag-with-extras .ammo-column {
+    flex-direction: row;
+    gap: 3px;
+    width: calc(50% - 2px);
+  }
+  .bag-with-extras .extra-cell {
+    flex: 1;
+    width: auto;
+    height: auto;
+    aspect-ratio: 1;
+  }
+  .extra-column,
+  .ammo-column {
+    gap: 3px;
+  }
+  .inventory-container {
+    padding: 0 8px 8px;
+    overflow-x: auto;
+  }
+  .invsee-input {
+    flex-direction: column;
+    padding: 0 12px;
+    gap: 8px;
+  }
+  .invsee-username-input {
+    max-width: none;
+  }
+  .section-header {
+    padding: 0 12px;
+  }
+  .invsee-error {
+    margin-left: 12px;
+    margin-right: 12px;
+  }
+  .equipment-group {
+    min-width: 0;
+    flex: 0 1 calc(50% - 8px);
+  }
+  .equipment-cell {
+    width: 100%;
+  }
+  .extra-storage-groups .inventory-section {
+    flex: 1 1 100%;
+  }
+  .extra-storage-groups .inventory-grid {
+    grid-template-columns: repeat(10, 1fr) !important;
+  }
+  .inventory-section {
+    padding: 10px;
+  }
+  .section-title {
+    font-size: 0.8rem;
+    margin-bottom: 8px;
+    padding-bottom: 6px;
+  }
+  .item-index {
+    font-size: 0.5rem;
+    padding: 1px 3px;
+  }
+  .item-stack {
+    font-size: 0.6rem;
+  }
+  .equipment-row {
+    gap: 3px;
+  }
+}
 </style>

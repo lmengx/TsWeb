@@ -5198,4 +5198,32 @@ onMounted(() => {
 .ie-method-panel .ie-preset-list {
   padding: 8px;
 }
+
+/* ── 移动端 ── */
+@media (max-width: 767px) {
+  .user-detail-page { padding: 0; }
+  .page-header { flex-wrap: wrap; padding: 0 12px; margin-bottom: 12px; gap: 8px; }
+  .title-section { flex-wrap: wrap; gap: 6px; }
+  .title-section h2 { font-size: 1.1rem; }
+  .info-list { padding: 0 12px; }
+  .detail-grid {
+    grid-template-columns: 1fr;
+    padding: 0 12px;
+    gap: 12px;
+  }
+  .detail-right { order: -1; }
+  .action-section { padding: 14px 16px; gap: 12px; }
+  .group-buttons { flex-wrap: wrap; gap: 6px; }
+  .group-buttons button {
+    flex: 1 1 calc(50% - 6px);
+    min-width: 0;
+    padding: 10px 8px;
+    font-size: 0.82rem;
+  }
+  .daily-stats-header { flex-wrap: wrap; padding: 12px 14px; gap: 6px; }
+  .daily-stats-header h3 { font-size: 0.9rem; }
+  .overview-chart { height: 60px; }
+  .daily-cards { gap: 4px; }
+  .daily-card { padding: 4px 6px; min-height: 32px; }
+}
 </style>
