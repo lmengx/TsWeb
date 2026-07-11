@@ -220,6 +220,13 @@ namespace TShockData
             if (account != null)
                 return;
 
+            // 检查IP/UUID是否已被封禁，防止被封玩家换名绕过
+            if (CheckPlayerBanned(player))
+            {
+                TShock.Log.ConsoleInfo($"[TSWeb] 阻止被封禁玩家自动注册: {player.Name}, IP:{player.IP}");
+                return;
+            }
+
             var newAccount = CreateAccount(player);
             if (newAccount != null)
             {
@@ -457,6 +464,41 @@ namespace TShockData
             {
                 return new { status = "500", error = ex.Message };
             }
+        }
+
+        /// <summary>
+        /// 检查玩家的 IP 或 UUID 是否存在生效中的封禁
+        /// </summary>
+        private static bool CheckPlayerBanned(TSPlayer player)
+        {
+            try
+            {
+                // 检查 IP 封禁
+                if (!string.IsNullOrEmpty(player.IP))
+                {
+                    string ipIdentifier = $"ip:{player.IP}";
+                    if (TShock.Bans.Bans.Values.Any(b =>
+                        b.Identifier.Equals(ipIdentifier, StringComparison.OrdinalIgnoreCase) &&
+                        DateTime.UtcNow > b.BanDateTime && DateTime.UtcNow < b.ExpirationDateTime))
+                        return true;
+                }
+
+                // 检查 UUID 封禁
+                if (!string.IsNullOrEmpty(player.UUID))
+                {
+                    string uuidIdentifier = $"uuid:{player.UUID}";
+                    if (TShock.Bans.Bans.Values.Any(b =>
+                        b.Identifier.Equals(uuidIdentifier, StringComparison.OrdinalIgnoreCase) &&
+                        DateTime.UtcNow > b.BanDateTime && DateTime.UtcNow < b.ExpirationDateTime))
+                        return true;
+                }
+            }
+            catch (Exception ex)
+            {
+                TShock.Log.ConsoleError($"[TSWeb] 封禁检查失败: {ex.Message}");
+            }
+
+            return false;
         }
     }
 }
