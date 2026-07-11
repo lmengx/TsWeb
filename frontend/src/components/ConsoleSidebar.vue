@@ -46,8 +46,6 @@ const sidebarItems = [
   },
   { id: 'files', name: '配置文件', path: '/console/files', adminOnly: true },
   { id: 'settings', name: '设置', path: '/console/settings', adminOnly: true },
-  { id: 'logs', name: '日志', path: '/console/logs', adminOnly: true },
-  { id: 'plugins', name: '插件', path: '/console/plugins', adminOnly: true },
 
   // ═══ 用户 ═══
   { id: 'profile', name: '个人资料', path: '/console/profile', icon: '👤' },

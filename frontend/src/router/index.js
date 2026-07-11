@@ -110,18 +110,6 @@ const routes = [
         meta: { requiresAuth: true, requiresAdmin: true }
       },
       {
-        path: 'logs',
-        name: 'Logs',
-        component: () => import('../views/console/LogsView.vue'),
-        meta: { requiresAuth: true, requiresAdmin: true }
-      },
-      {
-        path: 'plugins',
-        name: 'Plugins',
-        component: () => import('../views/console/PluginsView.vue'),
-        meta: { requiresAuth: true, requiresAdmin: true }
-      },
-      {
         path: 'tools',
         name: 'Tools',
         redirect: '/console/tools/home',
