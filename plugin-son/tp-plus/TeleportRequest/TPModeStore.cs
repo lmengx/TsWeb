@@ -1,13 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using Newtonsoft.Json;
 
 namespace TeleportRequest
 {
-	/// <summary>
-	/// 玩家传送模式：允许 / 需同意 / 拒绝
-	/// </summary>
 	public enum TPMode
 	{
 		Agree,
@@ -15,19 +13,13 @@ namespace TeleportRequest
 		Block
 	}
 
-	/// <summary>
-	/// 持久化数据模型
-	/// </summary>
 	internal class StoreData
 	{
 		public TPMode _default = TPMode.Agree;
 		public Dictionary<int, TPMode> players = new Dictionary<int, TPMode>();
+		public Dictionary<int, List<int>> allowList = new Dictionary<int, List<int>>();
 	}
 
-	/// <summary>
-	/// 玩家传送模式的持久化存储（线程安全）
-	/// 未设置的玩家使用全局默认值，已设置的玩家全部写入文件
-	/// </summary>
 	public static class TPModeStore
 	{
 		private static readonly object Lock = new object();
@@ -40,14 +32,12 @@ namespace TeleportRequest
 			Load();
 		}
 
-		/// <summary>获取全局默认模式</summary>
 		public static TPMode DefaultMode
 		{
 			get { lock (Lock) { return _data._default; } }
 			set { lock (Lock) { _data._default = value; Save(); } }
 		}
 
-		/// <summary>获取玩家模式，未设置则返回全局默认值</summary>
 		public static TPMode GetMode(int playerId)
 		{
 			lock (Lock)
@@ -56,7 +46,6 @@ namespace TeleportRequest
 			}
 		}
 
-		/// <summary>设置玩家模式，始终写入文件</summary>
 		public static void SetMode(int playerId, TPMode mode)
 		{
 			lock (Lock)
@@ -66,15 +55,59 @@ namespace TeleportRequest
 			}
 		}
 
+		public static bool IsAllowed(int targetId, int senderId)
+		{
+			lock (Lock)
+			{
+				return _data.allowList.TryGetValue(targetId, out var list) && list.Contains(senderId);
+			}
+		}
+
+		public static void AddAllowed(int targetId, int senderId)
+		{
+			lock (Lock)
+			{
+				if (!_data.allowList.TryGetValue(targetId, out var list))
+				{
+					list = new List<int>();
+					_data.allowList[targetId] = list;
+				}
+				if (!list.Contains(senderId))
+					list.Add(senderId);
+				Save();
+			}
+		}
+
+		public static void RemoveAllowed(int targetId, int senderId)
+		{
+			lock (Lock)
+			{
+				if (_data.allowList.TryGetValue(targetId, out var list))
+				{
+					list.Remove(senderId);
+					if (list.Count == 0)
+						_data.allowList.Remove(targetId);
+					Save();
+				}
+			}
+		}
+
+		public static List<int> GetAllowedList(int targetId)
+		{
+			lock (Lock)
+			{
+				return _data.allowList.TryGetValue(targetId, out var list)
+					? new List<int>(list) : new List<int>();
+			}
+		}
+
 		private static void Load()
 		{
 			lock (Lock)
 			{
 				_data = new StoreData();
-
 				if (!File.Exists(_filePath))
 					return;
-
 				try
 				{
 					var json = File.ReadAllText(_filePath);
