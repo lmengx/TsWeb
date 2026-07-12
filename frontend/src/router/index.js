@@ -52,7 +52,7 @@ const routes = [
         path: '',
         name: 'ConsoleHome',
         redirect: (to) => {
-          return isAdmin() ? '/console/online' : '/console/profile'
+          return isAdmin() ? '/console/online' : '/console/guide'
         }
       },
       {
@@ -108,6 +108,12 @@ const routes = [
         name: 'ServerSettings',
         component: () => import('../views/console/ServerSettingsView.vue'),
         meta: { requiresAuth: true, requiresAdmin: true }
+      },
+      {
+        path: 'guide',
+        name: 'Guide',
+        component: () => import('../views/console/GuideView.vue'),
+        meta: { requiresAuth: true }
       },
       {
         path: 'tools',

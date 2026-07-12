@@ -49,6 +49,7 @@ const sidebarItems = [
 
   // ═══ 用户 ═══
   { id: 'profile', name: '个人资料', path: '/console/profile', icon: '👤' },
+  { id: 'guide', name: '说明', path: '/console/guide' },
   { id: 'progress', name: '世界进度', path: '/console/progress' },
   {
     id: 'tools', name: '工具', path: '/console/tools',
