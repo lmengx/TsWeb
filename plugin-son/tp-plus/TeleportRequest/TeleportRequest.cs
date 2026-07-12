@@ -196,15 +196,86 @@ namespace TeleportRequest
 		}
 
 		// ================================================================
-		//  /tp <玩家名> — 主传送命令
+		//  /tp <玩家名> — 主传送命令，含 ac/aclist/acdel 子命令
 		// ================================================================
 		void TP(CommandArgs e)
 		{
 			if (e.Parameters.Count == 0)
 			{
-				e.Player.SendErrorMessage("语法错误：/tp <玩家名>");
+				e.Player.SendErrorMessage("语法错误：/tp <玩家名> 或 /tp ac/aclist/acdel");
 				return;
 			}
+
+			// ---- 子命令：/tp aclist — 查看白名单 ----
+			if (e.Parameters[0].Equals("aclist", StringComparison.OrdinalIgnoreCase))
+			{
+				var list = TPModeStore.GetAllowedList(e.Player.Index);
+				if (list.Count == 0)
+				{
+					e.Player.SendInfoMessage("你的白名单为空。");
+					return;
+				}
+				var names = new List<string>();
+				foreach (var id in list)
+				{
+					var p = TShock.Players[id];
+					names.Add(p != null ? p.Name : $"ID:{id}");
+				}
+				e.Player.SendInfoMessage("白名单 ({0}): {1}", list.Count, string.Join(", ", names));
+				return;
+			}
+
+			// ---- 子命令：/tp acdel <玩家名> — 移出白名单 ----
+			if (e.Parameters[0].Equals("acdel", StringComparison.OrdinalIgnoreCase))
+			{
+				if (e.Parameters.Count < 2)
+				{
+					e.Player.SendErrorMessage("语法错误：/tp acdel <玩家名>");
+					return;
+				}
+				string delName = string.Join(" ", e.Parameters.Skip(1));
+				var delPlayers = TSPlayer.FindByNameOrID(delName);
+				if (delPlayers.Count == 0)
+				{
+					e.Player.SendErrorMessage("未找到该玩家。");
+					return;
+				}
+				if (delPlayers.Count > 1)
+				{
+					e.Player.SendErrorMessage("匹配到多个玩家，请指定更准确的名称。");
+					return;
+				}
+				TPModeStore.RemoveAllowed(e.Player.Index, delPlayers[0].Index);
+				e.Player.SendSuccessMessage("已将 {0} 移出白名单。", delPlayers[0].Name);
+				return;
+			}
+
+			// ---- 子命令：/tp ac <玩家名> — 加入白名单 ----
+			if (e.Parameters[0].Equals("ac", StringComparison.OrdinalIgnoreCase))
+			{
+				if (e.Parameters.Count < 2)
+				{
+					e.Player.SendErrorMessage("语法错误：/tp ac <玩家名>");
+					return;
+				}
+				string acName = string.Join(" ", e.Parameters.Skip(1));
+				var acPlayers = TSPlayer.FindByNameOrID(acName);
+				if (acPlayers.Count == 0)
+				{
+					e.Player.SendErrorMessage("未找到该玩家。");
+					return;
+				}
+				if (acPlayers.Count > 1)
+				{
+					e.Player.SendErrorMessage("匹配到多个玩家，请指定更准确的名称。");
+					return;
+				}
+				TPModeStore.AddAllowed(e.Player.Index, acPlayers[0].Index);
+				e.Player.SendSuccessMessage("已将 {0} 加入白名单，可无视模式传送。", acPlayers[0].Name);
+				return;
+			}
+
+			// ---- 以下为正常传送逻辑 ----
 
 			string plrName = string.Join(" ", e.Parameters);
 			var players = TSPlayer.FindByNameOrID(plrName);
@@ -226,11 +297,25 @@ namespace TeleportRequest
 				return;
 			}
 
-			// ---- 有 tshock.tp.override 权限 → 直接传送（绕过所有检查） ----
+			// ---- 白名单优先于一切（可绕过 block） ----
+			if (TPModeStore.IsAllowed(target.Index, e.Player.Index))
+			{
+				if (e.Player.Teleport(target.X, target.Y))
+				{
+					e.Player.SendSuccessMessage("已传送到 {0}（白名单）。", target.Name);
+					target.SendSuccessMessage("{0} 通过白名单传送到了你所在位置。", e.Player.Name);
+				}
+				return;
+			}
+
+			// ---- 有 tshock.tp.override 权限 → 直接传送 ----
 			if (e.Player.HasPermission("tshock.tp.override"))
 			{
 				if (e.Player.Teleport(target.X, target.Y))
+				{
 					e.Player.SendSuccessMessage("已传送到 {0}。", target.Name);
+					target.SendSuccessMessage("{0} 传送到了你所在位置。", e.Player.Name);
+				}
 				return;
 			}
 
@@ -240,7 +325,10 @@ namespace TeleportRequest
 			{
 				case TPMode.Agree:
 					if (e.Player.Teleport(target.X, target.Y))
+					{
 						e.Player.SendSuccessMessage("已传送到 {0}。", target.Name);
+						target.SendSuccessMessage("{0} 传送到了你所在位置。", e.Player.Name);
+					}
 					break;
 
 				case TPMode.Request:
