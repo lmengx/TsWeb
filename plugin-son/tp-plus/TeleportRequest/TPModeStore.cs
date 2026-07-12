@@ -16,13 +16,22 @@ namespace TeleportRequest
 	}
 
 	/// <summary>
+	/// 持久化数据模型
+	/// </summary>
+	internal class StoreData
+	{
+		public TPMode _default = TPMode.Agree;
+		public Dictionary<int, TPMode> players = new Dictionary<int, TPMode>();
+	}
+
+	/// <summary>
 	/// 玩家传送模式的持久化存储（线程安全）
-	/// 默认 agree 不存入文件，节省 IO
+	/// 未设置的玩家使用全局默认值，已设置的玩家全部写入文件
 	/// </summary>
 	public static class TPModeStore
 	{
 		private static readonly object Lock = new object();
-		private static Dictionary<int, TPMode> _modes = new Dictionary<int, TPMode>();
+		private static StoreData _data = new StoreData();
 		private static string _filePath;
 
 		public static void Initialize(string savePath)
@@ -31,23 +40,28 @@ namespace TeleportRequest
 			Load();
 		}
 
+		/// <summary>获取全局默认模式</summary>
+		public static TPMode DefaultMode
+		{
+			get { lock (Lock) { return _data._default; } }
+			set { lock (Lock) { _data._default = value; Save(); } }
+		}
+
+		/// <summary>获取玩家模式，未设置则返回全局默认值</summary>
 		public static TPMode GetMode(int playerId)
 		{
 			lock (Lock)
 			{
-				return _modes.TryGetValue(playerId, out var mode) ? mode : TPMode.Agree;
+				return _data.players.TryGetValue(playerId, out var mode) ? mode : _data._default;
 			}
 		}
 
+		/// <summary>设置玩家模式，始终写入文件</summary>
 		public static void SetMode(int playerId, TPMode mode)
 		{
 			lock (Lock)
 			{
-				if (mode == TPMode.Agree)
-					_modes.Remove(playerId);
-				else
-					_modes[playerId] = mode;
-
+				_data.players[playerId] = mode;
 				Save();
 			}
 		}
@@ -56,7 +70,7 @@ namespace TeleportRequest
 		{
 			lock (Lock)
 			{
-				_modes.Clear();
+				_data = new StoreData();
 
 				if (!File.Exists(_filePath))
 					return;
@@ -64,12 +78,11 @@ namespace TeleportRequest
 				try
 				{
 					var json = File.ReadAllText(_filePath);
-					_modes = JsonConvert.DeserializeObject<Dictionary<int, TPMode>>(json)
-					         ?? new Dictionary<int, TPMode>();
+					_data = JsonConvert.DeserializeObject<StoreData>(json) ?? new StoreData();
 				}
 				catch
 				{
-					_modes = new Dictionary<int, TPMode>();
+					_data = new StoreData();
 				}
 			}
 		}
@@ -78,7 +91,7 @@ namespace TeleportRequest
 		{
 			lock (Lock)
 			{
-				var json = JsonConvert.SerializeObject(_modes, Formatting.Indented);
+				var json = JsonConvert.SerializeObject(_data, Formatting.Indented);
 				File.WriteAllText(_filePath, json);
 			}
 		}

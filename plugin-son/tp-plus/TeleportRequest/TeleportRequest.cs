@@ -27,7 +27,7 @@ namespace TeleportRequest
 		// 本插件注册的所有命令，用于卸载时清理
 		private static readonly HashSet<string> OwnedCommands = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
 		{
-			"tp", "tpa", "tpd", "tpmode"
+			"tp", "tpa", "tpd", "tpallow", "tpmode"
 		};
 
 		public TeleportRequest(Main game) : base(game)
@@ -61,9 +61,10 @@ namespace TeleportRequest
 
 		public override void Initialize()
 		{
-			// ========== 移除 TShock 自带的 /tp ==========
+			// ========== 移除 TShock 自带的 /tp 和 /tpallow ==========
 			Commands.ChatCommands.RemoveAll(cmd =>
-				cmd.Names.Any(n => n.Equals("tp", StringComparison.OrdinalIgnoreCase)));
+				cmd.Names.Any(n => n.Equals("tp", StringComparison.OrdinalIgnoreCase) ||
+				                  n.Equals("tpallow", StringComparison.OrdinalIgnoreCase)));
 
 			// ========== 注册命令 ==========
 
@@ -71,6 +72,12 @@ namespace TeleportRequest
 			{
 				AllowServer = false,
 				HelpText = "传送到目标玩家。有 tshock.tp.override 则直接传送，否则根据对方模式决定。"
+			});
+
+			Commands.ChatCommands.Add(new Command("", TPAllow, "tpallow")
+			{
+				AllowServer = false,
+				HelpText = "切换传送模式：block ↔ agree。需要 tshock.tp.block 权限。"
 			});
 
 			Commands.ChatCommands.Add(new Command("", TPAccept, "tpa")
@@ -88,7 +95,7 @@ namespace TeleportRequest
 			Commands.ChatCommands.Add(new Command("", TPModeCmd, "tpmode")
 			{
 				AllowServer = false,
-				HelpText = "设置传送模式：agree(允许)/request(需同意)/block(拒绝)。block 需要 tshock.tp.block 权限。"
+				HelpText = "设置传送模式：agree(允许)/request(需同意)/block(拒绝)。block 需要 tshock.tp.block 权限"
 			});
 
 			// ========== 加载持久数据 ==========
@@ -317,6 +324,7 @@ namespace TeleportRequest
 			if (e.Parameters.Count == 0)
 			{
 				var current = TPModeStore.GetMode(e.Player.Index);
+				var def = TPModeStore.DefaultMode;
 				var modeName = current switch
 				{
 					TPMode.Agree   => "允许 (agree)",
@@ -324,8 +332,60 @@ namespace TeleportRequest
 					TPMode.Block   => "拒绝 (block)",
 					_              => "允许 (agree)"
 				};
+				var defName = def switch
+				{
+					TPMode.Agree   => "允许 (agree)",
+					TPMode.Request => "需同意 (request)",
+					TPMode.Block   => "拒绝 (block)",
+					_              => "允许 (agree)"
+				};
 				e.Player.SendInfoMessage("当前传送模式：{0}", modeName);
-				e.Player.SendInfoMessage("用法：/tpmode <agree|request|block> (可用首字母简写)");
+				e.Player.SendInfoMessage("未设置玩家的默认模式：{0}", defName);
+				e.Player.SendInfoMessage("用法：/tpmode <agree|request|block> (首字母简写)");
+				e.Player.SendInfoMessage("管理员：/tpmode setdef <a|r|b> — 设置未设置玩家的默认值");
+				return;
+			}
+
+			// ---- /tpmode setdef <a|r|b> ：管理员设置全局默认值 ----
+			if (e.Parameters[0].Equals("setdef", StringComparison.OrdinalIgnoreCase))
+			{
+				if (!e.Player.HasPermission("tshock.admin"))
+				{
+					e.Player.SendErrorMessage("你没有设置全局默认模式权限 (需要 tshock.admin)。");
+					return;
+				}
+
+				if (e.Parameters.Count < 2)
+				{
+					e.Player.SendErrorMessage("语法错误：/tpmode setdef <a|r|b>");
+					return;
+				}
+
+				var defInput = e.Parameters[1].ToLowerInvariant();
+				TPMode? defMode = defInput switch
+				{
+					"agree" or "a" or "ag" or "agr" or "agre" => TPMode.Agree,
+					"request" or "r" or "re" or "req" or "requ" or "reque" or "reques" => TPMode.Request,
+					"block" or "b" or "bl" or "blo" or "bloc" => TPMode.Block,
+					_ => null
+				};
+
+				if (defMode == null)
+				{
+					e.Player.SendErrorMessage("无效模式。可用：a / r / b");
+					return;
+				}
+
+				TPModeStore.DefaultMode = defMode.Value;
+
+				var defDisplay = defMode.Value switch
+				{
+					TPMode.Agree   => "允许 (agree)",
+					TPMode.Request => "需同意 (request)",
+					TPMode.Block   => "拒绝 (block)",
+					_              => ""
+				};
+				e.Player.SendSuccessMessage("已设置未设置玩家的默认传送模式为：{0}", defDisplay);
 				return;
 			}
 
@@ -360,6 +420,30 @@ namespace TeleportRequest
 				_              => ""
 			};
 			e.Player.SendSuccessMessage("已设置传送模式为：{0}", display);
+		}
+
+		// ================================================================
+		//  /tpallow — 切换传送模式 block ↔ agree
+		// ================================================================
+		void TPAllow(CommandArgs e)
+		{
+			if (!e.Player.HasPermission("tshock.tp.block"))
+			{
+				e.Player.SendErrorMessage("你没有使用此命令的权限 (需要 tshock.tp.block)。");
+				return;
+			}
+
+			var current = TPModeStore.GetMode(e.Player.Index);
+			if (current == TPMode.Block)
+			{
+				TPModeStore.SetMode(e.Player.Index, TPMode.Agree);
+				e.Player.SendSuccessMessage("传送模式已切换为：允许 (agree)");
+			}
+			else
+			{
+				TPModeStore.SetMode(e.Player.Index, TPMode.Block);
+				e.Player.SendSuccessMessage("传送模式已切换为：拒绝 (block)");
+			}
 		}
 	}
 }
