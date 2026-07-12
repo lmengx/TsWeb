@@ -69,7 +69,7 @@ const checkHash = () => {
 
 onMounted(() => {
   checkHash()
-  if (!activeTab.value) switchTab('rules')
+  switchTab(activeTab.value)
   window.addEventListener('hashchange', checkHash)
 })
 </script>
