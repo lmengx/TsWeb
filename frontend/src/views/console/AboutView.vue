@@ -1,6 +1,7 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { post } from '../../utils/api.js'
 
 const router = useRouter()
 const hidden = ref(false)
@@ -63,7 +64,7 @@ const highlightKeywords = (text) => {
 
 const closePage = async () => {
   try {
-    await fetch('/api/config/license-close', { method: 'POST' })
+    await post('/api/config/license-close')
   } catch {}
   localStorage.setItem('tsweb_about_hidden', '1')
   router.push('/console')
