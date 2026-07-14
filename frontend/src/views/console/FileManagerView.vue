@@ -130,7 +130,7 @@ async function handleSave() {
   height: 100%;
   display: flex;
   flex-direction: column;
-  color: #e0e0e0;
+  color: var(--text-primary);
 }
 
 .page-header {
@@ -142,14 +142,14 @@ async function handleSave() {
 .page-header h2 {
   margin: 0;
   font-size: 20px;
-  color: #fff;
+  color: var(--text-primary);
 }
 .path-badge {
   font-size: 12px;
-  background: #2a2d35;
+  background: var(--bg-tertiary);
   padding: 3px 10px;
   border-radius: 4px;
-  color: #999;
+  color: var(--text-muted);
 }
 
 .file-manager-body {
@@ -163,19 +163,20 @@ async function handleSave() {
 .file-tree-panel {
   width: 280px;
   min-width: 200px;
-  background: #1e1f26;
-  border-radius: 8px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  border: 1px solid var(--border-light);
 }
 .panel-header {
   padding: 10px 14px;
-  background: #252830;
+  background: var(--bg-tertiary);
   font-size: 13px;
   font-weight: 600;
-  color: #aaa;
-  border-bottom: 1px solid #333;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-color);
 }
 .tree-scroll {
   flex: 1;
@@ -186,14 +187,15 @@ async function handleSave() {
 /* 右侧编辑器 */
 .editor-panel {
   flex: 1;
-  background: #1e1f26;
-  border-radius: 8px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  border: 1px solid var(--border-light);
 }
 .editor-filename {
-  color: #e0e0e0;
+  color: var(--text-primary);
   font-weight: 500;
 }
 .editor-badge {
@@ -216,8 +218,8 @@ async function handleSave() {
 .code-editor {
   flex: 1;
   width: 100%;
-  background: #12131a;
-  color: #d4d4d4;
+  background: var(--bg-primary);
+  color: var(--text-primary);
   border: none;
   outline: none;
   resize: none;
@@ -235,21 +237,21 @@ async function handleSave() {
   align-items: center;
   gap: 10px;
   padding: 10px 16px;
-  background: #252830;
-  border-top: 1px solid #333;
+  background: var(--bg-tertiary);
+  border-top: 1px solid var(--border-color);
 }
 .btn-save {
   padding: 6px 20px;
-  background: #4a9eff;
+  background: var(--accent-primary);
   color: #fff;
   border: none;
   border-radius: 4px;
   cursor: pointer;
   font-size: 13px;
-  transition: background 0.15s;
+  transition: opacity 0.15s;
 }
 .btn-save:hover:not(:disabled) {
-  background: #6aafff;
+  opacity: 0.85;
 }
 .btn-save:disabled {
   opacity: 0.5;
@@ -259,17 +261,17 @@ async function handleSave() {
   font-size: 12px;
 }
 .save-message.success {
-  color: #8fecb0;
+  color: var(--accent-secondary);
 }
 .save-message.error {
-  color: #f48771;
+  color: var(--accent-error);
 }
 .editor-empty {
   flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #666;
+  color: var(--text-muted);
   font-size: 14px;
 }
 
@@ -277,7 +279,7 @@ async function handleSave() {
 .empty-text {
   padding: 20px;
   text-align: center;
-  color: #666;
+  color: var(--text-muted);
   font-size: 13px;
 }
 </style>

@@ -48,8 +48,8 @@ const sidebarItems = [
   { id: 'settings', name: '设置', path: '/console/settings', adminOnly: true },
 
   // ═══ 用户 ═══
+  { id: 'guide', name: '公告', path: '/console/guide' },
   { id: 'profile', name: '个人资料', path: '/console/profile', icon: '👤' },
-  { id: 'guide', name: '说明', path: '/console/guide' },
   { id: 'progress', name: '世界进度', path: '/console/progress' },
   {
     id: 'tools', name: '工具', path: '/console/tools',
@@ -86,37 +86,46 @@ const handleParentClick = (item) => {
 // ── 移动端底部导航 ──
 const mainTabs = computed(() => {
   const admin = isAdmin()
-  const tabs = []
 
   if (admin) {
-    tabs.push(
+    return [
       { id: 'online', name: '总览', path: '/console/online' },
       { id: 'players', name: '玩家', path: '/console/players' },
       { id: 'terminal', name: '控制台', path: '/console/terminal' },
-    )
+      { id: 'more', name: '管理', isMore: true },
+      { id: 'other', name: '其它', isOther: true },
+    ]
+  } else {
+    return [
+      { id: 'guide', name: '公告', path: '/console/guide' },
+      { id: 'profile', name: '个人资料', path: '/console/profile' },
+      { id: 'progress', name: '世界进度', path: '/console/progress' },
+      { id: 'tools', name: '工具', isTools: true },
+    ]
   }
-
-  if (admin) {
-    tabs.push({ id: 'more', name: '管理', isMore: true })
-  }
-
-  tabs.push({ id: 'profile', name: '我的', path: '/console/profile' })
-
-  return tabs
 })
+
+const handleTabClick = (tab) => {
+  if (tab.isMore) openMoreMenu()
+  else if (tab.isOther) openOtherMenu()
+  else if (tab.isTools) openToolsMenu()
+  else router.push(tab.path)
+}
 
 const isTabActive = (tab) => {
   if (tab.isMore) return showMoreMenu.value
+  if (tab.isOther) return showOtherMenu.value
+  if (tab.isTools) return showToolsMenu.value
   return route.path === tab.path
 }
 
-// ── 管理弹出菜单 ──
+// ── 管理弹出菜单 (admin) ──
 const showMoreMenu = ref(false)
 const openMoreMenu = () => { showMoreMenu.value = true }
 const closeMoreMenu = () => { showMoreMenu.value = false }
 const moreItems = computed(() => {
   return visibleItems.value.filter(item =>
-    !['online', 'terminal', 'players', 'profile'].includes(item.id) &&
+    !['online', 'terminal', 'players', 'profile', 'guide', 'progress', 'tools'].includes(item.id) &&
     item.adminOnly
   )
 })
@@ -131,6 +140,37 @@ const navigateMore = (item) => {
 }
 
 const hasChildren = (item) => item.children && item.children.length > 0
+
+// ── 其它弹出菜单展开状态 ──
+const expandedOtherItem = ref(null)
+const toggleOtherItem = (item) => {
+  if (hasChildren(item)) {
+    expandedOtherItem.value = expandedOtherItem.value === item.id ? null : item.id
+  } else {
+    closeOtherMenu()
+    router.push(item.path)
+  }
+}
+
+// ── 其它弹出菜单 (admin) / 工具弹出菜单 (non-admin) ──
+const showOtherMenu = ref(false)
+const showToolsMenu = ref(false)
+
+const openOtherMenu = () => { showOtherMenu.value = true; expandedOtherItem.value = null }
+const closeOtherMenu = () => { showOtherMenu.value = false; expandedOtherItem.value = null }
+const openToolsMenu = () => { showToolsMenu.value = true }
+const closeToolsMenu = () => { showToolsMenu.value = false }
+
+const otherItems = computed(() => {
+  return visibleItems.value.filter(item =>
+    ['guide', 'profile', 'progress', 'tools'].includes(item.id)
+  )
+})
+
+const toolsItems = computed(() => {
+  const toolsItem = sidebarItems.find(item => item.id === 'tools')
+  return toolsItem?.children || []
+})
 </script>
 
 <template>
@@ -171,7 +211,7 @@ const hasChildren = (item) => item.children && item.children.length > 0
   <nav v-else class="mobile-bottom-nav">
     <button v-for="tab in mainTabs" :key="tab.id" class="mobile-tab"
       :class="{ active: isTabActive(tab) }"
-      @click="tab.isMore ? openMoreMenu() : router.push(tab.path)">
+      @click="handleTabClick(tab)">
       <span class="tab-icon">
         <!-- 总览: 网格仪表盘 -->
         <svg v-if="tab.id === 'online'" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -189,9 +229,25 @@ const hasChildren = (item) => item.children && item.children.length > 0
         <svg v-else-if="tab.id === 'more'" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
         </svg>
-        <!-- 我的: 单人 -->
-        <svg v-else width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <!-- 公告: 铃铛 -->
+        <svg v-else-if="tab.id === 'guide'" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+        </svg>
+        <!-- 个人资料: 单人 -->
+        <svg v-else-if="tab.id === 'profile'" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+        </svg>
+        <!-- 世界进度: 奖杯/进度 -->
+        <svg v-else-if="tab.id === 'progress'" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5C7 4 6 9 6 9"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5C17 4 18 9 18 9"/><path d="M4 22h16"/><path d="M10 22V2h4v20"/><path d="M4 9h.01"/><path d="M20 9h.01"/>
+        </svg>
+        <!-- 工具: 扳手 -->
+        <svg v-else-if="tab.id === 'tools'" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
+        </svg>
+        <!-- 其它: 更多(圆点) -->
+        <svg v-else width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>
         </svg>
       </span>
       <span class="tab-label">{{ tab.name }}</span>
@@ -212,6 +268,54 @@ const hasChildren = (item) => item.children && item.children.length > 0
             @click="navigateMore(item)">
             <span class="more-item-name">{{ item.name }}</span>
             <span v-if="hasChildren(item)" class="more-arrow">›</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </Teleport>
+
+  <!-- ═══ 移动端其它弹出菜单 (admin) ═══ -->
+  <Teleport to="body">
+    <div v-if="showOtherMenu" class="mobile-more-overlay" @click="closeOtherMenu">
+      <div class="mobile-more-panel" @click.stop>
+        <div class="more-header">
+          <h3>其它</h3>
+          <button class="more-close" @click="closeOtherMenu">✕</button>
+        </div>
+        <div class="more-list">
+          <template v-for="item in otherItems" :key="item.id">
+            <button class="more-item"
+              :class="{ active: isActive(item.path) }"
+              @click="toggleOtherItem(item)">
+              <span class="more-item-name">{{ item.name }}</span>
+              <span v-if="hasChildren(item)" class="more-arrow" :class="{ rotated: expandedOtherItem === item.id }">›</span>
+            </button>
+            <div v-if="hasChildren(item) && expandedOtherItem === item.id" class="more-submenu">
+              <button v-for="child in item.children" :key="child.id" class="more-subitem"
+                :class="{ active: isActive(child.path) }"
+                @click="closeOtherMenu(); router.push(child.path)">
+                <span class="more-item-name">{{ child.name }}</span>
+              </button>
+            </div>
+          </template>
+        </div>
+      </div>
+    </div>
+  </Teleport>
+
+  <!-- ═══ 移动端工具弹出菜单 (non-admin) ═══ -->
+  <Teleport to="body">
+    <div v-if="showToolsMenu" class="mobile-more-overlay" @click="closeToolsMenu">
+      <div class="mobile-more-panel" @click.stop>
+        <div class="more-header">
+          <h3>工具</h3>
+          <button class="more-close" @click="closeToolsMenu">✕</button>
+        </div>
+        <div class="more-list">
+          <button v-for="item in toolsItems" :key="item.id" class="more-item"
+            :class="{ active: isActive(item.path) }"
+            @click="closeToolsMenu(); router.push(item.path)">
+            <span class="more-item-name">{{ item.name }}</span>
           </button>
         </div>
       </div>
@@ -309,7 +413,25 @@ const hasChildren = (item) => item.children && item.children.length > 0
 }
 .more-item:hover { background: var(--bg-hover); }
 .more-item.active { background: rgba(99, 102, 241, 0.1); color: var(--accent-primary); }
-.more-arrow { color: var(--text-muted); font-size: 1.2rem; }
+.more-arrow { color: var(--text-muted); font-size: 1.2rem; transition: transform 0.2s ease; }
+.more-arrow.rotated { transform: rotate(90deg); }
+
+.more-submenu {
+  padding: 0 12px 4px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.more-subitem {
+  display: flex; align-items: center; padding: 10px 16px;
+  border: none; background: transparent; border-radius: 8px;
+  color: var(--text-secondary); font-size: 0.85rem; font-weight: 400;
+  cursor: pointer; transition: all 0.15s; text-align: left;
+  -webkit-tap-highlight-color: transparent;
+}
+.more-subitem:hover { background: var(--bg-hover); color: var(--text-primary); }
+.more-subitem.active { color: var(--accent-primary); }
 
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }

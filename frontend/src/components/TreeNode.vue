@@ -83,9 +83,10 @@ async function handleClick() {
   font-size: 13px;
   transition: background 0.15s;
   margin: 1px 4px;
+  color: var(--text-primary);
 }
 .tree-item:hover {
-  background: #2a2d38;
+  background: var(--bg-hover);
 }
 .tree-icon {
   font-size: 14px;
@@ -103,13 +104,13 @@ async function handleClick() {
 .loading-text, .empty-text {
   padding: 4px 12px;
   font-size: 12px;
-  color: #666;
+  color: var(--text-muted);
 }
 .loading-spinner {
   width: 12px;
   height: 12px;
-  border: 2px solid #444;
-  border-top-color: #4a9eff;
+  border: 2px solid var(--border-color);
+  border-top-color: var(--accent-primary);
   border-radius: 50%;
   animation: spin 0.6s linear infinite;
   flex-shrink: 0;
