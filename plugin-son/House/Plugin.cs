@@ -483,7 +483,8 @@ public class HousingPlugin : TerrariaPlugin
                                     }
                                 }
 
-                                if (newHouseR.Intersects(new Rectangle(Main.spawnTileX, Main.spawnTileY, TShock.Config.Settings.SpawnProtectionRadius, TShock.Config.Settings.SpawnProtectionRadius)))
+                                if (Config.Instance.ProhibitSpawnClaim &&
+                                    newHouseR.Intersects(new Rectangle(Main.spawnTileX, Main.spawnTileY, TShock.Config.Settings.SpawnProtectionRadius, TShock.Config.Settings.SpawnProtectionRadius)))
                                 {
                                     args.Player.TempPoints[0] = Point.Zero;
                                     args.Player.TempPoints[1] = Point.Zero;

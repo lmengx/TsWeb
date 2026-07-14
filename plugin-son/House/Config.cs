@@ -48,6 +48,9 @@ public class Config
     [JsonProperty("禁止TP房屋")]
     public bool ProhibitTPHouse { get; set; } = false;
 
+    [JsonProperty("禁止出生点圈地")]
+    public bool ProhibitSpawnClaim { get; set; } = false;
+
     public static Config Instance
     {
         get
