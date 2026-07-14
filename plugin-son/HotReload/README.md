@@ -23,49 +23,33 @@
 
 | 命令 | 简写 | 说明 |
 |------|------|------|
-| `/hr list` | `/hr l` | 列出全部插件（含未加载状态标记） |
-| `/hr listload` | `/hr ll` | 仅列出已加载的插件，标记 dll 已被覆盖的 |
-| `/hr listunload` | `/hr lu` | 扫目录，列出所有未加载项（新增/覆盖/已卸载） |
-| `/hr remove <序号\|名称>` | `/hr r` | 卸载指定插件 |
-| `/hr update <序号\|名称>` | `/hr u` | 加载或更新指定插件 |
+| `/hr` | — | 仪表盘：全量插件状态 + 变更详情（覆盖/新增分别用红/绿色标注） |
+| `/hr load <序号\|名称>` | `/hr ld` | 加载或重载。已跟踪的插件可用序号，磁盘新增的只能用名称 |
+| `/hr unload <序号>` | `/hr ul` | 卸载已加载的插件 |
+| `/hr info <序号\|名称>` | `/hr i` | 查看插件详细信息（路径、哈希对比） |
+| `/hr reload-all` | `/hr ra` | 一键重载所有已变更的插件 |
 | `/hr help` | `/hr h` | 显示帮助 |
 
 ### 使用流程
 
 ```
-# 1. 查看已加载插件中哪些 dll 被替换了
-/hr ll
+# 1. 查看仪表盘（全量列表 + 变更详情）
+/hr
 
-# 2. 查看未加载的插件 / 新增文件 / 被覆盖的文件
-/hr lu
-/hr lu
+# 2. 按序号加载或重载
+/hr load 2
 
-# 3. 扫描变更
-/hr scan
+# 磁盘新增的只能用名称
+/hr ld NewPlugin
 
-# 4. 按序号加载新版本
-/hr update 1
+# 3. 卸载
+/hr unload 2
 
-# 或直接按名称
-/hr u MyPlugin
-```
+# 4. 一键全部应用
+/hr reload-all
 
-### listload 示例
-
-```
-> [ 1] TSWeb                   v1.0.0.0  by lmx12330
->       文件: TSWeb.dll                  当前哈希: a1b2c3d4e5f6...  [已被覆盖，dll 已与加载时不同]
-> 其中 1 个插件的 dll 文件已被替换，建议 /hr update 重新加载
-> 其余 3 个插件状态正常：
-> [ 2] TShockAPI               v5.x      by Pryaxis  [保护]
-```
-
-### listunload 示例
-
-```
-> 未加载插件共 2 个：
-> [ 5] MyPlugin                v1.0.0.0  by someone  [已被主动卸载]
-> [ 6] NewPlugin                          by unknown  [新增文件（从未加载）]
+# 5. 查看某个插件的详细信息
+/hr info 1
 ```
 
 ## ⚠️ 重要限制

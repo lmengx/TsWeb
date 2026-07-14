@@ -529,7 +529,7 @@ public static class Core
     /// <summary>
     /// 按序号或准确名称解析记录。
     /// </summary>
-    private static PluginRecord? ResolveRecord(string target)
+    internal static PluginRecord? ResolveRecord(string target)
     {
         // 序号
         if (int.TryParse(target, out var index))
