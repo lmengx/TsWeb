@@ -237,15 +237,27 @@ public class HousingPlugin : TerrariaPlugin
             }
             // 有权限或未波及房屋，正常爆炸但追踪来源
             _explosionOwner = self.owner >= 0 && self.owner < 255 ? TShock.Players[self.owner] : null;
-            orig(self);
-            _explosionOwner = null;
+            try
+            {
+                orig(self);
+            }
+            finally
+            {
+                _explosionOwner = null;
+            }
             return;
         }
         if (ExplosiveTypes.Contains(self.type))
         {
             _explosionOwner = self.owner >= 0 && self.owner < 255 ? TShock.Players[self.owner] : null;
-            orig(self);
-            _explosionOwner = null;
+            try
+            {
+                orig(self);
+            }
+            finally
+            {
+                _explosionOwner = null;
+            }
             return;
         }
         orig(self);
