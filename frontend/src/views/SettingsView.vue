@@ -107,6 +107,10 @@ const goToAppConfig = () => {
   router.push('/console/settings/app')
 }
 
+const goToPromotionConfig = () => {
+  router.push('/console/settings/promotion')
+}
+
 onMounted(() => {
   fetchConfig()
   // 每 10 秒刷新一次活跃追踪状态
@@ -149,8 +153,17 @@ onUnmounted(() => {
               />
               <span class="radio-label">{{ opt.label }}</span>
             </label>
-          </div>
-        </div>
+      </div>
+
+      <!-- 导航到权限提升配置 -->
+      <div class="section-card">
+        <h3>权限提升配置</h3>
+        <p class="section-desc">配置 QQ 绑定和游玩时长的自动权限提升规则</p>
+        <button class="nav-btn" @click="goToPromotionConfig">
+          前往配置 →
+        </button>
+      </div>
+    </div>
 
         <!-- Boss 限制 -->
         <div class="section-card">

@@ -1541,6 +1541,43 @@ export class TShockService {
       return { error: error.message }
     }
   }
+
+  // ===== 权限提升配置 =====
+
+  async getPromotionConfig() {
+    if (!this.baseUrl) await this.init()
+    const url = `${this.baseUrl}/data/promotion/config${this.apiKey ? `?token=${encodeURIComponent(this.apiKey)}` : ''}`
+    console.log(`[OUTGOING] GET ${url}`)
+    try {
+      const response = await fetch(url, { method: 'GET', headers: { 'Accept': 'application/json' } })
+      const text = await response.text()
+      try { return JSON.parse(text) } catch { return { error: 'Invalid JSON', rawResponse: text } }
+    } catch (error) {
+      this.isConnected = false
+      return { error: error.message }
+    }
+  }
+
+  async setPromotionConfig(params) {
+    if (!this.baseUrl) await this.init()
+    const query = Object.entries(params).map(([k, v]) => {
+      const val = typeof v === 'object' ? JSON.stringify(v) : String(v)
+      return `${k}=${encodeURIComponent(val)}`
+    }).join('&')
+    const url = `${this.baseUrl}/data/promotion/config/set?${query}${this.apiKey ? `&token=${encodeURIComponent(this.apiKey)}` : ''}`
+    console.log(`[OUTGOING] POST ${url.substring(0, 600)}`)
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Accept': 'application/json' }
+      })
+      const text = await response.text()
+      try { return JSON.parse(text) } catch { return { error: 'Invalid JSON', rawResponse: text } }
+    } catch (error) {
+      this.isConnected = false
+      return { error: error.message }
+    }
+  }
 }
 
 export default new TShockService()

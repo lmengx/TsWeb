@@ -74,6 +74,12 @@ const routes = [
         meta: { requiresAuth: true, requiresAdmin: true }
       },
       {
+        path: 'settings/promotion',
+        name: 'PromotionConfig',
+        component: () => import('../views/console/PromotionConfigView.vue'),
+        meta: { requiresAuth: true, requiresAdmin: true }
+      },
+      {
         path: 'terminal',
         name: 'ConsoleTerminal',
         component: () => import('../components/ConsoleTerminal.vue'),

@@ -116,6 +116,9 @@ namespace TShockData
                 // 4. 所有检查通过，执行绑定
                 db.Query("INSERT INTO qq_bind (UserId, QQ) VALUES (@0, @1)", account.ID, qq);
 
+                // 5. 根据配置提升权限组
+                TryPromoteByConfig(account, playerName, "QQ绑定");
+
                 TShock.Log.ConsoleInfo($"[TSWeb] QQ绑定成功 - 玩家:{playerName}(ID:{account.ID}), QQ:{qq}");
 
                 return new RestObject()
@@ -228,6 +231,9 @@ namespace TShockData
                 // 4. 绑定QQ
                 db.Query("INSERT INTO qq_bind (UserId, QQ) VALUES (@0, @1)", newAccount.ID, qq);
 
+                // 5. 根据配置设置权限组
+                TryPromoteByConfig(newAccount, playerName, "QQ注册绑定");
+
                 TShock.Log.ConsoleInfo($"[TSWeb] QQ注册绑定成功 - 新角色:{playerName}(ID:{newAccount.ID}), QQ:{qq}");
 
                 return new RestObject()
@@ -327,6 +333,26 @@ namespace TShockData
                     { "error", ex.Message }
                 };
             }
+        }
+
+        /// <summary>
+        /// 根据权限提升配置执行晋升
+        /// </summary>
+        private static void TryPromoteByConfig(UserAccount account, string playerName, string source)
+        {
+            var config = PromotionManager.GetConfig();
+
+            if (!config.QqBind.Enabled)
+            {
+                TShock.Log.ConsoleInfo($"[TSWeb] {source}: 权限提升已禁用，跳过");
+                return;
+            }
+
+            PromotionManager.TryPromote(
+                account,
+                config.QqBind.TargetGroup,
+                config.QqBind.Mode,
+                reason: $"{source}自动晋升");
         }
     }
 }

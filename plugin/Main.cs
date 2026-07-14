@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System.Reflection;
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System.Reflection;
 using TShockAPI;
 using Terraria;
 using TerrariaApi.Server;
@@ -30,6 +30,7 @@ namespace TShockData
             ItemRestrict.Initialize();
 
             QQBind.Initialize();
+            PromotionManager.LoadConfig();
 
 			TShock.RestApi.Register(new SecureRestCommand("/data/users/invsee", GetPlayerInv.GetInv, "data.rest.invsee"));
 			TShock.RestApi.Register(new SecureRestCommand("/data/users/editinv", GetPlayerInv.EditInv, "data.rest.invsee"));
@@ -118,6 +119,10 @@ namespace TShockData
             TShock.RestApi.Register(new SecureRestCommand("/data/qq/register", QQBind.RegisterAndBind, "data.rest.invsee"));
             TShock.RestApi.Register(new SecureRestCommand("/data/qq/reset-password", QQBind.ResetPasswordByQQ, "data.rest.invsee"));
 
+            // 权限提升配置
+            TShock.RestApi.Register(new SecureRestCommand("/data/promotion/config", PromotionManager.GetConfigJson, "data.rest.invsee"));
+            TShock.RestApi.Register(new SecureRestCommand("/data/promotion/config/set", PromotionManager.SetConfigJson, "data.rest.invsee"));
+
             TShockAPI.Commands.ChatCommands.Add(new Command("tshock.admin", AntiCheat.HandleScanCommand, "scan", "扫描"));
 
             TShockAPI.Commands.ChatCommands.Add(new Command("tshock.admin", ProjDetection.ShowRestrictedList, "projlist", "违禁弹幕"));
@@ -134,6 +139,7 @@ namespace TShockData
             ProjDetection.RefreshRestrictedProjectiles();
             ItemDetection.RefreshRestrictedItems();
             ItemDetection.StartAutoScan();
+            PromotionManager.LoadConfig();
             TShock.Log.ConsoleInfo("[TSWeb] 反作弊配置已重新加载");
         }
 
@@ -239,6 +245,8 @@ namespace TShockData
 				"/data/qq/bind",
                 "/data/qq/register",
 				"/data/qq/reset-password",
+				"/data/promotion/config",
+				"/data/promotion/config/set",
 				"/data/online/log/stream",
 				"/data/online/log/command",
 			};

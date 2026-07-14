@@ -99,3 +99,21 @@ export const getBossLimitStatus = async (req, res) => {
     res.status(500).json({ status: '500', error: error.message })
   }
 }
+
+export const getPromotionConfig = async (req, res) => {
+  try {
+    const result = await tshockService.getPromotionConfig()
+    res.json(result)
+  } catch (error) {
+    res.status(500).json({ status: '500', error: error.message })
+  }
+}
+
+export const setPromotionConfig = async (req, res) => {
+  try {
+    const result = await tshockService.setPromotionConfig(req.body)
+    res.json(result)
+  } catch (error) {
+    res.status(500).json({ status: '500', error: error.message })
+  }
+}

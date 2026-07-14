@@ -29,6 +29,7 @@ namespace TShockData
         {
             if (!_initialized) return;
             ServerApi.Hooks.GameUpdate.Deregister(_plugin, OnGameUpdate);
+            _tickCounter = 0;
             _initialized = false;
             _plugin = null;
         }
@@ -76,6 +77,7 @@ namespace TShockData
             {
                 UpdatePlayerDailyMin();
                 EnsureHourlyRecord();
+                CheckAutoPromotion();
             }
             if (_tickCounter % 216000 == 0)
             {
@@ -115,6 +117,112 @@ namespace TShockData
             {
                 TShock.Log.ConsoleError($"[TSWeb] EnsureHourlyRecord error: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// 检查所有在线玩家，根据配置的游玩时长阈值自动晋升
+        /// 配置来自 promotion_config.json，支持多个时长阈值和权限组
+        /// </summary>
+        private static void CheckAutoPromotion()
+        {
+            try
+            {
+                var config = PromotionManager.GetConfig();
+
+                if (config.PlaytimeThresholds == null || config.PlaytimeThresholds.Count == 0)
+                    return;
+
+                // 按分钟数从大到小排序（优先匹配高门槛）
+                var sortedThresholds = config.PlaytimeThresholds
+                    .Where(t => t.Minutes > 0 && !string.IsNullOrEmpty(t.TargetGroup))
+                    .OrderByDescending(t => t.Minutes)
+                    .ToList();
+
+                if (sortedThresholds.Count == 0)
+                    return;
+
+                foreach (var player in TShock.Players)
+                {
+                    if (player == null || !player.Active || !player.IsLoggedIn)
+                        continue;
+
+                    if (player.Account == null || player.Group == null)
+                        continue;
+
+                    // 检查是否在忽略组中
+                    if (IsInIgnoreGroup(player.Group, config))
+                        continue;
+
+                    // 查询总游玩分钟数
+                    int totalMin = 0;
+                    try
+                    {
+                        using (var reader = TShock.DB.QueryReader(
+                            "SELECT COALESCE(SUM(daily_min), 0) AS total FROM player_daily_stat WHERE uid = @0",
+                            player.Name))
+                        {
+                            if (reader.Read())
+                                totalMin = Convert.ToInt32(reader.Get<long>("total"));
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        TShock.Log.ConsoleWarn($"[TSWeb] 查询玩家 {player.Name} 游玩时长失败: {ex.Message}");
+                        continue;
+                    }
+
+                    // 从高到低匹配阈值
+                    foreach (var threshold in sortedThresholds)
+                    {
+                        if (totalMin < threshold.Minutes)
+                            continue;
+
+                        // 尝试晋升
+                        bool promoted = PromotionManager.TryPromote(
+                            player.Account,
+                            threshold.TargetGroup,
+                            threshold.Mode,
+                            player,
+                            $"游玩时长达到 {threshold.Minutes / 60} 小时");
+
+                        // 只要匹配到一个阈值并成功/跳过，就处理下一位玩家
+                        break;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                TShock.Log.ConsoleError($"[TSWeb] CheckAutoPromotion error: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 检查玩家当前组是否在忽略组列表中
+        /// </summary>
+        private static bool IsInIgnoreGroup(Group group, PromotionConfig config)
+        {
+            if (group == null || config.IgnoreGroups == null)
+                return false;
+
+            foreach (var ignore in config.IgnoreGroups)
+            {
+                if (string.Equals(group.Name, ignore, StringComparison.OrdinalIgnoreCase))
+                    return true;
+
+                // 也沿父组链检查
+                var current = group;
+                var visited = new HashSet<string>();
+                while (current != null)
+                {
+                    if (!visited.Add(current.Name))
+                        break;
+                    if (string.Equals(current.Name, ignore, StringComparison.OrdinalIgnoreCase))
+                        return true;
+                    current = current.Parent;
+                }
+            }
+
+            return false;
         }
 
         private static void UpdatePlayerDailyMin()
