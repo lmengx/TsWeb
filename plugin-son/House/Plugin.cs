@@ -4,6 +4,7 @@ using On.Terraria.GameContent;
 using OTAPI;
 using System.Timers;
 using Terraria;
+using Terraria.ID;
 using TerrariaApi.Server;
 using TShockAPI;
 using TShockAPI.DB;
@@ -15,7 +16,7 @@ namespace HouseRegion;
 public class HousingPlugin : TerrariaPlugin
 {
     public override string Author => "lmx12330";
-    public override string Description => "一个著名的用于保护房屋的插件。";
+    public override string Description => "保护房屋的插件";
     public override string Name => System.Reflection.Assembly.GetExecutingAssembly().GetName().Name!;
     public override Version Version => new Version(1, 0, 5);
 
@@ -28,6 +29,21 @@ public class HousingPlugin : TerrariaPlugin
     static readonly System.Timers.Timer Update = new (1100);
     public static bool ULock = false;
     private static readonly HashSet<int> AutoShowPlayers = new ();
+    private static TSPlayer? _explosionOwner = null;
+    private static readonly HashSet<int> ExplosiveTypes = new()
+    {
+        ProjectileID.Bomb, ProjectileID.StickyBomb, ProjectileID.BouncyBomb,
+        ProjectileID.Dynamite, ProjectileID.BouncyDynamite, ProjectileID.StickyDynamite,
+        ProjectileID.Grenade, ProjectileID.StickyGrenade, ProjectileID.BouncyGrenade,
+        ProjectileID.Explosives,
+        ProjectileID.RocketI, ProjectileID.RocketII, ProjectileID.RocketIII, ProjectileID.RocketIV,
+        ProjectileID.WetBomb, ProjectileID.LavaBomb, ProjectileID.HoneyBomb, ProjectileID.DryBomb,
+        ProjectileID.WetGrenade, ProjectileID.LavaGrenade, ProjectileID.HoneyGrenade, ProjectileID.DryGrenade,
+        ProjectileID.WetRocket, ProjectileID.LavaRocket, ProjectileID.HoneyRocket, ProjectileID.DryRocket,
+        ProjectileID.DrySnowmanRocket, ProjectileID.WetSnowmanRocket,
+        ProjectileID.LavaSnowmanRocket, ProjectileID.HoneySnowmanRocket,
+        ProjectileID.HappyBomb,
+    };
 
     private void RD()
     {
@@ -82,9 +98,15 @@ public class HousingPlugin : TerrariaPlugin
         ServerApi.Hooks.NetGreetPlayer.Register(this, this.OnGreetPlayer);
         ServerApi.Hooks.ServerLeave.Register(this, this.OnLeave);
         ServerApi.Hooks.GamePostInitialize.Register(this, this.PostInitialize);
+        // 热重载时世界已加载，GamePostInitialize 不会再次触发，直接调用
+        if (!Main.gameMenu)
+            this.PostInitialize(EventArgs.Empty);
         OTAPI.Hooks.Chest.QuickStack += ChestOnQuickStack;
         CraftingRequests.CanCraftFromChest += CraftingRequestsOnCanCraftFromChest;
         Hooks.MessageBuffer.InvokeGetData += MessageBufferOnInvokeGetData;
+        TShockAPI.GetDataHandlers.TileEdit += OnTileEdit;
+        On.Terraria.Projectile.Kill += OnProjectileKill;
+        On.Terraria.WorldGen.KillTile += OnWorldGenKillTile;
     }
 
     private static bool CraftingRequestsOnCanCraftFromChest(CraftingRequests.orig_CanCraftFromChest orig, Chest chest, int whoAmI)
@@ -172,6 +194,95 @@ public class HousingPlugin : TerrariaPlugin
             maxPackets);
     }
 
+    private void OnProjectileKill(On.Terraria.Projectile.orig_Kill orig, Projectile self)
+    {
+        // 追查爆炸来源玩家，供 WorldGen.KillTile 钩子使用
+        if (self.type == ProjectileID.DirtBomb || self.type == ProjectileID.DirtStickyBomb)
+        {
+            // 土炸弹不走 KillTile，直接扫范围检查
+            var ctr = self.Center.ToTileCoordinates();
+            var radius = 5;
+            var blastRect = new Rectangle(ctr.X - radius, ctr.Y - radius, radius * 2, radius * 2);
+            for (var i = 0; i < Houses.Count; i++)
+            {
+                var h = Houses[i];
+                if (h != null && h.HouseArea.Intersects(blastRect))
+                {
+                    var player = self.owner >= 0 && self.owner < 255 ? TShock.Players[self.owner] : null;
+                    if (player == null || !player.IsLoggedIn || player.Account == null)
+                        return; // 无权限 → 直接消失，不执行爆炸
+
+                    if (!player.Group.HasPermission(HouseRegion.GetDataHandlers.EditHouse) &&
+                        player.Account.ID.ToString() != h.Author &&
+                        !Utils.OwnsHouse(player.Account.ID.ToString(), h))
+                    {
+                        player.SendErrorMessage("你没有权利修改被房子保护的地区。");
+                        if (Config.Instance.WarningSpoiler)
+                            player.Disable("你没有权利修改被房子保护的地区。");
+                        return;
+                    }
+                    break;
+                }
+            }
+        }
+        else if (ExplosiveTypes.Contains(self.type))
+        {
+            _explosionOwner = self.owner >= 0 && self.owner < 255 ? TShock.Players[self.owner] : null;
+            orig(self);
+            _explosionOwner = null;
+            return;
+        }
+        orig(self);
+    }
+
+    private void OnWorldGenKillTile(On.Terraria.WorldGen.orig_KillTile orig, int i, int j, bool fail, bool effectOnly, bool noItem)
+    {
+        if (!fail && !effectOnly)
+        {
+            var house = Utils.InAreaHouse(i, j);
+            if (house != null)
+            {
+                if (_explosionOwner == null || !_explosionOwner.IsLoggedIn || _explosionOwner.Account == null)
+                    return; // 非玩家来源，直接阻止
+
+                if (!_explosionOwner.Group.HasPermission(HouseRegion.GetDataHandlers.EditHouse) &&
+                    _explosionOwner.Account.ID.ToString() != house.Author &&
+                    !Utils.OwnsHouse(_explosionOwner.Account.ID.ToString(), house))
+                {
+                    if (Config.Instance.WarningSpoiler)
+                        _explosionOwner.Disable("无权破坏房子保护的方块!");
+                    return;
+                }
+            }
+        }
+        orig(i, j, fail, effectOnly, noItem);
+    }
+
+    private void OnTileEdit(object? sender, TShockAPI.GetDataHandlers.TileEditEventArgs e)
+    {
+        var house = Utils.InAreaHouse(e.X, e.Y);
+        if (house == null)
+            return;
+
+        // 非玩家来源（爆炸、环境变化等）直接拦截
+        if (e.Player == null || !e.Player.IsLoggedIn || e.Player.Account == null)
+        {
+            e.Handled = true;
+            return;
+        }
+
+        if (e.Player.Group.HasPermission(HouseRegion.GetDataHandlers.EditHouse) ||
+            e.Player.Account.ID.ToString() == house.Author ||
+            Utils.OwnsHouse(e.Player.Account.ID.ToString(), house))
+        {
+            return;
+        }
+
+        e.Handled = true;
+        if (Config.Instance.WarningSpoiler)
+            e.Player.Disable("无权破坏房子保护的方块!");
+    }
+
     protected override void Dispose(bool disposing)
     {
         if (disposing)
@@ -185,6 +296,9 @@ public class HousingPlugin : TerrariaPlugin
             OTAPI.Hooks.Chest.QuickStack -= ChestOnQuickStack;
             CraftingRequests.CanCraftFromChest -= CraftingRequestsOnCanCraftFromChest;
             Hooks.MessageBuffer.InvokeGetData -= MessageBufferOnInvokeGetData;
+            TShockAPI.GetDataHandlers.TileEdit -= OnTileEdit;
+            On.Terraria.Projectile.Kill -= OnProjectileKill;
+            On.Terraria.WorldGen.KillTile -= OnWorldGenKillTile;
         }
 
         base.Dispose(disposing);
