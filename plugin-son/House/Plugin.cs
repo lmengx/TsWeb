@@ -105,6 +105,7 @@ public class HousingPlugin : TerrariaPlugin
         CraftingRequests.CanCraftFromChest += CraftingRequestsOnCanCraftFromChest;
         Hooks.MessageBuffer.InvokeGetData += MessageBufferOnInvokeGetData;
         TShockAPI.GetDataHandlers.TileEdit += OnTileEdit;
+        TShockAPI.GetDataHandlers.LiquidSet += OnLiquidSet;
         On.Terraria.Projectile.Kill += OnProjectileKill;
         On.Terraria.WorldGen.KillTile += OnWorldGenKillTile;
     }
@@ -194,12 +195,23 @@ public class HousingPlugin : TerrariaPlugin
             maxPackets);
     }
 
+    private static readonly HashSet<int> LiquidBombTypes = new()
+    {
+        ProjectileID.DirtBomb,
+        ProjectileID.DirtStickyBomb,
+        ProjectileID.WetBomb, ProjectileID.DryBomb,
+        ProjectileID.LavaBomb, ProjectileID.HoneyBomb,
+        ProjectileID.WetGrenade, ProjectileID.DryGrenade,
+        ProjectileID.LavaGrenade, ProjectileID.HoneyGrenade,
+        ProjectileID.WetRocket, ProjectileID.DryRocket,
+        ProjectileID.LavaRocket, ProjectileID.HoneyRocket,
+    };
+
     private void OnProjectileKill(On.Terraria.Projectile.orig_Kill orig, Projectile self)
     {
-        // 追查爆炸来源玩家，供 WorldGen.KillTile 钩子使用
-        if (self.type == ProjectileID.DirtBomb || self.type == ProjectileID.DirtStickyBomb)
+        // 土炸弹/液体炸弹不走 KillTile，直接扫范围检查
+        if (LiquidBombTypes.Contains(self.type))
         {
-            // 土炸弹不走 KillTile，直接扫范围检查
             var ctr = self.Center.ToTileCoordinates();
             var radius = 5;
             var blastRect = new Rectangle(ctr.X - radius, ctr.Y - radius, radius * 2, radius * 2);
@@ -210,8 +222,7 @@ public class HousingPlugin : TerrariaPlugin
                 {
                     var player = self.owner >= 0 && self.owner < 255 ? TShock.Players[self.owner] : null;
                     if (player == null || !player.IsLoggedIn || player.Account == null)
-                        return; // 无权限 → 直接消失，不执行爆炸
-
+                        return;
                     if (!player.Group.HasPermission(HouseRegion.GetDataHandlers.EditHouse) &&
                         player.Account.ID.ToString() != h.Author &&
                         !Utils.OwnsHouse(player.Account.ID.ToString(), h))
@@ -224,8 +235,13 @@ public class HousingPlugin : TerrariaPlugin
                     break;
                 }
             }
+            // 有权限或未波及房屋，正常爆炸但追踪来源
+            _explosionOwner = self.owner >= 0 && self.owner < 255 ? TShock.Players[self.owner] : null;
+            orig(self);
+            _explosionOwner = null;
+            return;
         }
-        else if (ExplosiveTypes.Contains(self.type))
+        if (ExplosiveTypes.Contains(self.type))
         {
             _explosionOwner = self.owner >= 0 && self.owner < 255 ? TShock.Players[self.owner] : null;
             orig(self);
@@ -283,6 +299,31 @@ public class HousingPlugin : TerrariaPlugin
             e.Player.Disable("无权破坏房子保护的方块!");
     }
 
+    private void OnLiquidSet(object? sender, TShockAPI.GetDataHandlers.LiquidSetEventArgs e)
+    {
+        var house = Utils.InAreaHouse(e.TileX, e.TileY);
+        if (house == null)
+            return;
+
+        if (e.Player == null || !e.Player.IsLoggedIn || e.Player.Account == null)
+        {
+            e.Handled = true;
+            return;
+        }
+
+        if (e.Player.Group.HasPermission(HouseRegion.GetDataHandlers.EditHouse) ||
+            e.Player.Account.ID.ToString() == house.Author ||
+            Utils.OwnsHouse(e.Player.Account.ID.ToString(), house))
+        {
+            return;
+        }
+
+        e.Handled = true;
+        e.Player.SendErrorMessage("你没有权利修改被房子保护的地区。");
+        if (Config.Instance.WarningSpoiler)
+            e.Player.Disable("你没有权利修改被房子保护的地区。");
+    }
+
     protected override void Dispose(bool disposing)
     {
         if (disposing)
@@ -297,6 +338,7 @@ public class HousingPlugin : TerrariaPlugin
             CraftingRequests.CanCraftFromChest -= CraftingRequestsOnCanCraftFromChest;
             Hooks.MessageBuffer.InvokeGetData -= MessageBufferOnInvokeGetData;
             TShockAPI.GetDataHandlers.TileEdit -= OnTileEdit;
+            TShockAPI.GetDataHandlers.LiquidSet -= OnLiquidSet;
             On.Terraria.Projectile.Kill -= OnProjectileKill;
             On.Terraria.WorldGen.KillTile -= OnWorldGenKillTile;
         }
