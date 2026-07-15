@@ -56,22 +56,6 @@ function touchContext(key: string, resetTime: number): UserContext | null {
   return ctx
 }
 
-/** 生成上下文摘要（用于输出到 QQ） */
-function formatContextSummary(entries: ContextEntry[]): string {
-  if (entries.length === 0) return '无'
-  const pairs = Math.ceil(entries.length / 2)
-  const lines: string[] = []
-  for (let i = 0; i < entries.length; i += 2) {
-    const user = entries[i]
-    const assistant = entries[i + 1]
-    const pairNum = Math.floor(i / 2) + 1
-    const userPreview = user.content.slice(0, 5)
-    const assistantPreview = assistant ? assistant.content.slice(0, 5) : ''
-    lines.push(`${pairNum}. 问:${userPreview}... 答:${assistantPreview}...`)
-  }
-  return `共${pairs}条: ${lines.join(' | ')}`
-}
-
 // ══════════════════════════════════════════════════════════
 //  清理定时器
 // ══════════════════════════════════════════════════════════
@@ -249,19 +233,13 @@ export function apply(ctx: Context, config: Config) {
 
     ctx.logger.info(`[DifyChat] 上下文 key=${contextKey}, 条目数=${entryCount}, conversationId=${convId || '(新会话)'}`)
 
-    // 输出上下文摘要到 QQ
-    await session.send(
-      h('at', { id: session.userId }) +
-      ` [上下文] ${contextSummary}`
-    )
-
     // ── 调用 Dify ──
     ctx.logger.info(`[DifyChat] 调用 API: query="${userMsg.slice(0, 50)}", convId=${convId || '(新)'}`)
     const result = await callDify(ctx, config, userMsg, session.userId, convId)
 
     if (!result) {
       ctx.logger.error('[DifyChat] API 返回空')
-      await session.send(h('at', { id: session.userId }) + ' [测试] API 调用失败，请检查配置和网络')
+      await session.send(h('at', { id: session.userId }) + ' Dify API 调用失败，请检查配置和网络')
       return
     }
 
@@ -277,7 +255,9 @@ export function apply(ctx: Context, config: Config) {
     }
     ctx.logger.debug(`[DifyChat] 上下文已更新, 当前条目=${contexts.get(contextKey)?.entries.length}`)
 
-    // ── 发送结果 ──
-    await session.send(h('at', { id: session.userId }) + ' ' + answer)
+    // ── 发送回答 ──
+    await session.send(
+      h('at', { id: session.userId }) + ' ' + answer
+    )
   })
 }
