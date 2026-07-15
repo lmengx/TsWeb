@@ -239,7 +239,7 @@ namespace TShockData
 
             if (!TShock.Groups.GroupExists(targetGroupName))
             {
-                TShock.Log.ConsoleWarn($"[TSWeb] 晋升失败: 目标组 {targetGroupName} 不存在");
+                //TShock.Log.ConsoleWarn($"[TSWeb] 晋升失败: 目标组 {targetGroupName} 不存在");
                 return false;
             }
 
@@ -250,7 +250,7 @@ namespace TShockData
                 {
                     if (string.Equals(currentGroup.Name, ignore, StringComparison.OrdinalIgnoreCase))
                     {
-                        TShock.Log.ConsoleInfo($"[TSWeb] 跳过晋升: 玩家 {account.Name} 属于忽略组 {ignore}");
+                        //TShock.Log.ConsoleInfo($"[TSWeb] 跳过晋升: 玩家 {account.Name} 属于忽略组 {ignore}");
                         return false;
                     }
                 }
@@ -262,8 +262,8 @@ namespace TShockData
                 {
                     if (IsGroupAtOrAbove(currentGroup, targetGroupName))
                     {
-                        TShock.Log.ConsoleInfo(
-                            $"[TSWeb] 跳过晋升: 玩家 {account.Name} 的组 {currentGroup.Name} 已达到 {targetGroupName}");
+                        //TShock.Log.ConsoleInfo(
+                            //$"[TSWeb] 跳过晋升: 玩家 {account.Name} 的组 {currentGroup.Name} 已达到 {targetGroupName}");
                         return false;
                     }
                 }
@@ -272,8 +272,8 @@ namespace TShockData
             try
             {
                 TShock.UserAccounts.SetUserGroup(account, targetGroupName);
-                TShock.Log.ConsoleInfo(
-                    $"[TSWeb] 晋升成功 - 玩家:{account.Name} → {targetGroupName} ({reason})");
+                //TShock.Log.ConsoleInfo(
+                    //$"[TSWeb] 晋升成功 - 玩家:{account.Name} → {targetGroupName} ({reason})");
 
                 if (player != null && player.IsLoggedIn && player.Account?.ID == account.ID)
                 {
@@ -284,8 +284,8 @@ namespace TShockData
             }
             catch (Exception ex)
             {
-                TShock.Log.ConsoleError(
-                    $"[TSWeb] 晋升失败 - 玩家:{account.Name} → {targetGroupName}: {ex.Message}");
+                //TShock.Log.ConsoleError(
+                    //$"[TSWeb] 晋升失败 - 玩家:{account.Name} → {targetGroupName}: {ex.Message}");
                 return false;
             }
         }
