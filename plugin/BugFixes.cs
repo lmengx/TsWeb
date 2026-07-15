@@ -526,6 +526,14 @@ namespace TShockData
             private static string _lastBossName = "";
             private static int _lastTotal = 0;
 
+            // 反射缓存：NPC.bossDamageTracker 字段
+            private static readonly System.Reflection.FieldInfo? _npcTrackerField =
+                typeof(NPC).GetField("bossDamageTracker", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public);
+            // 反射缓存：BossDamageTracker 的 _list 和 _worldCredit 字段
+            private static System.Reflection.FieldInfo? _trackerListField = null;
+            private static System.Reflection.FieldInfo? _trackerWorldField = null;
+            private static Type? _bossDamageTrackerType = null;
+
             public static void Initialize(TerrariaPlugin plugin)
             {
                 if (_initialized) return;
@@ -533,7 +541,28 @@ namespace TShockData
                 _plugin = plugin;
 
                 ServerApi.Hooks.NpcStrike.Register(plugin, OnNpcStrike);
-                Commands.ChatCommands.Add(new Command(HandleDmgCommand, "dmg"));
+
+                // 通过反射解析 BossDamageTracker 的内部字段（无 MonoMod 依赖）
+                if (_npcTrackerField != null)
+                {
+                    _bossDamageTrackerType = _npcTrackerField.FieldType;
+                    if (_bossDamageTrackerType != null)
+                    {
+                        _trackerListField = _bossDamageTrackerType.GetField("_list",
+                            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+                        _trackerWorldField = _bossDamageTrackerType.GetField("_worldCredit",
+                            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+                    }
+                }
+
+                if (_bossDamageTrackerType == null)
+                    TShock.Log.ConsoleInfo("[BugFixes] BossDamageReport: 未找到 bossDamageTracker，原版广播可能无法抑制");
+
+                Commands.ChatCommands.Add(new Command(HandleDmgCommand, "dmg")
+                {
+                    DoLog = false,
+                    HelpText = "查看最近一次BOSS战的完整伤害排名"
+                });
 
                 TShock.Log.ConsoleInfo("[BugFixes] BossDamageReport 已启用");
             }
@@ -541,9 +570,38 @@ namespace TShockData
             public static void Dispose(TerrariaPlugin plugin)
             {
                 if (!_initialized) return;
-                ServerApi.Hooks.NpcStrike.Deregister(_plugin, OnNpcStrike);
                 _initialized = false;
+                ServerApi.Hooks.NpcStrike.Deregister(_plugin, OnNpcStrike);
+                Commands.ChatCommands.RemoveAll(c =>
+                    c.Names.Any(n => n.Equals("dmg", StringComparison.OrdinalIgnoreCase)));
                 _plugin = null;
+            }
+
+            /// <summary>
+            /// 通过反射清空 BossDamageTracker 内部数据，使原版 OnBossKilled 广播无输出
+            /// </summary>
+            private static void SuppressOriginalBroadcast(NPC npc)
+            {
+                if (_npcTrackerField == null || _trackerListField == null || _trackerWorldField == null)
+                    return;
+
+                try
+                {
+                    var tracker = _npcTrackerField.GetValue(npc);
+                    if (tracker == null)
+                        return;
+
+                    // 清空伤害列表
+                    if (_trackerListField.GetValue(tracker) is System.Collections.IList list)
+                        list.Clear();
+
+                    // 清空世界/环境伤害
+                    _trackerWorldField.SetValue(tracker, null);
+                }
+                catch
+                {
+                    // 反射失败时静默忽略，不影响正常功能
+                }
             }
 
             private static void OnNpcStrike(NpcStrikeEventArgs args)
@@ -566,6 +624,9 @@ namespace TShockData
 
                 if (npc.life <= damage)
                 {
+                    // 清空原版 BossDamageTracker 数据，抑制原版广播
+                    SuppressOriginalBroadcast(npc);
+
                     BroadcastTop5(npcId, npc);
                     _tracking.Remove(npcId);
                 }

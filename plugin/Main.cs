@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System.Reflection;
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System.Reflection;
 using TShockAPI;
 using Terraria;
 using TerrariaApi.Server;
@@ -187,7 +187,8 @@ namespace TShockData
 				"projlist", "违禁弹幕",
 				"scanlist", "违禁物品",
 				"bosslimit", "进度锁",
-				"bossdamage",			};
+				"bossdamage",
+				"dmg",			};
 
 			Commands.ChatCommands.RemoveAll(cmd =>
 				cmd.Names.Any(name => tswebCommandNames.Contains(name)));
