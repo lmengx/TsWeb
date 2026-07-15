@@ -121,8 +121,11 @@ const isTabActive = (tab) => {
 
 // ── 管理弹出菜单 (admin) ──
 const showMoreMenu = ref(false)
-const openMoreMenu = () => { showMoreMenu.value = true }
-const closeMoreMenu = () => { showMoreMenu.value = false }
+const expandedMoreItem = ref(null)
+
+const openMoreMenu = () => { showMoreMenu.value = true; expandedMoreItem.value = null }
+const closeMoreMenu = () => { showMoreMenu.value = false; expandedMoreItem.value = null }
+
 const moreItems = computed(() => {
   return visibleItems.value.filter(item =>
     !['online', 'terminal', 'players', 'profile', 'guide', 'progress', 'tools'].includes(item.id) &&
@@ -130,13 +133,18 @@ const moreItems = computed(() => {
   )
 })
 
-const navigateMore = (item) => {
-  showMoreMenu.value = false
+const toggleMoreItem = (item) => {
   if (item.children && item.children.length > 0) {
-    router.push(item.children[0].path)
+    expandedMoreItem.value = expandedMoreItem.value === item.id ? null : item.id
   } else {
+    closeMoreMenu()
     router.push(item.path)
   }
+}
+
+const navigateMoreChild = (childPath) => {
+  closeMoreMenu()
+  router.push(childPath)
 }
 
 const hasChildren = (item) => item.children && item.children.length > 0
@@ -263,12 +271,23 @@ const toolsItems = computed(() => {
           <button class="more-close" @click="closeMoreMenu">✕</button>
         </div>
         <div class="more-list">
-          <button v-for="item in moreItems" :key="item.id" class="more-item"
-            :class="{ active: isActive(item.path) }"
-            @click="navigateMore(item)">
-            <span class="more-item-name">{{ item.name }}</span>
-            <span v-if="hasChildren(item)" class="more-arrow">›</span>
-          </button>
+          <template v-for="item in moreItems" :key="item.id">
+            <div class="more-item-wrapper">
+              <button class="more-item" :class="{ active: isActive(item.path), hasChildren: hasChildren(item) }"
+                @click="toggleMoreItem(item)">
+                <span class="more-item-name">{{ item.name }}</span>
+                <span v-if="hasChildren(item)" class="more-expand-icon" :class="{ rotated: expandedMoreItem === item.id }">▼</span>
+              </button>
+              <!-- 子菜单 -->
+              <div v-if="hasChildren(item) && expandedMoreItem === item.id" class="more-submenu">
+                <button v-for="child in item.children" :key="child.id" class="more-child-item"
+                  :class="{ active: isActive(child.path) }"
+                  @click="navigateMoreChild(child.path)">
+                  <span class="more-child-name">{{ child.name }}</span>
+                </button>
+              </div>
+            </div>
+          </template>
         </div>
       </div>
     </div>
@@ -413,6 +432,9 @@ const toolsItems = computed(() => {
 }
 .more-item:hover { background: var(--bg-hover); }
 .more-item.active { background: rgba(99, 102, 241, 0.1); color: var(--accent-primary); }
+.more-item.hasChildren { font-weight: 600; }
+.more-expand-icon { color: var(--text-muted); font-size: 0.7rem; transition: transform 0.2s ease; margin-left: 8px; }
+.more-expand-icon.rotated { transform: rotate(180deg); }
 .more-arrow { color: var(--text-muted); font-size: 1.2rem; transition: transform 0.2s ease; }
 .more-arrow.rotated { transform: rotate(90deg); }
 
@@ -432,6 +454,17 @@ const toolsItems = computed(() => {
 }
 .more-subitem:hover { background: var(--bg-hover); color: var(--text-primary); }
 .more-subitem.active { color: var(--accent-primary); }
+
+.more-child-item {
+  display: flex; align-items: center; padding: 10px 16px;
+  border: none; background: transparent; border-radius: 8px;
+  color: var(--text-secondary); font-size: 0.85rem; font-weight: 400;
+  cursor: pointer; transition: all 0.15s; text-align: left; width: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+.more-child-item:hover { background: var(--bg-hover); color: var(--text-primary); }
+.more-child-item.active { color: var(--accent-primary); background: rgba(99, 102, 241, 0.08); }
+.more-child-name { }
 
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
