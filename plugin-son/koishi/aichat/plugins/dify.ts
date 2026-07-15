@@ -2,135 +2,16 @@ import { Context, Session, h } from 'koishi'
 import type { Config } from '../utils/config'
 import { CONFIG_DEFAULTS } from '../utils/config'
 import MarkdownIt from 'markdown-it'
-
-export const name = 'dify-group'
-
-// ══════════════════════════════════════════════════════════
-//  上下文存储
-// ══════════════════════════════════════════════════════════
-
-interface ContextEntry {
-  role: 'user' | 'assistant'
-  content: string
-}
-
-interface UserContext {
-  entries: ContextEntry[]
-  lastActive: number
-  conversationId: string
-}
-
-const contexts = new Map<string, UserContext>()
-
-function getContextKey(guildId: string, userId: string): string {
-  return `${guildId}_${userId}`
-}
-
-function pushContext(key: string, userMsg: string, botMsg: string, maxSize: number) {
-  let ctx = contexts.get(key)
-  if (!ctx) {
-    ctx = { entries: [], lastActive: Date.now(), conversationId: '' }
-    contexts.set(key, ctx)
-  }
-  ctx.lastActive = Date.now()
-  ctx.entries.push({ role: 'user', content: userMsg })
-  ctx.entries.push({ role: 'assistant', content: botMsg })
-  while (ctx.entries.length > maxSize * 2) ctx.entries.splice(0, 2)
-}
-
-function touchContext(key: string, resetTime: number): UserContext | null {
-  const ctx = contexts.get(key)
-  if (!ctx) return null
-  if (Date.now() - ctx.lastActive > resetTime * 1000) { contexts.delete(key); return null }
-  ctx.lastActive = Date.now()
-  return ctx
-}
-
-// ══════════════════════════════════════════════════════════
-//  清理定时器
-// ══════════════════════════════════════════════════════════
-
-function startCleanup(ctx: Context, resetTime: number) {
-  const timer = setInterval(() => {
-    const now = Date.now()
-    const threshold = resetTime * 1000
-    let cleaned = 0
-    for (const [key, data] of contexts) {
-      if (now - data.lastActive > threshold) { contexts.delete(key); cleaned++ }
-    }
-    if (cleaned > 0) ctx.logger.info(`[DifyChat] 清理了 ${cleaned} 个过期上下文`)
-  }, CONFIG_DEFAULTS.清理间隔 * 1000)
-  ctx.on('dispose', () => clearInterval(timer))
-}
-
-// ══════════════════════════════════════════════════════════
-//  调用 Dify Agent API
-// ══════════════════════════════════════════════════════════
-
-async function callDify(
-  ctx: Context,
-  config: Config,
-  query: string,
-  user: string,
-  conversationId: string,
-): Promise<{ answer: string; conversationId: string } | null> {
-  const baseUrl = config.目标地址.replace(/\/+$/, '')
-  const body = JSON.stringify({
-    inputs: {},
-    query,
-    response_mode: 'streaming',
-    user,
-    conversation_id: conversationId || '',
-    auto_generate_name: false,
-  })
-
-  try {
-    const res = await fetch(`${baseUrl}/chat-messages`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${config.接口密钥}`, 'Content-Type': 'application/json' },
-      body,
-      signal: AbortSignal.timeout(CONFIG_DEFAULTS.请求超时 * 1000),
-    })
-    if (!res.ok) { ctx.logger.error(`[DifyChat] HTTP ${res.status}: ${await res.text().catch(() => '')}`); return null }
-
-    const reader = res.body!.getReader()
-    const decoder = new TextDecoder()
-    let buffer = '', answer = '', newConversationId = conversationId || ''
-
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buffer += decoder.decode(value, { stream: true })
-      const lines = buffer.split('\n')
-      buffer = lines.pop() || ''
-      for (const line of lines) {
-        const t = line.trim()
-        if (!t.startsWith('data: ')) continue
-        try {
-          const ev = JSON.parse(t.slice(6))
-          if (ev.event === 'agent_message') answer += ev.answer || ''
-          else if (ev.event === 'message_end' && ev.conversation_id) newConversationId = ev.conversation_id
-          else if (ev.event === 'error') { ctx.logger.error(`[DifyChat] 流错误: ${ev.message}`); return null }
-        } catch { }
-      }
-    }
-    return answer ? { answer, conversationId: newConversationId } : null
-  } catch (err: any) {
-    ctx.logger.error(`[DifyChat] 请求异常: ${err.message || err}`)
-    return null
-  }
-}
-
-// ══════════════════════════════════════════════════════════
-//  Markdown → 图片（Playwright 直连，无需 Koishi 插件）
-// ══════════════════════════════════════════════════════════
-
-import MarkdownIt from 'markdown-it'
 import { chromium } from 'playwright'
 
-const _md = new MarkdownIt({ html: false, breaks: true, linkify: true })
+export const name = 'dify-group'
+export const reusable = true
 
-/** 全局浏览器单例 */
+// ══════════════════════════════════════════════════════════
+//  全局共享（浏览器单例、Markdown 解析器）
+// ══════════════════════════════════════════════════════════
+
+const _md = new MarkdownIt({ html: false, breaks: true, linkify: true })
 let _browser: import('playwright').Browser | null = null
 
 async function getBrowser(): Promise<import('playwright').Browser> {
@@ -199,16 +80,106 @@ async function renderToImage(answer: string): Promise<Buffer> {
 }
 
 // ══════════════════════════════════════════════════════════
-//  插件入口
+//  插件入口（可多实例）
 // ══════════════════════════════════════════════════════════
 
 export function apply(ctx: Context, config: Config) {
+  // ── 实例级上下文存储 ──
+  const contexts = new Map<string, { entries: { role: 'user' | 'assistant'; content: string }[]; lastActive: number; conversationId: string }>()
+
+  function getContextKey(guildId: string, userId: string): string {
+    return `${guildId}_${userId}`
+  }
+
+  function pushContext(key: string, userMsg: string, botMsg: string, maxSize: number) {
+    let c = contexts.get(key)
+    if (!c) {
+      c = { entries: [], lastActive: Date.now(), conversationId: '' }
+      contexts.set(key, c)
+    }
+    c.lastActive = Date.now()
+    c.entries.push({ role: 'user', content: userMsg })
+    c.entries.push({ role: 'assistant', content: botMsg })
+    while (c.entries.length > maxSize * 2) c.entries.splice(0, 2)
+  }
+
+  function touchContext(key: string, resetTime: number) {
+    const c = contexts.get(key)
+    if (!c) return null
+    if (Date.now() - c.lastActive > resetTime * 1000) { contexts.delete(key); return null }
+    c.lastActive = Date.now()
+    return c
+  }
+
+  // ── 清理定时器 ──
+  const timer = setInterval(() => {
+    const now = Date.now()
+    const threshold = config.上下文重置时间 * 1000
+    let cleaned = 0
+    for (const [key, data] of contexts) {
+      if (now - data.lastActive > threshold) { contexts.delete(key); cleaned++ }
+    }
+    if (cleaned > 0) ctx.logger.info(`[DifyChat] 清理了 ${cleaned} 个过期上下文`)
+  }, CONFIG_DEFAULTS.清理间隔 * 1000)
+  ctx.on('dispose', () => clearInterval(timer))
+
+  // ── Dify API 调用 ──
+  async function callDify(
+    query: string,
+    user: string,
+    conversationId: string,
+  ): Promise<{ answer: string; conversationId: string } | null> {
+    const baseUrl = config.目标地址.replace(/\/+$/, '')
+    const body = JSON.stringify({
+      inputs: {},
+      query,
+      response_mode: 'streaming',
+      user,
+      conversation_id: conversationId || '',
+      auto_generate_name: false,
+    })
+
+    try {
+      const res = await fetch(`${baseUrl}/chat-messages`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${config.接口密钥}`, 'Content-Type': 'application/json' },
+        body,
+        signal: AbortSignal.timeout(config.请求超时 * 1000),
+      })
+      if (!res.ok) { ctx.logger.error(`[DifyChat] HTTP ${res.status}: ${await res.text().catch(() => '')}`); return null }
+
+      const reader = res.body!.getReader()
+      const decoder = new TextDecoder()
+      let buffer = '', answer = '', newConversationId = conversationId || ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+        for (const line of lines) {
+          const t = line.trim()
+          if (!t.startsWith('data: ')) continue
+          try {
+            const ev = JSON.parse(t.slice(6))
+            if (ev.event === 'agent_message') answer += ev.answer || ''
+            else if (ev.event === 'message_end' && ev.conversation_id) newConversationId = ev.conversation_id
+            else if (ev.event === 'error') { ctx.logger.error(`[DifyChat] 流错误: ${ev.message}`); return null }
+          } catch { /* skip malformed */ }
+        }
+      }
+      return answer ? { answer, conversationId: newConversationId } : null
+    } catch (err: any) {
+      ctx.logger.error(`[DifyChat] 请求异常: ${err.message || err}`)
+      return null
+    }
+  }
+
+  // ── 消息监听 ──
   const groupSet = new Set(config.生效群列表)
   ctx.logger.info(`[DifyChat] 载入完成，生效群数: ${groupSet.size}`)
   ctx.logger.info(`[DifyChat] 生效群号: ${JSON.stringify(config.生效群列表)}`)
-  ctx.logger.info(`[DifyChat] 目标地址: ${config.目标地址}`)
-
-  startCleanup(ctx, config.上下文重置时间)
 
   ctx.on('message', async (session: Session) => {
     if (!session.guildId) return
@@ -227,7 +198,7 @@ export function apply(ctx: Context, config: Config) {
     const existingCtx = touchContext(contextKey, config.上下文重置时间)
     const convId = existingCtx?.conversationId ?? ''
 
-    const result = await callDify(ctx, config, userMsg, session.userId, convId)
+    const result = await callDify(userMsg, session.userId, convId)
     if (!result) {
       await session.send(h('at', { id: session.userId }) + ' 抱歉，AI 暂时无法回复')
       return
