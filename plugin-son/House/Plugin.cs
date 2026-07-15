@@ -270,17 +270,20 @@ public class HousingPlugin : TerrariaPlugin
             var house = Utils.InAreaHouse(i, j);
             if (house != null)
             {
-                if (_explosionOwner == null || !_explosionOwner.IsLoggedIn || _explosionOwner.Account == null)
-                    return; // 非玩家来源，直接阻止
-
-                if (!_explosionOwner.Group.HasPermission(HouseRegion.GetDataHandlers.EditHouse) &&
-                    _explosionOwner.Account.ID.ToString() != house.Author &&
-                    !Utils.OwnsHouse(_explosionOwner.Account.ID.ToString(), house))
+                // 只有爆炸来源（_explosionOwner != null）才检查权限
+                // 非爆炸来源（正常挖掘、环境破坏等）不需要拦截，放行让 orig 执行
+                if (_explosionOwner != null && _explosionOwner.IsLoggedIn && _explosionOwner.Account != null)
                 {
-                    if (Config.Instance.WarningSpoiler)
-                        _explosionOwner.Disable("无权破坏房子保护的方块!");
-                    return;
+                    if (!_explosionOwner.Group.HasPermission(HouseRegion.GetDataHandlers.EditHouse) &&
+                        _explosionOwner.Account.ID.ToString() != house.Author &&
+                        !Utils.OwnsHouse(_explosionOwner.Account.ID.ToString(), house))
+                    {
+                        if (Config.Instance.WarningSpoiler)
+                            _explosionOwner.Disable("无权破坏房子保护的方块!");
+                        return;
+                    }
                 }
+                // _explosionOwner == null → 非爆炸，不拦截
             }
         }
         orig(i, j, fail, effectOnly, noItem);
