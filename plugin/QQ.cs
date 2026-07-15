@@ -1,6 +1,7 @@
 using Rests;
 using System;
 using System.Data;
+using System.Globalization;
 using TShockAPI;
 using TShockAPI.DB;
 
@@ -379,7 +380,7 @@ namespace TShockData
                 // 2. 查询用户信息 (Users表)
                 string playerName = "";
                 string userGroup = "";
-                string registered = "";
+                string registeredRaw = "";
                 using (var res = db.QueryReader(
                     "SELECT Username, Usergroup, Registered FROM Users WHERE ID = @0", userId))
                 {
@@ -387,9 +388,12 @@ namespace TShockData
                     {
                         playerName = res.Get<string>("Username") ?? "";
                         userGroup = res.Get<string>("Usergroup") ?? "";
-                        registered = res.Get<string>("Registered") ?? "";
+                        registeredRaw = res.Get<string>("Registered") ?? "";
                     }
                 }
+
+                // 将 UTC 时间转为服务器本地时间
+                string registered = FormatLocalTime(registeredRaw);
 
                 if (string.IsNullOrEmpty(playerName))
                 {
@@ -443,6 +447,28 @@ namespace TShockData
                     { "error", ex.Message }
                 };
             }
+        }
+
+        /// <summary>
+        /// 将数据库中的注册时间字符串转为服务器本地时间
+        /// 兼容格式: ISO8601 (2026-06-23T11:49:11) 和 TShock 默认格式 (2026-06-23 11:49:11)
+        /// </summary>
+        private static string FormatLocalTime(string raw)
+        {
+            if (string.IsNullOrEmpty(raw)) return raw;
+
+            DateTime dt;
+            // 尝试 ISO 格式
+            if (DateTime.TryParse(raw, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal, out dt))
+            {
+                return dt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss");
+            }
+            // 尝试 TShock 默认格式
+            if (DateTime.TryParseExact(raw, "yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture, DateTimeStyles.None, out dt))
+            {
+                return dt.ToString("yyyy-MM-dd HH:mm:ss");
+            }
+            return raw;
         }
 
         /// <summary>
