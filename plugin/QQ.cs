@@ -336,6 +336,116 @@ namespace TShockData
         }
 
         /// <summary>
+        /// REST API: 根据QQ号查询玩家信息
+        /// 返回: 玩家名, 在线时长(小时), 死亡次数, 钓鱼任务次数, 注册时间, 用户组
+        /// 入参: qq (QQ号)
+        /// </summary>
+        public static object QueryPlayerByQQ(RestRequestArgs args)
+        {
+            string qq = null;
+            try { qq = args.Parameters["qq"]; } catch { }
+
+            if (string.IsNullOrEmpty(qq))
+            {
+                return new RestObject("400")
+                {
+                    { "error", "缺少参数: qq" }
+                };
+            }
+
+            try
+            {
+                EnsureTable();
+                IDbConnection db = TShock.DB;
+
+                // 1. 根据QQ查找绑定的用户
+                int userId = -1;
+                using (var res = db.QueryReader("SELECT UserId FROM qq_bind WHERE QQ = @0", qq))
+                {
+                    if (res.Read())
+                    {
+                        userId = res.Get<int>("UserId");
+                    }
+                }
+
+                if (userId == -1)
+                {
+                    return new RestObject("404")
+                    {
+                        { "error", "该QQ未绑定任何角色" }
+                    };
+                }
+
+                // 2. 查询用户信息 (Users表)
+                string playerName = "";
+                string userGroup = "";
+                string registered = "";
+                using (var res = db.QueryReader(
+                    "SELECT Username, Usergroup, Registered FROM Users WHERE ID = @0", userId))
+                {
+                    if (res.Read())
+                    {
+                        playerName = res.Get<string>("Username") ?? "";
+                        userGroup = res.Get<string>("Usergroup") ?? "";
+                        registered = res.Get<string>("Registered") ?? "";
+                    }
+                }
+
+                if (string.IsNullOrEmpty(playerName))
+                {
+                    return new RestObject("404")
+                    {
+                        { "error", "绑定的角色不存在" }
+                    };
+                }
+
+                // 3. 查询角色数据 (tsCharacter表)
+                int deathsPVE = 0;
+                int questsCompleted = 0;
+                using (var res = db.QueryReader(
+                    "SELECT deathsPVE, questsCompleted FROM tsCharacter WHERE Account = @0", userId))
+                {
+                    if (res.Read())
+                    {
+                        deathsPVE = res.Get<int>("deathsPVE");
+                        questsCompleted = res.Get<int>("questsCompleted");
+                    }
+                }
+
+                // 4. 查询总在线时长 (player_daily_stat表)
+                int totalMinutes = 0;
+                using (var res = db.QueryReader(
+                    "SELECT COALESCE(SUM(daily_min), 0) AS total_min FROM player_daily_stat WHERE uid = @0",
+                    playerName))
+                {
+                    if (res.Read())
+                    {
+                        totalMinutes = Convert.ToInt32(res.Get<long>("total_min"));
+                    }
+                }
+
+                return new RestObject()
+                {
+                    { "player", playerName },
+                    { "qq", qq },
+                    { "group", userGroup },
+                    { "registered", registered },
+                    { "online_minutes", totalMinutes },
+                    { "online_hours", Math.Round(totalMinutes / 60.0, 1) },
+                    { "deaths", deathsPVE },
+                    { "fishing_quests", questsCompleted }
+                };
+            }
+            catch (Exception ex)
+            {
+                return new RestObject("500")
+                {
+                    { "error", ex.Message }
+                };
+            }
+        }
+
+        /// <summary>
         /// 根据权限提升配置执行晋升
         /// </summary>
         private static void TryPromoteByConfig(UserAccount account, string playerName, string source)

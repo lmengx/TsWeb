@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System.Reflection;
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System.Reflection;
 using TShockAPI;
 using Terraria;
 using TerrariaApi.Server;
@@ -80,6 +80,10 @@ namespace TShockData
 
             BugFixes.Initialize(this);
 
+            // 移除 TShock 自带的 /bossdamage，替换为 /dmg
+            Commands.ChatCommands.RemoveAll(cmd =>
+                cmd.Names.Any(n => n.Equals("bossdamage", StringComparison.OrdinalIgnoreCase)));
+
             TShockAPI.Commands.ChatCommands.Add(new Command("tshock.admin", AutoRegister.HandleCommand, "autoregister", "ar"));
 
             TShockAPI.Commands.ChatCommands.Add(new Command("tshock.admin", ExportPlayer.Export, "export", "导出"));
@@ -118,6 +122,7 @@ namespace TShockData
             TShock.RestApi.Register(new SecureRestCommand("/data/qq/bind", QQBind.BindQQ, "data.rest.invsee"));
             TShock.RestApi.Register(new SecureRestCommand("/data/qq/register", QQBind.RegisterAndBind, "data.rest.invsee"));
             TShock.RestApi.Register(new SecureRestCommand("/data/qq/reset-password", QQBind.ResetPasswordByQQ, "data.rest.invsee"));
+            TShock.RestApi.Register(new SecureRestCommand("/data/qq/query-player", QQBind.QueryPlayerByQQ, "data.rest.invsee"));
 
             // 权限提升配置
             TShock.RestApi.Register(new SecureRestCommand("/data/promotion/config", PromotionManager.GetConfigJson, "data.rest.invsee"));
@@ -182,7 +187,7 @@ namespace TShockData
 				"projlist", "违禁弹幕",
 				"scanlist", "违禁物品",
 				"bosslimit", "进度锁",
-			};
+				"bossdamage",			};
 
 			Commands.ChatCommands.RemoveAll(cmd =>
 				cmd.Names.Any(name => tswebCommandNames.Contains(name)));
@@ -244,7 +249,8 @@ namespace TShockData
 				"/data/files/tree",
 				"/data/qq/bind",
                 "/data/qq/register",
-				"/data/qq/reset-password",
+                "/data/qq/reset-password",
+				"/data/qq/query-player",
 				"/data/promotion/config",
 				"/data/promotion/config/set",
 				"/data/online/log/stream",
