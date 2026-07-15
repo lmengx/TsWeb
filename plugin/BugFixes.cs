@@ -12,7 +12,6 @@ using TerrariaApi.Server;
 using TShockAPI;
 using TShockAPI.DB;
 using TShockAPI.Hooks;
-using Microsoft.Xna.Framework;
 
 namespace TShockData
 {
@@ -34,7 +33,6 @@ namespace TShockData
 
             LoginFix.Initialize(plugin);
             ChestFix.Initialize(plugin);
-            BossDamageReport.Initialize(plugin);
 
             _isInitialized = true;
             TShock.Log.ConsoleInfo("[TSWeb] BugFixes 已加载");
@@ -47,8 +45,6 @@ namespace TShockData
 
             LoginFix.Dispose(plugin);
             ChestFix.Dispose(plugin);
-            BossDamageReport.Dispose(plugin);
-
 
             _isInitialized = false;
         }
@@ -506,180 +502,6 @@ namespace TShockData
                 catch (Exception ex)
                 {
                     TShock.Log.ConsoleError($"[ChestFix] 封禁玩家失败: {ex.Message}");
-                }
-            }
-        }
-
-        // ==========================================================================
-        // 子模块3: BossDamageReport — Boss击杀伤害报告
-        // ==========================================================================
-        public static class BossDamageReport
-        {
-            private static bool _initialized = false;
-            private static TerrariaPlugin _plugin = null;
-
-            // npc.whoAmI -> (playerName -> totalDamage)
-            private static readonly Dictionary<int, Dictionary<string, int>> _tracking = new();
-
-            // 最近一场 Boss 战的完整伤害排行（供 /dmg 命令使用）
-            private static List<(string name, int dmg)> _lastScores = new();
-            private static string _lastBossName = "";
-            private static int _lastTotal = 0;
-
-            // 反射缓存：NPC.bossDamageTracker 字段
-            private static readonly System.Reflection.FieldInfo? _npcTrackerField =
-                typeof(NPC).GetField("bossDamageTracker", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public);
-            // 反射缓存：BossDamageTracker 的 _list 和 _worldCredit 字段
-            private static System.Reflection.FieldInfo? _trackerListField = null;
-            private static System.Reflection.FieldInfo? _trackerWorldField = null;
-            private static Type? _bossDamageTrackerType = null;
-
-            public static void Initialize(TerrariaPlugin plugin)
-            {
-                if (_initialized) return;
-                _initialized = true;
-                _plugin = plugin;
-
-                ServerApi.Hooks.NpcStrike.Register(plugin, OnNpcStrike);
-
-                // 通过反射解析 BossDamageTracker 的内部字段（无 MonoMod 依赖）
-                if (_npcTrackerField != null)
-                {
-                    _bossDamageTrackerType = _npcTrackerField.FieldType;
-                    if (_bossDamageTrackerType != null)
-                    {
-                        _trackerListField = _bossDamageTrackerType.GetField("_list",
-                            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
-                        _trackerWorldField = _bossDamageTrackerType.GetField("_worldCredit",
-                            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
-                    }
-                }
-
-                if (_bossDamageTrackerType == null)
-                    TShock.Log.ConsoleInfo("[BugFixes] BossDamageReport: 未找到 bossDamageTracker，原版广播可能无法抑制");
-
-                Commands.ChatCommands.Add(new Command(HandleDmgCommand, "dmg")
-                {
-                    DoLog = false,
-                    HelpText = "查看最近一次BOSS战的完整伤害排名"
-                });
-
-                TShock.Log.ConsoleInfo("[BugFixes] BossDamageReport 已启用");
-            }
-
-            public static void Dispose(TerrariaPlugin plugin)
-            {
-                if (!_initialized) return;
-                _initialized = false;
-                ServerApi.Hooks.NpcStrike.Deregister(_plugin, OnNpcStrike);
-                Commands.ChatCommands.RemoveAll(c =>
-                    c.Names.Any(n => n.Equals("dmg", StringComparison.OrdinalIgnoreCase)));
-                _plugin = null;
-            }
-
-            /// <summary>
-            /// 通过反射清空 BossDamageTracker 内部数据，使原版 OnBossKilled 广播无输出
-            /// </summary>
-            private static void SuppressOriginalBroadcast(NPC npc)
-            {
-                if (_npcTrackerField == null || _trackerListField == null || _trackerWorldField == null)
-                    return;
-
-                try
-                {
-                    var tracker = _npcTrackerField.GetValue(npc);
-                    if (tracker == null)
-                        return;
-
-                    // 清空伤害列表
-                    if (_trackerListField.GetValue(tracker) is System.Collections.IList list)
-                        list.Clear();
-
-                    // 清空世界/环境伤害
-                    _trackerWorldField.SetValue(tracker, null);
-                }
-                catch
-                {
-                    // 反射失败时静默忽略，不影响正常功能
-                }
-            }
-
-            private static void OnNpcStrike(NpcStrikeEventArgs args)
-            {
-                var npc = args.Npc;
-                if (npc == null || !npc.active || !npc.boss)
-                    return;
-
-                string playerName = args.Player?.name ?? "未知";
-                int npcId = npc.whoAmI;
-                int damage = args.Damage;
-
-                if (!_tracking.ContainsKey(npcId))
-                    _tracking[npcId] = new Dictionary<string, int>();
-
-                if (!_tracking[npcId].ContainsKey(playerName))
-                    _tracking[npcId][playerName] = 0;
-
-                _tracking[npcId][playerName] += damage;
-
-                if (npc.life <= damage)
-                {
-                    // 清空原版 BossDamageTracker 数据，抑制原版广播
-                    SuppressOriginalBroadcast(npc);
-
-                    BroadcastTop5(npcId, npc);
-                    _tracking.Remove(npcId);
-                }
-            }
-
-            private static void BroadcastTop5(int npcId, NPC npc)
-            {
-                if (!_tracking.ContainsKey(npcId) || _tracking[npcId].Count == 0)
-                    return;
-
-                var sorted = _tracking[npcId]
-                    .OrderByDescending(kv => kv.Value)
-                    .ToList();
-
-                int totalDamage = sorted.Sum(kv => kv.Value);
-
-                // 保存到最近记录供 /dmg 命令使用
-                _lastBossName = npc.FullName;
-                _lastScores = sorted.Select(kv => (kv.Key, kv.Value)).ToList();
-                _lastTotal = totalDamage;
-
-                TSPlayer.All.SendMessage(
-                    $"[Boss] {npc.FullName} 已被击败！总伤害: {totalDamage}",
-                    Color.MediumSpringGreen);
-
-                var top5 = sorted.Take(5).ToList();
-                for (int i = 0; i < top5.Count; i++)
-                {
-                    int pct = totalDamage > 0 ? (int)(top5[i].Value * 100L / totalDamage) : 0;
-                    TSPlayer.All.SendMessage(
-                        $"  {i + 1}. {top5[i].Key} — {top5[i].Value} ({pct}%)",
-                        Color.MediumSpringGreen);
-                }
-
-                TSPlayer.All.SendInfoMessage("输入 /dmg 查看全部伤害排名");
-            }
-
-            public static void HandleDmgCommand(CommandArgs args)
-            {
-                if (_lastScores.Count == 0)
-                {
-                    args.Player.SendErrorMessage("暂无最近的 Boss 战斗数据");
-                    return;
-                }
-
-                args.Player.SendSuccessMessage($"=== {_lastBossName} 伤害排行 (总计: {_lastTotal}) ===");
-                for (int i = 0; i < _lastScores.Count; i++)
-                {
-                    var s = _lastScores[i];
-                    int pct = _lastTotal > 0 ? (int)(s.dmg * 100L / _lastTotal) : 0;
-                    args.Player.SendMessage(
-                        $"  {i + 1}. {s.name} — {s.dmg} ({pct}%)",
-                        Color.MediumSpringGreen);
                 }
             }
         }

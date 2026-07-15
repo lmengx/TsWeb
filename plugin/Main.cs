@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System.Reflection;
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System.Reflection;
 using TShockAPI;
 using Terraria;
 using TerrariaApi.Server;
@@ -79,10 +79,6 @@ namespace TShockData
             PlannedOff.Initialize(this);
 
             BugFixes.Initialize(this);
-
-            // 移除 TShock 自带的 /bossdamage，替换为 /dmg
-            Commands.ChatCommands.RemoveAll(cmd =>
-                cmd.Names.Any(n => n.Equals("bossdamage", StringComparison.OrdinalIgnoreCase)));
 
             TShockAPI.Commands.ChatCommands.Add(new Command("tshock.admin", AutoRegister.HandleCommand, "autoregister", "ar"));
 
@@ -186,9 +182,7 @@ namespace TShockData
 				"scan", "扫描",
 				"projlist", "违禁弹幕",
 				"scanlist", "违禁物品",
-				"bosslimit", "进度锁",
-				"bossdamage",
-				"dmg",			};
+				"bosslimit", "进度锁",			};
 
 			Commands.ChatCommands.RemoveAll(cmd =>
 				cmd.Names.Any(name => tswebCommandNames.Contains(name)));
