@@ -244,21 +244,26 @@ namespace TShockData
         {
             public Stream Stream { get; }
             public string Address { get; }
-            public int ReadIndex { get; set; }  // 已读取到的日志位置
+            public int ReadIndex { get; set; }
             public CancellationTokenSource CTS { get; }
+            /// <summary>阻塞 HttpServer 事件处理器线程，防止其进入连接循环误读 SSE 数据</summary>
+            public ManualResetEventSlim BlockHandle { get; }
 
             public SSEClient(Stream stream, string addr)
             {
                 Stream = stream;
                 Address = addr;
                 CTS = new CancellationTokenSource();
+                BlockHandle = new ManualResetEventSlim(false);
                 ReadIndex = 0;
             }
 
             public void Dispose()
             {
+                BlockHandle.Set();  // 确保被阻塞的 HttpServer 线程能继续
                 CTS.Cancel();
                 CTS.Dispose();
+                BlockHandle.Dispose();
                 try { Stream.Dispose(); } catch { }
             }
         }
@@ -341,11 +346,13 @@ namespace TShockData
                 if (_requestEvent == null) return;
 
                 var eventHandlerType = _requestEvent.EventHandlerType;
+                if (eventHandlerType == null) return;
+
                 var onRequestMethod = restType.GetMethod("OnRequest",
                     BindingFlags.Instance | BindingFlags.NonPublic);
                 if (onRequestMethod == null) return;
 
-                // ═══ 清理所有 SSELogger 残留（跨程序集热重载） ═══
+                // 清理所有 SSELogger 残留（跨程序集热重载）
                 RemoveAllSSELoggerHandlers();
 
                 // 移除原来的 Rest.OnRequest handler（首次安装时有效）
@@ -425,7 +432,9 @@ namespace TShockData
 
         /// <summary>
         /// 处理 SSE 连接
-        /// 修复：剥离底层 Socket 脱离 HttpServer 管理，防止 HttpServer 连接循环误读 SSE 数据
+        /// 策略：不剥离 Socket，而是用 ManualResetEventSlim 阻塞事件处理器线程，
+        /// 阻止 HttpServer 进入连接循环误读 SSE 数据。
+        /// 客户端断开后释放阻塞，HttpServer 恢复循环并自然关闭连接。
         /// </summary>
         private static void HandleSSEStream(RequestEventArgs e)
         {
@@ -438,12 +447,9 @@ namespace TShockData
                     return;
                 }
 
-                var originalStream = e.Context.Stream;
+                var stream = e.Context.Stream;
 
-                // 剥离 Socket：让 HttpServer 不再管理此连接
-                Stream sseStream = TryDetachSocket(originalStream);
-
-                // ═══ 手动发送 HTTP 响应头 ═══
+                // 手动发送 HTTP 响应头（绕过 HttpServer，因为它是 SSE 长连接）
                 var headerBuilder = new StringBuilder();
                 headerBuilder.Append("HTTP/1.1 200 OK\r\n");
                 headerBuilder.Append("Content-Type: text/event-stream; charset=utf-8\r\n");
@@ -453,17 +459,17 @@ namespace TShockData
                 headerBuilder.Append("\r\n");
 
                 var headerBytes = Encoding.UTF8.GetBytes(headerBuilder.ToString());
-                sseStream.Write(headerBytes, 0, headerBytes.Length);
-                sseStream.Flush();
+                stream.Write(headerBytes, 0, headerBytes.Length);
+                stream.Flush();
 
                 e.IsHandled = true;
 
                 var init = Encoding.UTF8.GetBytes("data: {\"connected\":true}\n\n");
-                sseStream.Write(init, 0, init.Length);
-                sseStream.Flush();
+                stream.Write(init, 0, init.Length);
+                stream.Flush();
 
                 var addr = e.Context.RemoteEndPoint?.ToString() ?? "unknown";
-                var client = new SSEClient(sseStream, addr);
+                var client = new SSEClient(stream, addr);
 
                 lock (_clientLock)
                 {
@@ -471,7 +477,12 @@ namespace TShockData
                     _sseClients.Add(client);
                 }
 
+                // 启动后台推流
                 _ = Task.Run(() => PushLoop(client));
+
+                // ═══ 阻塞 HttpServer 线程，阻止其进入连接循环 ═══
+                // PushLoop 结束后 client.Dispose() 会 Set() 这个信号量
+                client.BlockHandle.Wait();
             }
             catch
             {
@@ -480,57 +491,10 @@ namespace TShockData
         }
 
         /// <summary>
-        /// 从 HttpServer 的 IHttpContext.Stream 中剥离底层 Socket，
-        /// 使 HttpServer 不再管理此 TCP 连接，避免其连接循环误读 SSE 推流数据。
-        /// 
-        /// 方法原理：
-        /// 1. 获取 NetworkStream 内部的 Socket
-        /// 2. 通过反射将原 NetworkStream 的内部 Socket 引用置 null
-        /// 3. 关闭原 NetworkStream（此时不会关闭真正 Socket）
-        /// 4. 用同一个 Socket 创建新的 NetworkStream 供 SSE 使用
-        /// 5. 原流关闭后 HttpServer 的连接循环读 0 字节 → 结束循环 → 连接从 HttpServer 中注销
-        /// 
-        /// 剥离失败时降级使用原流（旧行为，可能有冲突风险）
+        /// 保留方法但不使用（已由 ManualResetEventSlim 阻塞策略替代）
         /// </summary>
         private static Stream TryDetachSocket(Stream originalStream)
         {
-            if (originalStream is NetworkStream ns)
-            {
-                try
-                {
-                    // .NET 5+ 中 NetworkStream.Socket 是公开属性
-                    var socket = ns.Socket;
-                    if (socket == null)
-                        return originalStream;
-
-                    // 查找内部 Socket 字段名（不同 .NET 版本名称不同）
-                    var socketField = typeof(NetworkStream).GetField("_streamSocket",
-                        BindingFlags.Instance | BindingFlags.NonPublic);
-                    socketField ??= typeof(NetworkStream).GetField("_socket",
-                        BindingFlags.Instance | BindingFlags.NonPublic);
-
-                    if (socketField == null || socketField.FieldType != typeof(Socket))
-                        return originalStream;
-
-                    // 将原 NetworkStream 的内部 Socket 引用置 null
-                    // 这样 Close() 时不会关闭真正的 Socket
-                    socketField.SetValue(originalStream, null);
-                    originalStream.Close();
-
-                    // 配置 TCP KeepAlive 以加速断连检测和僵尸连接回收
-                    socket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
-                    socket.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveTime, 60);
-                    socket.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveInterval, 10);
-
-                    // 使用同一个 Socket 创建新的独立 NetworkStream（拥有 Socket 所有权）
-                    return new NetworkStream(socket, FileAccess.ReadWrite, ownsSocket: true);
-                }
-                catch
-                {
-                    // 反射失败，降级处理
-                }
-            }
-
             return originalStream;
         }
 
@@ -572,7 +536,7 @@ namespace TShockData
             finally
             {
                 lock (_clientLock) _sseClients.Remove(client);
-                client.Dispose();
+                client.Dispose();  // 放行 HttpServer 线程
             }
         }
 
