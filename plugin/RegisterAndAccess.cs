@@ -42,6 +42,20 @@ namespace TShockData
         [JsonProperty("LateCompEnabled")]
         public bool LateCompEnabled { get; set; } = false;
 
+        // ═══ RCON 远程控制台配置 ═══
+
+        [JsonProperty("RconEnabled")]
+        public bool RconEnabled { get; set; } = false;
+
+        [JsonProperty("RconPort")]
+        public int RconPort { get; set; } = 7880;
+
+        [JsonProperty("RconPassword")]
+        public string RconPassword { get; set; } = "";
+
+        [JsonProperty("RconExternalPort")]
+        public int RconExternalPort { get; set; } = 7880;
+
         public RegisterMode GetMode()
         {
             return AutoRegisterMode.ToLower() switch
@@ -419,7 +433,11 @@ namespace TShockData
                 bossLimitEnabled = Config.BossLimitEnabled,
                 bossLimitMinPlayers = Config.BossLimitMinPlayers,
                 quitLimitEnabled = Config.QuitLimitEnabled,
-                lateCompEnabled = Config.LateCompEnabled
+                lateCompEnabled = Config.LateCompEnabled,
+                rconEnabled = Config.RconEnabled,
+                rconPort = Config.RconPort,
+                rconPassword = string.IsNullOrEmpty(Config.RconPassword) ? "" : "已设置",
+                rconExternalPort = Config.RconExternalPort
             };
         }
 
@@ -456,8 +474,23 @@ namespace TShockData
                 var lce = args.Parameters["lateCompEnabled"];
                 if (!string.IsNullOrEmpty(lce))
                     Config.LateCompEnabled = lce.ToLower() == "true";
+
+                // ═══ RCON 配置 ═══
+                var rconEn = args.Parameters["rconEnabled"];
+                if (!string.IsNullOrEmpty(rconEn))
+                    Config.RconEnabled = rconEn.ToLower() == "true";
+                var rconPort = args.Parameters["rconPort"];
+                if (!string.IsNullOrEmpty(rconPort) && int.TryParse(rconPort, out var rp) && rp > 0 && rp < 65536)
+                    Config.RconPort = rp;
+                var rconPwd = args.Parameters["rconPassword"];
+                if (!string.IsNullOrEmpty(rconPwd))
+                    Config.RconPassword = rconPwd;
+                var rconExt = args.Parameters["rconExternalPort"];
+                if (!string.IsNullOrEmpty(rconExt) && int.TryParse(rconExt, out var re) && re > 0 && re < 65536)
+                    Config.RconExternalPort = re;
+
                 SaveConfig();
-                TShock.Log.ConsoleInfo($"[TSWeb] REST 更新配置: mode={Config.AutoRegisterMode}, bossLimitMode={Config.BossLimitMode}, minPlayers={Config.BossLimitMinPlayers}, quitLimit={Config.QuitLimitEnabled}, lateComp={Config.LateCompEnabled}");
+                TShock.Log.ConsoleInfo($"[TSWeb] REST 更新配置: mode={Config.AutoRegisterMode}, bossLimitMode={Config.BossLimitMode}, minPlayers={Config.BossLimitMinPlayers}, quitLimit={Config.QuitLimitEnabled}, lateComp={Config.LateCompEnabled}, rconEnabled={Config.RconEnabled}, rconPort={Config.RconPort}");
                 return new { status = "200", message = "配置已保存" };
             }
             catch (Exception ex)

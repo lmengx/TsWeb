@@ -1,6 +1,7 @@
 import onlineService from '../services/onlineService.js'
 import jwt from 'jsonwebtoken'
 import { getConfig } from '../config.js'
+import { RconClient } from '../services/rconClient.js'
 
 export const getHourlyOnline = async (req, res) => {
   const { date } = req.query
@@ -35,9 +36,12 @@ export const getRankingStats = async (req, res) => {
   res.json(result)
 }
 
+/**
+ * SSE 日志流 — 通过 RCON 获取实时日志
+ * EventSource 无法设置 Authorization 头，从 query 取 token
+ */
 export const streamLogs = async (req, res) => {
   try {
-    // EventSource 无法设置 Authorization 头，从 query 取 token
     const token = req.query.token
     if (!token) {
       return res.status(401).json({ error: 'Missing token' })
@@ -54,45 +58,36 @@ export const streamLogs = async (req, res) => {
       return res.status(401).json({ error: 'Invalid token' })
     }
 
-    // 检查是否为 admin
+    // 检查 admin 权限
     const userGroups = (decoded.usergroup || '').split(',').map(g => g.trim().toLowerCase())
     const adminRoles = ['owner', 'superadmin']
-    const hasAdminAccess = userGroups.some(g => adminRoles.includes(g))
-    if (!hasAdminAccess) {
+    if (!userGroups.some(g => adminRoles.includes(g))) {
       console.error('[SSE Proxy] 用户无 admin 权限:', decoded.username, userGroups)
       return res.status(403).json({ error: 'Forbidden' })
     }
 
-    console.log('[SSE Proxy] JWT 验证通过:', decoded.username, '| 组:', decoded.usergroup)
-
-    const host = cfg.tshock?.host || 'localhost'
-    const h = host.startsWith('http') ? host : `http://${host}`
-    const baseUrl = `${h}:${cfg.tshock?.port || 7878}`
+    // 获取 RCON 连接信息
+    const tshockHost = cfg.tshock?.host || '127.0.0.1'
+    const tshockPort = cfg.tshock?.port || 7878
     const apiKey = cfg.tshock?.apiKey || ''
 
-    const sseUrl = `${baseUrl}/data/online/log/stream?token=${encodeURIComponent(apiKey)}`
-    console.log('[SSE Proxy] 连接插件 SSE:', sseUrl)
-
-    // 连接到插件 SSE
-    let pluginRes
+    // 从插件获取 RCON 配置
+    const configUrl = `${tshockHost.startsWith('http') ? tshockHost : `http://${tshockHost}`}:${tshockPort}/data/config/tsweb?token=${encodeURIComponent(apiKey)}`
+    let rconPort = 7880
+    let rconEnabled = false
+    
     try {
-      pluginRes = await fetch(sseUrl)
-    } catch (fetchErr) {
-      console.error('[SSE Proxy] fetch 失败:', fetchErr.message)
-      return res.status(502).json({ error: `无法连接到插件: ${fetchErr.message}` })
+      const configRes = await fetch(configUrl, { headers: { 'Accept': 'application/json' } })
+      if (configRes.ok) {
+        const configData = await configRes.json()
+        rconEnabled = configData.rconEnabled || false
+        rconPort = configData.rconPort || 7880
+      }
+    } catch (e) {
+      console.error('[SSE Proxy] 获取插件配置失败:', e.message)
     }
 
-    console.log('[SSE Proxy] 插件响应状态:', pluginRes.status, pluginRes.statusText)
-
-    if (!pluginRes.ok) {
-      const body = await pluginRes.text().catch(() => '')
-      console.error('[SSE Proxy] 插件返回错误:', pluginRes.status, body)
-      return res.status(502).json({ error: 'Failed to connect to plugin SSE', status: pluginRes.status, body })
-    }
-
-    console.log('[SSE Proxy] 连接成功，开始转发 SSE 流')
-
-    // SSE 头
+    // SSE 响应头
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
@@ -100,39 +95,62 @@ export const streamLogs = async (req, res) => {
       'Access-Control-Allow-Origin': '*'
     })
 
-    // 从插件 SSE 流读取并转发
-    const reader = pluginRes.body.getReader()
-    let bytesForwarded = 0
-    let msgCount = 0
-    const pump = async () => {
+    if (!rconEnabled) {
+      // RCON 未启用，发送一条错误事件后保持连接
+      const msg = JSON.stringify({ error: 'RCON_NOT_ENABLED', message: 'RCON 未启用，无法获取实时日志。请在插件配置中启用 RCON 并重启服务器' })
+      res.write(`data: ${msg}\n\n`)
+      // 定时发送心跳，让前端知道连接还在
+      const keepAlive = setInterval(() => {
+        res.write(': heartbeat\n\n')
+      }, 30000)
+      req.on('close', () => {
+        clearInterval(keepAlive)
+        console.log('[SSE Proxy] RCON 未启用，客户端断开')
+      })
+      return
+    }
+
+    // 连接 RCON
+    const rcon = new RconClient('127.0.0.1', rconPort, apiKey)
+    
+    try {
+      await rcon.connect()
+      console.log('[SSE Proxy] RCON 连接成功')
+      res.write(`data: ${JSON.stringify({ connected: true, transport: 'rcon' })}\n\n`)
+    } catch (err) {
+      console.error('[SSE Proxy] RCON 连接失败:', err.message)
+      res.write(`data: ${JSON.stringify({ error: 'RCON_CONNECT_FAILED', message: `RCON 连接失败: ${err.message}` })}\n\n`)
+      const keepAlive = setInterval(() => { res.write(': heartbeat\n\n') }, 30000)
+      req.on('close', () => { clearInterval(keepAlive) })
+      return
+    }
+
+    // 日志回调 → 转发到 SSE
+    // line 是 LogSegment[] JSON 字符串，如 [{"t":"text","c":"Red"}]
+    // 前端 ConsoleTerminal 期望外层是字符串数组：data: ["[{\"t\":...}]"]
+    rcon.onLog = (line) => {
       try {
-        while (true) {
-          const { done, value } = await reader.read()
-          if (done) {
-            console.log('[SSE Proxy] 插件流结束')
-            break
-          }
-          res.write(value)
-          bytesForwarded += value.length
-          msgCount++
-          if (msgCount % 10 === 0) {
-            console.log(`[SSE Proxy] 已转发 ${msgCount} 条消息 (${bytesForwarded} bytes)`)
-          }
-        }
-      } catch (err) {
-        console.error('[SSE Proxy] 读取错误:', err.message)
-      } finally {
-        reader.cancel()
-        console.log('[SSE Proxy] 关闭 SSE 代理, 共转发:', msgCount, '条消息,', bytesForwarded, 'bytes')
-        res.end()
+        res.write(`data: ${JSON.stringify([line])}\n\n`)
+      } catch {
+        rcon.close()
       }
     }
 
+    rcon.onError = (err) => {
+      console.error('[SSE Proxy] RCON 错误:', err.message)
+    }
+
+    rcon.onEnd = () => {
+      console.log('[SSE Proxy] RCON 断开')
+      try { res.end() } catch {}
+    }
+
+    // 客户端断开 → 关闭 RCON
     req.on('close', () => {
-      reader.cancel()
+      console.log('[SSE Proxy] 客户端断开')
+      rcon.close()
     })
 
-    pump()
   } catch (error) {
     console.error('[SSE Proxy] 启动失败:', error.message)
     if (!res.headersSent) {

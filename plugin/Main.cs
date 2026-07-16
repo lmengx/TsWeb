@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System.Reflection;
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System.Reflection;
 using TShockAPI;
 using Terraria;
 using TerrariaApi.Server;
@@ -98,10 +98,19 @@ namespace TShockData
             TShock.RestApi.Register(new SecureRestCommand("/data/online/player", OnlineData.GetPlayerCalendar, "data.rest.invsee"));
             TShock.RestApi.Register(new SecureRestCommand("/data/online/ranking/stats", OnlineData.GetRankingStats, "data.rest.invsee"));
 
-            // 控制台命令执行（SSE 配套）
+            // 控制台命令执行
             TShock.RestApi.Register(new SecureRestCommand("/data/online/log/command", SSELogCommand.Execute, "data.rest.invsee"));
 
+            // 日志轮询（替代 SSE，通过 RCON 推送）
+            TShock.RestApi.Register(new SecureRestCommand("/data/online/log/poll", SSELogger.PollLogs, "data.rest.invsee"));
+
             SSELogger.Initialize(this);
+
+            // ═══ RCON 远程控制台 ═══
+            if (AutoRegister.Config.RconEnabled)
+            {
+                RconServer.Start(AutoRegister.Config.RconPort);
+            }
 
             TShock.RestApi.Register(new SecureRestCommand("/data/users/unverified/list", UnverifiedManager.GetUnverifiedList, "data.rest.invsee"));
             TShock.RestApi.Register(new SecureRestCommand("/data/users/unverified/detail", UnverifiedManager.GetDetail, "data.rest.invsee"));
@@ -141,6 +150,19 @@ namespace TShockData
             ItemDetection.RefreshRestrictedItems();
             ItemDetection.StartAutoScan();
             PromotionManager.LoadConfig();
+
+            // RCON 重载：如果配置变化则重启
+            if (AutoRegister.Config.RconEnabled)
+            {
+                if (!RconServer.IsRunning)
+                    RconServer.Start(AutoRegister.Config.RconPort);
+            }
+            else
+            {
+                if (RconServer.IsRunning)
+                    RconServer.Stop();
+            }
+
             TShock.Log.ConsoleInfo("[TSWeb] 反作弊配置已重新加载");
         }
 
@@ -155,6 +177,7 @@ namespace TShockData
 				ItemRestrict.Dispose();
 				OnlineData.Dispose();
 				SSELogger.Dispose();
+				RconServer.Stop();
 				RuntimeHooks.Dispose();
 				BossLimit.Dispose();
 				ItemDetection.StopAutoScan();
@@ -247,8 +270,7 @@ namespace TShockData
                 "/data/qq/reset-password",
 				"/data/qq/query-player",
 				"/data/promotion/config",
-				"/data/promotion/config/set",
-				"/data/online/log/stream",
+                "/data/promotion/config/set",
 				"/data/online/log/command",
 			};
 

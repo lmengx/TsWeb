@@ -57,6 +57,40 @@ const sscLoading = ref(false)
 const bossLimitMode = ref('disabled')
 const bossLimitMinPlayers = ref(7)
 
+// ═══ RCON 配置 ═══
+const rconEnabled = ref(false)
+const rconPort = ref('7880')
+const rconPassword = ref('')
+const rconShowPassword = ref(false)
+const rconExternalPort = ref('7880')
+const rconTesting = ref(false)
+const rconTestResult = ref('')
+
+const testRconConnection = async () => {
+  if (!rconPort.value) return
+  rconTesting.value = true
+  rconTestResult.value = ''
+  try {
+    const res = await fetch('/api/setup/test-rcon', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        token,
+        port: parseInt(rconPort.value)
+      })
+    })
+    const data = await res.json()
+    if (data.success) {
+      rconTestResult.value = '✅ 连接成功'
+    } else {
+      rconTestResult.value = '❌ ' + (data.error || '连接失败')
+    }
+  } catch (err) {
+    rconTestResult.value = '❌ ' + err.message
+  }
+  rconTesting.value = false
+}
+
 const bossLimitOptions = [
   {
     id: 'disabled',
@@ -99,7 +133,10 @@ const goToSsc = async () => {
 
 const goToBossLimit = () => {
   step.value = 'bosslimit'
-  // 默认值不变，用户可修改
+}
+
+const goToRcon = () => {
+  step.value = 'rcon'
 }
 
 const submitAll = async () => {
@@ -128,7 +165,10 @@ const submitAll = async () => {
         token,
         mode: selectedMode.value,
         bossLimitMode: bossLimitMode.value,
-        bossLimitMinPlayers: bossLimitMinPlayers.value
+        bossLimitMinPlayers: bossLimitMinPlayers.value,
+        rconEnabled: rconEnabled.value,
+        rconPort: rconPort.value,
+        rconExternalPort: rconExternalPort.value
       })
     })
     const data = await res.json()
@@ -340,6 +380,55 @@ onMounted(async () => {
           </div>
 
           <div class="action-bar">
+            <button @click="goToRcon" :disabled="statusLoading" class="next-btn">
+              下一步
+            </button>
+          </div>
+        </div>
+
+        <!-- RCON 远程控制台配置 -->
+        <div v-if="step === 'rcon'" class="rcon-section">
+          <button class="back-btn" @click="step = 'bosslimit'">← 返回</button>
+          <h3 class="section-title">RCON 远程控制台</h3>
+          <p class="section-desc">配置远程控制台（RCON）服务端，使 TSWeb 管理端通过独立端口连接，不干扰 REST API。</p>
+
+          <div class="rcon-card">
+            <div class="rcon-row">
+              <div class="rcon-info">
+                <span class="rcon-name">启用 RCON</span>
+                <span class="rcon-desc">开启后在独立端口启动 RCON 服务器</span>
+              </div>
+              <label class="rcon-toggle-wrap">
+                <input type="checkbox" v-model="rconEnabled" class="rcon-check" />
+                <span class="rcon-toggle"></span>
+              </label>
+            </div>
+
+            <div v-if="rconEnabled" class="rcon-fields">
+              <div class="form-group">
+                <label class="form-label">服务端监听端口</label>
+                <input v-model="rconPort" type="number" class="form-input" placeholder="7880" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">外部连接端口</label>
+                <input v-model="rconExternalPort" type="number" class="form-input" placeholder="7880" />
+                <p class="field-hint">如果使用了端口映射（NAT），填写外部映射端口；否则与监听端口一致</p>
+              </div>
+              <p class="field-hint" style="margin-bottom:12px">认证使用 TShock REST API Key，无需额外密码</p>
+
+              <div class="rcon-test-area">
+                <button class="submit-btn" @click="testRconConnection" :disabled="rconTesting" style="margin-top:4px">
+                  {{ rconTesting ? '测试中...' : '测试连接' }}
+                </button>
+                <p v-if="rconTestResult" class="rcon-test-result">{{ rconTestResult }}</p>
+                <p class="field-hint" style="margin-top:8px">同机时自动尝试连接，确保 TShock 服务端已重启</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="action-bar">
+            <div v-if="error" class="error-msg">{{ error }}</div>
+            <div v-if="success" class="success-msg">{{ success }}</div>
             <button @click="submitAll" :disabled="statusLoading" class="next-btn finish-btn">
               {{ statusLoading ? '保存中...' : '确认并完成' }}
             </button>
@@ -1038,5 +1127,126 @@ onMounted(async () => {
   margin: 10px 0 0;
   font-size: 0.8rem;
   color: #6b7280;
+}
+
+/* RCON 配置 */
+.rcon-section {
+  width: 100%;
+}
+
+.rcon-section .back-btn {
+  background: none;
+  border: none;
+  color: var(--accent-primary);
+  cursor: pointer;
+  font-size: 0.9rem;
+  padding: 0;
+  margin-bottom: 16px;
+}
+
+.rcon-section .back-btn:hover {
+  text-decoration: underline;
+}
+
+.rcon-card {
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 14px;
+  padding: 20px;
+}
+
+.rcon-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.rcon-info {
+  flex: 1;
+}
+
+.rcon-name {
+  display: block;
+  font-weight: 700;
+  color: #0f0a3a;
+  font-size: 0.95rem;
+  margin-bottom: 3px;
+}
+
+.rcon-desc {
+  display: block;
+  font-size: 0.8rem;
+  color: #4b5563;
+  line-height: 1.3;
+}
+
+.rcon-toggle-wrap {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+  flex-shrink: 0;
+}
+
+.rcon-check {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.rcon-toggle {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.12);
+  border-radius: 24px;
+  transition: background 0.3s;
+}
+
+.rcon-toggle:before {
+  content: '';
+  position: absolute;
+  height: 18px;
+  width: 18px;
+  left: 3px;
+  bottom: 3px;
+  background: white;
+  border-radius: 50%;
+  transition: transform 0.3s;
+}
+
+.rcon-check:checked + .rcon-toggle {
+  background: var(--accent-primary);
+}
+
+.rcon-check:checked + .rcon-toggle:before {
+  transform: translateX(20px);
+}
+
+.rcon-fields {
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  animation: fadeIn 0.25s ease;
+}
+
+.field-hint {
+  margin: 6px 0 0;
+  font-size: 0.78rem;
+  color: #9ca3af;
+  line-height: 1.4;
+}
+
+.rcon-test-area {
+  margin-top: 12px;
+}
+
+.rcon-test-result {
+  margin: 8px 0 0;
+  font-size: 0.85rem;
+  font-weight: 600;
 }
 </style>
