@@ -69,8 +69,12 @@ async function renderToImage(answer: string): Promise<Buffer> {
   try {
     await page.setContent(fullHtml, { waitUntil: 'networkidle' })
     const box = await page.locator('body').boundingBox()
+    // 放大视口以覆盖全部内容，防止超出初始视口(720px)的像素未被渲染合成
+    await page.setViewportSize({ width: Math.ceil(box!.width), height: Math.ceil(box!.height) + 50 })
+    // 重新获取稳定后的 bounding box
+    const finalBox = await page.locator('body').boundingBox()
     const buf = await page.screenshot({
-      clip: { x: 0, y: 0, width: box!.width, height: box!.height },
+      clip: { x: 0, y: 0, width: finalBox!.width, height: finalBox!.height },
       type: 'png',
     })
     return buf
