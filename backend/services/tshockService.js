@@ -13,7 +13,6 @@ export class TShockService {
 
     onConfigUpdate((config) => {
       this.reloadConfig(config)
-      this.startAutoRetry()
     })
   }
 
@@ -48,6 +47,7 @@ export class TShockService {
     this.apiKey = TSHOCK_API_KEY
     this.isConnected = false
     console.log(`[Config] TShock config updated: ${this.baseUrl}`)
+    this.startAutoRetry()
   }
 
   async testConnection() {
