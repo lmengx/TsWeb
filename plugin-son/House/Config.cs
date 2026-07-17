@@ -51,6 +51,9 @@ public class Config
     [JsonProperty("禁止出生点圈地")]
     public bool ProhibitSpawnClaim { get; set; } = false;
 
+    [JsonProperty("允许门自由通行")]
+    public bool AllowDoorPassage { get; set; } = true;
+
     public static Config Instance
     {
         get
@@ -75,8 +78,9 @@ public class Config
             else
             {
                 _instance = new Config();
-                Save();
             }
+            // 保存回文件：自动补齐新加的字段（如 "允许门自由通行"）
+            Save();
         }
         catch
         {

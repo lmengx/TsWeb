@@ -192,6 +192,10 @@ public static class GetDataHandlers
         int y = args.Data.ReadInt16();
         var house = Utils.InAreaHouse(x, y);
         if (house == null) return false;
+
+        // 允许门自由通行 → 任何人都可以开关门
+        if (Config.Instance.AllowDoorPassage) return false;
+
         if (!house.Locked || Config.Instance.LimitLockHouse) return false;
         if (args.Player.Group.HasPermission(EditHouse) || args.Player.Account.ID.ToString() == house.Author || Utils.OwnsHouse(args.Player.Account.ID.ToString(), house) || Utils.CanUseHouse(args.Player.Account.ID.ToString(), house))
             return false;
