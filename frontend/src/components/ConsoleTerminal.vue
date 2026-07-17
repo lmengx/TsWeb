@@ -64,12 +64,9 @@ function connectSSE() {
       if (data.connected) return
       if (Array.isArray(data)) {
         data.forEach(line => {
-          // line 是 LogSegment[] 序列化 JSON 字符串
-          // '[{"t":"text","c":"Red"},{"t":"normal","c":null}]'
           let segments = []
           try {
             if (typeof line === 'string') {
-              // 尝试解析为 LogSegment[] JSON
               const parsed = JSON.parse(line)
               if (Array.isArray(parsed)) {
                 segments = parsed
@@ -85,6 +82,7 @@ function connectSSE() {
 
           logs.value.push({
             id: Date.now() + Math.random(),
+            type: 'line',
             segments,
             time: new Date().toLocaleTimeString('zh-CN', { hour12: false })
           })
@@ -94,12 +92,11 @@ function connectSSE() {
         }
         scrollToBottom()
       }
-    } catch { }
+    } catch {}
   }
 
   eventSource.onerror = () => {
     connected.value = false
-    // 自动重连（浏览器 EventSource 自带）
   }
 }
 
@@ -108,15 +105,29 @@ async function sendCommand() {
   if (!raw) return
 
   const cmd = raw.startsWith('/') ? raw : '/' + raw
-
-  // 在日志中回显输入
-  logs.value.push({
-    id: Date.now(),
-    segments: [{ t: `> ${cmd}`, c: null }],
-    time: new Date().toLocaleTimeString('zh-CN', { hour12: false })
-  })
-
   inputCmd.value = ''
+
+  if (connected.value) {
+    // ── SSE 模式：手动回显命令，输出走 SSE 流 ──
+    logs.value.push({
+      id: Date.now(),
+      type: 'line',
+      segments: [{ t: `> ${cmd}`, c: 'Green' }],
+      time: new Date().toLocaleTimeString('zh-CN', { hour12: false })
+    })
+  } else {
+    // ── 非 SSE 模式：以命令块展示，直接取 API 返回结果 ──
+    const blockId = Date.now()
+    logs.value.push({
+      id: blockId,
+      type: 'cmd-block',
+      cmd,
+      output: '',
+      time: new Date().toLocaleTimeString('zh-CN', { hour12: false })
+    })
+  }
+
+  scrollToBottom()
 
   try {
     const token = getToken()
@@ -133,13 +144,27 @@ async function sendCommand() {
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
       body: JSON.stringify({ cmd, executor: username })
     })
-    // 命令输出走 Console → LogInterceptor → SSE 流，无需再重复显示
+
+    if (!connected.value) {
+      // 非 SSE 模式：取回结果填入命令块
+      const data = await res.json()
+      const block = logs.value.find(l => l.type === 'cmd-block' && l.cmd === cmd)
+      // 只更新最新同命令的块（防止历史块被误改）
+      const lastBlock = logs.value.filter(l => l.type === 'cmd-block' && l.cmd === cmd).pop()
+      if (lastBlock) {
+        const output = data.response || data.error || JSON.stringify(data)
+        lastBlock.output = output
+        scrollToBottom()
+      }
+    }
   } catch (err) {
-    logs.value.push({
-      id: Date.now() + 1,
-      segments: [{ t: `[错误] ${err.message}`, c: null }],
-      time: ''
-    })
+    if (!connected.value) {
+      const lastBlock = logs.value.filter(l => l.type === 'cmd-block' && l.cmd === cmd).pop()
+      if (lastBlock) {
+        lastBlock.output = `[错误] ${err.message}`
+        scrollToBottom()
+      }
+    }
   }
 }
 
@@ -171,7 +196,9 @@ function onInputKeydown(e) {
       <div v-if="logs.length === 0" class="terminal-empty">
         {{ connected ? '[' + new Date().toLocaleTimeString('zh-CN', { hour12: false }) + '] 已连接到控制台' : '未连接' }}
       </div>
-        <div v-for="log in logs" :key="log.id" class="terminal-line">
+      <template v-for="log in logs" :key="log.id">
+        <!-- 普通日志行 -->
+        <div v-if="log.type === 'line'" class="terminal-line">
           <span class="line-time">{{ log.time }}</span>
           <span class="line-text">
             <template v-for="(seg, si) in log.segments" :key="si">
@@ -180,6 +207,17 @@ function onInputKeydown(e) {
             </template>
           </span>
         </div>
+        <!-- 命令块（非 SSE 模式） -->
+        <div v-else-if="log.type === 'cmd-block'" class="cmd-block">
+          <div class="cmd-header">
+            <span class="cmd-time">{{ log.time }}</span>
+            <span class="cmd-prompt">❯</span>
+            <span class="cmd-text">{{ log.cmd }}</span>
+          </div>
+          <div v-if="log.output" class="cmd-output">{{ log.output }}</div>
+          <div v-else class="cmd-output cmd-loading">执行中...</div>
+        </div>
+      </template>
     </div>
     <div class="terminal-input-row">
       <span class="input-prefix">❯</span>
@@ -249,6 +287,41 @@ function onInputKeydown(e) {
 
 .line-time { color: var(--text-muted); flex-shrink: 0; opacity: 0.6; font-size: 0.7rem; min-width: 70px; }
 .line-text { color: var(--text-primary); overflow-wrap: break-word; word-break: break-all; min-width: 0; }
+
+/* ── 命令块样式（非 SSE 模式） ── */
+.cmd-block {
+  margin: 4px 0;
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  border-radius: 8px;
+  overflow: hidden;
+  background: rgba(99, 102, 241, 0.04);
+}
+
+.cmd-header {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 10px;
+  background: rgba(99, 102, 241, 0.08);
+  border-bottom: 1px solid rgba(99, 102, 241, 0.12);
+  font-size: 0.78rem;
+}
+
+.cmd-time { color: var(--text-muted); font-size: 0.7rem; opacity: 0.6; min-width: 70px; }
+.cmd-prompt { color: #22c55e; font-weight: 700; }
+.cmd-text { color: #e2e8f0; font-weight: 600; }
+
+.cmd-output {
+  padding: 8px 10px;
+  color: #cbd5e1;
+  font-size: 0.72rem;
+  white-space: pre-wrap;
+  word-break: break-all;
+  line-height: 1.5;
+}
+
+.cmd-output.cmd-loading {
+  color: var(--text-muted);
+  font-style: italic;
+}
 
 .terminal-input-row {
   display: flex; align-items: center; gap: 8px;
