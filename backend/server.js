@@ -190,9 +190,9 @@ async function startServer() {
     listenWithFallback(app, port, '0.0.0.0', (actualPort) => {
       _serverPort = actualPort
       console.log('  请访问:')
-      console.log('  http://localhost:' + actualPort + '/setup/intro?token=' + token)
+      console.log('  http://localhost:' + actualPort + '/backend?token=' + token)
       console.log('')
-      const url = 'http://localhost:' + actualPort + '/setup/intro?token=' + token
+      const url = 'http://localhost:' + actualPort + '/backend?token=' + token
       exec('start ' + url, (err) => {
         if (err) {
           console.log('  请手动访问: ' + url)
@@ -214,7 +214,7 @@ async function startServer() {
     console.log('  Setup Token: ' + token)
     console.log('='.repeat(58))
     console.log('  如需修改 TShock 连接配置，请访问:')
-    console.log('  http://localhost:' + port + '/setup?token=' + token)
+    console.log('  http://localhost:' + port + '/backend?token=' + token)
     console.log('')
     console.log('Testing TShock connection...')
     tshockService.testConnection().catch(() => {})
@@ -222,7 +222,7 @@ async function startServer() {
     console.log('TShock not configured. Status set to disconnected.')
     console.log('')
     console.log('  Setup Token: ' + token)
-    console.log('  请访问: http://localhost:' + port + '/setup?token=' + token)
+    console.log('  请访问: http://localhost:' + port + '/backend?token=' + token)
     console.log('')
   }
 
@@ -268,12 +268,12 @@ function startConsole() {
   })
 
   console.log('')
-  console.log('可用命令: setup - 打开管理页面, exit - 退出')
+  console.log('可用命令: backend - 打开管理页面, token - 显示 Token, exit - 退出')
   rl.prompt()
 
   rl.on('line', async (line) => {
     const cmd = line.trim().toLowerCase()
-    if (cmd === 'setup' || cmd === 'open' || cmd === 's') {
+    if (cmd === 'backend' || cmd === 'setup' || cmd === 'open' || cmd === 's') {
       try {
         const port = _serverPort || 3000
         const token = generateSetupToken()
@@ -288,11 +288,14 @@ function startConsole() {
       } catch (err) {
         console.log('操作失败:', err.message)
       }
+    } else if (cmd === 'token' || cmd === 't') {
+      const token = generateSetupToken()
+      console.log('Token: ' + token)
     } else if (cmd === 'exit' || cmd === 'quit' || cmd === 'q') {
       console.log('正在退出...')
       process.exit(0)
     } else if (cmd) {
-      console.log('未知命令: ' + cmd + '  (可用: setup, exit)')
+      console.log('未知命令: ' + cmd + '  (可用: backend, token, exit)')
     }
     rl.prompt()
   })

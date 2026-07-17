@@ -22,46 +22,13 @@ const error = ref('')
 const success = ref('')
 
 // ═══════════════════════════════════════════════
-// REST 连接设置
+// REST 连接设置（只读展示，配置在 init 页面完成）
 // ═══════════════════════════════════════════════
 const connected = ref(false)
 const restHost = ref('127.0.0.1')
 const restPort = ref('7878')
 const restApiKey = ref('')
-
-// 手动配置
-const manualHost = ref('127.0.0.1')
-const manualPort = ref('7878')
-const manualApiKey = ref('')
-const manualLoading = ref(false)
 const showKey = ref(false)
-
-// 自动探测
-const probePort = ref('7777')
-const probeLoading = ref(false)
-const probeResult = ref(null)
-const autoReadLoading = ref(false)
-const autoReadResult = ref(null)
-const autoVerifyLoading = ref(false)
-const autoVerifyError = ref('')
-const autoStep = ref('idle') // idle | probe | done
-
-// 远程配置
-const remoteConfigRaw = ref('')
-const remoteLoading = ref(false)
-const remoteResult = ref(null)
-const remoteHost = ref('')
-const remotePort = ref('')
-const remoteVerifyLoading = ref(false)
-const remoteVerifyError = ref('')
-const remoteStep = ref('idle') // idle | review | verify
-
-// 等待连接
-const waiting = ref(false)
-const statusText = ref('')
-let pollTimer = null
-
-const tokenMissing = ref(false)
 
 // ═══════════════════════════════════════════════
 // 日志推流设置
@@ -71,6 +38,7 @@ const webhookUrl = ref('http://127.0.0.1:3000/api/online/log-webhook')
 const webhookLoading = ref(false)
 const webhookSaving = ref(false)
 const webhookStatus = ref('')
+
 // ═══════════════════════════════════════════════
 // 插件初始化
 // ═══════════════════════════════════════════════
@@ -93,6 +61,11 @@ const bossLimitOptions = [
 ]
 const pluginSaving = ref(false)
 
+// Token 认证
+const tokenMissing = ref(false)
+const manualToken = ref('')
+const authError = ref('')
+
 // ═══════════════════════════════════════════════
 // 初始化
 // ═══════════════════════════════════════════════
@@ -109,13 +82,16 @@ onMounted(async () => {
       return
     }
     tokenOk.value = true
-    if (data.configured && data.config) {
+    // 未配置 → 跳转到初始化页面
+    if (!data.configured) {
+      router.replace('/backend/init?token=' + encodeURIComponent(setupToken))
+      return
+    }
+    // 已配置：填充显示值
+    if (data.config) {
       restHost.value = data.config.host || '127.0.0.1'
       restPort.value = String(data.config.port || 7878)
       restApiKey.value = data.config.apiKey || ''
-      manualHost.value = data.config.host || '127.0.0.1'
-      manualPort.value = String(data.config.port || 7878)
-      manualApiKey.value = data.config.apiKey || ''
     }
     // 检查连接状态
     const statusRes = await fetch('/api/status')
@@ -149,207 +125,27 @@ function getAuthHeaders() {
   }
 }
 
-// ═══════════════════════════════════════════════
-// REST 设置 - 手动配置
-// ═══════════════════════════════════════════════
-async function submitManualConfig() {
-  if (!manualHost.value.trim() || !manualPort.value.trim() || !manualApiKey.value.trim()) {
-    error.value = '所有字段均为必填'
-    return
-  }
-  const portNum = parseInt(manualPort.value)
-  if (isNaN(portNum) || portNum < 1 || portNum > 65535) {
-    error.value = '端口必须是 1-65535 之间的数字'
-    return
-  }
-  manualLoading.value = true
-  error.value = ''
+async function submitTokenAuth() {
+  const t = manualToken.value.trim()
+  if (!t) return
+  authError.value = ''
   try {
-    const res = await apiPost('/api/setup/init', {
-      host: manualHost.value.trim(),
-      port: portNum,
-      apiKey: manualApiKey.value.trim()
-    })
+    const res = await fetch('/api/setup/check?token=' + encodeURIComponent(t))
     const data = await res.json()
-    if (!data.success) {
-      error.value = data.error || '保存失败'
+    if (data.needToken || !data.setupToken) {
+      authError.value = 'Token 无效'
       return
     }
-    restHost.value = manualHost.value.trim()
-    restPort.value = String(portNum)
-    restApiKey.value = manualApiKey.value.trim()
-    success.value = '配置已保存，正在检测连接...'
-    startPolling('连接验证成功')
+    const url = new URL(window.location.href)
+    url.searchParams.set('token', t)
+    window.location.href = url.toString()
   } catch (err) {
-    error.value = '请求失败: ' + err.message
-  } finally {
-    manualLoading.value = false
+    authError.value = err.message
   }
 }
 
-// ═══════════════════════════════════════════════
-// REST 设置 - 自动探测
-// ═══════════════════════════════════════════════
-async function startProbe() {
-  probeLoading.value = true
-  probeResult.value = null
-  autoStep.value = 'idle'
-  try {
-    const res = await fetch('/api/setup/probe?port=' + probePort.value + '&token=' + encodeURIComponent(setupToken))
-    probeResult.value = await res.json()
-  } catch (err) {
-    probeResult.value = { error: err.message }
-  }
-  probeLoading.value = false
-}
-
-async function startAutoRead() {
-  if (!probeResult.value?.processes?.[0]) return
-  autoReadLoading.value = true
-  try {
-    const res = await apiPost('/api/setup/auto-read', {
-      processPath: probeResult.value.processes[0].path
-    })
-    autoReadResult.value = await res.json()
-    if (autoReadResult.value.success) {
-      autoStep.value = 'done'
-      success.value = '已自动修改配置文件！请重启 TShock 服务端后点击验证'
-    }
-  } catch (err) {
-    error.value = err.message
-  }
-  autoReadLoading.value = false
-}
-
-async function startAutoVerify() {
-  if (!autoReadResult.value) return
-  autoVerifyLoading.value = true
-  autoVerifyError.value = ''
-  try {
-    const res = await apiPost('/api/setup/auto-verify', {
-      host: '127.0.0.1',
-      port: autoReadResult.value.restPort,
-      apiKey: autoReadResult.value.tokenKey
-    })
-    const data = await res.json()
-    if (data.success) {
-      restHost.value = '127.0.0.1'
-      restPort.value = String(autoReadResult.value.restPort)
-      restApiKey.value = autoReadResult.value.tokenKey
-      success.value = '验证成功！'
-      startPolling('连接验证成功')
-    } else {
-      autoVerifyError.value = data.error || '验证失败'
-    }
-  } catch (err) {
-    autoVerifyError.value = err.message
-  }
-  autoVerifyLoading.value = false
-}
-
-// ═══════════════════════════════════════════════
-// REST 设置 - 远程配置
-// ═══════════════════════════════════════════════
-async function submitRemoteConfig() {
-  if (!remoteConfigRaw.value.trim()) {
-    error.value = '请粘贴 tshock/config.json 的内容'
-    return
-  }
-  remoteLoading.value = true
-  remoteStep.value = 'idle'
-  error.value = ''
-  try {
-    const res = await apiPost('/api/setup/auto-remote', {
-      configRaw: remoteConfigRaw.value
-    })
-    remoteResult.value = await res.json()
-    if (remoteResult.value.success) {
-      remoteStep.value = 'review'
-      remotePort.value = String(remoteResult.value.restPort)
-    } else {
-      error.value = remoteResult.value.error || '处理失败'
-    }
-  } catch (err) {
-    error.value = err.message
-  }
-  remoteLoading.value = false
-}
-
-function copyRemoteConfig() {
-  if (remoteResult.value?.modifiedRaw) {
-    navigator.clipboard.writeText(remoteResult.value.modifiedRaw)
-    success.value = '已复制到剪贴板'
-  }
-}
-
-function downloadRemoteConfig() {
-  if (!remoteResult.value?.modifiedRaw) return
-  const blob = new Blob([remoteResult.value.modifiedRaw], { type: 'application/json' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = 'config.json'
-  a.click()
-  URL.revokeObjectURL(url)
-  success.value = '已下载配置文件'
-}
-
-async function verifyRemoteConnection() {
-  if (!remoteResult.value || !remoteHost.value.trim()) return
-  remoteVerifyLoading.value = true
-  remoteVerifyError.value = ''
-  const port = remotePort.value || remoteResult.value.restPort
-  try {
-    const res = await apiPost('/api/setup/auto-verify', {
-      host: remoteHost.value.trim(),
-      port: parseInt(port),
-      apiKey: remoteResult.value.tokenKey
-    })
-    const data = await res.json()
-    if (data.success) {
-      restHost.value = remoteHost.value.trim()
-      restPort.value = String(port)
-      restApiKey.value = remoteResult.value.tokenKey
-      success.value = '远程连接验证成功！'
-      startPolling('连接验证成功')
-    } else {
-      remoteVerifyError.value = data.error || '验证失败'
-    }
-  } catch (err) {
-    remoteVerifyError.value = err.message
-  }
-  remoteVerifyLoading.value = false
-}
-
-// ═══════════════════════════════════════════════
-// 轮询连接状态
-// ═══════════════════════════════════════════════
-function startPolling(doneText) {
-  waiting.value = true
-  statusText.value = '正在检测连接...'
-  pollTimer = setInterval(async () => {
-    try {
-      const res = await fetch('/api/status')
-      const data = await res.json()
-      if (data.connected) {
-        connected.value = true
-        statusText.value = doneText || '已连接'
-        stopPolling()
-      } else {
-        statusText.value = data.message || '等待连接...'
-      }
-    } catch {
-      statusText.value = '无法连接到后端服务'
-    }
-  }, 2000)
-}
-
-function stopPolling() {
-  waiting.value = false
-  if (pollTimer) {
-    clearInterval(pollTimer)
-    pollTimer = null
-  }
+function goToInit() {
+  router.push('/backend/init?token=' + encodeURIComponent(setupToken))
 }
 
 // ═══════════════════════════════════════════════
@@ -358,7 +154,7 @@ function stopPolling() {
 async function loadWebhookConfig() {
   webhookLoading.value = true
   try {
-    const res = await fetch('/api/config/log-webhook', {
+    const res = await fetch('/api/config/log-webhook?token=' + encodeURIComponent(setupToken), {
       headers: getAuthHeaders()
     })
     const data = await res.json()
@@ -374,7 +170,7 @@ async function saveWebhookConfig() {
   webhookSaving.value = true
   webhookStatus.value = ''
   try {
-    const res = await fetch('/api/config/log-webhook', {
+    const res = await fetch('/api/config/log-webhook?token=' + encodeURIComponent(setupToken), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
       body: JSON.stringify({ enabled: webhookEnabled.value, publicUrl: webhookUrl.value })
@@ -426,14 +222,12 @@ async function submitPlugin() {
   error.value = ''
   success.value = ''
   try {
-    // 保存 SSC
     if (sscConfig.value) {
       sscConfig.value.Settings.Enabled = sscEnabled.value
       await apiPost('/api/setup/ssc-config', {
         content: JSON.stringify(sscConfig.value, null, 2)
       })
     }
-    // 初始化插件
     const res = await apiPost('/api/setup/plugin-init', {
       mode: selectedMode.value,
       bossLimitMode: bossLimitMode.value,
@@ -456,7 +250,7 @@ function goBackToRest() {
   activeTab.value = 'rest'
 }
 
-onUnmounted(() => stopPolling())
+onUnmounted(() => {})
 </script>
 
 <template>
@@ -478,145 +272,60 @@ onUnmounted(() => stopPolling())
     <!-- ========== 主体 ========== -->
     <div class="backend-body">
 
-      <!-- Token 缺失 -->
-      <div v-if="tokenMissing" class="empty-state">
-        <div class="empty-icon">🔒</div>
-        <h2>需要 Setup Token</h2>
-        <p class="empty-desc">请在服务端控制台输入 <code>setup</code> 获取访问链接</p>
+      <!-- Token 缺失 — 显示输入框 -->
+      <div v-if="tokenMissing" class="token-auth-overlay">
+        <div class="token-auth-card">
+          <div class="auth-icon">🔐</div>
+          <h2>需要授权</h2>
+          <p class="auth-desc">请输入服务端控制台提供的 Token 以访问后台管理</p>
+          <div class="auth-input-row">
+            <input v-model="manualToken" type="text" class="auth-input"
+              placeholder="输入 Token..."
+              @keydown="e => e.key === 'Enter' && submitTokenAuth()" />
+            <button class="auth-btn" @click="submitTokenAuth" :disabled="!manualToken.trim()">
+              验证
+            </button>
+          </div>
+          <p v-if="authError" class="auth-error">❌ {{ authError }}</p>
+        </div>
       </div>
 
       <!-- Token 有效 -->
       <template v-else>
 
         <!-- ═══════════════════════════════════════ -->
-        <!-- TAB 1: REST 连接设置 -->
+        <!-- TAB 1: REST 连接设置（只读展示） -->
         <!-- ═══════════════════════════════════════ -->
         <div v-if="activeTab === 'rest'" class="tab-content">
-
-          <!-- 当前状态 -->
           <div class="section-card">
-            <div class="section-header">
-              <h3>当前连接</h3>
-              <span :class="['status-badge', connected ? 'ok' : 'off']">
-                {{ connected ? '已连接' : '未连接' }}
-              </span>
-            </div>
-            <div class="info-grid">
-              <div class="info-item">
-                <span class="info-label">服务器地址</span>
-                <span class="info-value">{{ restHost }}:{{ restPort }}</span>
-              </div>
-              <div class="info-item">
-                <span class="info-label">API Key</span>
-                <span class="info-value mono">{{ restApiKey ? restApiKey.substring(0, 16) + '...' : '未设置' }}</span>
-              </div>
-            </div>
-          </div>
+            <div class="section-header"><h3>连接属性</h3></div>
 
-          <!-- 操作反馈 -->
-          <div v-if="error && activeTab === 'rest'" class="msg-box error">{{ error }}</div>
-          <div v-if="success && activeTab === 'rest' && activeTab === 'rest'" class="msg-box success">{{ success }}</div>
-          <div v-if="waiting && activeTab === 'rest'" class="msg-box info">{{ statusText }}</div>
-
-          <!-- 手动配置 -->
-          <div class="section-card">
-            <div class="section-header"><h3>手动配置</h3></div>
             <div class="form-row">
               <div class="form-group flex-1">
                 <label class="form-label">服务器地址</label>
-                <input v-model="manualHost" type="text" placeholder="127.0.0.1" class="form-input" />
+                <input :value="restHost" type="text" class="form-input" disabled readonly />
               </div>
               <div class="form-group port-input">
                 <label class="form-label">REST 端口</label>
-                <input v-model="manualPort" type="text" placeholder="7878" class="form-input" />
+                <input :value="restPort" type="text" class="form-input" disabled readonly />
               </div>
             </div>
+
             <div class="form-group">
               <label class="form-label">API 密钥</label>
               <div class="input-with-btn">
-                <input v-model="manualApiKey" :type="showKey ? 'text' : 'password'" class="form-input" autocomplete="new-password" />
+                <input :value="showKey ? restApiKey : (restApiKey ? restApiKey.substring(0, 16) + '......' : '未设置')"
+                  type="text" class="form-input" disabled readonly />
                 <button class="toggle-btn" @click="showKey = !showKey" type="button">{{ showKey ? '隐藏' : '显示' }}</button>
               </div>
             </div>
-            <button class="btn primary" @click="submitManualConfig" :disabled="manualLoading">
-              {{ manualLoading ? '保存中...' : '测试连接并保存' }}
-            </button>
-          </div>
 
-          <!-- 本机自动检测 -->
-          <div class="section-card">
-            <div class="section-header"><h3>本机自动检测</h3></div>
-            <p class="section-desc">自动扫描本机 TShock 进程，修改配置文件并复制插件</p>
-            <div class="probe-bar">
-              <input v-model="probePort" type="text" class="form-input probe-input" placeholder="游戏端口" />
-              <button class="btn secondary" @click="startProbe" :disabled="probeLoading">
-                {{ probeLoading ? '扫描中...' : '检测进程' }}
-              </button>
+            <div class="section-actions" style="margin-top:24px">
+              <button class="btn primary" @click="goToInit">更新配置</button>
             </div>
-            <div v-if="probeResult" class="probe-result">
-              <div v-if="probeResult.error" class="msg-box error">{{ probeResult.error }}</div>
-              <div v-else-if="!probeResult.found" class="msg-box warn">未在端口 {{ probeResult.port }} 找到监听进程</div>
-              <div v-else>
-                <p class="probe-count">找到 {{ probeResult.processes.length }} 个监听进程</p>
-                <div v-for="p in probeResult.processes" :key="p.pid" class="probe-item">
-                  <code>{{ p.pid }}</code> {{ p.path }}
-                </div>
-                <div v-if="autoStep === 'idle'" class="section-actions">
-                  <button class="btn primary" @click="startAutoRead" :disabled="autoReadLoading">
-                    {{ autoReadLoading ? '处理中...' : '修改配置并复制插件' }}
-                  </button>
-                </div>
-              </div>
-            </div>
-            <div v-if="autoStep === 'done' && autoReadResult" class="auto-done">
-              <div class="info-grid mini">
-                <div class="info-item"><span class="info-label">REST 端口</span><span class="info-value">{{ autoReadResult.restPort }}</span></div>
-                <div class="info-item"><span class="info-label">API Key</span><span class="info-value mono">{{ autoReadResult.tokenKey }}</span></div>
-              </div>
-              <p class="section-desc">已修改 TShock 配置文件并复制插件 DLL，请重启 TShock 服务端后点击验证</p>
-              <button class="btn primary" @click="startAutoVerify" :disabled="autoVerifyLoading">
-                {{ autoVerifyLoading ? '验证中...' : '验证连接' }}
-              </button>
-              <div v-if="autoVerifyError" class="msg-box error" style="margin-top:8px">{{ autoVerifyError }}</div>
-            </div>
-          </div>
-
-          <!-- 远程配置 -->
-          <div class="section-card">
-            <div class="section-header"><h3>远程配置</h3></div>
-            <p class="section-desc">粘贴远程服务器上的 <code>tshock/config.json</code> 内容，自动修改并导出</p>
-            <textarea v-model="remoteConfigRaw" class="form-textarea" rows="6" placeholder="将远程 tshock/config.json 的完整内容粘贴到这里..."></textarea>
-            <button class="btn primary" @click="submitRemoteConfig" :disabled="remoteLoading" style="margin-top:8px">
-              {{ remoteLoading ? '处理中...' : '解析并修改配置' }}
-            </button>
-
-            <div v-if="remoteStep === 'review' && remoteResult" class="remote-review">
-              <div class="info-grid mini">
-                <div class="info-item"><span class="info-label">REST 端口</span><span class="info-value">{{ remoteResult.restPort }}</span></div>
-                <div class="info-item"><span class="info-label">API Key</span><span class="info-value mono">{{ remoteResult.tokenKey }}</span></div>
-              </div>
-              <p class="section-desc">将修改后的配置文件覆盖到远程服务器，然后重启远程 TShock</p>
-              <div class="btn-row">
-                <button class="btn secondary" @click="copyRemoteConfig">📋 复制到剪贴板</button>
-                <button class="btn secondary" @click="downloadRemoteConfig">⬇️ 下载 config.json</button>
-              </div>
-              <div class="remote-verify">
-                <div class="form-row">
-                  <div class="form-group flex-1">
-                    <label class="form-label">远程 IP / 域名</label>
-                    <input v-model="remoteHost" type="text" placeholder="192.168.1.100" class="form-input" />
-                  </div>
-                  <div class="form-group port-input">
-                    <label class="form-label">REST 端口</label>
-                    <input v-model="remotePort" type="text" :placeholder="String(remoteResult.restPort)" class="form-input" />
-                  </div>
-                </div>
-                <button class="btn primary" @click="verifyRemoteConnection" :disabled="remoteVerifyLoading || !remoteHost.trim()">
-                  {{ remoteVerifyLoading ? '验证中...' : '测试远程连接' }}
-                </button>
-                <div v-if="remoteVerifyError" class="msg-box error" style="margin-top:8px">{{ remoteVerifyError }}</div>
-              </div>
-            </div>
+            <p class="auto-link" @click="goToInit">
+              我看不懂，跳转到自动配置 →
+            </p>
           </div>
         </div>
 
@@ -806,11 +515,11 @@ onUnmounted(() => stopPolling())
   padding: 20px 24px 0;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: flex-start;
 }
 
 .header-title {
-  margin: 0 0 20px;
+  margin: 0 0 16px;
   font-size: 1.3rem;
   font-weight: 700;
   color: #c7d2fe;
@@ -819,34 +528,28 @@ onUnmounted(() => stopPolling())
 
 .tab-bar {
   display: flex;
-  gap: 4px;
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 12px;
-  padding: 4px;
+  gap: 2px;
 }
 
 .tab-btn {
-  padding: 10px 28px;
+  padding: 8px 20px;
   border: none;
-  border-radius: 10px;
+  border-radius: 6px;
   background: transparent;
   color: #94a3b8;
-  font-size: 0.9rem;
+  font-size: 0.85rem;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.25s ease;
+  transition: all 0.2s ease;
   white-space: nowrap;
 }
 
 .tab-btn:hover {
-  color: #c7d2fe;
-  background: rgba(255, 255, 255, 0.06);
+  color: #e2e8f0;
 }
 
 .tab-btn.active {
-  background: rgba(99, 102, 241, 0.25);
   color: #a5b4fc;
-  box-shadow: 0 0 12px rgba(99, 102, 241, 0.15);
 }
 
 /* ═══ 主体 ═══ */
@@ -894,66 +597,6 @@ onUnmounted(() => stopPolling())
   flex-wrap: wrap;
 }
 
-.btn-row {
-  display: flex;
-  gap: 10px;
-  margin: 12px 0;
-  flex-wrap: wrap;
-}
-
-/* ═══ 状态标签 ═══ */
-.status-badge {
-  padding: 4px 14px;
-  border-radius: 20px;
-  font-size: 0.8rem;
-  font-weight: 700;
-}
-
-.status-badge.ok {
-  background: rgba(34, 197, 94, 0.15);
-  color: #4ade80;
-}
-
-.status-badge.off {
-  background: rgba(239, 68, 68, 0.15);
-  color: #f87171;
-}
-
-/* ═══ 信息网格 ═══ */
-.info-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-}
-
-.info-grid.mini {
-  grid-template-columns: 1fr 1fr;
-  margin-bottom: 12px;
-}
-
-.info-item {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.info-label {
-  font-size: 0.8rem;
-  color: #64748b;
-  font-weight: 500;
-}
-
-.info-value {
-  font-size: 0.9rem;
-  color: #e2e8f0;
-  font-weight: 600;
-}
-
-.info-value.mono {
-  font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
-  font-size: 0.8rem;
-}
-
 /* ═══ 表单 ═══ */
 .form-row {
   display: flex;
@@ -993,6 +636,14 @@ onUnmounted(() => stopPolling())
   box-sizing: border-box;
 }
 
+.form-input:disabled {
+  opacity: 0.65;
+  cursor: default;
+  border-color: rgba(255, 255, 255, 0.05);
+  background: rgba(0, 0, 0, 0.15);
+  color: #cbd5e1;
+}
+
 .form-input:focus {
   border-color: #6366f1;
   box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
@@ -1000,32 +651,6 @@ onUnmounted(() => stopPolling())
 
 .form-input::placeholder {
   color: #475569;
-}
-
-.form-textarea {
-  width: 100%;
-  padding: 12px 14px;
-  background: rgba(0, 0, 0, 0.3);
-  border: 1.5px solid rgba(255, 255, 255, 0.1);
-  border-radius: 10px;
-  color: #e2e8f0;
-  font-size: 0.85rem;
-  outline: none;
-  transition: border-color 0.25s ease;
-  box-sizing: border-box;
-  resize: vertical;
-  font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
-  line-height: 1.5;
-}
-
-.form-textarea:focus {
-  border-color: #6366f1;
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
-}
-
-.form-textarea::placeholder {
-  color: #475569;
-  font-family: inherit;
 }
 
 .input-with-btn {
@@ -1139,90 +764,105 @@ onUnmounted(() => stopPolling())
   color: #a5b4fc;
 }
 
-/* ═══ 空状态 ═══ */
-.empty-state {
-  text-align: center;
-  padding: 80px 20px;
+/* ═══ Token 认证弹框 ═══ */
+.token-auth-overlay {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 60vh;
 }
 
-.empty-icon {
+.token-auth-card {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 20px;
+  padding: 48px 40px;
+  text-align: center;
+  max-width: 420px;
+  width: 100%;
+}
+
+.auth-icon {
   font-size: 3rem;
   margin-bottom: 16px;
 }
 
-.empty-state h2 {
+.token-auth-card h2 {
   color: #c7d2fe;
   margin: 0 0 8px;
+  font-size: 1.3rem;
 }
 
-.empty-desc {
+.auth-desc {
   color: #64748b;
+  margin: 0 0 24px;
   font-size: 0.9rem;
+  line-height: 1.5;
 }
 
-.empty-desc code {
-  background: rgba(255, 255, 255, 0.08);
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-size: 0.85rem;
-}
-
-/* ═══ 探测 ═══ */
-.probe-bar {
+.auth-input-row {
   display: flex;
-  gap: 10px;
-  margin-bottom: 12px;
+  gap: 8px;
 }
 
-.probe-input {
-  max-width: 100px;
-  flex: none;
+.auth-input {
+  flex: 1;
+  padding: 12px 16px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1.5px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  color: #e2e8f0;
+  font-size: 0.95rem;
+  font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+  outline: none;
+  transition: border-color 0.25s ease;
+}
+.auth-input:focus {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
 }
 
-.probe-result {
-  margin-top: 8px;
+.auth-btn {
+  padding: 12px 24px;
+  border: none;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #6366f1, #4f46e5);
+  color: #fff;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+}
+.auth-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(99, 102, 241, 0.3);
+}
+.auth-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
-.probe-count {
-  font-size: 0.85rem;
-  color: #94a3b8;
-  margin: 0 0 8px;
-}
-
-.probe-item {
-  display: flex;
-  gap: 10px;
-  padding: 6px 0;
-  font-size: 0.85rem;
-  color: #cbd5e1;
-  align-items: center;
-}
-
-.probe-item code {
-  background: rgba(255, 255, 255, 0.06);
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-size: 0.8rem;
-}
-
-.auto-done {
+.auth-error {
+  color: #f87171;
   margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  font-size: 0.85rem;
 }
 
-/* ═══ 远程配置 ═══ */
-.remote-review {
-  margin-top: 16px;
-  padding-top: 16px;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
+/* ═══ 自动配置链接 ═══ */
+.auto-link {
+  margin: 16px 0 0;
+  font-size: 0.82rem;
+  color: #6366f1;
+  cursor: pointer;
+  transition: color 0.2s;
+}
+.auto-link:hover {
+  color: #818cf8;
+  text-decoration: underline;
 }
 
-.remote-verify {
-  margin-top: 12px;
-}
-
-/* ═══ RCON ═══ */
+/* ═══ Toggle ═══ */
 .toggle-row {
   display: flex;
   align-items: center;
@@ -1291,36 +931,10 @@ onUnmounted(() => stopPolling())
   background: #818cf8;
 }
 
-.rcon-fields {
-  margin-top: 16px;
-  padding-top: 16px;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
-}
-
 .field-hint {
   font-size: 0.8rem;
   color: #64748b;
   margin: 8px 0 0;
-}
-
-.test-result {
-  font-size: 0.85rem;
-  font-weight: 600;
-}
-
-.test-result.ok { color: #4ade80; }
-.test-result.fail { color: #f87171; }
-
-.rcon-disabled-hint {
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-.rcon-disabled-hint p {
-  margin: 0;
-  font-size: 0.85rem;
-  color: #64748b;
 }
 
 /* ═══ 策略选择 ═══ */
@@ -1500,9 +1114,6 @@ onUnmounted(() => stopPolling())
 /* ═══ 响应式 ═══ */
 @media (max-width: 640px) {
   .strategy-grid, .bosslimit-grid {
-    grid-template-columns: 1fr;
-  }
-  .info-grid {
     grid-template-columns: 1fr;
   }
   .form-row {
