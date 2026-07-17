@@ -34,6 +34,9 @@ process.on('unhandledRejection', (reason) => {
 // 设置控制台标题
 process.title = 'TSWeb--made by lmx12330'
 
+// 实际监听端口，由 listenWithFallback 设置，供控制台命令使用
+let _serverPort = null
+
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
@@ -117,12 +120,10 @@ async function loadFileRules() {
 
 // =====================================================
 // 带端口容错的 listen 辅助函数
-// 端口被占用时自动 +1 重试，最多尝试 10 次
+// 端口被占用时输出颜色警告并要求用户确认
 // =====================================================
 function listenWithFallback(app, port, host, onListening) {
-  const maxAttempts = 10
   let currentPort = port
-  let attempts = 0
 
   function tryListen() {
     const server = app.listen(currentPort, host)
@@ -131,22 +132,32 @@ function listenWithFallback(app, port, host, onListening) {
       console.log(`  Web服务器已在端口 ${currentPort} 上运行`)
       console.log(`  可访问地址: http://${host === '0.0.0.0' ? 'localhost' : host}:${currentPort}`)
       if (currentPort !== port) {
-        console.log(`  [注意] 原先端口 ${port} 被占用，自动切换到了端口 ${currentPort}`)
+        console.log(`  [注意] 原先端口 ${port} 被占用，已切换到端口 ${currentPort}`)
       }
       if (onListening) onListening(currentPort)
     })
 
     server.on('error', (err) => {
-      if (err.code === 'EADDRINUSE' && attempts < maxAttempts) {
-        attempts++
-        console.warn(`  [WARN] 端口 ${currentPort} 已被占用，尝试端口 ${currentPort + 1}... (${attempts}/${maxAttempts})`)
-        currentPort++
-        // 立即重试下一个端口
-        setImmediate(tryListen)
-      } else if (err.code === 'EADDRINUSE') {
-        console.error('  [ERROR] 已尝试 10 个端口均被占用，无法启动服务器')
-        console.error('  请手动关闭占用端口的程序后重启')
-        // 不退出进程，让控制台命令仍然可用
+      if (err.code === 'EADDRINUSE') {
+        console.log('')
+        console.log(`  \x1b[33m⚠ 端口 ${currentPort} 已被占用\x1b[0m`)
+        const nextPort = currentPort + 1
+        const rl = readline.createInterface({
+          input: process.stdin,
+          output: process.stdout
+        })
+        rl.question(`  是否使用端口 ${nextPort} 代替？(y/N) `, (answer) => {
+          rl.close()
+          if (answer.trim().toLowerCase() === 'y' || answer.trim().toLowerCase() === 'yes') {
+            currentPort = nextPort
+            setImmediate(tryListen)
+          } else {
+            console.log('')
+            console.log('  \x1b[31m服务器未启动，控制台仍可用\x1b[0m')
+            console.log('  请关闭占用端口的程序后重启服务')
+            console.log('')
+          }
+        })
       } else {
         console.error('  [ERROR] 服务器启动失败:', err.message)
       }
@@ -177,6 +188,7 @@ async function startServer() {
     loadFileRules()
 
     listenWithFallback(app, port, '0.0.0.0', (actualPort) => {
+      _serverPort = actualPort
       console.log('  请访问:')
       console.log('  http://localhost:' + actualPort + '/setup/intro?token=' + token)
       console.log('')
@@ -218,11 +230,27 @@ async function startServer() {
   loadFileRules()
 
   // 启动 HTTP 服务 — 使用带端口容错的 listen
-  listenWithFallback(app, port, host, (actualPort) => {
+  listenWithFallback(app, port, host, async (actualPort) => {
     const displayHost = host === '0.0.0.0' ? 'localhost' : host
+    _serverPort = actualPort
     console.log(`Server running on http://${displayHost}:${actualPort}`)
     if (config.tshock?.host && config.tshock?.port) {
       console.log(`TShock API: ${config.tshock.host}:${config.tshock.port}`)
+    }
+
+    // ═══ 启动后注册 webhook 到插件（需开启且 TShock 已配置） ═══
+    const whCfg = config.logWebhook || {}
+    if (whCfg.enabled && config.tshock?.host && config.tshock?.port && config.tshock?.apiKey) {
+      const webhookUrl = whCfg.publicUrl || `http://127.0.0.1:${actualPort}/api/online/log-webhook`
+      const { updatePluginWebhook } = await import('./services/webhookRegistration.js')
+      const result = await updatePluginWebhook(webhookUrl)
+      if (result.success) {
+        console.log(`  Webhook 已注册: ${webhookUrl}`)
+      } else {
+        console.warn(`  Webhook 注册失败: ${result.message}`)
+      }
+    } else if (!whCfg.enabled) {
+      console.log('  日志 Webhook 未启用，跳过注册')
     }
   })
 }
@@ -247,17 +275,16 @@ function startConsole() {
     const cmd = line.trim().toLowerCase()
     if (cmd === 'setup' || cmd === 'open' || cmd === 's') {
       try {
-        const config = await loadConfig()
-        const port = config?.server?.port || 3000
+        const port = _serverPort || 3000
         const token = generateSetupToken()
-        const url = `http://localhost:${port}/setup?token=${token}`
+        const url = `http://localhost:${port}/backend?token=${token}`
         const { exec } = await import('child_process')
         exec(`start ${url}`, (err) => {
           if (err) {
             console.log('请手动访问: ' + url)
           }
         })
-        console.log('管理页面已打开: ' + url)
+        console.log('后台管理页面已打开: ' + url)
       } catch (err) {
         console.log('操作失败:', err.message)
       }

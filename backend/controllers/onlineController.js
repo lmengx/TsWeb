@@ -1,7 +1,32 @@
 import onlineService from '../services/onlineService.js'
 import jwt from 'jsonwebtoken'
 import { getConfig } from '../config.js'
-import { RconClient } from '../services/rconClient.js'
+import { updatePluginWebhook } from '../services/webhookRegistration.js'
+
+// ═══ 内存日志队列 + SSE 客户端管理 ═══
+const _logQueue = []
+const _sseClients = new Set()
+const _queueLock = {}
+const MaxQueueLines = 2000
+
+// ═══ SSE 客户端数量监听（防抖） ═══
+let _sseThrottleTimer = null
+
+/**
+ * SSE 客户端数量变化时，自动注册/注销 webhook
+ */
+function onSseClientCountChanged() {
+  if (_sseThrottleTimer) clearTimeout(_sseThrottleTimer)
+  _sseThrottleTimer = setTimeout(async () => {
+    _sseThrottleTimer = null
+    const count = _sseClients.size
+    if (count === 0) {
+      // 没有客户端了 → 注销 webhook，让插件停止推流
+      await updatePluginWebhook(null)
+    }
+    // 有客户端时不自动注册，由配置变化或启动时触发注册
+  }, 2000)
+}
 
 export const getHourlyOnline = async (req, res) => {
   const { date } = req.query
@@ -37,7 +62,40 @@ export const getRankingStats = async (req, res) => {
 }
 
 /**
- * SSE 日志流 — 通过 RCON 获取实时日志
+ * Webhook 接收端点 — 插件端通过 HTTP POST 推送日志行到此端点
+ * POST /api/online/log-webhook
+ * Body: { lines: ["[{\"t\":\"text\",\"c\":\"Red\"}]"] }
+ */
+export const logWebhookReceiver = (req, res) => {
+  const { lines } = req.body || {}
+  if (!Array.isArray(lines) || lines.length === 0) {
+    return res.status(400).json({ error: 'Missing or invalid lines array' })
+  }
+
+  for (const line of lines) {
+    // 存入内存队列
+    _logQueue.push(line)
+    if (_logQueue.length > MaxQueueLines) {
+      _logQueue.splice(0, _logQueue.length - MaxQueueLines)
+    }
+
+    // 广播给所有 SSE 客户端
+    const data = JSON.stringify([line])
+    for (const client of _sseClients) {
+      try {
+        client.write(`data: ${data}\n\n`)
+      } catch {
+        _sseClients.delete(client)
+      }
+    }
+  }
+
+  res.json({ status: 'ok', received: lines.length })
+}
+
+/**
+ * SSE 日志流 — 通过 Webhook 接收插件日志后转发给前端
+ * GET /api/online/log/stream?token=xxx
  * EventSource 无法设置 Authorization 头，从 query 取 token
  */
 export const streamLogs = async (req, res) => {
@@ -54,7 +112,7 @@ export const streamLogs = async (req, res) => {
     try {
       decoded = jwt.verify(token, secret)
     } catch (e) {
-      console.error('[SSE Proxy] JWT 验证失败:', e.message)
+      console.error('[SSE] JWT 验证失败:', e.message)
       return res.status(401).json({ error: 'Invalid token' })
     }
 
@@ -62,29 +120,8 @@ export const streamLogs = async (req, res) => {
     const userGroups = (decoded.usergroup || '').split(',').map(g => g.trim().toLowerCase())
     const adminRoles = ['owner', 'superadmin']
     if (!userGroups.some(g => adminRoles.includes(g))) {
-      console.error('[SSE Proxy] 用户无 admin 权限:', decoded.username, userGroups)
+      console.error('[SSE] 用户无 admin 权限:', decoded.username, userGroups)
       return res.status(403).json({ error: 'Forbidden' })
-    }
-
-    // 获取 RCON 连接信息
-    const tshockHost = cfg.tshock?.host || '127.0.0.1'
-    const tshockPort = cfg.tshock?.port || 7878
-    const apiKey = cfg.tshock?.apiKey || ''
-
-    // 从插件获取 RCON 配置
-    const configUrl = `${tshockHost.startsWith('http') ? tshockHost : `http://${tshockHost}`}:${tshockPort}/data/config/tsweb?token=${encodeURIComponent(apiKey)}`
-    let rconPort = 7880
-    let rconEnabled = false
-    
-    try {
-      const configRes = await fetch(configUrl, { headers: { 'Accept': 'application/json' } })
-      if (configRes.ok) {
-        const configData = await configRes.json()
-        rconEnabled = configData.rconEnabled || false
-        rconPort = configData.rconPort || 7880
-      }
-    } catch (e) {
-      console.error('[SSE Proxy] 获取插件配置失败:', e.message)
     }
 
     // SSE 响应头
@@ -95,64 +132,33 @@ export const streamLogs = async (req, res) => {
       'Access-Control-Allow-Origin': '*'
     })
 
-    if (!rconEnabled) {
-      // RCON 未启用，发送一条错误事件后保持连接
-      const msg = JSON.stringify({ error: 'RCON_NOT_ENABLED', message: 'RCON 未启用，无法获取实时日志。请在插件配置中启用 RCON 并重启服务器' })
-      res.write(`data: ${msg}\n\n`)
-      // 定时发送心跳，让前端知道连接还在
-      const keepAlive = setInterval(() => {
-        res.write(': heartbeat\n\n')
-      }, 30000)
-      req.on('close', () => {
-        clearInterval(keepAlive)
-        console.log('[SSE Proxy] RCON 未启用，客户端断开')
-      })
-      return
-    }
+    // 发送连接成功事件
+    res.write(`data: ${JSON.stringify({ connected: true, transport: 'webhook' })}\n\n`)
 
-    // 连接 RCON
-    const rcon = new RconClient('127.0.0.1', rconPort, apiKey)
-    
-    try {
-      await rcon.connect()
-      console.log('[SSE Proxy] RCON 连接成功')
-      res.write(`data: ${JSON.stringify({ connected: true, transport: 'rcon' })}\n\n`)
-    } catch (err) {
-      console.error('[SSE Proxy] RCON 连接失败:', err.message)
-      res.write(`data: ${JSON.stringify({ error: 'RCON_CONNECT_FAILED', message: `RCON 连接失败: ${err.message}` })}\n\n`)
-      const keepAlive = setInterval(() => { res.write(': heartbeat\n\n') }, 30000)
-      req.on('close', () => { clearInterval(keepAlive) })
-      return
-    }
+    // 注册到 SSE 客户端集合
+    _sseClients.add(res)
 
-    // 日志回调 → 转发到 SSE
-    // line 是 LogSegment[] JSON 字符串，如 [{"t":"text","c":"Red"}]
-    // 前端 ConsoleTerminal 期望外层是字符串数组：data: ["[{\"t\":...}]"]
-    rcon.onLog = (line) => {
+    // 定时心跳
+    const keepAlive = setInterval(() => {
       try {
-        res.write(`data: ${JSON.stringify([line])}\n\n`)
+        res.write(': heartbeat\n\n')
       } catch {
-        rcon.close()
+        clearInterval(keepAlive)
+        _sseClients.delete(res)
+        onSseClientCountChanged()
       }
-    }
+    }, 30000)
 
-    rcon.onError = (err) => {
-      console.error('[SSE Proxy] RCON 错误:', err.message)
-    }
-
-    rcon.onEnd = () => {
-      console.log('[SSE Proxy] RCON 断开')
-      try { res.end() } catch {}
-    }
-
-    // 客户端断开 → 关闭 RCON
+    // 客户端断开
     req.on('close', () => {
-      console.log('[SSE Proxy] 客户端断开')
-      rcon.close()
+      clearInterval(keepAlive)
+      _sseClients.delete(res)
+      onSseClientCountChanged()
+      console.log('[SSE] 客户端断开')
     })
 
   } catch (error) {
-    console.error('[SSE Proxy] 启动失败:', error.message)
+    console.error('[SSE] 启动失败:', error.message)
     if (!res.headersSent) {
       res.status(502).json({ error: error.message })
     }

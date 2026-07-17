@@ -117,3 +117,36 @@ export const setPromotionConfig = async (req, res) => {
     res.status(500).json({ status: '500', error: error.message })
   }
 }
+
+// ═══ 日志 Webhook 配置 ═══
+
+export const getLogWebhookConfig = async (req, res) => {
+  try {
+    const { getLogWebhookConfig } = await import('../config.js')
+    const cfg = await getLogWebhookConfig()
+    res.json({ status: '200', ...cfg })
+  } catch (error) {
+    res.status(500).json({ status: '500', error: error.message })
+  }
+}
+
+export const setLogWebhookConfig = async (req, res) => {
+  try {
+    const { saveLogWebhookConfig } = await import('../config.js')
+    const { enabled, publicUrl } = req.body
+    const result = await saveLogWebhookConfig({ enabled, publicUrl })
+
+    // 保存后立即生效：注册或注销
+    if (enabled) {
+      const { updatePluginWebhook } = await import('../services/webhookRegistration.js')
+      const regResult = await updatePluginWebhook(result.publicUrl)
+      res.json({ status: '200', ...result, registerResult: regResult })
+    } else {
+      const { updatePluginWebhook } = await import('../services/webhookRegistration.js')
+      const unregResult = await updatePluginWebhook(null)
+      res.json({ status: '200', ...result, registerResult: unregResult })
+    }
+  } catch (error) {
+    res.status(500).json({ status: '500', error: error.message })
+  }
+}

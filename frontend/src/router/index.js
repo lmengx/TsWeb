@@ -8,6 +8,7 @@ import ServerError from '../views/ServerError.vue'
 import Setup from '../views/Setup.vue'
 import SetupIntro from '../views/SetupIntro.vue'
 import PluginSetup from '../views/PluginSetup.vue'
+import BackendView from '../views/BackendView.vue'
 import NotFound from '../views/NotFound.vue'
 import { isAdmin } from '../utils/authHelper.js'
 
@@ -16,6 +17,11 @@ const routes = [
     path: '/',
     name: 'Home',
     component: Home
+  },
+  {
+    path: '/backend',
+    name: 'Backend',
+    component: BackendView
   },
   {
     path: '/setup',
@@ -241,7 +247,7 @@ const checkServerStatus = async () => {
 
 router.beforeEach(async (to, from) => {
   // 检测 URL 中是否有 ?token=xxx（Setup Token），自动登录为 superadmin
-  if (to.query.token && to.path !== '/setup' && !to.path.startsWith('/setup/') && to.path !== '/setup/intro') {
+  if (to.query.token && to.path !== '/setup' && !to.path.startsWith('/setup/') && to.path !== '/setup/intro' && to.path !== '/backend') {
     try {
       const res = await fetch('/api/auth/setup-login?token=' + encodeURIComponent(to.query.token))
       const data = await res.json()
@@ -258,7 +264,7 @@ router.beforeEach(async (to, from) => {
     } catch {}
   }
 
-  if (to.path === '/error/server' || to.path === '/setup') {
+  if (to.path === '/error/server' || to.path === '/setup' || to.path === '/backend') {
     return true
   }
 

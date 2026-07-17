@@ -63,7 +63,6 @@ router.post('/init', async (req, res) => {
       return res.json({ success: false, error: result.error })
     }
     await saveNewConfig({ host, port, apiKey })
-    generateSetupToken()
     const { loadConfig } = await import('../config.js')
     const cfg = await loadConfig()
     tshockService.reloadConfig(cfg)
@@ -209,7 +208,6 @@ router.post('/auto-verify', async (req, res) => {
       return res.json({ success: false, error: connected.error })
     }
     await saveNewConfig({ host, port, apiKey })
-    generateSetupToken()
     const { loadConfig } = await import('../config.js')
     const cfg = await loadConfig()
     tshockService.reloadConfig(cfg)
@@ -280,30 +278,18 @@ router.post('/plugin-init', async (req, res) => {
   if (!token || !validateSetupToken(token)) {
     return res.status(403).json({ error: '无效的 Setup Token' })
   }
-  const { mode, bossLimitMode, bossLimitMinPlayers, rconEnabled, rconPort, rconPassword, rconExternalPort } = req.body
+  const { mode, bossLimitMode, bossLimitMinPlayers } = req.body
   if (!mode || !['default', 'auto', 'block'].includes(mode)) {
     return res.status(400).json({ error: 'mode 必须为 default/auto/block' })
   }
   try {
-    // 设置模式 + BossLimit + RCON
+    // 设置模式 + BossLimit
     let path = `/data/config/tsweb/set?mode=${encodeURIComponent(mode)}`
     if (bossLimitMode && ['disabled', 'playerlimit', 'killrequired'].includes(bossLimitMode)) {
       path += `&bossLimitMode=${encodeURIComponent(bossLimitMode)}`
     }
     if (bossLimitMinPlayers !== undefined && !isNaN(bossLimitMinPlayers)) {
       path += `&bossLimitMinPlayers=${encodeURIComponent(bossLimitMinPlayers)}`
-    }
-    if (rconEnabled !== undefined) {
-      path += `&rconEnabled=${encodeURIComponent(rconEnabled)}`
-    }
-    if (rconPort !== undefined && rconPort !== '') {
-      path += `&rconPort=${encodeURIComponent(rconPort)}`
-    }
-    if (rconPassword !== undefined && rconPassword !== '') {
-      path += `&rconPassword=${encodeURIComponent(rconPassword)}`
-    }
-    if (rconExternalPort !== undefined && rconExternalPort !== '') {
-      path += `&rconExternalPort=${encodeURIComponent(rconExternalPort)}`
     }
     const result = await tshockFetch(path)
     res.json(result || { status: '200', message: '配置已保存' })
@@ -360,7 +346,7 @@ router.get('/open', async (req, res) => {
     const port = config.server?.port || 3000
     const host = config.server?.host || '0.0.0.0'
     const token = generateSetupToken()
-    const url = `http://localhost:${port}/setup?token=${token}`
+    const url = `http://localhost:${port}/backend?token=${token}`
     exec(`start ${url}`, (err) => {
       if (err) {
         console.log(`[Setup] 打开浏览器失败: ${err.message}`)
@@ -370,41 +356,6 @@ router.get('/open', async (req, res) => {
     res.json({ success: true, url })
   } catch (err) {
     res.status(500).json({ error: err.message })
-  }
-})
-
-// RCON 连接测试
-router.post('/test-rcon', async (req, res) => {
-  const token = req.body.token || req.query.token
-  if (!token || !validateSetupToken(token)) {
-    return res.status(403).json({ error: '无效的 Setup Token' })
-  }
-  const { port } = req.body
-  if (!port) {
-    return res.json({ success: false, error: '缺少端口' })
-  }
-  try {
-    const net = await import('net')
-    const client = new net.Socket()
-    const result = await new Promise((resolve) => {
-      const timeout = setTimeout(() => {
-        client.destroy()
-        resolve({ success: false, error: '连接超时' })
-      }, 3000)
-      client.connect(port, '127.0.0.1', () => {
-        clearTimeout(timeout)
-        client.destroy()
-        resolve({ success: true })
-      })
-      client.on('error', (err) => {
-        clearTimeout(timeout)
-        client.destroy()
-        resolve({ success: false, error: err.message })
-      })
-    })
-    res.json(result)
-  } catch (err) {
-    res.json({ success: false, error: err.message })
   }
 })
 

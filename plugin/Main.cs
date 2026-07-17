@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System.Reflection;
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System.Reflection;
 using TShockAPI;
 using Terraria;
 using TerrariaApi.Server;
@@ -106,11 +106,10 @@ namespace TShockData
 
             SSELogger.Initialize(this);
 
-            // ═══ RCON 远程控制台 ═══
-            if (AutoRegister.Config.RconEnabled)
-            {
-                RconServer.Start(AutoRegister.Config.RconPort);
-            }
+            // ═══ Webhook 日志推流注册 API ═══
+            TShock.RestApi.Register(new SecureRestCommand("/data/config/log-webhook/register", SSELogger.RegisterWebhookApi, "tshock.admin"));
+            TShock.RestApi.Register(new SecureRestCommand("/data/config/log-webhook/unregister", SSELogger.UnregisterWebhookApi, "tshock.admin"));
+            TShock.RestApi.Register(new SecureRestCommand("/data/config/log-webhook/status", SSELogger.GetWebhookStatusApi, "tshock.admin"));
 
             TShock.RestApi.Register(new SecureRestCommand("/data/users/unverified/list", UnverifiedManager.GetUnverifiedList, "data.rest.invsee"));
             TShock.RestApi.Register(new SecureRestCommand("/data/users/unverified/detail", UnverifiedManager.GetDetail, "data.rest.invsee"));
@@ -151,18 +150,6 @@ namespace TShockData
             ItemDetection.StartAutoScan();
             PromotionManager.LoadConfig();
 
-            // RCON 重载：如果配置变化则重启
-            if (AutoRegister.Config.RconEnabled)
-            {
-                if (!RconServer.IsRunning)
-                    RconServer.Start(AutoRegister.Config.RconPort);
-            }
-            else
-            {
-                if (RconServer.IsRunning)
-                    RconServer.Stop();
-            }
-
             TShock.Log.ConsoleInfo("[TSWeb] 反作弊配置已重新加载");
         }
 
@@ -177,7 +164,6 @@ namespace TShockData
 				ItemRestrict.Dispose();
 				OnlineData.Dispose();
 				SSELogger.Dispose();
-				RconServer.Stop();
 				RuntimeHooks.Dispose();
 				BossLimit.Dispose();
 				ItemDetection.StopAutoScan();
@@ -271,6 +257,9 @@ namespace TShockData
 				"/data/qq/query-player",
 				"/data/promotion/config",
                 "/data/promotion/config/set",
+                "/data/config/log-webhook/register",
+                "/data/config/log-webhook/unregister",
+                "/data/config/log-webhook/status",
 				"/data/online/log/command",
 			};
 

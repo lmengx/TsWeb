@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Net.Http;
 using System.Text;
 using Newtonsoft.Json;
 using Rests;
@@ -186,7 +187,7 @@ namespace TShockData
     }
 
     /// <summary>
-    /// 日志管理 — 通过 RCON 推送，不再占用 REST API 端口
+    /// 日志管理 — 通过 Webhook HTTP POST 推送给后端，不再占用插件端口
     /// </summary>
     public static class SSELogger
     {
@@ -198,6 +199,11 @@ namespace TShockData
         private static LogInterceptor? _interceptor;
         private static TextWriter? _originalOut;
         private static bool _initialized = false;
+
+        // ═══ Webhook 推流 ═══
+        private static string? _webhookUrl;
+        private static readonly HttpClient _http = new();
+        private static readonly object _webhookLock = new();
 
         /// <summary>
         /// 初始化：重定向 Console 输出
@@ -213,11 +219,35 @@ namespace TShockData
         }
 
         /// <summary>
-        /// 添加一行日志到环形缓冲区
+        /// 后端通过 REST API 注册 webhook 推流地址
+        /// </summary>
+        public static void RegisterWebhook(string url)
+        {
+            lock (_webhookLock)
+            {
+                _webhookUrl = url;
+            }
+            TShock.Log.ConsoleInfo($"[TSWeb] 日志 Webhook 已注册: {url}");
+        }
+
+        /// <summary>
+        /// 获取当前 webhook URL（供 REST API 查询）
+        /// </summary>
+        public static string? GetWebhookUrl()
+        {
+            lock (_webhookLock)
+            {
+                return _webhookUrl;
+            }
+        }
+
+        /// <summary>
+        /// 添加一行日志到环形缓冲区并推送到 webhook
         /// line 是 LogSegment[] 序列化的 JSON 字符串
         /// </summary>
         public static void AddLogLine(string line)
         {
+            // 存入环形缓冲区
             lock (_logLock)
             {
                 _logHistory.Add(line);
@@ -225,9 +255,99 @@ namespace TShockData
                     _logHistory.RemoveRange(0, _logHistory.Count - MaxLogLines);
             }
 
-            // 推送给 RCON 客户端（如果 RCON 已启用）
-            if (RconServer.IsRunning)
-                RconServer.AddLogLine(line);
+            // 异步推送到 webhook（fire-and-forget）
+            string? url;
+            lock (_webhookLock)
+            {
+                url = _webhookUrl;
+            }
+            if (!string.IsNullOrEmpty(url))
+            {
+                var lineCopy = line; // 捕获局部变量
+                _ = PostToWebhookAsync(url, lineCopy);
+            }
+        }
+
+        /// <summary>
+        /// 异步发送日志行到 webhook 端点
+        /// </summary>
+        private static async System.Threading.Tasks.Task PostToWebhookAsync(string url, string line)
+        {
+            try
+            {
+                var payload = JsonConvert.SerializeObject(new { lines = new[] { line } });
+                var content = new StringContent(payload, Encoding.UTF8, "application/json");
+                // 超时 2 秒，防火墙耗时阻塞插件线程
+                using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(2));
+                var response = await _http.PostAsync(url, content, cts.Token);
+                response.Dispose();
+            }
+            catch (HttpRequestException)
+            {
+                // Webhook 不可达时静默忽略（可能是后端未启动/正在重启）
+            }
+            catch (TaskCanceledException)
+            {
+                // 超时忽略
+            }
+            catch (Exception ex)
+            {
+                TShock.Log.ConsoleError($"[TSWeb] Webhook 推送失败: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 清空 webhook（注销推流）
+        /// </summary>
+        public static void UnregisterWebhook()
+        {
+            lock (_webhookLock)
+            {
+                _webhookUrl = null;
+            }
+            TShock.Log.ConsoleInfo("[TSWeb] 日志 Webhook 已注销");
+        }
+
+        /// <summary>
+        /// REST API: 注册/更新 webhook 地址
+        /// GET /data/config/log-webhook/register?url=http://...
+        /// url 为空时等同于注销
+        /// </summary>
+        public static object RegisterWebhookApi(RestRequestArgs args)
+        {
+            var url = args.Parameters["url"];
+            if (string.IsNullOrEmpty(url))
+            {
+                UnregisterWebhook();
+                return new { status = "200", message = "Webhook 已注销" };
+            }
+            RegisterWebhook(url);
+            return new { status = "200", message = "Webhook 已注册" };
+        }
+
+        /// <summary>
+        /// REST API: 注销 webhook（清空推流地址）
+        /// GET /data/config/log-webhook/unregister
+        /// </summary>
+        public static object UnregisterWebhookApi(RestRequestArgs args)
+        {
+            UnregisterWebhook();
+            return new { status = "200", message = "Webhook 已注销" };
+        }
+
+        /// <summary>
+        /// REST API: 获取当前 webhook 状态
+        /// GET /data/config/log-webhook/status
+        /// </summary>
+        public static object GetWebhookStatusApi(RestRequestArgs args)
+        {
+            var url = GetWebhookUrl();
+            return new
+            {
+                status = "200",
+                registered = !string.IsNullOrEmpty(url),
+                url = url ?? ""
+            };
         }
 
         /// <summary>

@@ -54,6 +54,10 @@ export async function saveNewConfig(setupData) {
       jwtSecret: generateSecret(),
       tokenExpire: '24h',
       challengeExpire: 120000
+    },
+    logWebhook: {
+      enabled: false,
+      publicUrl: `http://127.0.0.1:3000/api/online/log-webhook`
     }
   }
 
@@ -115,6 +119,26 @@ export async function isConfigFileExists() {
   } catch {
     return false
   }
+}
+
+export async function getLogWebhookConfig() {
+  const cfg = await loadConfig()
+  if (!cfg) return { enabled: false, publicUrl: 'http://127.0.0.1:3000/api/online/log-webhook' }
+  return {
+    enabled: cfg.logWebhook?.enabled ?? false,
+    publicUrl: cfg.logWebhook?.publicUrl || `http://127.0.0.1:${cfg.server?.port || 3000}/api/online/log-webhook`
+  }
+}
+
+export async function saveLogWebhookConfig(data) {
+  const cfg = await loadConfig()
+  if (!cfg.logWebhook) cfg.logWebhook = {}
+  if (data.enabled !== undefined) cfg.logWebhook.enabled = data.enabled
+  if (data.publicUrl !== undefined && data.publicUrl.trim()) cfg.logWebhook.publicUrl = data.publicUrl.trim()
+  config = cfg
+  await fs.writeFile(CONFIG_PATH, JSON.stringify(cfg, null, 2), 'utf8')
+  notifyConfigUpdate()
+  return cfg.logWebhook
 }
 
 export default loadConfig
