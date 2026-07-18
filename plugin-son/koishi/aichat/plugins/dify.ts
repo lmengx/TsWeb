@@ -1,6 +1,7 @@
 import { Context, Session, h } from 'koishi'
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs'
+import { dirname } from 'path'
 import type { Config } from '../utils/config'
-import { CONFIG_DEFAULTS } from '../utils/config'
 import MarkdownIt from 'markdown-it'
 import { chromium } from 'playwright'
 
@@ -20,7 +21,6 @@ async function getBrowser(): Promise<import('playwright').Browser> {
   return _browser
 }
 
-/** 生成带样式的完整 HTML */
 function buildHtml(mdHtml: string): string {
   const bg = '#ffffff'
   const text = '#1a1a2e'
@@ -63,166 +63,285 @@ strong{font-weight:700}
 async function renderToImage(answer: string): Promise<Buffer> {
   const mdHtml = _md.render(answer)
   const fullHtml = buildHtml(mdHtml)
-
   const browser = await getBrowser()
   const page = await browser.newPage()
   try {
     await page.setContent(fullHtml, { waitUntil: 'networkidle' })
     const box = await page.locator('body').boundingBox()
-    // 放大视口以覆盖全部内容，防止超出初始视口(720px)的像素未被渲染合成
     await page.setViewportSize({ width: Math.ceil(box!.width), height: Math.ceil(box!.height) + 50 })
-    // 重新获取稳定后的 bounding box
     const finalBox = await page.locator('body').boundingBox()
-    const buf = await page.screenshot({
+    return await page.screenshot({
       clip: { x: 0, y: 0, width: finalBox!.width, height: finalBox!.height },
       type: 'png',
     })
-    return buf
   } finally {
     await page.close()
   }
 }
 
 // ══════════════════════════════════════════════════════════
-//  插件入口（可多实例）
+//  本地持久化：QQ号 → Dify conversation_id
+// ══════════════════════════════════════════════════════════
+
+interface SessionStore {
+  [key: string]: {
+    /** Dify 会话 ID */
+    conversationId: string
+    /** 最后活跃时间戳 */
+    lastActive: number
+  }
+}
+
+let store: SessionStore = {}
+let storePath = ''
+
+function loadStore(path: string) {
+  storePath = path
+  try {
+    const dir = dirname(path)
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
+    if (existsSync(path)) {
+      store = JSON.parse(readFileSync(path, 'utf-8'))
+    }
+  } catch { store = {} }
+}
+
+function saveStore() {
+  try { writeFileSync(storePath, JSON.stringify(store, null, 2), 'utf-8') } catch { /* skip */ }
+}
+
+// ══════════════════════════════════════════════════════════
+//  Dify API
+// ══════════════════════════════════════════════════════════
+
+/** Dify 端返回的会话信息 */
+interface DifyConversation {
+  id: string
+  name: string
+  created_at: number
+  updated_at: number
+}
+
+async function listConversations(apiBase: string, apiKey: string, user: string): Promise<DifyConversation[]> {
+  const url = `${apiBase}/conversations?user=${encodeURIComponent(user)}&limit=20`
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${apiKey}` },
+  })
+  if (!res.ok) return []
+  const json = await res.json()
+  return json.data || []
+}
+
+async function callDify(
+  apiBase: string,
+  apiKey: string,
+  timeout: number,
+  query: string,
+  user: string,
+  conversationId: string,
+  logger: Context['logger'],
+): Promise<{ answer: string; conversationId: string } | null> {
+  const body = JSON.stringify({
+    inputs: {},
+    query,
+    response_mode: 'streaming',
+    user,
+    conversation_id: conversationId || '',
+    files: [],
+  })
+
+  try {
+    const res = await fetch(`${apiBase}/chat-messages`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body,
+      signal: AbortSignal.timeout(timeout * 1000),
+    })
+
+    if (!res.ok) {
+      logger.error(`[DifyChat] HTTP ${res.status}: ${await res.text().catch(() => '')}`)
+      return null
+    }
+
+    const reader = res.body!.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    let answer = ''
+    let newConversationId = conversationId || ''
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() || ''
+      for (const line of lines) {
+        const t = line.trim()
+        if (!t.startsWith('data: ')) continue
+        try {
+          const ev = JSON.parse(t.slice(6))
+          if (ev.event === 'agent_message') {
+            answer += ev.answer || ''
+          } else if (ev.event === 'message_end') {
+            if (ev.conversation_id) newConversationId = ev.conversation_id
+          } else if (ev.event === 'error') {
+            logger.error(`[DifyChat] 流错误: ${ev.message}`)
+            return null
+          }
+        } catch { /* skip malformed */ }
+      }
+    }
+
+    return answer ? { answer, conversationId: newConversationId } : null
+  } catch (err: any) {
+    logger.error(`[DifyChat] 请求异常: ${err.message || err}`)
+    return null
+  }
+}
+
+// ══════════════════════════════════════════════════════════
+//  插件入口
 // ══════════════════════════════════════════════════════════
 
 export function apply(ctx: Context, config: Config) {
-  // ── 实例级上下文存储 ──
-  const contexts = new Map<string, { entries: { role: 'user' | 'assistant'; content: string }[]; lastActive: number; conversationId: string }>()
+  const apiBase = config.目标地址.replace(/\/+$/, '')    // 不带末尾斜杠，期望已含 /v1
+  const apiKey = config.接口密钥
+  const resetTime = config.上下文重置时间 * 1000
+  const logger = ctx.logger
 
-  function getContextKey(guildId: string, userId: string): string {
-    return `${guildId}_${userId}`
-  }
+  // 持久化文件
+  loadStore(`${ctx.baseDir}/data/dify-sessions.json`)
 
-  function pushContext(key: string, userMsg: string, botMsg: string, maxSize: number) {
-    let c = contexts.get(key)
-    if (!c) {
-      c = { entries: [], lastActive: Date.now(), conversationId: '' }
-      contexts.set(key, c)
-    }
-    c.lastActive = Date.now()
-    c.entries.push({ role: 'user', content: userMsg })
-    c.entries.push({ role: 'assistant', content: botMsg })
-    while (c.entries.length > maxSize * 2) c.entries.splice(0, 2)
-  }
-
-  function touchContext(key: string, resetTime: number) {
-    const c = contexts.get(key)
-    if (!c) return null
-    if (Date.now() - c.lastActive > resetTime * 1000) { contexts.delete(key); return null }
-    c.lastActive = Date.now()
-    return c
-  }
-
-  // ── 清理定时器 ──
-  const timer = setInterval(() => {
-    const now = Date.now()
-    const threshold = config.上下文重置时间 * 1000
-    let cleaned = 0
-    for (const [key, data] of contexts) {
-      if (now - data.lastActive > threshold) { contexts.delete(key); cleaned++ }
-    }
-    if (cleaned > 0) ctx.logger.info(`[DifyChat] 清理了 ${cleaned} 个过期上下文`)
-  }, CONFIG_DEFAULTS.清理间隔 * 1000)
-  ctx.on('dispose', () => clearInterval(timer))
-
-  // ── Dify API 调用 ──
-  async function callDify(
-    query: string,
-    user: string,
-    conversationId: string,
-  ): Promise<{ answer: string; conversationId: string } | null> {
-    const baseUrl = config.目标地址.replace(/\/+$/, '')
-    const body = JSON.stringify({
-      inputs: {},
-      query,
-      response_mode: 'streaming',
-      user,
-      conversation_id: conversationId || '',
-      auto_generate_name: false,
-    })
-
-    try {
-      const res = await fetch(`${baseUrl}/chat-messages`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${config.接口密钥}`, 'Content-Type': 'application/json' },
-        body,
-        signal: AbortSignal.timeout(config.请求超时 * 1000),
-      })
-      if (!res.ok) { ctx.logger.error(`[DifyChat] HTTP ${res.status}: ${await res.text().catch(() => '')}`); return null }
-
-      const reader = res.body!.getReader()
-      const decoder = new TextDecoder()
-      let buffer = '', answer = '', newConversationId = conversationId || ''
-
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split('\n')
-        buffer = lines.pop() || ''
-        for (const line of lines) {
-          const t = line.trim()
-          if (!t.startsWith('data: ')) continue
-          try {
-            const ev = JSON.parse(t.slice(6))
-            if (ev.event === 'agent_message') answer += ev.answer || ''
-            else if (ev.event === 'message_end' && ev.conversation_id) newConversationId = ev.conversation_id
-            else if (ev.event === 'error') { ctx.logger.error(`[DifyChat] 流错误: ${ev.message}`); return null }
-          } catch { /* skip malformed */ }
-        }
-      }
-      return answer ? { answer, conversationId: newConversationId } : null
-    } catch (err: any) {
-      ctx.logger.error(`[DifyChat] 请求异常: ${err.message || err}`)
-      return null
-    }
-  }
-
-  // ── 消息监听 ──
+  // 生效群组
   const groupSet = new Set(config.生效群列表)
-  ctx.logger.info(`[DifyChat] 载入完成，生效群数: ${groupSet.size}`)
-  ctx.logger.info(`[DifyChat] 生效群号: ${JSON.stringify(config.生效群列表)}`)
+  logger.info(`[DifyChat] 载入完成, API: ${apiBase}, 生效群: ${JSON.stringify([...groupSet])}`)
 
   ctx.on('message', async (session: Session) => {
     if (!session.guildId) return
     if (!groupSet.has(Number(session.guildId))) return
 
+    // 必须是 @ 机器人
     const selfId = session.bot.selfId
-    const isAtBot = h.select(session.elements, 'at').some((el: any) => String(el.attrs.id) === String(selfId))
+    const isAtBot = h.select(session.elements, 'at')
+      .some((el: any) => String(el.attrs.id) === String(selfId))
     if (!isAtBot) return
 
-    const userMsg = h.select(session.elements, 'text').map((el: any) => el.attrs.content).join('').trim()
-    if (!userMsg) return
+    const rawText = h.select(session.elements, 'text')
+      .map((el: any) => el.attrs.content).join('').trim()
 
-    ctx.logger.info(`[DifyChat] @消息: userId=${session.userId}, "${userMsg.slice(0, 50)}"`)
+    // ════════════════════════════════════════════════════
+    //  命令
+    // ════════════════════════════════════════════════════
 
-    const contextKey = getContextKey(session.guildId, session.userId)
-    const existingCtx = touchContext(contextKey, config.上下文重置时间)
-    const convId = existingCtx?.conversationId ?? ''
+    // /new — 开始新会话
+    if (rawText === '/new') {
+      delete store[session.userId]
+      saveStore()
+      await session.send(h('at', { id: session.userId }) + ' 已开始新会话')
+      return
+    }
 
-    const result = await callDify(userMsg, session.userId, convId)
+    // /list — 列出 Dify 端所有会话
+    if (rawText === '/list') {
+      const list = await listConversations(apiBase, apiKey, session.userId)
+      if (!list.length) {
+        await session.send('暂无历史会话')
+        return
+      }
+      const current = store[session.userId]?.conversationId
+      const lines = list.map((c, i) => {
+        const marker = c.id === current ? ' *' : ''
+        const name = c.name || '未命名'
+        const date = new Date(c.updated_at * 1000).toLocaleString('zh-CN')
+        return `${i + 1}.${marker} ${name}  ${date}  \`${c.id.slice(0, 8)}\``
+      })
+      await session.send(lines.join('\n'))
+      return
+    }
+
+    // /switch <序号|名称|ID前缀> — 切换会话
+    if (rawText.startsWith('/switch ')) {
+      const target = rawText.slice(8).trim()
+      const list = await listConversations(apiBase, apiKey, session.userId)
+      let found: DifyConversation | undefined
+      const idx = parseInt(target)
+      if (!isNaN(idx) && idx > 0 && idx <= list.length) {
+        found = list[idx - 1]
+      } else {
+        found = list.find(c =>
+          c.name === target ||
+          c.id === target ||
+          c.id.startsWith(target),
+        )
+      }
+      if (!found) {
+        await session.send('未找到该会话，使用 /list 查看')
+        return
+      }
+      store[session.userId] = { conversationId: found.id, lastActive: Date.now() }
+      saveStore()
+      await session.send(`已切换到: ${found.name || found.id.slice(0, 8)}`)
+      return
+    }
+
+    // /help — 帮助
+    if (rawText === '/help') {
+      await session.send([
+        '**Dify Chat 命令**',
+        '`/new` — 开始新会话',
+        '`/list` — 列出所有历史会话（* 标记当前）',
+        '`/switch <序号|名称>` — 切换到指定会话',
+        '直接 @我 发送消息 — 继续当前会话',
+      ].join('\n'))
+      return
+    }
+
+    // ════════════════════════════════════════════════════
+    //  正常对话
+    // ════════════════════════════════════════════════════
+
+    if (!rawText) return
+
+    logger.info(`[DifyChat] @消息: userId=${session.userId}, "${rawText.slice(0, 50)}"`)
+
+    // 查本地存储，获取 conversationId
+    const entry = store[session.userId]
+    let convId = ''
+    if (entry) {
+      // 超时则开新会话
+      if (Date.now() - entry.lastActive > resetTime) {
+        delete store[session.userId]
+        saveStore()
+      } else {
+        convId = entry.conversationId
+      }
+    }
+
+    const result = await callDify(apiBase, apiKey, config.请求超时, rawText, session.userId, convId, logger)
     if (!result) {
       await session.send(h('at', { id: session.userId }) + ' 抱歉，AI 暂时无法回复')
       return
     }
 
-    const { answer, conversationId: newConvId } = result
-    ctx.logger.info(`[DifyChat] 返回 ${answer.length} 字, convId=${newConvId}`)
+    logger.info(`[DifyChat] 返回 ${result.answer.length} 字, convId=${result.conversationId}`)
 
-    // 存入上下文
-    pushContext(contextKey, userMsg, answer, config.最大上下文大小)
-    const updated = contexts.get(contextKey)
-    if (updated && newConvId) updated.conversationId = newConvId
+    // 持久化对话映射
+    store[session.userId] = {
+      conversationId: result.conversationId,
+      lastActive: Date.now(),
+    }
+    saveStore()
 
-    // ── Markdown → 图片发送 ──
+    // 渲染 Markdown → 图片发送
     try {
-      const buf = await renderToImage(answer)
+      const buf = await renderToImage(result.answer)
       await session.send(h('image', { url: `base64://${buf.toString('base64')}` }))
     } catch (err: any) {
-      ctx.logger.error(`[DifyChat] 截图失败: ${err.message}，降级为纯文本`)
-      await session.send(h('at', { id: session.userId }) + ' ' + answer)
+      logger.error(`[DifyChat] 截图失败: ${err.message}，降级为纯文本`)
+      await session.send(h('at', { id: session.userId }) + ' ' + result.answer)
     }
   })
 }
