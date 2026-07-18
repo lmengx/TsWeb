@@ -1004,7 +1004,18 @@ const checkOnlineStatus = async () => {
 const copyToClipboard = async (text) => {
   if (!text) return
   try {
-    await navigator.clipboard.writeText(text)
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(text)
+    } else {
+      const textarea = document.createElement('textarea')
+      textarea.value = text
+      textarea.style.position = 'fixed'
+      textarea.style.opacity = '0'
+      document.body.appendChild(textarea)
+      textarea.select()
+      document.execCommand('copy')
+      document.body.removeChild(textarea)
+    }
     showToast('已复制到剪贴板')
   } catch (err) {
     console.error('复制失败:', err)
