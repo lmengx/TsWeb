@@ -3500,6 +3500,8 @@ onMounted(() => {
   width: 90%;
   max-width: 500px;
   max-height: 85vh;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
   box-shadow: var(--shadow-lg);
   border: 1px solid var(--border-light);
@@ -3552,6 +3554,8 @@ onMounted(() => {
 
 .modal-body {
   padding: 24px;
+  overflow-y: auto;
+  flex: 1;
 }
 
 .give-form,
