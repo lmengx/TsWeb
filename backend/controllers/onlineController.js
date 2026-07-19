@@ -1,7 +1,7 @@
 import onlineService from '../services/onlineService.js'
 import jwt from 'jsonwebtoken'
 import { getConfig } from '../config.js'
-import { updatePluginWebhook } from '../services/webhookRegistration.js'
+import { updatePluginWebhook, reRegisterWebhook } from '../services/webhookRegistration.js'
 
 // ═══ 内存日志队列 + SSE 客户端管理 ═══
 const _logQueue = []
@@ -21,10 +21,11 @@ function onSseClientCountChanged() {
     _sseThrottleTimer = null
     const count = _sseClients.size
     if (count === 0) {
-      // 没有客户端了 → 注销 webhook，让插件停止推流
       await updatePluginWebhook(null)
+    } else {
+      // 有客户端时主动重注册 webhook，防止插件端连接断裂
+      await reRegisterWebhook()
     }
-    // 有客户端时不自动注册，由配置变化或启动时触发注册
   }, 2000)
 }
 
@@ -79,10 +80,14 @@ export const logWebhookReceiver = (req, res) => {
       _logQueue.splice(0, _logQueue.length - MaxQueueLines)
     }
 
-    // 广播给所有 SSE 客户端
+    // 广播给所有 SSE 客户端（跳过僵尸连接）
     const data = JSON.stringify([line])
     for (const client of _sseClients) {
       try {
+        if (client.socket?.destroyed || !client.writable) {
+          _sseClients.delete(client)
+          continue
+        }
         client.write(`data: ${data}\n\n`)
       } catch {
         _sseClients.delete(client)
@@ -138,9 +143,13 @@ export const streamLogs = async (req, res) => {
     // 注册到 SSE 客户端集合
     _sseClients.add(res)
 
-    // 定时心跳
+    // 定时心跳 + 僵尸检测
     const keepAlive = setInterval(() => {
       try {
+        // 检测底层 socket 是否已断开
+        if (res.socket?.destroyed || !res.writable) {
+          throw new Error('Socket closed')
+        }
         res.write(': heartbeat\n\n')
       } catch {
         clearInterval(keepAlive)
@@ -148,6 +157,13 @@ export const streamLogs = async (req, res) => {
         onSseClientCountChanged()
       }
     }, 30000)
+
+    // 额外监听 socket 级别断开（比 req.close 更可靠）
+    res.socket?.once('close', () => {
+      clearInterval(keepAlive)
+      _sseClients.delete(res)
+      onSseClientCountChanged()
+    })
 
     // 客户端断开
     req.on('close', () => {

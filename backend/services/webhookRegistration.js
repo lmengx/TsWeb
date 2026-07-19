@@ -50,3 +50,24 @@ export async function updatePluginWebhook(url) {
 export function getCurrentWebhookUrl() {
   return _currentUrl
 }
+
+/**
+ * 重新注册当前 webhook（用于 SSE 客户端连接时恢复推流）
+ */
+export async function reRegisterWebhook() {
+  if (_currentUrl) {
+    console.log(`[Webhook] 重新注册: ${_currentUrl}`)
+    return updatePluginWebhook(_currentUrl)
+  }
+  // 尝试从配置构建 URL
+  try {
+    const cfg = await getConfig()
+    const whCfg = cfg.logWebhook || {}
+    if (whCfg.enabled && cfg.tshock?.host) {
+      const url = whCfg.publicUrl || `http://127.0.0.1:${cfg.server?.port || 3000}/api/online/log-webhook`
+      console.log(`[Webhook] 首次注册: ${url}`)
+      return updatePluginWebhook(url)
+    }
+  } catch {}
+  return { success: false, message: '无可用 webhook URL' }
+}

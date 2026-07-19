@@ -7,6 +7,9 @@ const logContainer = ref(null)
 const connected = ref(false)
 
 let eventSource = null
+let reconnectAttempts = 0
+let reconnectTimer = null
+const MAX_RECONNECT = 20
 const MAX_LOG = 200
 
 // ── ConsoleColor → CSS 颜色映射 ──
@@ -42,6 +45,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  if (reconnectTimer) clearTimeout(reconnectTimer)
   if (eventSource) {
     eventSource.close()
     eventSource = null
@@ -56,6 +60,7 @@ function connectSSE() {
 
   eventSource.onopen = () => {
     connected.value = true
+    reconnectAttempts = 0
   }
 
   eventSource.onmessage = (e) => {
@@ -97,6 +102,15 @@ function connectSSE() {
 
   eventSource.onerror = () => {
     connected.value = false
+    if (eventSource) {
+      eventSource.close()
+      eventSource = null
+    }
+    reconnectAttempts++
+    if (reconnectAttempts <= MAX_RECONNECT) {
+      const delay = Math.min(2000 * Math.pow(1.5, reconnectAttempts - 1), 60000)
+      reconnectTimer = setTimeout(() => connectSSE(), delay)
+    }
   }
 }
 
