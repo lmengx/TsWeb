@@ -15,7 +15,7 @@ export function apply(ctx: Context, config: Config) {
 
     await session.send(
       h('at', { id: qq }) +
-      ' 欢迎加入服务器群！\n发送「绑定 角色名」绑定你的游戏角色\n发送「注册 角色名」创建新角色并绑定'
+      ' 欢迎加入服务器群！\n发送help获取帮助'
     )
   })
 }

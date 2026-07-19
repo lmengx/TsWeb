@@ -8,8 +8,6 @@ export function apply(ctx: Context, config: Config) {
   ctx.logger.info('[tshock-private] 私聊/临时会话处理器已加载')
 
   ctx.on('message', async (session: Session) => {
-    if (session.guildId) return
-
     const content = session.content.trim()
     if (!content.startsWith('改密码 ')) return
 
@@ -34,7 +32,6 @@ export function apply(ctx: Context, config: Config) {
 }
 
 async function tryReply(ctx: Context, session: Session, config: Config, text: string) {
-  // 直接用内部 API 发私聊，方便检测是否成功
   try {
     const bot = session.bot as any
     if (bot.internal?.sendPrivateMsg) {
@@ -45,7 +42,7 @@ async function tryReply(ctx: Context, session: Session, config: Config, text: st
     return
   } catch {}
 
-  // 在生效群列表中逐个查找该用户
+  // 兼容不支持独立私聊的适配器：在生效群中找该用户 @消息
   ctx.logger.info('[私聊] 尝试在群中查找用户:', session.userId)
 
   for (const groupId of config.生效群列表) {
