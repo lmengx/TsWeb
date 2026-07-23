@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System.Reflection;
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System.Reflection;
 using TShockAPI;
 using Terraria;
 using TerrariaApi.Server;
@@ -102,7 +102,7 @@ namespace TShockData
             TShock.RestApi.Register(new SecureRestCommand("/data/online/ranking/stats", OnlineData.GetRankingStats, "data.rest.invsee"));
 
             // 控制台命令执行
-            TShock.RestApi.Register(new SecureRestCommand("/data/online/log/command", SSELogCommand.Execute, "data.rest.invsee"));
+            TShock.RestApi.Register(new SecureRestCommand("/data/online/log/command", SSELogger.ExecuteCommandApi, "data.rest.invsee"));
 
             // 日志轮询（替代 SSE，通过 RCON 推送）
             TShock.RestApi.Register(new SecureRestCommand("/data/online/log/poll", SSELogger.PollLogs, "data.rest.invsee"));

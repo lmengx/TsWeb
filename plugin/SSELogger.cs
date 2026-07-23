@@ -381,6 +381,65 @@ namespace TShockData
         }
 
         /// <summary>
+        /// REST API: 以 superadmin 身份执行服务器命令
+        /// GET /data/online/log/command?cmd=say hello&executor=xxx
+        /// 命令执行信息及输出通过 Console 写入（LogInterceptor 自动捕获）
+        /// </summary>
+        public static object ExecuteCommandApi(RestRequestArgs args)
+        {
+            try
+            {
+                var cmd = args.Parameters["cmd"];
+                if (string.IsNullOrWhiteSpace(cmd))
+                {
+                    return new RestObject("400") { { "error", "Missing cmd parameter" } };
+                }
+
+                var executor = args.Parameters["executor"];
+                if (string.IsNullOrWhiteSpace(executor))
+                    executor = "SSE-Console";
+
+                Console.ForegroundColor = ConsoleColor.Magenta;
+                Console.Write("[" + DateTime.Now.ToString("HH:mm:ss") + "] ");
+                Console.ForegroundColor = ConsoleColor.White;
+                Console.Write(executor);
+                Console.ForegroundColor = ConsoleColor.Magenta;
+                Console.Write(" 执行了 ");
+                Console.ForegroundColor = ConsoleColor.White;
+                Console.WriteLine(cmd);
+                Console.ResetColor();
+
+                var group = TShock.Groups.GetGroupByName("superadmin");
+                var tr = new TSRestPlayer(executor, group);
+                Commands.HandleCommand(tr, cmd);
+
+                var outputList = tr.GetCommandOutput();
+
+                if (outputList != null && outputList.Count > 0)
+                {
+                    Console.ForegroundColor = ConsoleColor.Gray;
+                    foreach (var line in outputList)
+                    {
+                        if (!string.IsNullOrEmpty(line))
+                            Console.WriteLine(line);
+                    }
+                    Console.ResetColor();
+                }
+
+                var output = string.Join("\n", outputList ?? new List<string>());
+
+                return new RestObject
+                {
+                    { "response", output }
+                };
+            }
+            catch (Exception ex)
+            {
+                return new RestObject("500") { { "error", ex.Message } };
+            }
+        }
+
+        /// <summary>
         /// 清理
         /// </summary>
         public static void Dispose()
