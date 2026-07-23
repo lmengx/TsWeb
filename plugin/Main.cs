@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System.Reflection;
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System.Reflection;
 using TShockAPI;
 using Terraria;
 using TerrariaApi.Server;
@@ -22,6 +22,7 @@ namespace TShockData
 
             BossLimit.Initialize();
             BossLimit.InitQuit(this);
+            BossConfigManager.LoadConfig();
 
             BypassHelper.RegisterPermissionHook();
 
@@ -74,6 +75,8 @@ namespace TShockData
             TShock.RestApi.Register(new SecureRestCommand("/data/bosslimit/status", BossLimitQuit.GetStatusJson, ""));
             TShock.RestApi.Register(new SecureRestCommand("/data/config/tsweb", AutoRegister.GetConfigJson, ""));
             TShock.RestApi.Register(new SecureRestCommand("/data/config/tsweb/set", AutoRegister.SetConfigJson, "data.rest.invsee"));
+            TShock.RestApi.Register(new SecureRestCommand("/data/config/boss", BossConfigManager.GetConfigJson, ""));
+            TShock.RestApi.Register(new SecureRestCommand("/data/config/boss/set", BossConfigManager.SetConfigJson, "data.rest.invsee"));
 
             TShockAPI.Commands.ChatCommands.Add(new Command("tools.planoff", PlannedOff.PlanOff, "planoff"));
             PlannedOff.Initialize(this);

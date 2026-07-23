@@ -88,7 +88,7 @@ public static class BossLimit
     private static void ShowAllStatus(CommandArgs args)
     {
         args.Player.SendInfoMessage("══════════ BOSS 限制 ══════════");
-        BossLimitSummon.ShowStatus(args, AutoRegister.Config);
+        BossLimitSummon.ShowStatus(args, BossConfigManager.Config);
         BossLimitQuit.ShowStatus(args);
         args.Player.SendInfoMessage("─ 子命令 ─────────────────────");
         ShowHelp(args);

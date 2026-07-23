@@ -57,7 +57,7 @@ public static class BossLimitSummon
             return orig(args);
 
         string bossName = Lang.GetNPCNameValue(thingType);
-        var config = AutoRegister.Config;
+        var config = BossConfigManager.Config;
 
         switch (config.BossLimitMode)
         {
@@ -77,7 +77,7 @@ public static class BossLimitSummon
 
     private static bool HandlePlayerLimitMode(
         OrigHandleSpawnBoss orig, GetDataHandlerArgs args,
-        short thingType, string bossName, string playerName, RegisterConfig config)
+        short thingType, string bossName, string playerName, BossConfig config)
     {
         int killCount;
         try { killCount = BossProgress.GetKillCount(thingType); }
@@ -110,7 +110,7 @@ public static class BossLimitSummon
 
     private static bool HandleKillRequiredMode(
         OrigHandleSpawnBoss orig, GetDataHandlerArgs args,
-        short thingType, string bossName, string playerName, RegisterConfig config)
+        short thingType, string bossName, string playerName, BossConfig config)
     {
         int killCount;
         try { killCount = BossProgress.GetKillCount(thingType); }
@@ -139,7 +139,7 @@ public static class BossLimitSummon
     /// </summary>
     public static void HandleCommand(CommandArgs args)
     {
-        var config = AutoRegister.Config;
+        var config = BossConfigManager.Config;
 
         // 只有 "summon" 无后续参数 → 显示状态
         if (args.Parameters.Count < 2)
@@ -165,7 +165,7 @@ public static class BossLimitSummon
             case "on":
                 config.BossLimitMode = "playerlimit";
                 config.BossLimitEnabled = true;
-                AutoRegister.SaveConfig();
+                BossConfigManager.SaveConfig();
                 args.Player.SendSuccessMessage($"Boss 召唤限制已开启（模式: playerlimit，最低人数: {config.BossLimitMinPlayers}）");
                 TShock.Log.ConsoleInfo($"[BossLimitSummon] {args.Player.Name} 开启了 Boss 召唤限制（playerlimit）");
                 break;
@@ -173,7 +173,7 @@ public static class BossLimitSummon
             case "off":
                 config.BossLimitMode = "disabled";
                 config.BossLimitEnabled = false;
-                AutoRegister.SaveConfig();
+                BossConfigManager.SaveConfig();
                 args.Player.SendSuccessMessage("Boss 召唤限制已关闭");
                 TShock.Log.ConsoleInfo($"[BossLimitSummon] {args.Player.Name} 关闭了 Boss 召唤限制");
                 break;
@@ -185,7 +185,7 @@ public static class BossLimitSummon
         }
     }
 
-    public static void ShowStatus(CommandArgs args, RegisterConfig config)
+    public static void ShowStatus(CommandArgs args, BossConfig config)
     {
         string modeDesc = config.BossLimitMode switch
         {
@@ -207,7 +207,7 @@ public static class BossLimitSummon
         args.Player.SendInfoMessage("  summon off                 — 关闭召唤限制");
     }
 
-    private static void HandleModeCommand(CommandArgs args, RegisterConfig config)
+    private static void HandleModeCommand(CommandArgs args, BossConfig config)
     {
         if (args.Parameters.Count < 3)
         {
@@ -225,7 +225,7 @@ public static class BossLimitSummon
 
         config.BossLimitMode = newMode;
         config.BossLimitEnabled = newMode != "disabled";
-        AutoRegister.SaveConfig();
+        BossConfigManager.SaveConfig();
 
         string modeName = newMode switch
         {
@@ -238,7 +238,7 @@ public static class BossLimitSummon
         TShock.Log.ConsoleInfo($"[BossLimitSummon] {args.Player.Name} 设置了模式为 {newMode}");
     }
 
-    private static void HandlePlayerNumCommand(CommandArgs args, RegisterConfig config)
+    private static void HandlePlayerNumCommand(CommandArgs args, BossConfig config)
     {
         if (args.Parameters.Count < 3 || !int.TryParse(args.Parameters[2], out var num) || num <= 0)
         {
@@ -246,7 +246,7 @@ public static class BossLimitSummon
             return;
         }
         config.BossLimitMinPlayers = num;
-        AutoRegister.SaveConfig();
+        BossConfigManager.SaveConfig();
         args.Player.SendSuccessMessage($"Boss 召唤限制最低人数已更新为: {num} 人");
         TShock.Log.ConsoleInfo($"[BossLimitSummon] {args.Player.Name} 设置最低人数为 {num}");
     }

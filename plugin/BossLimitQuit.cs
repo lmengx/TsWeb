@@ -61,7 +61,7 @@ public static class BossLimitQuit
     private static void OnServerJoin(JoinEventArgs args)
     {
         if (args.Handled) return;
-        if (!AutoRegister.Config.QuitLimitEnabled) return;
+        if (!BossConfigManager.Config.QuitLimitEnabled) return;
 
         var player = TShock.Players[args.Who];
         if (player == null || string.IsNullOrEmpty(player.Name)) return;
@@ -127,7 +127,7 @@ public static class BossLimitQuit
     {
         var npc = Main.npc[args.NpcId];
         if (npc == null || !npc.active || !npc.boss) return;
-        if (!AutoRegister.Config.QuitLimitEnabled && !AutoRegister.Config.LateCompEnabled) return;
+        if (!BossConfigManager.Config.QuitLimitEnabled && !BossConfigManager.Config.LateCompEnabled) return;
 
         lock (ActiveBosses)
         {
@@ -164,8 +164,8 @@ public static class BossLimitQuit
         var npc = Main.npc[npcIndex];
         if (npc == null || !npc.active || !npc.boss) return;
 
-        bool quitEnabled = AutoRegister.Config.QuitLimitEnabled;
-        bool lateCompEnabled = AutoRegister.Config.LateCompEnabled;
+        bool quitEnabled = BossConfigManager.Config.QuitLimitEnabled;
+        bool lateCompEnabled = BossConfigManager.Config.LateCompEnabled;
         if (!quitEnabled && !lateCompEnabled) return;
 
         lock (ActiveBosses)
@@ -230,7 +230,7 @@ public static class BossLimitQuit
 
     public static object GetStatusJson(RestRequestArgs args)
     {
-        var config = AutoRegister.Config;
+        var config = BossConfigManager.Config;
         int trackedBosses, trackedPlayers;
         var bossList = new List<object>();
 
@@ -268,7 +268,7 @@ public static class BossLimitQuit
 
     public static void HandleCommand(CommandArgs args)
     {
-        var config = AutoRegister.Config;
+        var config = BossConfigManager.Config;
 
         if (args.Parameters.Count < 2)
         {
@@ -280,15 +280,15 @@ public static class BossLimitQuit
         switch (args.Parameters[1].ToLower())
         {
             case "on":
-                config.QuitLimitEnabled = true;
-                AutoRegister.SaveConfig();
+                BossConfigManager.Config.QuitLimitEnabled = true;
+                BossConfigManager.SaveConfig();
                 args.Player.SendSuccessMessage("BOSS 退出惩罚已开启");
                 TShock.Log.ConsoleInfo($"[BossLimitQuit] {args.Player.Name} 开启了 BOSS 退出惩罚");
                 break;
 
             case "off":
-                config.QuitLimitEnabled = false;
-                AutoRegister.SaveConfig();
+                BossConfigManager.Config.QuitLimitEnabled = false;
+                BossConfigManager.SaveConfig();
                 args.Player.SendSuccessMessage("BOSS 退出惩罚已关闭");
                 lock (ActiveBosses) ActiveBosses.Clear();
                 TShock.Log.ConsoleInfo($"[BossLimitQuit] {args.Player.Name} 关闭了 BOSS 退出惩罚");
@@ -311,7 +311,7 @@ public static class BossLimitQuit
         }
     }
 
-    private static void HandleLateCompCommand(CommandArgs args, RegisterConfig config)
+    private static void HandleLateCompCommand(CommandArgs args, BossConfig config)
     {
         if (args.Parameters.Count < 3)
         {
@@ -323,15 +323,15 @@ public static class BossLimitQuit
         switch (args.Parameters[2].ToLower())
         {
             case "on":
-                config.LateCompEnabled = true;
-                AutoRegister.SaveConfig();
+                BossConfigManager.Config.LateCompEnabled = true;
+                BossConfigManager.SaveConfig();
                 args.Player.SendSuccessMessage("晚入 BOSS 血量补偿已开启");
                 TShock.Log.ConsoleInfo($"[BossLimitQuit] {args.Player.Name} 开启了晚入补偿");
                 break;
 
             case "off":
-                config.LateCompEnabled = false;
-                AutoRegister.SaveConfig();
+                BossConfigManager.Config.LateCompEnabled = false;
+                BossConfigManager.SaveConfig();
                 args.Player.SendSuccessMessage("晚入 BOSS 血量补偿已关闭");
                 TShock.Log.ConsoleInfo($"[BossLimitQuit] {args.Player.Name} 关闭了晚入补偿");
                 break;
@@ -344,7 +344,7 @@ public static class BossLimitQuit
 
     public static void ShowStatus(CommandArgs args)
     {
-        var config = AutoRegister.Config;
+        var config = BossConfigManager.Config;
 
         string quitStatus = config.QuitLimitEnabled
             ? "[c/00ff00:开启]" : "[c/ff0000:关闭]";
