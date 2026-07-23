@@ -1,7 +1,7 @@
 import { Context, Session, h } from 'koishi'
 import type { Config } from '../utils/config'
 import { safeHttpGet } from '../utils/config'
-import { renderHtml, playerInfoCard } from '../utils/render'
+import { renderHtml, playerInfoCard, bossProgressCard } from '../utils/render'
 
 export const name = 'tshock-group'
 
@@ -51,6 +51,35 @@ export function apply(ctx: Context, config: Config) {
         try { await session.bot.deleteMessage(session.channelId, session.messageId) } catch {}
       }
       await session.send(h('at', { id: senderQQ }) + ' 改密码请私聊我发送')
+      return
+    }
+
+    // — 进度（Boss击杀图片渲染） —
+    if (content === '进度') {
+      ctx.logger.info('[进度] QQ:', senderQQ)
+
+      const res = await safeHttpGet(ctx, `http://${config.服务器地址}/data/boss/progress`, {
+        token: config.接口密钥
+      })
+
+      if (!res.ok) {
+        await session.send(h('at', { id: senderQQ }) + ' ' + res.msg)
+        return
+      }
+
+      try {
+        const html = bossProgressCard(res.data)
+        const buf = await renderHtml(html, 2, '.wrap')
+        await session.send(h('image', { url: `base64://${buf.toString('base64')}` }))
+      } catch (err: any) {
+        ctx.logger.error('[进度] 截图失败:', err.message)
+        const d = res.data
+        await session.send(
+          `━━━ Boss进度 ━━━\n` +
+          `击杀: ${d.KilledCount}/${d.TotalBossCount} (${d.BossProgressPercent}%)\n` +
+          `事件: ${d.CompletedEventCount}/${d.TotalEventCount} (${d.EventProgressPercent}%)`
+        )
+      }
       return
     }
 
