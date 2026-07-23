@@ -1,103 +1,27 @@
 using Rests;
 using System;
-using System.IO;
 using Newtonsoft.Json;
-using Terraria;
-using TerrariaApi.Server;
 using TShockAPI;
 
 namespace TShockData
 {
-    public class ItemRestrictionConfig
-    {
-        [JsonProperty("启用")]
-        public bool Enabled { get; set; } = true;
-
-        [JsonProperty("限制列表")]
-        public System.Collections.Generic.List<ItemRestriction> Restrictions { get; set; } = new System.Collections.Generic.List<ItemRestriction>();
-    }
-
-    public class ItemRestriction
-    {
-        [JsonProperty("进度")]
-        public string Progress { get; set; } = "始终生效";
-
-        [JsonProperty("限制物品")]
-        public System.Collections.Generic.List<RestrictedItem> Items { get; set; } = new System.Collections.Generic.List<RestrictedItem>();
-    }
-
     public class ItemConfigHandler
     {
-        private static ItemRestrictionConfig _itemConfig;
-        private static string ItemConfigPath => Path.Combine(TShock.SavePath, "TSWeb", "AntiCheat", "物品违禁.json");
-
         public static void LoadItemConfig()
         {
-            try
-            {
-                var directory = Path.GetDirectoryName(ItemConfigPath);
-                if (!Directory.Exists(directory))
-                {
-                    Directory.CreateDirectory(directory);
-                }
-
-                if (!File.Exists(ItemConfigPath))
-                {
-                    var defaultConfig = new ItemRestrictionConfig
-                    {
-                        Enabled = true,
-                        Restrictions = new System.Collections.Generic.List<ItemRestriction>
-                        {
-                            new ItemRestriction
-                            {
-                                Progress = "始终生效",
-                                Items = new System.Collections.Generic.List<RestrictedItem>()
-                            },
-                            new ItemRestriction
-                            {
-                                Progress = "月亮领主",
-                                Items = new System.Collections.Generic.List<RestrictedItem>
-                                {
-                                    new RestrictedItem { ID = 4956, Stack = 1, Method = "ban" }
-                                }
-                            }
-                        }
-                    };
-                    string json = JsonConvert.SerializeObject(defaultConfig, Formatting.Indented);
-                    File.WriteAllText(ItemConfigPath, json);
-                    _itemConfig = defaultConfig;
-                }
-                else
-                {
-                    string json = File.ReadAllText(ItemConfigPath);
-                    _itemConfig = JsonConvert.DeserializeObject<ItemRestrictionConfig>(json) ?? new ItemRestrictionConfig();
-                }
-            }
-            catch (Exception ex)
-            {
-                TShock.Log.ConsoleError($"[TSWeb] 加载物品违禁配置失败: {ex.Message}");
-                _itemConfig = new ItemRestrictionConfig();
-            }
+            AntiCheat.LoadConfig();
         }
 
-        public static ItemRestrictionConfig GetItemConfig()
+        public static AntiCheatConfig GetItemConfig()
         {
-            return _itemConfig;
+            return AntiCheat.GetConfig();
         }
 
-        public static bool SaveItemConfig(ItemRestrictionConfig config)
+        public static bool SaveItemConfig(AntiCheatConfig config)
         {
             try
             {
-                var directory = Path.GetDirectoryName(ItemConfigPath);
-                if (!Directory.Exists(directory))
-                {
-                    Directory.CreateDirectory(directory);
-                }
-
-                string json = JsonConvert.SerializeObject(config, Formatting.Indented);
-                File.WriteAllText(ItemConfigPath, json);
-                _itemConfig = config;
+                AntiCheat.SaveConfig(config);
                 ItemDetection.RefreshRestrictedItems();
                 return true;
             }
@@ -136,13 +60,21 @@ namespace TShockData
                     return new { status = 400, error = "Missing config parameter" };
                 }
 
-                var config = JsonConvert.DeserializeObject<ItemRestrictionConfig>(json);
-                if (config == null)
+                var incoming = JsonConvert.DeserializeObject<AntiCheatConfig>(json);
+                if (incoming == null)
                 {
                     return new { status = 400, error = "Invalid config format" };
                 }
 
-                bool success = SaveItemConfig(config);
+                // 合并前端未传递的字段，防止自动扫描等配置丢失
+                var existing = AntiCheat.GetConfig();
+                if (existing != null)
+                {
+                    incoming.AutoScan = existing.AutoScan;
+                    incoming.AutoScanInterval = existing.AutoScanInterval;
+                }
+
+                bool success = SaveItemConfig(incoming);
                 if (success)
                 {
                     return new { status = 200, message = "Config saved successfully" };
