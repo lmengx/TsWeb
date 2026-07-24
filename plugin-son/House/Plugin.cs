@@ -310,8 +310,9 @@ public class HousingPlugin : TerrariaPlugin
         }
 
         e.Handled = true;
+        e.Player.SendErrorMessage("你没有权利修改被房子保护的地区。");
         if (Config.Instance.WarningSpoiler)
-            e.Player.Disable("无权破坏房子保护的方块!");
+            e.Player.Disable("你没有权利修改被房子保护的地区。");
     }
 
     private void OnLiquidSet(object? sender, TShockAPI.GetDataHandlers.LiquidSetEventArgs e)

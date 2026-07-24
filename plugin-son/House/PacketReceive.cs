@@ -151,9 +151,11 @@ public static class GetDataHandlers
         int action = args.Data.ReadInt8();
         int x = args.Data.ReadInt16();
         int y = args.Data.ReadInt16();
-        var house = Utils.InAreaHouse(x, y);
-        if (HousingPlugin.LPlayers[args.Player.Index]!.Look)
+        // 安全检查：LPlayers 条目可能为 null（热重载后、连接时序等）
+        var lplayer = HousingPlugin.LPlayers[args.Player.Index];
+        if (lplayer != null && lplayer.Look)
         {
+            var house = Utils.InAreaHouse(x, y);
             if (house == null)
                 args.Player.SendMessage("敲击处不属于任何房子。", Color.Yellow);
             else
@@ -164,7 +166,7 @@ public static class GetDataHandlers
                 args.Player.SendMessage("敲击处为 " + AuthorNames + " 的房子: " + house.Name + " 状态: " + (!house.Locked || Config.Instance.LimitLockHouse ? "未上锁" : "已上锁"), Color.Yellow);
             }
             args.Player.SendTileSquareCentered(x, y);
-            HousingPlugin.LPlayers[args.Player.Index]!.Look = false;
+            lplayer.Look = false;
             return true;
         }
         if (args.Player.AwaitingTempPoint > 0)
@@ -177,6 +179,7 @@ public static class GetDataHandlers
             args.Player.AwaitingTempPoint = 0;
             return true;
         }
+        var house = Utils.InAreaHouse(x, y);
         if (house == null) return false;
         if (args.Player.Group.HasPermission(EditHouse) || args.Player.Account.ID.ToString() == house.Author || Utils.OwnsHouse(args.Player.Account.ID.ToString(), house))
             return false;
