@@ -11,164 +11,182 @@ using TShockAPI;
 namespace HouseRegion;
 
 public delegate bool GetDataHandlerDelegate(GetDataHandlerArgs args);
+
 public class GetDataHandlerArgs : EventArgs
 {
     public TSPlayer Player { get; private set; }
     public MemoryStream Data { get; private set; }
     public Player TPlayer => this.Player.TPlayer;
-    public GetDataHandlerArgs(TSPlayer player, MemoryStream data) { this.Player = player; this.Data = data; }
+    public GetDataHandlerArgs(TSPlayer player, MemoryStream data)
+    {
+        this.Player = player;
+        this.Data = data;
+    }
 }
+
 public static class GetDataHandlers
 {
     internal static readonly string EditHouse = "house.edit";
+    internal static readonly string AdminHouse = "house.admin";
     private static Dictionary<PacketTypes, GetDataHandlerDelegate> GetDataHandlerDelegates = null!;
-    private static readonly Dictionary<int, List<Rectangle>> PlayerActiveHouses = new();
+    internal static readonly Dictionary<int, List<Rectangle>> PlayerActiveHouses = new();
     private static readonly Dictionary<int, bool> PlayerRefreshFlags = new();
     private const int RefreshIntervalSeconds = 20;
+    private static readonly HashSet<int> PlantTiles = new()
+    {
+        TileID.Plants, TileID.Plants2,
+        TileID.DyePlants,
+        TileID.HallowedPlants, TileID.HallowedPlants2,
+        TileID.JunglePlants, TileID.JunglePlants2,
+        TileID.MushroomPlants,
+        TileID.CorruptPlants,
+        TileID.CrimsonPlants,
+        TileID.ImmatureHerbs, TileID.MatureHerbs, TileID.BloomingHerbs,
+    };
+    private static readonly HashSet<int> FragileTiles = new()
+    {
+        TileID.Cobweb,
+        TileID.Grass,
+        TileID.HallowedGrass,
+        TileID.JungleGrass,
+        TileID.MushroomGrass,
+        TileID.CorruptGrass,
+        TileID.CrimsonGrass,
+    };
+
     public static void InitGetDataHandler()
     {
         GetDataHandlerDelegates = new Dictionary<PacketTypes, GetDataHandlerDelegate>
-        {   {PacketTypes.Tile, HandleTile},
-		    {PacketTypes.DoorUse,HandleDoorUse},
-            { PacketTypes.PlayerSlot, HandlePlayerSlot },
-			{PacketTypes.ChestGetContents, HandleChestOpen },
-			{PacketTypes.ChestItem, HandleChestItem },
-			{PacketTypes.ChestOpen, HandleChestActive },
-			{PacketTypes.PlaceChest, HandlePlaceChest },
-			{PacketTypes.SignNew, HandleSign },
-			{PacketTypes.LiquidSet, HandleLiquidSet},
-			{PacketTypes.PaintTile, HandlePaintTile},
-			{PacketTypes.PaintWall, HandlePaintWall},
-			{PacketTypes.PlaceObject, HandlePlaceObject },
-			{PacketTypes.PlaceTileEntity, HandlePlaceTileEntity },
-			{PacketTypes.PlaceItemFrame, HandlePlaceItemFrame },
-            {PacketTypes.WeaponsRackTryPlacing, HandleWeaponsRackTryPlacing },
-            {PacketTypes.FoodPlatterTryPlacing, HandleFoodPlatterTryPlacing },
-            {PacketTypes.RequestTileEntityInteraction, HandleRequestTileEntityInteraction },
-            {PacketTypes.TileEntityHatRackItemSync, HandleTileEntityHatRackItemSync },
-			{PacketTypes.GemLockToggle, HandleGemLockToggle },
-			{PacketTypes.MassWireOperation, HandleMassWireOperation },
-		};
-    }
-
-    private static bool HandleTileEntityHatRackItemSync(GetDataHandlerArgs args)
-    {
-        var id = args.Data.ReadInt32();
-        var ply = args.Data.ReadByte();
-        if (TileEntity.ByID.TryGetValue(id, out var tileEntity) && tileEntity is TEHatRack)
         {
-            var house = Utils.InAreaHouse(tileEntity.Position.X, tileEntity.Position.Y);
-            if (house == null) return false;
-            if (args.Player.Group.HasPermission(EditHouse) || args.Player.Account.ID.ToString() == house.Author || Utils.OwnsHouse(args.Player.Account.ID.ToString(), house) || Utils.CanUseHouse(args.Player.Account.ID.ToString(), house))
-                return false;
-            if (Config.Instance.WarningSpoiler) args.Player.Disable("无权修改房子保护的物品!");
-            args.Player.SendErrorMessage("你没有权力修改被房子保护的物品。");
-            return true;
-        }
-        return false;
-    }
-
-    private static bool HandleFoodPlatterTryPlacing(GetDataHandlerArgs args)
-    {
-        var x = args.Data.ReadInt16();
-        var y = args.Data.ReadInt16();
-        var house = Utils.InAreaHouse(x, y);
-        var te = (TEFoodPlatter)TileEntity.ByID[TEFoodPlatter.Find(x, y)];
-        if (house == null) return false;
-        if (args.Player.Group.HasPermission(EditHouse) || args.Player.Account.ID.ToString() == house.Author || Utils.OwnsHouse(args.Player.Account.ID.ToString(), house) || Utils.CanUseHouse(args.Player.Account.ID.ToString(), house))
-            return false;
-        if (Config.Instance.WarningSpoiler) args.Player.Disable("无权修改房子保护的物品!");
-        args.Player.SendErrorMessage("你没有权力修改被房子保护的物品。");
-        if (args.Player.SelectedItem.type > 0)
-        {
-            args.Player.SetData("PlaceSlot", (true, args.Player.TPlayer.selectedItem));
-            NetMessage.SendData(86, -1, -1, NetworkText.Empty, te.ID);
-        }
-        return true;
-    }
-
-    private static bool HandleRequestTileEntityInteraction(GetDataHandlerArgs args)
-    {
-        var id = args.Data.ReadInt32();
-        var ply = args.Data.ReadByte();
-        if (!TileEntity.IsOccupied(id, out var _) && TileEntity.ByID.TryGetValue(id, out var tileEntity))
-        {
-            var house = Utils.InAreaHouse(tileEntity.Position.X, tileEntity.Position.Y);
-            if (house == null) return false;
-            if (args.Player.Group.HasPermission(EditHouse) || args.Player.Account.ID.ToString() == house.Author || Utils.OwnsHouse(args.Player.Account.ID.ToString(), house) || Utils.CanUseHouse(args.Player.Account.ID.ToString(), house))
-                return false;
-            if (Config.Instance.WarningSpoiler) args.Player.Disable("无权修改房子保护的物品!");
-            args.Player.SendErrorMessage("你没有权力修改被房子保护的物品。");
-            return true;
-        }
-        return false;
-    }
-
-    private static bool HandlePlayerSlot(GetDataHandlerArgs args)
-    {
-        var plr = args.Data.ReadInt8();
-        var slot = args.Data.ReadInt16();
-        var plyData = args.Player.GetData<(bool, int)>("PlaceSlot");
-        if (plyData.Item1 && plyData.Item2 == slot)
-        {
-            NetMessage.SendData(5, -1, -1, null, plr, slot);
-            args.Player.RemoveData("PlaceSlot");
-            return true;
-        }
-        return false;
-    }
-
-    private static bool HandleWeaponsRackTryPlacing(GetDataHandlerArgs args)
-    {
-        var x = args.Data.ReadInt16();
-        var y = args.Data.ReadInt16();
-        var house = Utils.InAreaHouse(x, y);
-        var te = (TEWeaponsRack)TileEntity.ByID[TEWeaponsRack.Find(x, y)];
-        if (house == null) return false;
-        if (args.Player.Group.HasPermission(EditHouse) || args.Player.Account.ID.ToString() == house.Author || Utils.OwnsHouse(args.Player.Account.ID.ToString(), house) || Utils.CanUseHouse(args.Player.Account.ID.ToString(), house))
-            return false;
-        if (Config.Instance.WarningSpoiler) args.Player.Disable("无权修改房子保护的物品!");
-        args.Player.SendErrorMessage("你没有权力修改被房子保护的物品。");
-        if (args.Player.SelectedItem.type > 0)
-        {
-            args.Player.SetData("PlaceSlot", (true, args.Player.TPlayer.selectedItem));
-            NetMessage.SendData(86, -1, -1, NetworkText.Empty, te.ID);
-        }
-        return true;
+            {PacketTypes.Tile, HandleTile},
+            {PacketTypes.DoorUse, HandleDoorUse},
+            {PacketTypes.PlayerSlot, HandlePlayerSlot},
+            {PacketTypes.ChestGetContents, HandleChestOpen},
+            {PacketTypes.ChestItem, HandleChestItem},
+            {PacketTypes.ChestOpen, HandleChestActive},
+            {PacketTypes.PlaceChest, HandlePlaceChest},
+            {PacketTypes.SignNew, HandleSign},
+            {PacketTypes.LiquidSet, HandleLiquidSet},
+            {PacketTypes.PaintTile, HandlePaintTile},
+            {PacketTypes.PaintWall, HandlePaintWall},
+            {PacketTypes.PlaceObject, HandlePlaceObject},
+            {PacketTypes.PlaceTileEntity, HandlePlaceTileEntity},
+            {PacketTypes.PlaceItemFrame, HandlePlaceItemFrame},
+            {PacketTypes.WeaponsRackTryPlacing, HandleWeaponsRackTryPlacing},
+            {PacketTypes.FoodPlatterTryPlacing, HandleFoodPlatterTryPlacing},
+            {PacketTypes.RequestTileEntityInteraction, HandleRequestTileEntityInteraction},
+            {PacketTypes.TileEntityHatRackItemSync, HandleTileEntityHatRackItemSync},
+            {PacketTypes.GemLockToggle, HandleGemLockToggle},
+            {PacketTypes.MassWireOperation, HandleMassWireOperation},
+        };
     }
 
     public static bool HandlerGetData(PacketTypes type, TSPlayer player, MemoryStream data)
     {
         if (GetDataHandlerDelegates.TryGetValue(type, out var handler))
-        {
-            try { return handler(new GetDataHandlerArgs(player, data)); }
-            catch (Exception ex) { TShock.Log.Error("房屋插件错误调用事件时出错:" + ex.ToString()); }
-        }
+            return handler(new GetDataHandlerArgs(player, data));
         return false;
     }
+
+    // ══════════════════════════════════════════════════════════
+    //  违规统一处理入口
+    // ══════════════════════════════════════════════════════════
+
+    private static bool Deny(GetDataHandlerArgs args, House house, string msg)
+    {
+        args.Player.SendErrorMessage(msg);
+        args.Player.Disable(msg); // 始终冻结
+
+        if (house.NotifyBreakPlace == 1)
+            NotifyOwner(house, args.Player.Name + " " + msg);
+
+        if (house.ExpelOnViolate == 1)
+            ExpelPlayer(args.Player, house);
+
+        return true; // 拦截数据包
+    }
+
+    private static void NotifyOwner(House house, string msg)
+    {
+        try
+        {
+            var ownerId = Convert.ToInt32(house.Author);
+            var owner = TShock.UserAccounts.GetUserAccountByID(ownerId);
+            if (owner == null) return;
+            for (int i = 0; i < TShock.Players.Length; i++)
+            {
+                var p = TShock.Players[i];
+                if (p != null && p.Account != null && p.Account.ID == owner.ID)
+                {
+                    p.SendMessage($"[{house.Name}] {msg}", Color.Orange);
+                    return;
+                }
+            }
+        }
+        catch { /* 屋主离线/无效则忽略 */ }
+    }
+
+    internal static void ExpelPlayer(TSPlayer player, House house)
+    {
+        int tx, ty;
+        if (house.ExpelX.HasValue && house.ExpelY.HasValue)
+        {
+            tx = house.ExpelX.Value;
+            ty = house.ExpelY.Value;
+        }
+        else
+        {
+            // 后备：房屋水平中心 ±100 格
+            tx = house.HouseArea.X + house.HouseArea.Width / 2 + 100;
+            if (house.HouseArea.Contains(tx, house.HouseArea.Y))
+                tx = house.HouseArea.X + house.HouseArea.Width / 2 - 100;
+            ty = house.HouseArea.Y;
+        }
+        player.Teleport(tx * 16, ty * 16);
+    }
+
+    /// <summary>
+    /// 判断玩家是否对房屋有全权限
+    /// </summary>
+    private static bool IsHouseAuthorized(TSPlayer player, House house)
+    {
+        if (player == null || !player.IsLoggedIn || player.Account == null) return false;
+        var id = player.Account.ID.ToString();
+        return player.Group.HasPermission(EditHouse) ||
+               id == house.Author ||
+               Utils.OwnsHouse(id, house) ||
+               Utils.CanUseHouse(id, house);
+    }
+
+    // ══════════════════════════════════════════════════════════
+    //  数据包处理器
+    // ══════════════════════════════════════════════════════════
+
     private static bool HandleTile(GetDataHandlerArgs args)
     {
         int action = args.Data.ReadInt8();
         int x = args.Data.ReadInt16();
         int y = args.Data.ReadInt16();
-        // 安全检查：LPlayers 条目可能为 null（热重载后、连接时序等）
+
+        // 安全检查：LPlayers 可能为 null
         var lplayer = HousingPlugin.LPlayers[args.Player.Index];
         if (lplayer != null && lplayer.Look)
         {
-            var house = Utils.InAreaHouse(x, y);
-            if (house == null)
+            var h = Utils.InAreaHouse(x, y);
+            if (h == null)
                 args.Player.SendMessage("敲击处不属于任何房子。", Color.Yellow);
             else
             {
                 var AuthorNames = "";
-                try { AuthorNames = TShock.UserAccounts.GetUserAccountByID(Convert.ToInt32(house.Author)).Name; }
-                catch (Exception ex) { TShock.Log.Error("房屋插件错误超标错误:" + ex.ToString()); }
-                args.Player.SendMessage("敲击处为 " + AuthorNames + " 的房子: " + house.Name + " 状态: " + (!house.Locked || Config.Instance.LimitLockHouse ? "未上锁" : "已上锁"), Color.Yellow);
+                try { AuthorNames = TShock.UserAccounts.GetUserAccountByID(Convert.ToInt32(h.Author)).Name; }
+                catch (Exception ex) { TShock.Log.Error("房屋插件错误:" + ex); }
+                args.Player.SendMessage($"敲击处为 {AuthorNames} 的房子: {h.Name}", Color.Yellow);
             }
             args.Player.SendTileSquareCentered(x, y);
             lplayer.Look = false;
             return true;
         }
+
         if (args.Player.AwaitingTempPoint > 0)
         {
             args.Player.TempPoints[args.Player.AwaitingTempPoint - 1].X = x;
@@ -179,15 +197,40 @@ public static class GetDataHandlers
             args.Player.AwaitingTempPoint = 0;
             return true;
         }
+
         var house = Utils.InAreaHouse(x, y);
         if (house == null) return false;
-        if (args.Player.Group.HasPermission(EditHouse) || args.Player.Account.ID.ToString() == house.Author || Utils.OwnsHouse(args.Player.Account.ID.ToString(), house))
-            return false;
-        if (Config.Instance.WarningSpoiler) args.Player.Disable("无权修改房子保护!");
-        args.Player.SendErrorMessage("你没有权力损坏被房子保护的地区。");
-        args.Player.SendTileSquareCentered(x, y);
-        return true;
+
+        // 授权玩家放行
+        if (IsHouseAuthorized(args.Player, house)) return false;
+
+        // 读取目标方块类型以分流权限
+        var tile = Main.tile[x, y];
+        var tileType = tile != null ? tile.type : 0;
+
+        // action: 0=破坏, 1-4=放置
+        if (action == 0)
+        {
+            // 植物
+            if (PlantTiles.Contains(tileType))
+                return Deny(args, house, "无权采集被房子保护的植物。");
+
+            // 墓碑
+            if (tileType == TileID.Tombstones)
+                return Deny(args, house, "无权挖掘被房子保护的墓碑。");
+
+            // 易碎品（蜘蛛网、草类）
+            if (FragileTiles.Contains(tileType))
+                return Deny(args, house, "无权破坏被房子保护的物品。");
+
+            // 普通破坏
+            return Deny(args, house, "你没有权力损坏被房子保护的地区。");
+        }
+
+        // 放置
+        return Deny(args, house, "你没有权力修改被房子保护的地区。");
     }
+
     private static bool HandleDoorUse(GetDataHandlerArgs args)
     {
         args.Data.ReadInt8();
@@ -195,31 +238,22 @@ public static class GetDataHandlers
         int y = args.Data.ReadInt16();
         var house = Utils.InAreaHouse(x, y);
         if (house == null) return false;
-
-        // 允许门自由通行 → 任何人都可以开关门
-        if (Config.Instance.AllowDoorPassage) return false;
-
-        if (!house.Locked || Config.Instance.LimitLockHouse) return false;
-        if (args.Player.Group.HasPermission(EditHouse) || args.Player.Account.ID.ToString() == house.Author || Utils.OwnsHouse(args.Player.Account.ID.ToString(), house) || Utils.CanUseHouse(args.Player.Account.ID.ToString(), house))
-            return false;
-        if (Config.Instance.WarningSpoiler) args.Player.Disable("无权修改门!");
-        args.Player.SendErrorMessage("你没有权力修改被房子保护的地区的门。");
-        args.Player.SendTileSquareCentered(x, y);
-        return true;
+        if (IsHouseAuthorized(args.Player, house)) return false;
+        if (house.AllowDoor == 1) return false;
+        return Deny(args, house, "无权修改被房子保护的地区的门。");
     }
+
     private static bool HandleChestOpen(GetDataHandlerArgs args)
     {
         int x = args.Data.ReadInt16();
         int y = args.Data.ReadInt16();
         var house = Utils.InAreaHouse(x, y);
         if (house == null) return false;
-        if ((!house.Locked || Config.Instance.LimitLockHouse) && !Config.Instance.ProtectiveChest) return false;
-        if (args.Player.Group.HasPermission(EditHouse) || args.Player.Account.ID.ToString() == house.Author || Utils.OwnsHouse(args.Player.Account.ID.ToString(), house) || Utils.CanUseHouse(args.Player.Account.ID.ToString(), house))
-            return false;
-        if (Config.Instance.WarningSpoiler) args.Player.Disable("无权打开箱子!");
-        args.Player.SendErrorMessage("你没有权力打开被房子保护的地区的箱子。");
-        return true;
+        if (IsHouseAuthorized(args.Player, house)) return false;
+        if (house.AllowChest == 1) return false;
+        return Deny(args, house, "无权打开被房子保护的地区的箱子。");
     }
+
     private static bool HandleChestItem(GetDataHandlerArgs args)
     {
         var id = args.Data.ReadInt16();
@@ -227,48 +261,35 @@ public static class GetDataHandlers
         var y = Main.chest[id].y;
         var house = Utils.InAreaHouse(x, y);
         if (house == null) return false;
-        if ((!house.Locked || Config.Instance.LimitLockHouse) && !Config.Instance.ProtectiveChest) return false;
-        if (args.Player.Group.HasPermission(EditHouse) || args.Player.Account.ID.ToString() == house.Author || Utils.OwnsHouse(args.Player.Account.ID.ToString(), house) || Utils.CanUseHouse(args.Player.Account.ID.ToString(), house))
-            return false;
-        if (Config.Instance.WarningSpoiler) args.Player.Disable("无权更新箱子!");
-        args.Player.SendErrorMessage("你没有权力更新被房子保护的地区的箱子。");
-        return true;
+        if (IsHouseAuthorized(args.Player, house)) return false;
+        if (house.AllowChest == 1) return false;
+        return Deny(args, house, "无权修改被房子保护的地区的箱子物品。");
     }
+
     private static bool HandleChestActive(GetDataHandlerArgs args)
     {
+        int x = args.Data.ReadInt16();
+        int y = args.Data.ReadInt16();
+        var house = Utils.InAreaHouse(x, y);
+        if (house == null) return false;
+        if (IsHouseAuthorized(args.Player, house)) return false;
+        if (house.AllowChest == 1) return false;
+        return Deny(args, house, "无权修改被房子保护的地区的箱子。");
+    }
+
+    private static bool HandlePlaceChest(GetDataHandlerArgs args)
+    {
+        args.Data.ReadByte();
         args.Data.ReadInt16();
         int x = args.Data.ReadInt16();
         int y = args.Data.ReadInt16();
         var house = Utils.InAreaHouse(x, y);
         if (house == null) return false;
-        if ((!house.Locked || Config.Instance.LimitLockHouse) && !Config.Instance.ProtectiveChest) return false;
-        if (args.Player.Group.HasPermission(EditHouse) || args.Player.Account.ID.ToString() == house.Author || Utils.OwnsHouse(args.Player.Account.ID.ToString(), house) || Utils.CanUseHouse(args.Player.Account.ID.ToString(), house))
-            return false;
-        if (Config.Instance.WarningSpoiler) args.Player.Disable("无权修改箱子!");
-        args.Player.SendErrorMessage("你没有权力修改被房子保护的地区的箱子。");
-        args.Player.SendData(PacketTypes.ChestOpen, "", -1);
-        return true;
+        if (IsHouseAuthorized(args.Player, house)) return false;
+        if (house.AllowChest == 1) return false;
+        return Deny(args, house, "无权在被房子保护的地区放置箱子。");
     }
-    private static bool HandlePlaceChest(GetDataHandlerArgs args)
-    {
-        args.Data.ReadByte();
-        int tileX = args.Data.ReadInt16();
-        int tileY = args.Data.ReadInt16();
-        var rect = new Rectangle(tileX, tileY, 3, 3);
-        for (var i = 0; i < HousingPlugin.Houses.Count; i++)
-        {
-            var house = HousingPlugin.Houses[i];
-            if (house == null) continue;
-            if (house.HouseArea.Intersects(rect) && !(args.Player.Group.HasPermission(EditHouse) || args.Player.Account.ID.ToString() == house.Author || Utils.OwnsHouse(args.Player.Account.ID.ToString(), house)))
-            {
-                if (Config.Instance.WarningSpoiler) args.Player.Disable("无权放置家具!");
-                args.Player.SendErrorMessage("你没有权力放置被房子保护的地区的家具。");
-                args.Player.SendTileSquareCentered(tileX, tileY, 3);
-                return true;
-            }
-        }
-        return false;
-    }
+
     private static bool HandleSign(GetDataHandlerArgs args)
     {
         var id = args.Data.ReadInt16();
@@ -276,109 +297,152 @@ public static class GetDataHandlers
         var y = args.Data.ReadInt16();
         var house = Utils.InAreaHouse(x, y);
         if (house == null) return false;
-        if (args.Player.Group.HasPermission(EditHouse) || args.Player.Account.ID.ToString() == house.Author || Utils.OwnsHouse(args.Player.Account.ID.ToString(), house) || Utils.CanUseHouse(args.Player.Account.ID.ToString(), house))
-            return false;
-        if (Config.Instance.WarningSpoiler) args.Player.Disable("无权修改标牌!");
-        args.Player.SendErrorMessage("你没有权力修改被房子保护的地区的标牌。");
-        args.Player.SendData(PacketTypes.SignNew, "", id);
-        return true;
+        if (IsHouseAuthorized(args.Player, house)) return false;
+        if (house.AllowPlace == 1) return false;
+        return Deny(args, house, "无权修改被房子保护的地区的标牌。");
     }
+
     private static bool HandleLiquidSet(GetDataHandlerArgs args)
     {
-        int tileX = args.Data.ReadInt16();
-        int tileY = args.Data.ReadInt16();
-        var house = Utils.InAreaHouse(tileX, tileY);
+        var x = args.Data.ReadInt16();
+        var y = args.Data.ReadInt16();
+        var house = Utils.InAreaHouse(x, y);
         if (house == null) return false;
-        if (args.Player.Group.HasPermission(EditHouse) || args.Player.Account.ID.ToString() == house.Author || Utils.OwnsHouse(args.Player.Account.ID.ToString(), house))
-            return false;
-        if (Config.Instance.WarningSpoiler) args.Player.Disable("无权放水!");
-        args.Player.SendErrorMessage("你没有权力在被房子保护的地区放水。");
-        args.Player.SendTileSquareCentered(tileX, tileY);
-        return true;
+        if (IsHouseAuthorized(args.Player, house)) return false;
+        if (house.AllowLiquid == 1) return false;
+        return Deny(args, house, "无权修改被房子保护的地区的液体。");
     }
+
     private static bool HandlePaintTile(GetDataHandlerArgs args)
     {
-        var X = args.Data.ReadInt16();
-        var Y = args.Data.ReadInt16();
-        var house = Utils.InAreaHouse(X, Y);
+        var x = args.Data.ReadInt16();
+        var y = args.Data.ReadInt16();
+        var house = Utils.InAreaHouse(x, y);
         if (house == null) return false;
-        if (args.Player.Group.HasPermission(EditHouse) || args.Player.Account.ID.ToString() == house.Author || Utils.OwnsHouse(args.Player.Account.ID.ToString(), house))
-            return false;
-        if (Config.Instance.WarningSpoiler) args.Player.Disable("无权油漆砖!");
-        args.Player.SendErrorMessage("你没有权力在被房子保护的地区油漆砖。");
-        args.Player.SendData(PacketTypes.PaintTile, "", X, Y, Main.tile[X, Y].color());
-        return true;
+        if (IsHouseAuthorized(args.Player, house)) return false;
+        if (house.AllowPlace == 1) return false;
+        args.Player.SendTileSquareCentered(x, y);
+        return Deny(args, house, "无权油漆被房子保护的地区的瓷砖。");
     }
+
     private static bool HandlePaintWall(GetDataHandlerArgs args)
     {
-        var X = args.Data.ReadInt16();
-        var Y = args.Data.ReadInt16();
-        var house = Utils.InAreaHouse(X, Y);
+        var x = args.Data.ReadInt16();
+        var y = args.Data.ReadInt16();
+        var house = Utils.InAreaHouse(x, y);
         if (house == null) return false;
-        if (args.Player.Group.HasPermission(EditHouse) || args.Player.Account.ID.ToString() == house.Author || Utils.OwnsHouse(args.Player.Account.ID.ToString(), house))
-            return false;
-        if (Config.Instance.WarningSpoiler) args.Player.Disable("无权油漆墙!");
-        args.Player.SendErrorMessage("你没有权力在被房子保护的地区油漆墙。");
-        args.Player.SendData(PacketTypes.PaintWall, "", X, Y, Main.tile[X, Y].wallColor());
-        return true;
+        if (IsHouseAuthorized(args.Player, house)) return false;
+        if (house.AllowPlace == 1) return false;
+        args.Player.SendTileSquareCentered(x, y);
+        return Deny(args, house, "无权油漆被房子保护的地区的墙。");
     }
+
     private static bool HandlePlaceObject(GetDataHandlerArgs args)
     {
         int x = args.Data.ReadInt16();
         int y = args.Data.ReadInt16();
         var house = Utils.InAreaHouse(x, y);
         if (house == null) return false;
-        if (args.Player.Group.HasPermission(EditHouse) || args.Player.Account.ID.ToString() == house.Author || Utils.OwnsHouse(args.Player.Account.ID.ToString(), house))
-            return false;
-        if (Config.Instance.WarningSpoiler) args.Player.Disable("无权修改房子保护!");
-        args.Player.SendErrorMessage("你没有权力修改被房子保护的地区。");
+        if (IsHouseAuthorized(args.Player, house)) return false;
+        if (house.AllowPlace == 1) return false;
         args.Player.SendTileSquareCentered(x, y);
-        return true;
+        return Deny(args, house, "无权修改被房子保护的地区。");
     }
+
     private static bool HandlePlaceTileEntity(GetDataHandlerArgs args)
     {
         var x = args.Data.ReadInt16();
         var y = args.Data.ReadInt16();
         var house = Utils.InAreaHouse(x, y);
         if (house == null) return false;
-        if (args.Player.Group.HasPermission(EditHouse) || args.Player.Account.ID.ToString() == house.Author || Utils.OwnsHouse(args.Player.Account.ID.ToString(), house))
-            return false;
-        if (Config.Instance.WarningSpoiler) args.Player.Disable("无权修改房子保护!");
-        args.Player.SendErrorMessage("你没有权力修改被房子保护的地区。");
+        if (IsHouseAuthorized(args.Player, house)) return false;
+        if (house.AllowPlace == 1) return false;
         args.Player.SendTileSquareCentered(x, y);
-        return true;
+        return Deny(args, house, "无权修改被房子保护的地区。");
     }
+
     private static bool HandlePlaceItemFrame(GetDataHandlerArgs args)
     {
         var x = args.Data.ReadInt16();
         var y = args.Data.ReadInt16();
         var house = Utils.InAreaHouse(x, y);
-        var te = (TEItemFrame)TileEntity.ByID[TEItemFrame.Find(x, y)];
         if (house == null) return false;
-        if (args.Player.Group.HasPermission(EditHouse) || args.Player.Account.ID.ToString() == house.Author || Utils.OwnsHouse(args.Player.Account.ID.ToString(), house) || Utils.CanUseHouse(args.Player.Account.ID.ToString(), house))
-            return false;
-        if (Config.Instance.WarningSpoiler) args.Player.Disable("无权修改房子保护的物品!");
-        args.Player.SendErrorMessage("你没有权力修改被房子保护的物品。");
+        if (IsHouseAuthorized(args.Player, house)) return false;
+        if (house.AllowPlace == 1) return false;
+        return Deny(args, house, "无权修改被房子保护的地区的物品框。");
+    }
+
+    private static bool HandleWeaponsRackTryPlacing(GetDataHandlerArgs args)
+    {
+        var x = args.Data.ReadInt16();
+        var y = args.Data.ReadInt16();
+        var house = Utils.InAreaHouse(x, y);
+        if (house == null) return false;
+        if (IsHouseAuthorized(args.Player, house)) return false;
+        if (house.AllowPlace == 1) return false;
+        return Deny(args, house, "无权修改被房子保护的地区的武器架。");
+    }
+
+    private static bool HandleFoodPlatterTryPlacing(GetDataHandlerArgs args)
+    {
+        var x = args.Data.ReadInt16();
+        var y = args.Data.ReadInt16();
+        var house = Utils.InAreaHouse(x, y);
+        if (house == null) return false;
+        if (IsHouseAuthorized(args.Player, house)) return false;
+        if (house.AllowPlace == 1) return false;
+        return Deny(args, house, "无权修改被房子保护的地区的盘子。");
+    }
+
+    private static bool HandleRequestTileEntityInteraction(GetDataHandlerArgs args)
+    {
+        var id = args.Data.ReadInt32();
+        var te = TileEntity.ByID[id];
+        if (te == null) return false;
+        int x = te.Position.X, y = te.Position.Y;
+        var house = Utils.InAreaHouse(x, y);
+        if (house == null) return false;
+        if (IsHouseAuthorized(args.Player, house)) return false;
+
+        // 床 → 设置复活点，但木人靶不管
+        // TETrainingDummy 的 type 值通常不是 0，跳过
+        // 床的 type 是 0（TETeleportationPylon 等也在此处理，只拦截需要床的交互）
+        if (te.type != 0)
+        {
+            if (house.AllowSwitch == 1) return false;
+            return Deny(args, house, "无权触发被房子保护的地区的物品。");
+        }
+        return Deny(args, house, "无权在被房子保护的地区设置复活点。");
+    }
+
+    private static bool HandleTileEntityHatRackItemSync(GetDataHandlerArgs args)
+    {
+        var id = args.Data.ReadInt32();
+        var te = TileEntity.ByID[id];
+        if (te == null) return false;
+        var house = Utils.InAreaHouse(te.Position.X, te.Position.Y);
+        if (house == null) return false;
+        if (IsHouseAuthorized(args.Player, house)) return false;
+        if (house.AllowPlace == 1) return false;
         if (args.Player.SelectedItem.type > 0)
         {
             args.Player.SetData("PlaceSlot", (true, args.Player.TPlayer.selectedItem));
             NetMessage.SendData(86, -1, -1, NetworkText.Empty, te.ID);
         }
-        return true;
+        return Deny(args, house, "无权修改被房子保护的地区的帽架。");
     }
+
     private static bool HandleGemLockToggle(GetDataHandlerArgs args)
     {
         var x = (int)args.Data.ReadInt16();
         var y = (int)args.Data.ReadInt16();
-        if (!Config.Instance.ProtectiveGemstoneLock) return false;
         var house = Utils.InAreaHouse(x, y);
         if (house == null) return false;
-        if (args.Player.Group.HasPermission(EditHouse) || args.Player.Account.ID.ToString() == house.Author || Utils.OwnsHouse(args.Player.Account.ID.ToString(), house) || Utils.CanUseHouse(args.Player.Account.ID.ToString(), house))
-            return false;
-        if (Config.Instance.WarningSpoiler) args.Player.Disable("无权触发房子保护的宝石锁!");
-        args.Player.SendErrorMessage("你没有权力触发被房子保护的宝石锁。");
-        return true;
+        if (IsHouseAuthorized(args.Player, house)) return false;
+        if (house.AllowSwitch == 1) return false;
+        return Deny(args, house, "无权触发被房子保护的宝石锁。");
     }
+
     private static bool HandleMassWireOperation(GetDataHandlerArgs args)
     {
         int x1 = args.Data.ReadInt16();
@@ -393,13 +457,30 @@ public static class GetDataHandlers
             if (house == null) continue;
             if (house.HouseArea.Intersects(A) || house.HouseArea.Intersects(B))
             {
-                if (!(args.Player.Group.HasPermission(EditHouse) || args.Player.Account.ID.ToString() == house.Author || Utils.OwnsHouse(args.Player.Account.ID.ToString(), house) || Utils.CanUseHouse(args.Player.Account.ID.ToString(), house)))
-                    return true;
+                if (!IsHouseAuthorized(args.Player, house))
+                    return Deny(args, house, "无权在房子保护地区进行大规模布线。");
             }
         }
         return false;
     }
-    public static void ToggleHouseDisplay(TSPlayer player, House house)
+
+    private static bool HandlePlayerSlot(GetDataHandlerArgs args)
+    {
+        var slot = (int)args.Data.ReadByte();
+        var x = (int)args.Data.ReadInt16();
+        var y = (int)args.Data.ReadInt16();
+        var house = Utils.InAreaHouse(x, y);
+        if (house == null) return false;
+        if (IsHouseAuthorized(args.Player, house)) return false;
+        if (house.AllowPlace == 1) return false;
+        return Deny(args, house, "无权修改被房子保护的地区的物品。");
+    }
+
+    // ══════════════════════════════════════════════════════════
+    //  边框显示
+    // ══════════════════════════════════════════════════════════
+
+    public static void ShowHouseDisplay(TSPlayer player, House house)
     {
         if (!PlayerActiveHouses.TryGetValue(player.Index, out var list))
         {
@@ -407,17 +488,35 @@ public static class GetDataHandlers
             PlayerActiveHouses[player.Index] = list;
             StartRefreshCycle(player.Index);
         }
-        if (list.Contains(house.HouseArea))
-        {
-            list.Remove(house.HouseArea);
-            ClearRegionProjectiles(player, house.HouseArea);
-            player.SendSuccessMessage("已隐藏房屋 " + house.Name + " 的边界。");
-            if (list.Count == 0) PlayerRefreshFlags.Remove(player.Index);
-        }
-        else
+        if (!list.Contains(house.HouseArea))
         {
             list.Add(house.HouseArea);
             ShowRegion(player, house.HouseArea);
+        }
+    }
+
+    public static void HideHouseDisplay(TSPlayer player, House house)
+    {
+        if (PlayerActiveHouses.TryGetValue(player.Index, out var list))
+        {
+            if (list.Remove(house.HouseArea))
+            {
+                ClearRegionProjectiles(player, house.HouseArea);
+                if (list.Count == 0) PlayerRefreshFlags.Remove(player.Index);
+            }
+        }
+    }
+
+    public static void ToggleHouseDisplay(TSPlayer player, House house)
+    {
+        if (PlayerActiveHouses.TryGetValue(player.Index, out var list) && list.Contains(house.HouseArea))
+        {
+            HideHouseDisplay(player, house);
+            player.SendSuccessMessage("已隐藏房屋 " + house.Name + " 的边界。");
+        }
+        else
+        {
+            ShowHouseDisplay(player, house);
             player.SendSuccessMessage("已显示房屋 " + house.Name + " 的边界。");
         }
     }
@@ -445,39 +544,18 @@ public static class GetDataHandlers
                 }
                 if (PlayerActiveHouses.TryGetValue(playerIndex, out var list))
                 {
-                    foreach (var rect in list) ShowRegion(player, rect);
+                    foreach (var rect in list)
+                    {
+                        ClearRegionProjectiles(player, rect);
+                        ShowRegion(player, rect);
+                    }
                 }
             }
         }
         finally { PlayerRefreshFlags.Remove(playerIndex); }
     }
-    public static void ToggleAllDisplays(TSPlayer player, List<House> houses)
-    {
-        if (!PlayerActiveHouses.TryGetValue(player.Index, out var list))
-        {
-            list = new List<Rectangle>();
-            PlayerActiveHouses[player.Index] = list;
-            StartRefreshCycle(player.Index);
-        }
-        var anyHidden = false;
-        foreach (var house in houses)
-        {
-            if (!list.Contains(house.HouseArea)) { anyHidden = true; break; }
-        }
-        if (anyHidden)
-        {
-            list.Clear();
-            foreach (var house in houses) { list.Add(house.HouseArea); ShowRegion(player, house.HouseArea); }
-            player.SendSuccessMessage("已显示所有房屋的边界。");
-        }
-        else
-        {
-            foreach (var rect in list) ClearRegionProjectiles(player, rect);
-            list.Clear();
-            player.SendSuccessMessage("已隐藏所有房屋的边界。");
-            PlayerRefreshFlags.Remove(player.Index);
-        }
-    }
+
+    // ── 后面的 ShowRegion / CreateProjectile / ClearRegionProjectiles 等保持不变 ──
 
     private static void ShowRegion(TSPlayer ts, Rectangle rect)
     {
@@ -503,45 +581,38 @@ public static class GetDataHandlers
         NetMessage.SendData((int)PacketTypes.ProjectileNew, ts.Index, -1, null, identity);
     }
 
-    private static void ClearRegionProjectiles(TSPlayer ts, Rectangle rect)
+    internal static void ClearRegionProjectiles(TSPlayer player, Rectangle rect)
     {
         for (var i = 0; i < Main.projectile.Length; i++)
         {
             var proj = Main.projectile[i];
-            if (proj is not { active: true } || proj.type != ProjectileID.TopazBolt) continue;
-            var projTileX = (int)(proj.position.X + (proj.width / 2f)) / 16;
-            var projTileY = (int)(proj.position.Y + (proj.height / 2f)) / 16;
-            if (projTileX < rect.Left || projTileX > rect.Right || projTileY < rect.Top || projTileY > rect.Bottom) continue;
-            proj.Kill();
-            NetMessage.SendData((int)PacketTypes.ProjectileDestroy, ts.Index, -1, null, i);
-        }
-    }
-    public static void ClearPlayerDisplays(int playerIndex)
-    {
-        if (!PlayerActiveHouses.TryGetValue(playerIndex, out var list)) return;
-        var player = TShock.Players[playerIndex];
-        if (player != null)
-        {
-            foreach (var rect in list) ClearRegionProjectiles(player, rect);
-            PlayerRefreshFlags.Remove(player.Index);
-        }
-        PlayerActiveHouses.Remove(playerIndex);
-    }
-    public static void OnHouseDeleted(Rectangle houseArea)
-    {
-        foreach (var player in TShock.Players)
-        {
-            if (player is not { ConnectionAlive: true }) continue;
-            if (PlayerActiveHouses.TryGetValue(player.Index, out var list) && list.Contains(houseArea))
+            if (proj == null || !proj.active || proj.type != ProjectileID.TopazBolt) continue;
+            if (proj.owner != player.Index) continue;
+            var tilePos = new Point((int)(proj.position.X / 16), (int)(proj.position.Y / 16));
+            if (rect.Contains(tilePos))
             {
-                list.Remove(houseArea);
-                ClearRegionProjectiles(player, houseArea);
-                if (list.Count == 0) PlayerActiveHouses.Remove(player.Index);
+                proj.Kill();
+                NetMessage.SendData((int)PacketTypes.ProjectileDestroy, player.Index, -1, null, i);
             }
         }
     }
-    public static bool IsPlayerShowingHouse(int playerIndex, Rectangle houseArea)
+
+    internal static void ClearPlayerDisplays(int playerIndex)
     {
-        return PlayerActiveHouses.TryGetValue(playerIndex, out var list) && list.Contains(houseArea);
+        PlayerActiveHouses.Remove(playerIndex);
+        PlayerRefreshFlags.Remove(playerIndex);
+    }
+
+    internal static void OnHouseDeleted(Rectangle area)
+    {
+        foreach (var kv in PlayerActiveHouses)
+        {
+            kv.Value.RemoveAll(r => r == area);
+        }
+    }
+
+    internal static bool IsPlayerShowingHouse(int playerIndex)
+    {
+        return PlayerActiveHouses.TryGetValue(playerIndex, out var list) && list.Count > 0;
     }
 }

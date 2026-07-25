@@ -7,13 +7,8 @@ namespace HouseRegion;
 public class Config
 {
     private static Config? _instance;
+    private static bool _reloadRegistered;
     private static readonly string FilePath = Path.Combine(TShock.SavePath, "HouseRegion.json");
-
-    [JsonProperty("进出房屋提示")]
-    public bool JoinRegionText { get; set; } = true;
-
-    [JsonProperty("房屋最大面积")]
-    public int HouseMaxSize { get; set; } = 1000;
 
     [JsonProperty("房屋最小宽度")]
     public int MinWidth { get; set; } = 15;
@@ -21,47 +16,12 @@ public class Config
     [JsonProperty("房屋最小高度")]
     public int MinHeight { get; set; } = 10;
 
-    [JsonProperty("房屋最大数量")]
-    public int HouseMaxNumber { get; set; } = 2;
-
-    [JsonProperty("禁止锁房屋")]
-    public bool LimitLockHouse { get; set; } = false;
-
-    [JsonProperty("保护宝石锁")]
-    public bool ProtectiveGemstoneLock { get; set; } = false;
-
-    [JsonProperty("始终保护箱子")]
-    public bool ProtectiveChest { get; set; } = true;
-
-    [JsonProperty("冻结警告破坏者")]
-    public bool WarningSpoiler { get; set; } = true;
-
-    [JsonProperty("禁止分享所有者")]
-    public bool ProhibitSharingOwner { get; set; } = false;
-
-    [JsonProperty("禁止分享使用者")]
-    public bool ProhibitSharingUser { get; set; } = false;
-
-    [JsonProperty("禁止所有者修改使用者")]
-    public bool ProhibitOwnerModifyingUser { get; set; } = true;
-
-    [JsonProperty("禁止TP房屋")]
-    public bool ProhibitTPHouse { get; set; } = false;
-
-    [JsonProperty("禁止出生点圈地")]
-    public bool ProhibitSpawnClaim { get; set; } = false;
-
-    [JsonProperty("允许门自由通行")]
-    public bool AllowDoorPassage { get; set; } = true;
-
     public static Config Instance
     {
         get
         {
             if (_instance == null)
-            {
                 Load();
-            }
             return _instance!;
         }
     }
@@ -79,7 +39,7 @@ public class Config
             {
                 _instance = new Config();
             }
-            // 保存回文件：自动补齐新加的字段（如 "允许门自由通行"）
+            // 保存回文件：自动补齐新字段
             Save();
         }
         catch
@@ -87,7 +47,12 @@ public class Config
             _instance = new Config();
         }
 
-        GeneralHooks.ReloadEvent += OnReload;
+        // 仅首次 Load 时注册 ReloadEvent，防止热重载后重复注册
+        if (!_reloadRegistered)
+        {
+            GeneralHooks.ReloadEvent += OnReload;
+            _reloadRegistered = true;
+        }
     }
 
     private static void OnReload(ReloadEventArgs args)
@@ -111,9 +76,7 @@ public class Config
     {
         var dir = Path.GetDirectoryName(FilePath);
         if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
-        {
             Directory.CreateDirectory(dir);
-        }
         var json = JsonConvert.SerializeObject(_instance ?? new Config(), Formatting.Indented);
         File.WriteAllText(FilePath, json);
     }

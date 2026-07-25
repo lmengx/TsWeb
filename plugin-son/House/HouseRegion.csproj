@@ -15,5 +15,6 @@
         <PackageReference Include="TShock" Version="6.1.0">
             <IncludeAssets>compile</IncludeAssets>
         </PackageReference>
+        <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.0" />
     </ItemGroup>
 </Project>
