@@ -16,6 +16,10 @@ onMounted(() => {
 onUnmounted(() => {
   if (mql) mql.removeEventListener('change', onMediaChange)
   stopAutoCycle()
+  if (statsTimer) {
+    clearInterval(statsTimer)
+    statsTimer = null
+  }
 })
 
 const onMediaChange = (e) => { isMobile.value = e.matches }
@@ -64,6 +68,9 @@ const qqCount = ref(0)
 const banCount = ref(0)
 const activePlayers = ref([])
 const recentBans = ref([])
+
+// 定时刷新
+let statsTimer = null
 
 const fetchStats = async () => {
   const [activeRes, userRes, banRes] = await Promise.allSettled([
@@ -274,6 +281,8 @@ onMounted(() => {
   fetchRank('online', 1, 5)
   fetchHourly()
   startAutoCycle()
+  // 每10秒刷新概览统计数据
+  statsTimer = setInterval(() => fetchStats(), 10000)
 })
 </script>
 
