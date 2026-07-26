@@ -185,7 +185,7 @@ public class HousingPlugin : TerrariaPlugin
         if (house.AllowChest == 1) return;
 
         plr.SendErrorMessage("你没有权力快速堆叠被房子保护的地区的箱子。");
-        plr.Disable("无权快速堆叠箱子!");
+        plr.SetBuff(BuffID.Webbed, 200, true);
         e.Result = HookResult.Cancel;
     }
 
@@ -211,7 +211,7 @@ public class HousingPlugin : TerrariaPlugin
                     if (!Utils.IsAuthorized(player, h))
                     {
                         player.SendErrorMessage("你没有权利修改被房子保护的地区。");
-                        player.Disable("你没有权利修改被房子保护的地区。");
+                        player.SetBuff(BuffID.Webbed, 200, true);
                         return;
                     }
                     break;
@@ -245,7 +245,8 @@ public class HousingPlugin : TerrariaPlugin
                 {
                     if (!Utils.IsAuthorized(_explosionOwner, house))
                     {
-                        _explosionOwner.Disable("无权破坏房子保护的方块!");
+                        _explosionOwner.SendErrorMessage("无权破坏房子保护的方块!");
+                        _explosionOwner.SetBuff(BuffID.Webbed, 200, true);
                         return;
                     }
                 }
@@ -285,7 +286,7 @@ public class HousingPlugin : TerrariaPlugin
                     else if (currentHouse.AllowEntry == 0)
                     {
                         ts.SendErrorMessage("你没有权利进入此房屋。");
-                        ts.Disable("无权进入");
+                        ts.SetBuff(BuffID.Webbed, 200, true);
                         GetDataHandlers.ExpelPlayer(ts, currentHouse);
                         if (currentHouse.NotifyEnter == 1)
                             NotifyOwnerStatic(currentHouse, $"{ts.Name} 试图进入房屋");
