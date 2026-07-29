@@ -567,7 +567,7 @@ public static class GetDataHandlers
             CreateProjectile(ts, x, rect.Top, projType);
             CreateProjectile(ts, x, rect.Bottom, projType);
         }
-        for (var y = rect.Top; y <= rect.Bottom; y += step)
+        for (var y = rect.Top + step; y <= rect.Bottom - step; y += step)
         {
             CreateProjectile(ts, rect.Left, y, projType);
             CreateProjectile(ts, rect.Right, y, projType);
