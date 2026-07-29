@@ -499,10 +499,10 @@ public static class GetDataHandlers
     {
         if (PlayerActiveHouses.TryGetValue(player.Index, out var list))
         {
-            if (list.Remove(house.HouseArea))
+            if (list.Remove(house.HouseArea) && list.Count == 0)
             {
-                ClearRegionProjectiles(player, house.HouseArea);
-                if (list.Count == 0) PlayerRefreshFlags.Remove(player.Index);
+                ClearPlayerBorderProjectiles(player);
+                PlayerRefreshFlags.Remove(player.Index);
             }
         }
     }
@@ -544,9 +544,9 @@ public static class GetDataHandlers
                 }
                 if (PlayerActiveHouses.TryGetValue(playerIndex, out var list))
                 {
+                    ClearPlayerBorderProjectiles(player);
                     foreach (var rect in list)
                     {
-                        ClearRegionProjectiles(player, rect);
                         ShowRegion(player, rect);
                     }
                 }
@@ -555,7 +555,7 @@ public static class GetDataHandlers
         finally { PlayerRefreshFlags.Remove(playerIndex); }
     }
 
-    // ── 后面的 ShowRegion / CreateProjectile / ClearRegionProjectiles 等保持不变 ──
+    // ── 边框显示方法 ──
 
     private static void ShowRegion(TSPlayer ts, Rectangle rect)
     {
@@ -577,19 +577,35 @@ public static class GetDataHandlers
     private static void CreateProjectile(TSPlayer ts, int tileX, int tileY, int projType)
     {
         var pos = new Vector2((tileX * 16) + 8, (tileY * 16) + 8);
-        var identity = Projectile.NewProjectile(null, pos.X, pos.Y, 0f, 0f, projType, 0, 0f, ts.Index);
-        NetMessage.SendData((int)PacketTypes.ProjectileNew, ts.Index, -1, null, identity);
+        int identity = Projectile.NewProjectile(null, pos.X, pos.Y, 0f, 0f, projType, 0, 0f, ts.Index);
+        if (identity > -1 && identity < Main.projectile.Length)
+        {
+            NetMessage.SendData((int)PacketTypes.ProjectileNew, ts.Index, -1, null, identity);
+            // 每个弹幕 2 秒后自毁
+            int id = identity, idx = ts.Index;
+            Main.DelayedProcesses.Add(KillAfter(id, idx));
+        }
     }
 
-    internal static void ClearRegionProjectiles(TSPlayer player, Rectangle rect)
+    private static IEnumerator KillAfter(int projId, int playerIdx)
     {
+        for (int i = 0; i < 120; i++)
+            yield return null;
+        if (projId >= 0 && projId < Main.projectile.Length && Main.projectile[projId] is { active: true })
+        {
+            Main.projectile[projId].Kill();
+            NetMessage.SendData((int)PacketTypes.ProjectileDestroy, playerIdx, -1, null, projId);
+        }
+    }
+
+    /// <summary>清除某玩家所有 TopazBolt 边框弹幕（不按位置匹配，专治漂移）</summary>
+    internal static void ClearPlayerBorderProjectiles(TSPlayer player)
+    {
+        if (player == null || player.Index < 0) return;
         for (var i = 0; i < Main.projectile.Length; i++)
         {
             var proj = Main.projectile[i];
-            if (proj == null || !proj.active || proj.type != ProjectileID.TopazBolt) continue;
-            if (proj.owner != player.Index) continue;
-            var tilePos = new Point((int)(proj.position.X / 16), (int)(proj.position.Y / 16));
-            if (rect.Contains(tilePos))
+            if (proj is { active: true, type: ProjectileID.TopazBolt, owner: not 255 } && proj.owner == player.Index)
             {
                 proj.Kill();
                 NetMessage.SendData((int)PacketTypes.ProjectileDestroy, player.Index, -1, null, i);
