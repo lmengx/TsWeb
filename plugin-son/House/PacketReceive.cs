@@ -192,11 +192,11 @@ public static class GetDataHandlers
         {
             args.Player.TempPoints[args.Player.AwaitingTempPoint - 1].X = x;
             args.Player.TempPoints[args.Player.AwaitingTempPoint - 1].Y = y;
-            if (args.Player.AwaitingTempPoint == 1) args.Player.SendMessage("保护区左上角已设置!", Color.Yellow);
-            if (args.Player.AwaitingTempPoint == 2)
+            args.Player.SendMessage($"点{args.Player.AwaitingTempPoint} 已设置 ({x}, {y})", Color.Yellow);
+
+            // 两个点都设了 → 显示边框预览
+            if (args.Player.TempPoints[0] != Point.Zero && args.Player.TempPoints[1] != Point.Zero)
             {
-                args.Player.SendMessage("保护区右下角已设置!", Color.Yellow);
-                // 显示 2 秒边框预览
                 var p1 = args.Player.TempPoints[0];
                 var p2 = args.Player.TempPoints[1];
                 var previewRect = new Rectangle(
@@ -204,6 +204,7 @@ public static class GetDataHandlers
                     Math.Abs(p2.X - p1.X), Math.Abs(p2.Y - p1.Y));
                 ShowRegion(args.Player, previewRect);
             }
+
             args.Player.SendTileSquareCentered(x, y);
             args.Player.AwaitingTempPoint = 0;
             return true;
