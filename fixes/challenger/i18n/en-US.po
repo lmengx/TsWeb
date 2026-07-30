@@ -1,0 +1,764 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: tshock-chinese-plugin\n"
+"POT-Creation-Date: 2026-05-05 15:25:22+0000\n"
+"PO-Revision-Date: 2026-05-06 02:36\n"
+"Last-Translator: \n"
+"Language-Team: English\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"X-Generator: GetText.NET Extractor\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+"X-Crowdin-Project: tshock-chinese-plugin\n"
+"X-Crowdin-Project-ID: 751499\n"
+"X-Crowdin-Language: en\n"
+"X-Crowdin-File: /master/src/Challenger/i18n/template.pot\n"
+"X-Crowdin-File-ID: 1128\n"
+"Language: en_US\n"
+
+#: ../../Challenger/Challenger.cs:532
+#, csharp-format
+msgid "[c/95CFA6:<挑战者:挖矿套>] 背包已满，还需空位：[c/95CFA6:{0}] 以放入 [c/95CFA6:{1}] ."
+msgstr "[c/95CFA6:<Challenger: Mining Set>] Inventory is full, you need an additional space: [c/95CFA6:{0}] to place [c/95CFA6:{1}]."
+
+#: ../../Challenger/Challenger.cs:528
+#, csharp-format
+msgid "[c/95CFA6:<挑战者:挖矿套>] 连锁挖掘了 [c/95CFA6: {0} {1}]."
+msgstr "[c/95CFA6:<Challenger: Mining Set>] Vein Miner [c/95CFA6: {0} {1}]."
+
+#: ../../Challenger/Challenger.cs:106
+msgid "[挑战者模式]重新加载配置完毕。"
+msgstr "[Challenger] Configuration reloaded successfully."
+
+#: ../../Challenger/Challenger.cs:1987
+#, csharp-format
+msgid "{0} 发动了混乱之脑迷惑，成功迷惑了附近 {1}个敌人"
+msgstr "{0} Activated the Brain of Confusion, successfully confusing {1} nearby enemies."
+
+#: ../../Challenger/Challenger.cs:2061
+#, csharp-format
+msgid "{0} 收听了 {1} 世界先知广播：{2}有流星"
+msgstr "{0} Listened to the World Prophet broadcast from {1}: There will be a meteor shower at {2}."
+
+#: ../../Challenger/Challenger.cs:2045
+#, csharp-format
+msgid "{0} 收听了 {1} 世界先知广播：{2}满月"
+msgstr "{0} Listened to the World Prophet broadcast from {1}: It's a full moon at {2}."
+
+#: ../../Challenger/Challenger.cs:2057
+#, csharp-format
+msgid "{0} 收听了 {1} 世界先知广播：{2}灯笼夜"
+msgstr "{0} Listened to the World Prophet broadcast from {1}: It's Lantern Night at {2}."
+
+#: ../../Challenger/Challenger.cs:2049
+#, csharp-format
+msgid "{0} 收听了 {1} 世界先知广播：{2}血月"
+msgstr "{0} Listened to the World Prophet broadcast from {1}: It's a Blood Moon at {2}."
+
+#: ../../Challenger/Challenger.cs:2053
+#, csharp-format
+msgid "{0} 收听了 {1} 世界先知广播：明天日食"
+msgstr "{0} Listened to the World Prophet broadcast from {1}: There will be a solar eclipse tomorrow."
+
+#: ../../Challenger/Challenger.cs:2008
+#, csharp-format
+msgid "{0} 收听了 {1} 天气预报收音广播：不会下雨"
+msgstr "{0} Listened to the weather forecast broadcast from {1}: It won't rain."
+
+#: ../../Challenger/Challenger.cs:2035
+#, csharp-format
+msgid "{0} 收听了 {1} 天气预报收音广播：不会有沙尘暴"
+msgstr "{0} Listened to the weather forecast broadcast from {1}: There will be no sandstorm."
+
+#: ../../Challenger/Challenger.cs:2015
+#, csharp-format
+msgid "{0} 收听了 {1} 天气预报收音广播：不会有风"
+msgstr "{0} Listened to the weather forecast broadcast from {1}: There will be no wind."
+
+#: ../../Challenger/Challenger.cs:2002
+#, csharp-format
+msgid "{0} 收听了 {1} 天气预报收音广播：即将下雨"
+msgstr "{0} Listened to the weather forecast broadcast from {1}: Rain is coming soon."
+
+#: ../../Challenger/Challenger.cs:2040
+#, csharp-format
+msgid "{0} 收听了 {1} 天气预报收音广播：即将刮起沙尘暴"
+msgstr "{0} Listened to the weather forecast broadcast from {1}: A sandstorm is coming soon."
+
+#: ../../Challenger/Challenger.cs:2028
+#, csharp-format
+msgid "{0} 收听了 {1} 天气预报收音广播：即将挂起狂风"
+msgstr "{0} Listened to the weather forecast broadcast from {1}: Winds are coming soon."
+
+#: ../../Challenger/Challenger.cs:2022
+#, csharp-format
+msgid "{0} 收听了 {1} 天气预报收音广播：即将挂起风"
+msgstr "{0} Listened to the weather forecast broadcast from {1}: Wind is coming soon."
+
+#: ../../Challenger/Challenger.cs:2065
+#, csharp-format
+msgid "{0} 收听了 {1} 天气预报收音广播：顺其自然，不会发生任何事件"
+msgstr "{0} Listened to the weather forecast broadcast from {1}: All will be calm; no events will occur."
+
+#: ../../Challenger/Challenger.cs:1285
+msgid "【丛林套装】\n"
+"挑战模式奖励：间歇地从玩家周围生成伤害性的孢子"
+msgstr "[Jungle Set]  \n"
+"Challenge Mode Reward: Periodically generates\n"
+"damaging spores around the player"
+
+#: ../../Challenger/Challenger.cs:1387
+#, csharp-format
+msgid "【克苏鲁之盾】\n"
+"挑战模式奖励：冲刺时获得一小段无敌时间，冷却\n"
+"{0}秒"
+msgstr "[Cthulhu Shield]  \n"
+"Challenge Mode Reward: Grants a brief period of\n"
+"invincibility while dashing, cooldown: {0} seconds"
+
+#: ../../Challenger/Challenger.cs:1390
+#, csharp-format
+msgid "【分趾袜】\n"
+"挑战模式奖励：冲刺时获得一小段无敌时间，冷却\n"
+"{0}秒"
+msgstr "[Split-Toe Socks]  \n"
+"Challenge Mode Reward: Grants a brief period of\n"
+"invincibility while dashing, cooldown: {0} seconds"
+
+#: ../../Challenger/Challenger.cs:1259
+msgid "【化石套装】\n"
+"挑战模式奖励：在头上召唤一个琥珀光球，向敌人\n"
+"抛出极快的闪电矢"
+msgstr "[Fossil Set]  \n"
+"Challenge Mode Reward: Summons an amber light\n"
+"sphere above the player that fires extremely fast\n"
+"lightning bolts at enemies"
+
+#: ../../Challenger/Challenger.cs:1347
+msgid "【叶绿套装】\n"
+"挑战模式奖励：释放不精确的叶绿水晶矢，丛林之\n"
+"力给你更高的生命上限"
+msgstr "[Chlorophyte Set]  \n"
+"Challenge Mode Reward: Releases imprecise\n"
+"chlorophyte crystal arrows; Jungle Power\n"
+"increases your maximum health"
+
+#: ../../Challenger/Challenger.cs:1249
+msgid "【垂钓套装】\n"
+"挑战模式奖励：给予永久的声纳、钓鱼、宝匣、镇\n"
+"定Buff"
+msgstr "[Angler Set]  \n"
+"Challenge Mode Reward: Grants permanent sonar,\n"
+"fishing, treasure chest, and calm buffs"
+
+#: ../../Challenger/Challenger.cs:1326
+msgid "【寒霜套装】\n"
+"挑战模式奖励：你周围开始下雪"
+msgstr "[Frost Set]  \n"
+"Challenge Mode Reward: Rain snowing around you"
+
+#: ../../Challenger/Challenger.cs:1376
+msgid "【幽魂套装】\n"
+"挑战模式奖励：根据头饰选择增加40血上限或80魔\n"
+"力上限；召唤 2个幽魂诅咒环绕玩家，向附近敌人攻击"
+msgstr "[Spectre Set]  \n"
+"Challenge Mode Reward: Increases maximum health\n"
+"by 40 or maximum mana by 80 based on headgear\n"
+"choice; summons 2 ghostly curse rings around the\n"
+"player that attack nearby enemies"
+
+#: ../../Challenger/Challenger.cs:1393
+#, csharp-format
+msgid "【忍者大师装备】\n"
+"挑战模式奖励：冲刺时获得一小段无敌时间，冷却\n"
+"{0}秒"
+msgstr "[Master Ninja Gear]  \n"
+"Challenge Mode Reward: Grants a brief period of\n"
+"invincibility while sprinting, cooldown: {0} seconds"
+
+#: ../../Challenger/Challenger.cs:1254
+msgid "【忍者套装】\n"
+"挑战模式奖励：有四分之一概率闪避非致命伤害并\n"
+"释放烟雾"
+msgstr "[Ninja Set]  \n"
+"Challenge Mode Reward: 25% chance to dodge\n"
+"non-lethal damage and release smoke"
+
+#: ../../Challenger/Challenger.cs:1244
+msgid "【挖矿套装】\n"
+"挑战模式奖励：给予永久的挖矿、糖果冲刺Buff\n"
+"启用连锁挖矿能力"
+msgstr "[Mining Set]  \n"
+"Challenge Mode Reward: Grants permanent mining\n"
+"and candy sprint buffs; enables vein miner ability"
+
+#: ../../Challenger/Challenger.cs:1413
+msgid "【挥发明胶】\n"
+"挑战模式奖励：击中敌人有概率掉落碎魔晶，珍珠\n"
+"石，凝胶等"
+msgstr "[Volatile Gel]  \n"
+"Challenge Mode Reward: Enemies hit have a chance\n"
+"to drop shattered magic crystals, pearls, gel, etc"
+
+#: ../../Challenger/Challenger.cs:1357
+msgid "【提基套装】\n"
+"挑战模式奖励：增加20血上限，在鞭子的轨迹上留\n"
+"下孢子"
+msgstr "[Tiki Set]  \n"
+"Challenge Mode Reward: Increases maximum health\n"
+"by 20; leaves spores on the whip's trail"
+
+#: ../../Challenger/Challenger.cs:1402
+msgid "【收音机零件】\n"
+"挑战模式奖励：输入“/cf”收听天气预报，在困难\n"
+"模式中可以收听世界先知预报"
+msgstr "[Radio Parts]  \n"
+"Challenge Mode Reward: Input “/cf” to listen to\n"
+"weather forecasts; can also listen to World Prophet\n"
+"forecasts in Hardmode"
+
+#: ../../Challenger/Challenger.cs:1272
+msgid "【暗影套装】\n"
+"挑战模式奖励：暴击时从玩家周围生成吞噬怪飞弹\n"
+"攻击周围敌人，冷却 1秒"
+msgstr "[Shadow Set]  \n"
+"Challenge Mode Reward: Generates devouring monster\n"
+"missiles around the player on critical hits; attacks nearby\n"
+"enemies, cooldown: 1 second"
+
+#: ../../Challenger/Challenger.cs:1291
+msgid "【死灵套装】\n"
+"挑战模式奖励：受到伤害时，向四周飞溅骨头；攻\n"
+"击时偶尔发射骨箭"
+msgstr "[Necro Set]  \n"
+"Challenge Mode Reward: Splashes bones around\n"
+"when taking damage; occasionally shoots bone\n"
+"arrows when attacking"
+
+#: ../../Challenger/Challenger.cs:1316
+msgid "【水晶刺客套装】\n"
+"挑战模式奖励：当有敌人在附近时，自身释放出水\n"
+"晶碎片；若玩家被击中，释放出更强大的碎片"
+msgstr "[Crystal Assassin Set]  \n"
+"Challenge Mode Reward: Releases crystal shards\n"
+"when enemies are nearby; releases stronger shards\n"
+"if the player is hit"
+
+#: ../../Challenger/Challenger.cs:1352
+msgid "【海龟套装】\n"
+"挑战模式奖励：增加60血上限，自动在附近释放爆\n"
+"炸碎片"
+msgstr "[Turtle Set]  \n"
+"Challenge Mode Reward: Increases maximum health\n"
+"by 60; automatically releases explosive shards nearby"
+
+#: ../../Challenger/Challenger.cs:1396
+msgid "【混乱之脑】\n"
+"挑战模式奖励：输入“/cf”混乱周围所有敌怪"
+msgstr "[Brain of Confusion]  \n"
+"Challenge Mode Reward: Input \"/cf\" to\n"
+"confuse all nearby enemies"
+
+#: ../../Challenger/Challenger.cs:1306
+msgid "【狱炎套装】\n"
+"挑战模式奖励：免疫岩浆，给予永久的地狱火增益"
+msgstr "[Molten Set]  \n"
+"Challenge Mode Reward: Immune to lava;\n"
+"grants permanent Hellfire buff"
+
+#: ../../Challenger/Challenger.cs:1264
+msgid "【猩红套装】\n"
+"挑战模式奖励：暴击时从周围每个敌怪处吸取一定\n"
+"血量随着敌怪数目增多吸血量-1，冷却 5秒"
+msgstr "[Crimson Set]  \n"
+"Challenge Mode Reward: Absorbs a certain amount\n"
+"of health from each enemy on critical hits; the amount\n"
+"of health absorbed decreases by 1 as the number of\n"
+"enemies increases, cooldown: 5 seconds"
+
+#: ../../Challenger/Challenger.cs:1363
+msgid "【甲虫套装】\n"
+"挑战模式奖励：增加60血上限，敌人的伤害的一部\n"
+"分会治疗周围的队友并给予buff；当装备帕拉丁盾\n"
+"或其上级合成物时，帕拉丁之锤伤害翻倍"
+msgstr "[Beetle Armor]\n"
+"Challenge Mode Reward: Increases health cap by 60,\n"
+"part of enemy damage heals nearby teammates and\n"
+"grants buffs; Paladin's Hammer damage is doubled\n"
+"when equipped with the Paladin Shield or its\n"
+"higher-tier variant"
+
+#: ../../Challenger/Challenger.cs:1384
+msgid "【皇家凝胶】\n"
+"挑战模式奖励：天空开始下凝胶小雨"
+msgstr "[Royal Gel]\n"
+"Challenge Mode Reward: A light gel rain falls from the sky."
+
+#: ../../Challenger/Challenger.cs:1340
+msgid "【神圣套装】\n"
+"挑战模式奖励：击中敌人时召唤光与暗剑气，输入\n"
+"“/cf”切换剑气类型"
+msgstr "[Hallowed Armor]\n"
+"Challenge Mode Reward: Summons light and dark\n"
+"sword waves when hitting enemies.\n"
+"Type '/cf' to switch between sword wave types"
+
+#: ../../Challenger/Challenger.cs:1321
+msgid "【禁戒套装】\n"
+"挑战模式奖励：释放自动寻的灵焰魂火攻击附近的\n"
+"敌人"
+msgstr "[Forbidden Armor]\n"
+"Challenge Mode Reward: Releases homing spirit flames\n"
+"to attack nearby enemies"
+
+#: ../../Challenger/Challenger.cs:1410
+msgid "【箭袋】\n"
+"挑战模式奖励：无限补充弹药，额外获得BUFF"
+msgstr "[Magic Quiver]\n"
+"Challenge Mode Reward: Infinite ammo replenishment\n"
+"and additional buffs"
+
+#: ../../Challenger/Challenger.cs:1370
+msgid "【蘑菇套装】\n"
+"挑战模式奖励：射弹会不稳定地留下蘑菇"
+msgstr "[Shroomite Set]\n"
+"Challenge Mode Reward: Projectiles leave\n"
+"unstable mushrooms behind"
+
+#: ../../Challenger/Challenger.cs:1311
+msgid "【蜘蛛套装】\n"
+"挑战模式奖励：攻击时，给予敌人中毒和剧毒减益\n"
+"，按“up”键生成一个毒牙药水瓶，砸中敌人时爆炸"
+msgstr "[Spider Armor]\n"
+"Challenge Mode Reward: Inflicts poison and venom debuffs\n"
+"on enemies when attacking.\n"
+"Press 'up' to create a poison fang potion, which explodes on impact"
+
+#: ../../Challenger/Challenger.cs:1296
+msgid "【蜜蜂套装】\n"
+"挑战模式奖励：给予永久的蜂蜜增益；不间断地向\n"
+"四周撒蜂糖罐，玩家接触后回血并给予15秒蜂蜜增\n"
+"益；对玩家自身的治疗量略低于对其他玩家"
+msgstr "[Bee Armor]\n"
+"Challenge Mode Reward: Grants a permanent honey buff;\n"
+"constantly scatters honey that heal players upon contact\n"
+"and provide a 15-second honey buff;\n"
+"healing for the player is slightly less effective compared to others"
+
+#: ../../Challenger/Challenger.cs:1405
+msgid "【蜜蜂背包】\n"
+"挑战模式奖励：不间断地向四周扔出毒蜂罐，爆炸\n"
+"后释放一只蜜蜂"
+msgstr "[Bee Hive]\n"
+"Challenge Mode Reward: Continuously throws bee hive around, releasing a bee upon explosion"
+
+#: ../../Challenger/Challenger.cs:1399
+msgid "【蠕虫围巾】\n"
+"挑战模式奖励：免疫寒冷，霜火，灵液和咒火"
+msgstr "[Worm Scarf]\n"
+"Challenge Mode Reward: Immunity to chill,\n"
+"frostfire, cursed flames, and ichor"
+
+#: ../../Challenger/Challenger.cs:1381
+msgid "【阴森套装】\n"
+"挑战模式奖励：使用鞭子时，甩出蝙蝠或南\n"
+"瓜头"
+msgstr "[Spooky Set]  \n"
+"Challenge Mode Reward: When using a whip, bats\n"
+"or pumpkin heads are thrown"
+
+#: ../../Challenger/Challenger.cs:1277
+msgid "【陨石套装】\n"
+"挑战模式奖励：暴击时恢复些许魔力，间歇地降下\n"
+"高伤害落星攻击敌人"
+msgstr "[Meteorite Set]  \n"
+"Challenge Mode Reward: Restores a small amount of mana\n"
+"on critical hits and intermittently summons high-damage\n"
+"falling stars to attack enemies"
+
+#: ../../Challenger/Challenger.cs:1301
+msgid "【黑曜石套装】\n"
+"挑战模式奖励：因为盗贼的祝福，掉落物会尝试掉落两次\n"
+"(仅对非boss生物和非高血量怪物有效)"
+msgstr "[Obsidian Set]  \n"
+"Challenge Mode Reward: Due to the Thief's Blessing,\n"
+"loot will attempt to drop twice\n"
+"(only effective on non-boss creatures and non-high-health monsters)"
+
+#: ../../Challenger/Challenger.cs:1468
+#: ../../Challenger/Challenger.cs:1469
+msgid "Challenger.OnServerLeave异常3："
+msgstr "Challenger.OnServerLeave Exception 3: "
+
+#: ../../Challenger.CProjs/CrystalLeafShot.cs:35
+#: ../../Challenger.CProjs/CrystalLeafShot.cs:36
+#, csharp-format
+msgid "CrystalLeafShot -> MyEffect 异常：{0}"
+msgstr "CrystalLeafShot -> MyEffect Exception：{0}"
+
+#: ../../Challenger.CNPCs/QueenBee.cs:140
+msgid "不许抢我的蜂蜜"
+msgstr "Don't take my honey."
+
+#: ../../Challenger/Challenger.cs:1430
+msgid "世界已关闭挑战模式，快乐游玩吧"
+msgstr "The world has closed the challenge mode, have fun playing"
+
+#: ../../Challenger/Challenger.cs:1426
+msgid "世界已开启挑战模式，祝您好运！"
+msgstr "The world has entered challenge mode, good luck!"
+
+#: ../../Challenger.CNPCs/WallofFlesh.cs:98
+msgid "付出代价吧！"
+msgstr "Pay the price!"
+
+#: ../../Challenger.CProjs/BeetleHeal.cs:66
+#: ../../Challenger.CProjs/BeetleHeal.cs:67
+#, csharp-format
+msgid "代码异常4：{0}"
+msgstr "Code Exception 4: {0}"
+
+#: ../../Challenger.CNPCs/Deerclops.cs:144
+msgid "你将受到灭顶之灾"
+msgstr "You will be annihilated"
+
+#: ../../Challenger.CNPCs/SlimeKing.cs:180
+msgid "你感觉寒冷刺骨"
+msgstr "You feel freezing cold"
+
+#: ../../Challenger.CNPCs/SkeletronHand.cs:67
+msgid "你打痛我右手了！！！"
+msgstr "You hurt my right hand!!!"
+
+#: ../../Challenger.CNPCs/SkeletronHand.cs:63
+msgid "你打痛我左手了！！！"
+msgstr "You hurt my left hand!!!"
+
+#: ../../Challenger.CNPCs/EyeofCthulhu.cs:194
+msgid "你找到那颗子弹了吗"
+msgstr "Did you find the bullet?"
+
+#: ../../Challenger.CNPCs/BrainofCthulhu.cs:79
+msgid "你真的能分清真假血弹吗"
+msgstr "Can you really tell the difference between real and fake blood bullets?"
+
+#: ../../Challenger.CProjs/BeetleHeal.cs:53
+#, csharp-format
+msgid "你被 {0} 治疗了 {1} 点生命值"
+msgstr "You were healed by {0} for {1} health points"
+
+#: ../../Challenger.CNPCs/Skeletron.cs:161
+msgid "再让我逮到一下你就玩玩"
+msgstr "If I catch you again, you're doomed."
+
+#: ../../Challenger.CNPCs/Deerclops.cs:134
+msgid "冰雪从天而降"
+msgstr "Snow and ice are falling from the sky"
+
+#: ../../Challenger/Challenger.cs:1188
+msgid "冲刺类饰品冷却完成"
+msgstr "Sprint accessories cooldown completed"
+
+#: ../../Challenger.CNPCs/EaterofWorldsHead.cs:39
+#: ../../Challenger.CNPCs/Skeletron.cs:164
+msgid "创死你"
+msgstr "I'll smash you!"
+
+#: ../../Challenger.CNPCs/EaterofWorldsBody.cs:118
+msgid "刺啦"
+msgstr "SIZZLE!"
+
+#: ../../Challenger.CNPCs/SlimeKing.cs:156
+msgid "史莱姆王习得冰魔法归来"
+msgstr "King Slime learns ice magic and returns"
+
+#: ../../Challenger.CNPCs/SlimeKing.cs:190
+msgid "史莱姆王发怒了"
+msgstr "King Slime is angry"
+
+#: ../../Challenger.CNPCs/QueenBee.cs:177
+msgid "吱嗡"
+msgstr "BUZZ"
+
+#: ../../Challenger.CNPCs/EaterofWorldsHead.cs:42
+msgid "呜哇哇"
+msgstr "WOO WOW WOW"
+
+#: ../../Challenger.CNPCs/WallofFlesh.cs:118
+msgid "咬碎你"
+msgstr "I will bite you to pieces!"
+
+#: ../../Challenger.CNPCs/BrainofCthulhu.cs:106
+msgid "哇哇嗷"
+msgstr "WOW WOW"
+
+#: ../../Challenger.CNPCs/QueenBee.cs:171
+msgid "嗡嗡"
+msgstr "BUZZZZ"
+
+#: ../../Challenger.CNPCs/QueenBee.cs:174
+msgid "嗡嗡嗡嗡"
+msgstr "BUZZZZZZZZ"
+
+#: ../../Challenger.CNPCs/Deerclops.cs:161
+msgid "嗷嗷"
+msgstr "AWW"
+
+#: ../../Challenger.CNPCs/Skeletron.cs:126
+msgid "嘎吱作响"
+msgstr "CRUNCHING"
+
+#: ../../Challenger/Challenger.cs:31
+msgid "增强游戏难度，更好的游戏体验"
+msgstr "Increase the difficulty of the game for better gaming experience"
+
+#: ../../Challenger.CNPCs/SlimeKing.cs:168
+msgid "寒风呼啸"
+msgstr "Howling wind"
+
+#: ../../Challenger.CNPCs/EaterofWorldsBody.cs:122
+msgid "小心我爆炸的鳞甲"
+msgstr "Watch out for my exploding scales"
+
+#: ../../Challenger.CNPCs/SlimeKing.cs:213
+msgid "小辣鸡"
+msgstr "Loser!"
+
+#: ../../Challenger.CNPCs/EyeofCthulhu.cs:229
+msgid "就这就这！"
+msgstr "Is that all?"
+
+#: ../../Challenger.CNPCs/SkeletronHand.cs:100
+msgid "就这还想打倒我骷髅王爷爷"
+msgstr "You wanna take down Grandpa Skeletron? In your dreams!"
+
+#: ../../Challenger.CNPCs/EaterofWorldsBody.cs:91
+msgid "怒不可遏"
+msgstr "I'm absolutely furious!"
+
+#: ../../Challenger.CNPCs/Skeletron.cs:148
+msgid "惨朽不堪"
+msgstr "Pathetic!"
+
+#: ../../Challenger.CNPCs/Skeletron.cs:167
+msgid "想再贴贴吗？"
+msgstr "Wanna get cozy again?"
+
+#: ../../Challenger.CNPCs/Deerclops.cs:157
+msgid "拆掉拆掉！"
+msgstr "Tear it down! Tear it down!"
+
+#: ../../Challenger/Challenger.cs:1937
+#, csharp-format
+msgid "挑战模式启用，祝您愉快。[操作来自：{0}]"
+msgstr "Challenge Mode activated. Have fun! [Action by: {0}]"
+
+#: ../../Challenger/Challenger.cs:1871
+msgid "挑战模式已关闭，无法开启文字提示"
+msgstr "Challenge Mode disabled. Text hints cannot be enabled."
+
+#: ../../Challenger/Challenger.cs:1924
+#, csharp-format
+msgid "挑战模式已取消，您觉得太难了？[操作来自：{0}]"
+msgstr "Challenge Mode canceled. Think you're too good for this? [Action by: {0}]"
+
+#: ../../Challenger.CProjs/BloodBagProj.cs:95
+#, csharp-format
+msgid "敌怪治疗 + {0}"
+msgstr "Enemy healing + {0}"
+
+#: ../../Challenger/Challenger.cs:1876
+msgid "文字提示已取消"
+msgstr "Text hints disabled."
+
+#: ../../Challenger/Challenger.cs:1881
+msgid "文字提示已启用"
+msgstr "Text hints enabled."
+
+#: ../../Challenger.CNPCs/EaterofWorldsBody.cs:81
+msgid "有毒的鳞甲炸裂开来"
+msgstr "Poisonous scales explode!"
+
+#: ../../Challenger/Challenger.cs:1944
+msgid "未启用挑战模式！"
+msgstr "Challenge Mode not activated!"
+
+#: ../../Challenger.CNPCs/QueenBee.cs:152
+msgid "毒刺射你一脸"
+msgstr "Poisonous spines shoot in your face!"
+
+#: ../../Challenger.CNPCs/EaterofWorldsHead.cs:36
+msgid "毒牙咬击"
+msgstr "Poisonous fang bite!"
+
+#: ../../Challenger/Challenger.cs:1965
+#: ../../Challenger/Challenger.cs:1966
+msgid "永夜剑辉已启用"
+msgstr "Eternal Night Blade activated!"
+
+#: ../../Challenger/Challenger.cs:2072
+msgid "没有套装效果启用"
+msgstr "No set bonuses activated."
+
+#: ../../Challenger.CNPCs/EyeofCthulhu.cs:182
+msgid "燃烧！无法熄灭的火焰"
+msgstr "Burning! Unquenchable flames!"
+
+#: ../../Challenger/Challenger.cs:2076
+#, csharp-format
+msgid "状态异常，使用失败: {0}"
+msgstr "Status abnormal, usage failed: {0}"
+
+#: ../../Challenger.CNPCs/EyeofCthulhu.cs:206
+msgid "猪突猛进！"
+msgstr "Charge!"
+
+#: ../../Challenger/Challenger.cs:776
+#: ../../Challenger/Challenger.cs:823
+#: ../../Challenger/Challenger.cs:883
+#: ../../Challenger/Challenger.cs:920
+#: ../../Challenger/Challenger.cs:1070
+#, csharp-format
+msgid "生命值上限 - {0}"
+msgstr "Max HP - {0}"
+
+#: ../../Challenger/Challenger.cs:765
+#: ../../Challenger/Challenger.cs:812
+#: ../../Challenger/Challenger.cs:872
+#: ../../Challenger/Challenger.cs:909
+#: ../../Challenger/Challenger.cs:1046
+#, csharp-format
+msgid "生命值上限 + {0}"
+msgstr "Max HP + {0}"
+
+#: ../../Challenger.CProjs/BeetleHeal.cs:52
+#, csharp-format
+msgid "甲虫治疗 + {0} 治疗者:{1}"
+msgstr "Beetle healing + {0}. Healer: {1}"
+
+#: ../../Challenger.CNPCs/BrainofCthulhu.cs:67
+msgid "畸形怪脑发现了新鲜的脑子"
+msgstr "The Aberration has found a fresh brain!"
+
+#: ../../Challenger.CNPCs/EyeofCthulhu.cs:216
+msgid "疯狗狂叫！！！"
+msgstr "Mad dog barking!!!"
+
+#: ../../Challenger.CNPCs/SkeletronHand.cs:103
+msgid "看我一记耳光"
+msgstr "Take this slap!"
+
+#: ../../Challenger.CNPCs/EyeofCthulhu.cs:233
+msgid "看我创死你"
+msgstr "I'm gonna wreck you!"
+
+#: ../../Challenger/Challenger.cs:1960
+#: ../../Challenger/Challenger.cs:1961
+msgid "神圣剑辉已启用"
+msgstr "Holy Blade activated!"
+
+#: ../../Challenger.CNPCs/SkeletronHand.cs:106
+msgid "离地牢远点！！！"
+msgstr "Stay away from the dungeon!!!"
+
+#: ../../Challenger.CNPCs/BrainofCthulhu.cs:102
+msgid "糊你一脸"
+msgstr "I'm gonna slap you silly!"
+
+#: ../../Challenger.CNPCs/WallofFlesh.cs:86
+msgid "罪恶血祭召唤远古守卫"
+msgstr "The Blood Altar summons an ancient guardian!"
+
+#: ../../Challenger.CNPCs/BrainofCthulhu.cs:89
+msgid "虚虚实实，实实虚虚"
+msgstr "Real or fake? Who knows!"
+
+#: ../../Challenger.CProjs/Honey.cs:43
+#, csharp-format
+msgid "蜂糖罐治疗 + {0}"
+msgstr "Honey pot healing + {0}"
+
+#: ../../Challenger.CProjs/BloodBagProj.cs:121
+#, csharp-format
+msgid "血包治疗 + {0}"
+msgstr "Blood pack healing + {0}"
+
+#: ../../Challenger.CNPCs/Skeletron.cs:114
+msgid "被封印的骷髅帝王苏醒"
+msgstr "The sealed Skeletron awakens!"
+
+#: ../../Challenger.CNPCs/Skeletron.cs:138
+msgid "诅咒开始应验"
+msgstr "The curse begins!"
+
+#: ../../Challenger/Challenger.cs:1949
+msgid "请在游戏里使用该指令"
+msgstr "Please use this command in game"
+
+#: ../../Challenger.CNPCs/QueenBee.cs:128
+msgid "谁人惊扰了我的蜂巢！"
+msgstr "Who dares disturb my beehive!"
+
+#: ../../Challenger.CNPCs/SlimeKing.cs:207
+msgid "走位真菜"
+msgstr "Your movement is so bad!"
+
+#: ../../Challenger/Challenger.cs:59
+msgid "输入 /cenable  来启用挑战模式，再次使用取消"
+msgstr "Type in /cenable to enable challenge mode, use again to cancel."
+
+#: ../../Challenger/Challenger.cs:1889
+msgid "输入 /cenable 来启用挑战模式，再次使用取消"
+msgstr "Type in /cenable to enable challenge mode, use again to cancel."
+
+#: ../../Challenger/Challenger.cs:67
+msgid "输入 /cf  来实现某些技能的或状态的切换"
+msgstr "Type in /cf to switch some skills or status."
+
+#: ../../Challenger/Challenger.cs:63
+msgid "输入 /ctip  来启用内容提示，如各种物品的强化文字提示，再次使用取消"
+msgstr "Type in /ctip to enable content tips, such as enhanced text tips for various items, use again to cancel."
+
+#: ../../Challenger/Challenger.cs:1867
+msgid "输入 /ctip 来启用内容提示，如各种物品装备的修改文字提示，再次使用取消"
+msgstr "Type in /ctip to enable content tips, such as enhanced text tips for various items and equipment, use again to cancel."
+
+#: ../../Challenger.CNPCs/WallofFleshEye.cs:100
+msgid "这么想看清我的卡姿兰大眼是吧"
+msgstr "So you want to see my big eyes?"
+
+#: ../../Challenger.CNPCs/Deerclops.cs:122
+msgid "远方的巨兽将会摧毁你所拥有的一切"
+msgstr "The distant behemoth will destroy everything you have."
+
+#: ../../Challenger.CNPCs/SlimeKing.cs:210
+msgid "连我都打不过，回家喝奶吧你"
+msgstr "You can't even beat me? Go home and drink your milk!"
+
+#: ../../Challenger.CNPCs/WallofFlesh.cs:108
+msgid "速度与激情"
+msgstr "Speed and passion!"
+
+#: ../../Challenger.CNPCs/EaterofWorldsBody.cs:69
+msgid "邪恶的蠕虫寻找新的受害者"
+msgstr "The evil worm is looking for a new victim."
+
+#: ../../Challenger/Challenger.cs:196
+msgid "闪避锁血成功！"
+msgstr "Dodge and life steal success!"
+
+#: ../../Challenger/Challenger.cs:294
+msgid "陨石回魔 + 3"
+msgstr "Meteorite Mana + 3"
+
+#: ../../Challenger/Challenger.cs:1113
+#, csharp-format
+msgid "魔力值上限 - {0}"
+msgstr "Max Mana - {0}"
+
+#: ../../Challenger/Challenger.cs:1092
+#, csharp-format
+msgid "魔力值上限 + {0}"
+msgstr "Max Mana + {0}"
+
