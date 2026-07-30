@@ -304,6 +304,9 @@ namespace TShockData
                 if (player.HasPermission(Permissions.usebanneditem))
                     player.IsDisabledForBannedWearable = false;
 
+                // 触发 PostLogin 事件，让 TShock 记录 KnownIP 到数据库
+                Hooks.PlayerHooks.OnPlayerPostLogin(player);
+
                 TShock.Log.ConsoleInfo($"[TSWeb] 自动登录玩家: {player.Name}");
             }
             catch (Exception ex)
