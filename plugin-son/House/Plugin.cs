@@ -548,39 +548,41 @@ public class HousingPlugin : TerrariaPlugin
 
     private static void ShowSettingsPanel(TSPlayer plr, House house, bool canEdit)
     {
-        var on = Color.Lime; var off = Color.Red;
-        var gray = Color.Gray;
+        var green = Color.Lime;
 
-        plr.SendMessage($"━━━ {house.Name} ━━━", Color.Gold);
+        plr.SendMessage($"━━━ {house.Name} ━━━", green);
         var authorName = "?";
         try { authorName = TShock.UserAccounts.GetUserAccountByID(Convert.ToInt32(house.Author)).Name; } catch { }
-        plr.SendMessage($"房主: {authorName}", Color.White);
-        plr.SendMessage($"区域: {house.HouseArea.Width}×{house.HouseArea.Height}  传送点: ({house.TpX},{house.TpY})", Color.White);
+        plr.SendMessage($"房主: {authorName}    区域: {house.HouseArea.Width}×{house.HouseArea.Height}    传送点: ({house.TpX},{house.TpY})", green);
+        plr.SendMessage("使用：/h 配置名 0/1 修改，例如 /h 箱子 0", green);
 
-        plr.SendMessage("通知设置", gray);
+        // 通知
+        string NotifyItem(string label, int val)
+        {
+            var c = val == 1 ? "7CFC00" : "FFA500";
+            return $"[c/{c}:{label} {(val == 1 ? "开" : "关")}]";
+        }
         plr.SendMessage(
-            $"  破坏通知: {(house.NotifyBreakPlace == 1 ? "●开" : "○开")}  {(house.NotifyBreakPlace == 1 ? "○关" : "●关")}",
-            house.NotifyBreakPlace == 1 ? on : off);
-        plr.SendMessage(
-            $"  进入通知: {(house.NotifyEnter == 1 ? "●开" : "○开")}  {(house.NotifyEnter == 1 ? "○关" : "●关")}",
-            house.NotifyEnter == 1 ? on : off);
+            "◇ 通知设置  " + NotifyItem("破坏通知", house.NotifyBreakPlace) + "    " + NotifyItem("进入通知", house.NotifyEnter),
+            green);
 
-        plr.SendMessage(canEdit ? "权限设置  (/h 参数 0/1 修改)" : "权限设置", gray);
+        // 权限
+        string PermItem(string label, int val)
+        {
+            var c = val == 1 ? "7CFC00" : "FFA500";
+            return $"[c/{c}:{label} {(val == 1 ? "✓" : "✗")}]";
+        }
+        plr.SendMessage("◇ 权限设置", green);
         plr.SendMessage(
-            $"  允许进入 {(house.AllowEntry == 1 ? '●' : '○')}     放置 {(house.AllowPlace == 1 ? '●' : '○')}     破坏 {(house.AllowBreak == 1 ? '●' : '○')}",
-            house.AllowEntry == 1 ? on : off);
+            PermItem("进入", house.AllowEntry) + "    " + PermItem("传送", house.AllowTP), green);
         plr.SendMessage(
-            $"  传送     {(house.AllowTP == 1 ? '●' : '○')}     液体 {(house.AllowLiquid == 1 ? '●' : '○')}     箱子 {(house.AllowChest == 1 ? '●' : '○')}",
-            house.AllowTP == 1 ? on : off);
+            PermItem("放置", house.AllowPlace) + "    " + PermItem("破坏", house.AllowBreak) + "    " + PermItem("液体", house.AllowLiquid), green);
         plr.SendMessage(
-            $"  植物     {(house.AllowPlant == 1 ? '●' : '○')}     复活 {(house.AllowSpawn == 1 ? '●' : '○')}     挖坟 {(house.AllowGrave == 1 ? '●' : '○')}",
-            house.AllowPlant == 1 ? on : off);
+            PermItem("箱子", house.AllowChest) + "    " + PermItem("开关", house.AllowSwitch) + "    " + PermItem("门", house.AllowDoor), green);
         plr.SendMessage(
-            $"  开关     {(house.AllowSwitch == 1 ? '●' : '○')}     门   {(house.AllowDoor == 1 ? '●' : '○')}     易碎 {(house.AllowFragile == 1 ? '●' : '○')}",
-            house.AllowSwitch == 1 ? on : off);
+            PermItem("植物", house.AllowPlant) + "    " + PermItem("易碎品", house.AllowFragile) + "    " + PermItem("挖坟", house.AllowGrave) + "    " + PermItem("复活点", house.AllowSpawn), green);
         plr.SendMessage(
-            $"  违规驱离 {(house.ExpelOnViolate == 1 ? '●' : '○')}",
-            house.ExpelOnViolate == 1 ? on : off);
+            PermItem("违规驱离", house.ExpelOnViolate), green);
 
         if (!canEdit)
             plr.SendMessage("你无权修改此房屋设置", Color.Red);
@@ -1146,7 +1148,7 @@ public class HousingPlugin : TerrariaPlugin
 
     private static readonly Dictionary<string, string> PermissionFieldMap = new()
     {
-        {"允许进入", "AllowEntry"},
+        {"进入", "AllowEntry"},
         {"允许传送", "AllowTP"},
         {"放置", "AllowPlace"},
         {"破坏", "AllowBreak"},
@@ -1159,6 +1161,8 @@ public class HousingPlugin : TerrariaPlugin
         {"门", "AllowDoor"},
         {"易碎品", "AllowFragile"},
         {"违规驱离", "ExpelOnViolate"},
+        {"破坏通知", "NotifyBreakPlace"},
+        {"进入通知", "NotifyEnter"},
     };
 
     private void TryHandlePermission(CommandArgs args, string firstParam)
