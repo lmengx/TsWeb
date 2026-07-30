@@ -48,7 +48,7 @@ public static class Database
                 AllowLiquid  INTEGER DEFAULT 0,
                 AllowChest   INTEGER DEFAULT 0,
                 AllowPlant   INTEGER DEFAULT 0,
-                AllowSpawn   INTEGER DEFAULT 0,
+                AllowSpawn   INTEGER DEFAULT 1,
                 AllowGrave   INTEGER DEFAULT 1,
                 AllowSwitch  INTEGER DEFAULT 1,
                 AllowDoor    INTEGER DEFAULT 1,
