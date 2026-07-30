@@ -247,10 +247,14 @@ public static class GetDataHandlers
                 return Deny(args, house, "无权破坏被房子保护的物品。");
 
             // 普通破坏
+            if (house.AllowBreak == 1)
+                return false;
             return Deny(args, house, "你没有权力损坏被房子保护的地区。");
         }
 
         // 放置
+        if (house.AllowPlace == 1)
+            return false;
         return Deny(args, house, "你没有权力修改被房子保护的地区。");
     }
 
