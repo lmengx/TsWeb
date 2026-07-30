@@ -279,7 +279,7 @@ public class HousingPlugin : TerrariaPlugin
                 {
                     if (Utils.IsAuthorized(ts, currentHouse))
                     {
-                        ts.SendMessage($"你进入了 {currentHouse.Name}", Color.Yellow);
+                        ts.SendMessage($"你进入了你的房子: {currentHouse.Name}", Color.LightSeaGreen);
                         if (currentHouse.NotifyEnter == 1)
                             NotifyOwnerStatic(currentHouse, $"{ts.Name} 进入了房屋");
                     }
@@ -296,7 +296,7 @@ public class HousingPlugin : TerrariaPlugin
                     }
                     else
                     {
-                        ts.SendMessage($"你进入了 {currentHouse.Name}", Color.Yellow);
+                        ts.SendMessage($"你进入了房子: {currentHouse.Name}", Color.LightSeaGreen);
                         if (currentHouse.NotifyEnter == 1)
                             NotifyOwnerStatic(currentHouse, $"{ts.Name} 进入了房屋");
                     }
@@ -314,7 +314,7 @@ public class HousingPlugin : TerrariaPlugin
                 // 离开事件
                 if (currentHouse == null && lastHouse != null)
                 {
-                    ts.SendMessage($"你离开了 {lastHouse.Name}", Color.Yellow);
+                    ts.SendMessage($"你离开了房子: {lastHouse.Name}", Color.LightSeaGreen);
                     GetDataHandlers.HideHouseDisplay(ts, lastHouse);
                 }
 
