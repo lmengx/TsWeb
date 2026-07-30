@@ -217,7 +217,11 @@ public static class GetDataHandlers
 
             // 墓碑
             if (tileType == TileID.Tombstones)
+            {
+                if (house.AllowGrave == 1)
+                    return true;
                 return Deny(args, house, "无权挖掘被房子保护的墓碑。");
+            }
 
             // 易碎品（蜘蛛网、草类）
             if (FragileTiles.Contains(tileType))
