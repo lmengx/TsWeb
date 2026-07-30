@@ -376,10 +376,6 @@ public class HousingPlugin : TerrariaPlugin
                 if (lp != null) lp.Look = true;
                 break;
 
-            case "set":
-                HandleSet(args);
-                break;
-
             case "add":
                 HandleAdd(args);
                 break;
@@ -440,11 +436,8 @@ public class HousingPlugin : TerrariaPlugin
                 break;
 
             case "settings":
+            case "set":
                 HandleSettings(args);
-                break;
-
-            case "show":
-                HandleShowStatus(args);
                 break;
 
             case "showme":
@@ -471,11 +464,10 @@ public class HousingPlugin : TerrariaPlugin
 
         if (myHouses.Count > 0)
         {
-            var colors = new Color[] { Color.LightYellow, Color.Cyan, Color.MediumPurple,
-                Color.Lime, Color.Orange, Color.Pink, Color.SkyBlue, Color.LightGreen };
+            var hexColors = new[] { "FFD700", "00FFFF", "AA66FF", "7CFC00", "FFA500", "FF69B4", "87CEEB", "90EE90" };
             var msg = "你的房屋:";
-            for (int i = 0; i < myHouses.Count && i < colors.Length; i++)
-                msg += $" [{myHouses[i].Name}]";
+            for (int i = 0; i < myHouses.Count && i < hexColors.Length; i++)
+                msg += $" [c/{hexColors[i]}:{myHouses[i].Name}]";
             args.Player.SendMessage(msg, Color.White);
         }
         else
@@ -483,7 +475,7 @@ public class HousingPlugin : TerrariaPlugin
             args.Player.SendMessage("你还没有房屋，使用 /h c 创建一个吧", Color.Gray);
         }
 
-        args.Player.SendMessage("/h c 圈地  |  /h settings 查看设置  |  /h tp <屋名> 传送", Color.Lime);
+        args.Player.SendMessage("/h c 圈地  |  /h set 查看设置  |  /h tp <屋名> 传送", Color.Lime);
     }
 
     // ── 新命令 ──
@@ -554,7 +546,7 @@ public class HousingPlugin : TerrariaPlugin
         var authorName = "?";
         try { authorName = TShock.UserAccounts.GetUserAccountByID(Convert.ToInt32(house.Author)).Name; } catch { }
         plr.SendMessage($"房主: {authorName}    区域: {house.HouseArea.Width}×{house.HouseArea.Height}    传送点: ({house.TpX},{house.TpY})", green);
-        plr.SendMessage("使用：/h 配置名 0/1 修改，例如 /h 箱子 0", green);
+        plr.SendMessage("[c/7CFC00:使用：/h 配置名 0/1] [c/FFA500:修改] [c/7CFC00:例如 /h 箱子 0]", green);
 
         // 通知
         string NotifyItem(string label, int val)
@@ -724,6 +716,7 @@ public class HousingPlugin : TerrariaPlugin
             args.Player.TileX, args.Player.TileY))
         {
             args.Player.SendMessage("你建造了新房子 " + houseName, Color.Yellow);
+            args.Player.SendMessage("站到房屋内使用 /h set 查看和修改房屋设置", Color.Lime);
             TShock.Log.ConsoleInfo("{0} 建了新房子: {1}", args.Player.Account.Name, houseName);
         }
         else
