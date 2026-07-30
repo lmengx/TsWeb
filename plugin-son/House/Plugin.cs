@@ -70,6 +70,10 @@ public class HousingPlugin : TerrariaPlugin
         {
             HelpText = "输入/h 可以显示与房子相关的操作提示。"
         });
+        Commands.ChatCommands.Add(new Command("", HandleHtp, "htp")
+        {
+            HelpText = "传送到指定房屋: /htp <屋名>"
+        });
         ServerApi.Hooks.NetGreetPlayer.Register(this, OnGreetPlayer);
         ServerApi.Hooks.ServerLeave.Register(this, OnLeave);
         ServerApi.Hooks.GamePostInitialize.Register(this, PostInitialize);
@@ -1023,6 +1027,19 @@ public class HousingPlugin : TerrariaPlugin
         if (!Utils.IsAuthorized(args.Player, house) && house.AllowTP == 0)
         { args.Player.SendErrorMessage("你没有权力传送这个房子!"); return; }
 
+        args.Player.Teleport(house.TpX * 16, house.TpY * 16);
+        args.Player.SendSuccessMessage("已将你传送到房屋: " + house.Name);
+    }
+
+    private void HandleHtp(CommandArgs args)
+    {
+        if (args.Parameters.Count < 1)
+        { args.Player.SendErrorMessage("用法: /htp <屋名>"); return; }
+        var name = string.Join(" ", args.Parameters);
+        var house = Utils.GetHouseByName(name);
+        if (house == null) { args.Player.SendErrorMessage("没有找到这个房子!"); return; }
+        if (!Utils.IsAuthorized(args.Player, house) && house.AllowTP == 0)
+        { args.Player.SendErrorMessage("你没有权力传送这个房子!"); return; }
         args.Player.Teleport(house.TpX * 16, house.TpY * 16);
         args.Player.SendSuccessMessage("已将你传送到房屋: " + house.Name);
     }
