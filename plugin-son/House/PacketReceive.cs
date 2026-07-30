@@ -78,6 +78,7 @@ public static class GetDataHandlers
             {PacketTypes.TileEntityHatRackItemSync, HandleTileEntityHatRackItemSync},
             {PacketTypes.GemLockToggle, HandleGemLockToggle},
             {PacketTypes.MassWireOperation, HandleMassWireOperation},
+            {PacketTypes.PlayerSpawn, HandlePlayerSpawn},
         };
     }
 
@@ -219,7 +220,7 @@ public static class GetDataHandlers
             if (tileType == TileID.Tombstones)
             {
                 if (house.AllowGrave == 1)
-                    return true;
+                    return false;
                 return Deny(args, house, "无权挖掘被房子保护的墓碑。");
             }
 
@@ -408,15 +409,17 @@ public static class GetDataHandlers
         if (house == null) return false;
         if (IsHouseAuthorized(args.Player, house)) return false;
 
-        // 床 → 设置复活点，但木人靶不管
-        // TETrainingDummy 的 type 值通常不是 0，跳过
-        // 床的 type 是 0（TETeleportationPylon 等也在此处理，只拦截需要床的交互）
-        if (te.type != 0)
+        // TEBed.type == 0 → 床（设置复活点走客户端本地，但拦截交互可阻断成功感）
+        if (te.type == 0)
         {
-            if (house.AllowSwitch == 1) return false;
-            return Deny(args, house, "无权触发被房子保护的地区的物品。");
+            if (house.AllowSpawn == 1) return false;
+            args.Player.SendErrorMessage("无权在被房子保护的地区设置复活点。");
+            // 不 web，因为床交互是客户端本地行为，web 也没用
+            return true;
         }
-        return Deny(args, house, "无权在被房子保护的地区设置复活点。");
+
+        if (house.AllowSwitch == 1) return false;
+        return Deny(args, house, "无权触发被房子保护的地区的物品。");
     }
 
     private static bool HandleTileEntityHatRackItemSync(GetDataHandlerArgs args)
@@ -621,6 +624,45 @@ public static class GetDataHandlers
     {
         PlayerActiveHouses.Remove(playerIndex);
         PlayerRefreshFlags.Remove(playerIndex);
+    }
+
+    // ══════════════════════════════════════════════════════════
+    //  PlayerSpawn：拦截复活点（床设置客户端不通知服务器，只在复活包中暴露坐标）
+    // ══════════════════════════════════════════════════════════
+
+    private static bool HandlePlayerSpawn(GetDataHandlerArgs args)
+    {
+        // 读取客户端提供的复活坐标
+        var reader = new BinaryReader(args.Data);
+        byte _playerIdx = reader.ReadByte();
+        short spawnX = reader.ReadInt16();
+        short spawnY = reader.ReadInt16();
+
+        // 调试：输出玩家设置的出生点坐标
+        TShock.Log.ConsoleInfo(
+            $"[House] {args.Player.Name} 复活坐标 => ({spawnX}, {spawnY})");
+
+        var house = Utils.InAreaHouse(spawnX, spawnY);
+        if (house == null) return false;
+        if (IsHouseAuthorized(args.Player, house)) return false;
+        if (house.AllowSpawn == 1) return false;
+
+        // 不允许在此复活 → 延迟一帧后传送至世界出生点
+        var playerIdx = args.Player.Index;
+        Main.DelayedProcesses.Add(TeleportToSpawn(playerIdx));
+        args.Player.SendErrorMessage("不允许在被房子保护的地区设置复活点。");
+        return false; // 放行包，由延迟传送修正位置
+    }
+
+    private static IEnumerator TeleportToSpawn(int playerIdx)
+    {
+        yield return null; // 等一帧让 spawn 完成
+        var player = TShock.Players[playerIdx];
+        if (player != null && player.ConnectionAlive)
+        {
+            player.Teleport(Main.spawnTileX * 16 + 8, (Main.spawnTileY - 3) * 16 + 8);
+        }
+    
     }
 
     internal static void OnHouseDeleted(Rectangle area)
