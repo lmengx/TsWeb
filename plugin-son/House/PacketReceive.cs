@@ -193,7 +193,17 @@ public static class GetDataHandlers
             args.Player.TempPoints[args.Player.AwaitingTempPoint - 1].X = x;
             args.Player.TempPoints[args.Player.AwaitingTempPoint - 1].Y = y;
             if (args.Player.AwaitingTempPoint == 1) args.Player.SendMessage("保护区左上角已设置!", Color.Yellow);
-            if (args.Player.AwaitingTempPoint == 2) args.Player.SendMessage("保护区右下角已设置!", Color.Yellow);
+            if (args.Player.AwaitingTempPoint == 2)
+            {
+                args.Player.SendMessage("保护区右下角已设置!", Color.Yellow);
+                // 显示 2 秒边框预览
+                var p1 = args.Player.TempPoints[0];
+                var p2 = args.Player.TempPoints[1];
+                var previewRect = new Rectangle(
+                    Math.Min(p1.X, p2.X), Math.Min(p1.Y, p2.Y),
+                    Math.Abs(p2.X - p1.X), Math.Abs(p2.Y - p1.Y));
+                ShowRegion(args.Player, previewRect);
+            }
             args.Player.SendTileSquareCentered(x, y);
             args.Player.AwaitingTempPoint = 0;
             return true;
@@ -637,10 +647,6 @@ public static class GetDataHandlers
         byte _playerIdx = reader.ReadByte();
         short spawnX = reader.ReadInt16();
         short spawnY = reader.ReadInt16();
-
-        // 调试：输出玩家设置的出生点坐标
-        TShock.Log.ConsoleInfo(
-            $"[House] {args.Player.Name} 复活坐标 => ({spawnX}, {spawnY})");
 
         var house = Utils.InAreaHouse(spawnX, spawnY);
         if (house == null) return false;
