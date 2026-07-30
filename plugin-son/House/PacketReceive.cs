@@ -31,7 +31,14 @@ public static class GetDataHandlers
     private static Dictionary<PacketTypes, GetDataHandlerDelegate> GetDataHandlerDelegates = null!;
     internal static readonly Dictionary<int, List<Rectangle>> PlayerActiveHouses = new();
     private static readonly Dictionary<int, bool> PlayerRefreshFlags = new();
-    private const int RefreshIntervalSeconds = 20;
+    private const int RefreshIntervalSeconds = 2;
+
+    /// <summary>热重载时重置静态状态</summary>
+    internal static void ResetState()
+    {
+        PlayerActiveHouses.Clear();
+        PlayerRefreshFlags.Clear();
+    }
     private static readonly HashSet<int> PlantTiles = new()
     {
         TileID.Plants, TileID.Plants2,
@@ -562,7 +569,6 @@ public static class GetDataHandlers
                 }
                 if (PlayerActiveHouses.TryGetValue(playerIndex, out var list))
                 {
-                    ClearPlayerBorderProjectiles(player);
                     foreach (var rect in list)
                     {
                         ShowRegion(player, rect);
@@ -599,20 +605,6 @@ public static class GetDataHandlers
         if (identity > -1 && identity < Main.projectile.Length)
         {
             NetMessage.SendData((int)PacketTypes.ProjectileNew, ts.Index, -1, null, identity);
-            // 每个弹幕 2 秒后自毁
-            int id = identity, idx = ts.Index;
-            Main.DelayedProcesses.Add(KillAfter(id, idx));
-        }
-    }
-
-    private static IEnumerator KillAfter(int projId, int playerIdx)
-    {
-        for (int i = 0; i < 120; i++)
-            yield return null;
-        if (projId >= 0 && projId < Main.projectile.Length && Main.projectile[projId] is { active: true })
-        {
-            Main.projectile[projId].Kill();
-            NetMessage.SendData((int)PacketTypes.ProjectileDestroy, playerIdx, -1, null, projId);
         }
     }
 

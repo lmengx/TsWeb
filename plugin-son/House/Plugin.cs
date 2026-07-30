@@ -25,6 +25,10 @@ public class HousingPlugin : TerrariaPlugin
     static readonly System.Timers.Timer Update = new(1100);
     public static bool ULock = false;
     private static TSPlayer? _explosionOwner = null;
+    private static bool _hooksRegistered;
+
+    // 命令缓存（用于热重载时准确移除）
+    private Command? _houseCmd, _hCmd, _htpCmd;
 
     private static readonly HashSet<int> ExplosiveTypes = new()
     {
@@ -59,21 +63,31 @@ public class HousingPlugin : TerrariaPlugin
 
     public override void Initialize()
     {
+        // 热重载：重置静态状态
+        GetDataHandlers.ResetState();
+        GetDataHandlers.InitGetDataHandler();
+        _explosionOwner = null;
+
         Config.Load();
         Database.EnsureTable();
-        GetDataHandlers.InitGetDataHandler();
-        Commands.ChatCommands.Add(new Command("house.use", HCommands, "house")
+
+        // 命令（缓存引用以便热重载时准确移除）
+        _houseCmd = new Command("house.use", HCommands, "house")
         {
             HelpText = "输入/h help 可以显示与房子相关的操作提示。"
-        });
-        Commands.ChatCommands.Add(new Command("house.use", HCommands, "h")
+        };
+        _hCmd = new Command("house.use", HCommands, "h")
         {
             HelpText = "输入/h 可以显示与房子相关的操作提示。"
-        });
-        Commands.ChatCommands.Add(new Command("", HandleHtp, "htp")
+        };
+        _htpCmd = new Command("", HandleHtp, "htp")
         {
             HelpText = "传送到指定房屋: /htp <屋名>"
-        });
+        };
+        Commands.ChatCommands.Add(_houseCmd);
+        Commands.ChatCommands.Add(_hCmd);
+        Commands.ChatCommands.Add(_htpCmd);
+
         ServerApi.Hooks.NetGreetPlayer.Register(this, OnGreetPlayer);
         ServerApi.Hooks.ServerLeave.Register(this, OnLeave);
         ServerApi.Hooks.GamePostInitialize.Register(this, PostInitialize);
@@ -81,26 +95,38 @@ public class HousingPlugin : TerrariaPlugin
             PostInitialize(EventArgs.Empty);
         OTAPI.Hooks.Chest.QuickStack += ChestOnQuickStack;
         CraftingRequests.CanCraftFromChest += CraftingRequestsOnCanCraftFromChest;
+        Hooks.MessageBuffer.InvokeGetData -= MessageBufferOnInvokeGetData;
         Hooks.MessageBuffer.InvokeGetData += MessageBufferOnInvokeGetData;
+        On.Terraria.Projectile.Kill -= OnProjectileKill;
         On.Terraria.Projectile.Kill += OnProjectileKill;
+        On.Terraria.WorldGen.KillTile -= OnWorldGenKillTile;
         On.Terraria.WorldGen.KillTile += OnWorldGenKillTile;
+        _hooksRegistered = true;
     }
 
     protected override void Dispose(bool disposing)
     {
         if (disposing)
         {
-            Commands.ChatCommands.RemoveAll(c => c.CommandDelegate == HCommands);
+            // 命令（用缓存引用准确移除）
+            if (_houseCmd != null) Commands.ChatCommands.Remove(_houseCmd);
+            if (_hCmd != null) Commands.ChatCommands.Remove(_hCmd);
+            if (_htpCmd != null) Commands.ChatCommands.Remove(_htpCmd);
+
             ServerApi.Hooks.NetGreetPlayer.Deregister(this, OnGreetPlayer);
             ServerApi.Hooks.ServerLeave.Deregister(this, OnLeave);
             ServerApi.Hooks.GamePostInitialize.Deregister(this, PostInitialize);
             Update.Elapsed -= OnUpdate;
             Update.Stop();
+
+            // OTAPI/MonoMod 钩子（先减后加由 Initialize 保证，Dispose 中无需重复 -= ）
+            // 但主动减一次也无害，保留以兼容非热重载的正常卸载
             OTAPI.Hooks.Chest.QuickStack -= ChestOnQuickStack;
             CraftingRequests.CanCraftFromChest -= CraftingRequestsOnCanCraftFromChest;
             Hooks.MessageBuffer.InvokeGetData -= MessageBufferOnInvokeGetData;
             On.Terraria.Projectile.Kill -= OnProjectileKill;
             On.Terraria.WorldGen.KillTile -= OnWorldGenKillTile;
+            _hooksRegistered = false;
         }
         base.Dispose(disposing);
     }
