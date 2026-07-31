@@ -66,17 +66,13 @@ namespace TShockData
                     return new { status = 400, error = "Invalid config format" };
                 }
 
-                // 合并前端未传递的字段，防止自动扫描等配置丢失
-                var existing = AntiCheat.GetConfig();
-                if (existing != null)
-                {
-                    incoming.AutoScan = existing.AutoScan;
-                    incoming.AutoScanInterval = existing.AutoScanInterval;
-                }
-
                 bool success = SaveItemConfig(incoming);
                 if (success)
                 {
+                    // 重启自动扫描计时器，使新间隔立即生效
+                    ItemDetection.StopAutoScan();
+                    ItemDetection.StartAutoScan();
+
                     return new { status = 200, message = "Config saved successfully" };
                 }
                 return new { status = 500, error = "Failed to save config" };
