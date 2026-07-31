@@ -22,13 +22,80 @@ const error = ref('')
 const success = ref('')
 
 // ═══════════════════════════════════════════════
-// REST 连接设置（只读展示，配置在 init 页面完成）
+// REST 连接设置（展示 + 就地编辑）
 // ═══════════════════════════════════════════════
 const connected = ref(false)
 const restHost = ref('127.0.0.1')
 const restPort = ref('7878')
 const restApiKey = ref('')
 const showKey = ref(false)
+
+// 就地编辑模式
+const restEditing = ref(false)
+const editHost = ref('')
+const editPort = ref('')
+const editApiKey = ref('')
+const restSaving = ref(false)
+const restSaveError = ref('')
+const restSaveSuccess = ref('')
+
+function startEditRest() {
+  editHost.value = restHost.value
+  editPort.value = restPort.value
+  editApiKey.value = restApiKey.value
+  showKey.value = false
+  restSaveError.value = ''
+  restSaveSuccess.value = ''
+  restEditing.value = true
+}
+
+function cancelRestEdit() {
+  restSaving.value = false
+  restSaveError.value = ''
+  restSaveSuccess.value = ''
+  restEditing.value = false
+}
+
+async function saveRestConfig() {
+  const host = editHost.value.trim()
+  const port = editPort.value.trim()
+  const apiKey = editApiKey.value.trim()
+  if (!host || !port || !apiKey) {
+    restSaveError.value = '所有字段均为必填'
+    return
+  }
+  const portNum = parseInt(port)
+  if (isNaN(portNum) || portNum < 1 || portNum > 65535) {
+    restSaveError.value = '端口必须是 1-65535 之间的数字'
+    return
+  }
+  restSaving.value = true
+  restSaveError.value = ''
+  restSaveSuccess.value = ''
+  try {
+    const res = await apiPost('/api/setup/init', { host, port: portNum, apiKey })
+    const data = await res.json()
+    if (!data.success) {
+      restSaveError.value = data.error || '保存失败'
+      return
+    }
+    restHost.value = host
+    restPort.value = String(portNum)
+    restApiKey.value = apiKey
+    restEditing.value = false
+    restSaveSuccess.value = '✅ 配置已保存并连接成功'
+    setTimeout(() => { restSaveSuccess.value = '' }, 3000)
+    try {
+      const statusRes = await fetch('/api/status')
+      const statusData = await statusRes.json()
+      connected.value = statusData.connected
+    } catch {}
+  } catch (err) {
+    restSaveError.value = '请求失败: ' + err.message
+  } finally {
+    restSaving.value = false
+  }
+}
 
 // ═══════════════════════════════════════════════
 // 日志推流设置
@@ -294,38 +361,73 @@ onUnmounted(() => {})
       <template v-else>
 
         <!-- ═══════════════════════════════════════ -->
-        <!-- TAB 1: REST 连接设置（只读展示） -->
+        <!-- TAB 1: REST 连接设置（展示 + 就地编辑） -->
         <!-- ═══════════════════════════════════════ -->
         <div v-if="activeTab === 'rest'" class="tab-content">
           <div class="section-card">
-            <div class="section-header"><h3>连接属性</h3></div>
-
-            <div class="form-row">
-              <div class="form-group flex-1">
-                <label class="form-label">服务器地址</label>
-                <input :value="restHost" type="text" class="form-input" disabled readonly />
-              </div>
-              <div class="form-group port-input">
-                <label class="form-label">REST 端口</label>
-                <input :value="restPort" type="text" class="form-input" disabled readonly />
-              </div>
+            <div class="section-header">
+              <h3>连接属性</h3>
+              <button v-if="!restEditing" class="btn primary" @click="startEditRest">更新配置</button>
             </div>
 
-            <div class="form-group">
-              <label class="form-label">API 密钥</label>
-              <div class="input-with-btn">
-                <input :value="showKey ? restApiKey : (restApiKey ? restApiKey.substring(0, 16) + '......' : '未设置')"
-                  type="text" class="form-input" disabled readonly />
-                <button class="toggle-btn" @click="showKey = !showKey" type="button">{{ showKey ? '隐藏' : '显示' }}</button>
-              </div>
-            </div>
+            <div v-if="restSaveSuccess" class="msg-box success" style="margin-bottom:16px">{{ restSaveSuccess }}</div>
+            <div v-if="restSaveError" class="msg-box error" style="margin-bottom:16px">{{ restSaveError }}</div>
 
-            <div class="section-actions" style="margin-top:24px">
-              <button class="btn primary" @click="goToInit">更新配置</button>
-            </div>
-            <p class="auto-link" @click="goToInit">
-              我看不懂，跳转到自动配置 →
-            </p>
+            <!-- 展示模式 -->
+            <template v-if="!restEditing">
+              <div class="form-row">
+                <div class="form-group flex-1">
+                  <label class="form-label">服务器地址</label>
+                  <input :value="restHost" type="text" class="form-input" disabled readonly />
+                </div>
+                <div class="form-group port-input">
+                  <label class="form-label">REST 端口</label>
+                  <input :value="restPort" type="text" class="form-input" disabled readonly />
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">API 密钥</label>
+                <div class="input-with-btn">
+                  <input :value="showKey ? restApiKey : (restApiKey ? restApiKey.substring(0, 16) + '......' : '未设置')"
+                    type="text" class="form-input" disabled readonly />
+                  <button class="toggle-btn" @click="showKey = !showKey" type="button">{{ showKey ? '隐藏' : '显示' }}</button>
+                </div>
+              </div>
+
+              <p class="auto-link" @click="goToInit">
+                我看不懂，跳转到自动配置 →
+              </p>
+            </template>
+
+            <!-- 编辑模式 -->
+            <template v-else>
+              <div class="form-row">
+                <div class="form-group flex-1">
+                  <label class="form-label">服务器地址</label>
+                  <input v-model="editHost" type="text" class="form-input" placeholder="127.0.0.1" />
+                </div>
+                <div class="form-group port-input">
+                  <label class="form-label">REST 端口</label>
+                  <input v-model="editPort" type="text" class="form-input" placeholder="7878" />
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">API 密钥</label>
+                <div class="input-with-btn">
+                  <input v-model="editApiKey" :type="showKey ? 'text' : 'password'" class="form-input" autocomplete="new-password" placeholder="粘贴 API 密钥" />
+                  <button class="toggle-btn" @click="showKey = !showKey" type="button">{{ showKey ? '隐藏' : '显示' }}</button>
+                </div>
+              </div>
+
+              <div class="section-actions" style="margin-top:24px">
+                <button class="btn primary" @click="saveRestConfig" :disabled="restSaving">
+                  {{ restSaving ? '保存中...' : '保存配置' }}
+                </button>
+                <button class="btn secondary" @click="cancelRestEdit">取消</button>
+              </div>
+            </template>
           </div>
         </div>
 

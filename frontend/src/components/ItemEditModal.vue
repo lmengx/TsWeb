@@ -232,20 +232,29 @@ const getPrefixIdValue = () => {
   return 0
 }
 
-const handleSubmit = () => {
-  if (!selectedItemId.value || selectedItemId.value <= 0) {
-    error.value = '请选择有效的物品'
-    return
-  }
+const handleClear = () => {
+  // 点击"清空"后表单立即清空，按确认按钮后生效
+  selectedItemId.value = 0
+  itemSearchQuery.value = ''
+  stack.value = 0
+  prefixId.value = ''
+  error.value = ''
+  warning.value = ''
+  success.value = ''
+  showItemDropdown.value = false
+  showPrefixDropdown.value = false
+}
 
+const handleSubmit = () => {
   const prefixValue = getPrefixIdValue()
   if (prefixId.value.trim() && prefixValue === 0 && !/^\d+$/.test(prefixId.value.trim())) {
     warning.value = `前缀"${prefixId.value}"无法识别，将使用默认值0`
   }
 
+  // itemId 为 0 表示清空该格子（表单已点"清空"或格子原本为空）
   emit('submit', {
-    itemId: parseInt(selectedItemId.value),
-    stack: parseInt(stack.value),
+    itemId: parseInt(selectedItemId.value) || 0,
+    stack: parseInt(stack.value) || 0,
     prefix: prefixValue,
     slotIndex: props.slotIndex
   })
@@ -273,15 +282,18 @@ onMounted(() => {
             <label>物品</label>
             <div class="item-input-row">
               <div class="search-input-wrapper">
-                <input
-                  v-model="itemSearchQuery"
-                  type="text"
-                  placeholder="搜索物品（名称或ID）..."
-                  class="form-input"
-                  @input="showItemDropdown = true"
-                  @focus="showItemDropdown = true"
-                  @blur="setTimeout(() => showItemDropdown = false, 150)"
-                />
+                <div class="search-input-line">
+                  <input
+                    v-model="itemSearchQuery"
+                    type="text"
+                    placeholder="搜索物品（名称或ID）..."
+                    class="form-input"
+                    @input="showItemDropdown = true"
+                    @focus="showItemDropdown = true"
+                    @blur="setTimeout(() => showItemDropdown = false, 150)"
+                  />
+                  <button @click="handleClear" class="clear-slot-btn" title="清空此格子">清空</button>
+                </div>
                 <div v-if="showItemDropdown && itemSearchResults.length > 0" class="item-dropdown">
                   <div
                     v-for="item in itemSearchResults"
@@ -469,6 +481,37 @@ onMounted(() => {
 .search-input-wrapper {
   flex: 1;
   position: relative;
+}
+
+.search-input-line {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.search-input-line .form-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.clear-slot-btn {
+  flex-shrink: 0;
+  padding: 0 18px;
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--accent-error);
+  border: 2px solid rgba(239, 68, 68, 0.4);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 500;
+  transition: all 0.25s ease;
+  white-space: nowrap;
+}
+
+.clear-slot-btn:hover {
+  background: var(--accent-error);
+  color: white;
+  border-color: var(--accent-error);
 }
 
 .item-preview-wrapper {
