@@ -1,7 +1,7 @@
 import { Context, Session, h } from 'koishi'
 import type { Config } from '../utils/config'
 import { safeHttpGet } from '../utils/config'
-import { renderHtml, playerInfoCard, bossProgressCard } from '../utils/render'
+import { renderHtml, playerInfoCard, bossProgressCard, onlineListCard } from '../utils/render'
 
 export const name = 'tshock-group'
 
@@ -78,6 +78,37 @@ export function apply(ctx: Context, config: Config) {
           `━━━ Boss进度 ━━━\n` +
           `击杀: ${d.KilledCount}/${d.TotalBossCount} (${d.BossProgressPercent}%)\n` +
           `事件: ${d.CompletedEventCount}/${d.TotalEventCount} (${d.EventProgressPercent}%)`
+        )
+      }
+      return
+    }
+
+    // — 在线（在线列表图片渲染） —
+    if (content === '在线') {
+      ctx.logger.info('[在线] QQ:', senderQQ)
+
+      const res = await safeHttpGet(ctx, `http://${config.服务器地址}/v2/server/status`, {
+        token: config.接口密钥,
+        players: true
+      })
+
+      if (!res.ok) {
+        await session.send(h('at', { id: senderQQ }) + ' ' + res.msg)
+        return
+      }
+
+      try {
+        const html = onlineListCard(res.data)
+        const buf = await renderHtml(html, 2, '.wrap')
+        await session.send(h('image', { url: `base64://${buf.toString('base64')}` }))
+      } catch (err: any) {
+        ctx.logger.error('[在线] 截图失败:', err.message)
+        const d = res.data
+        const names = (d.players || []).filter((p: any) => p && p.nickname).map((p: any) => p.nickname)
+        await session.send(
+          `━━━ 在线列表 ━━━\n` +
+          `在线: ${d.playercount} / ${d.maxplayers}\n` +
+          (names.length ? names.map((n: string) => `· ${n}`).join('\n') : '当前无人在线')
         )
       }
       return

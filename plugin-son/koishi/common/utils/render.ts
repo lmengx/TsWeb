@@ -372,6 +372,116 @@ body{
 </html>`
 }
 
+// ══════════════════════════════════════════════════════════
+//  在线列表卡片
+// ══════════════════════════════════════════════════════════
+
+interface OnlinePlayer {
+  nickname: string
+  username?: string
+  group?: string
+  active?: boolean
+}
+
+interface OnlineStatusData {
+  name?: string
+  world?: string
+  playercount: number
+  maxplayers: number
+  uptime?: string
+  players?: OnlinePlayer[]
+}
+
+/** 生成在线列表 HTML 卡片 */
+export function onlineListCard(data: OnlineStatusData): string {
+  const online = data.playercount ?? 0
+  const max = data.maxplayers ?? 0
+  const players = (data.players || []).filter(p => p && p.nickname)
+  const pct = max > 0 ? Math.min(100, Math.round((online / max) * 100)) : 0
+  const pctColor = pct >= 80 ? '#ef4444' : pct >= 50 ? '#f59e0b' : '#34d399'
+  const serverName = data.name || 'Terraria 服务器'
+  const worldName = data.world || ''
+
+  const rows = players.length
+    ? players.map(p => `<div class="row">${escapeHtml(p.nickname)}</div>`).join('\n')
+    : `<div class="empty">🛋️ 当前无人在线</div>`
+
+  return `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC",sans-serif;
+  background:linear-gradient(135deg,#0f0c29,#302b63,#24243e);
+  min-height:100vh;padding:20px
+}
+.wrap{
+  width:520px;margin:0 auto;
+  background:rgba(255,255,255,0.06);
+  border:1px solid rgba(255,255,255,0.1);
+  border-radius:18px;
+  padding:24px 22px;
+  box-shadow:0 25px 50px -12px rgba(0,0,0,0.6)
+}
+.head{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:18px}
+.head-title{font-size:22px;font-weight:700;color:#fff;letter-spacing:0.5px}
+.head-sub{color:rgba(255,255,255,0.5);font-size:13px;margin-top:2px}
+.online-pill{
+  display:flex;align-items:center;gap:8px;
+  background:rgba(255,255,255,0.08);
+  border:1px solid rgba(255,255,255,0.12);
+  padding:8px 14px;border-radius:20px
+}
+.online-dot{width:10px;height:10px;border-radius:50%;background:${pctColor};
+  box-shadow:0 0 8px ${pctColor}}
+.online-num{font-size:17px;font-weight:700;color:#fff}
+.online-total{font-size:12px;color:rgba(255,255,255,0.5)}
+.occ-bar{height:6px;background:rgba(255,255,255,0.08);border-radius:3px;overflow:hidden;margin-bottom:20px}
+.occ-inner{height:100%;border-radius:3px;background:${pctColor};transition:width 0.5s}
+.list{display:flex;flex-direction:column;gap:8px}
+.row{
+  background:rgba(255,255,255,0.05);
+  border:1px solid rgba(255,255,255,0.07);
+  border-radius:10px;
+  padding:11px 14px;
+  font-size:15px;font-weight:600;color:rgba(255,255,255,0.9)
+}
+.empty{
+  text-align:center;color:rgba(255,255,255,0.5);
+  font-size:15px;padding:28px 0
+}
+.foot{margin-top:18px;padding-top:14px;border-top:1px solid rgba(255,255,255,0.08);
+  display:flex;justify-content:space-between;align-items:center}
+.foot-name{color:rgba(255,255,255,0.35);font-size:12px}
+.foot-tag{color:rgba(255,255,255,0.35);font-size:12px;font-family:"JetBrains Mono","Consolas",monospace}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="head">
+    <div>
+      <div class="head-title">${escapeHtml(serverName)}</div>
+      <div class="head-sub">${worldName ? escapeHtml(worldName) : 'Terraria World'}</div>
+    </div>
+    <div class="online-pill">
+      <span class="online-dot"></span>
+      <span class="online-num">${online}</span>
+      <span class="online-total">/ ${max}</span>
+    </div>
+  </div>
+  <div class="occ-bar"><div class="occ-inner" style="width:${pct}%"></div></div>
+  <div class="list">${rows}</div>
+  <div class="foot">
+    <span class="foot-name">在线玩家列表</span>
+    <span class="foot-tag">LIVE</span>
+  </div>
+</div>
+</body>
+</html>`
+}
+
 function escapeHtml(s: string): string {
   return s.replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>').replace(/"/g, '"')
 }
