@@ -87,10 +87,22 @@ namespace TShockData
                 }
 
                 string[] item = arrinventory[index].Split(",");
-                item[0] = netID.ToString();
-                item[1] = stack.ToString();
-                item[2] = prefix.ToString();
-                arrinventory[index] = string.Join(",", item);
+
+                if (netID == 0)
+                {
+                    // 清空格子：整槽置空（含 favorited 字段），不留脏数据
+                    arrinventory[index] = "0,0,0,0";
+                }
+                else
+                {
+                    string netIdStr = netID.ToString();
+                    string stackStr = stack.ToString();
+                    string prefixStr = prefix.ToString();
+
+                    // 旧数据可能字段不足（如只有 id 或 id,stack），统一补齐为 4 字段，保留 favorited
+                    string favorited = item.Length >= 4 ? item[3] : "0";
+                    arrinventory[index] = $"{netIdStr},{stackStr},{prefixStr},{favorited}";
+                }
                 string finalinv = string.Join("~", arrinventory);
                 db.Query("UPDATE tsCharacter SET Inventory = @0 WHERE Account = @1", finalinv, account.ID);
 

@@ -310,17 +310,16 @@ onMounted(() => {
                 </div>
               </div>
               <div class="item-preview-wrapper">
-                <div v-if="currentImageUrl" class="item-preview">
+                <div class="item-preview">
                   <img
+                    v-if="currentImageUrl"
                     :src="currentImageUrl"
                     :alt="itemName"
                     class="item-image"
                     @error="handleImageError"
                   />
                 </div>
-                <div v-if="itemName" class="item-name">
-                  {{ itemName }}
-                </div>
+                <div class="item-name">{{ itemName || '未选择物品' }}</div>
               </div>
             </div>
           </div>
