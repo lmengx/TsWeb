@@ -1185,13 +1185,13 @@ public class HousingPlugin : TerrariaPlugin
     private static readonly Dictionary<string, string> PermissionFieldMap = new()
     {
         {"进入", "AllowEntry"},
-        {"允许传送", "AllowTP"},
+        {"传送", "AllowTP"},
         {"放置", "AllowPlace"},
         {"破坏", "AllowBreak"},
         {"液体", "AllowLiquid"},
         {"箱子", "AllowChest"},
         {"植物", "AllowPlant"},
-        {"设置复活点", "AllowSpawn"},
+        {"复活点", "AllowSpawn"},
         {"挖坟", "AllowGrave"},
         {"开关", "AllowSwitch"},
         {"门", "AllowDoor"},
