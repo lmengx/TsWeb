@@ -1,10 +1,12 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System.Collections.Concurrent;
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System.Collections.Concurrent;
 using System.Data;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using Newtonsoft.Json;
+using TerrariaApi.Server;
 using TShockAPI;
 using TShockAPI.DB;
 using TShockAPI.Hooks;
@@ -476,6 +478,175 @@ namespace TShockData
             });
         }
 
+        public static void pvp(CommandArgs args)
+        {
+            if (args.Parameters.Count == 0 || args.Parameters.Count > 2)
+            {
+                args.Player.SendInfoMessage("用法: /pvp <玩家名|*> on|off");
+                args.Player.SendInfoMessage("      /pvp <玩家名>  - 查看当前 PVP 状态");
+                return;
+            }
+
+            bool isWildcard = args.Parameters[0] == "*";
+
+            // 仅一个参数：查看状态
+            if (args.Parameters.Count == 1)
+            {
+                if (isWildcard)
+                {
+                    args.Player.SendInfoMessage("用法: /pvp * on|off");
+                    return;
+                }
+                var queryPlayers = TShockAPI.TSPlayer.FindByNameOrID(args.Parameters[0]);
+                if (queryPlayers.Count == 0)
+                {
+                    args.Player.SendErrorMessage("玩家不存在.");
+                    return;
+                }
+                if (queryPlayers.Count > 1)
+                {
+                    args.Player.SendMultipleMatchError(queryPlayers.Select(p => p.Name));
+                    return;
+                }
+                args.Player.SendInfoMessage($"{queryPlayers[0].Name} 当前 PVP: {(queryPlayers[0].Hostile ? "开启" : "关闭")}");
+                return;
+            }
+
+            string mode = args.Parameters[1].ToLower();
+            bool enable;
+            if (mode == "on" || mode == "true" || mode == "1")
+            {
+                enable = true;
+            }
+            else if (mode == "off" || mode == "false" || mode == "0")
+            {
+                enable = false;
+            }
+            else
+            {
+                args.Player.SendErrorMessage("PVP 状态参数必须是 on 或 off.");
+                return;
+            }
+
+            // * 通配符：批量设置所有在线玩家
+            if (isWildcard)
+            {
+                int count = 0;
+                foreach (var p in TShock.Players)
+                {
+                    if (p != null && p.Active && p.RealPlayer)
+                    {
+                        p.SetPvP(enable, false);
+                        count++;
+                    }
+                }
+                args.Player.SendSuccessMessage($"已将 {count} 个在线玩家的 PVP 设置为 {(enable ? "开启" : "关闭")}");
+                return;
+            }
+
+            var players = TShockAPI.TSPlayer.FindByNameOrID(args.Parameters[0]);
+            if (players.Count == 0)
+            {
+                args.Player.SendErrorMessage("玩家不存在.");
+                return;
+            }
+            if (players.Count > 1)
+            {
+                args.Player.SendMultipleMatchError(players.Select(p => p.Name));
+                return;
+            }
+
+            players[0].SetPvP(enable, true);
+            args.Player.SendSuccessMessage($"已将 {players[0].Name} 的 PVP 设置为 {(enable ? "开启" : "关闭")}");
+        }
+
+        public static void pvplock(CommandArgs args)
+        {
+            if (args.Parameters.Count == 0 || args.Parameters.Count > 2)
+            {
+                ShowPvPLockHelp(args.Player);
+                return;
+            }
+
+            bool isWildcard = args.Parameters[0] == "*";
+            string target = args.Parameters[0];
+
+            // 仅一个参数：查看锁定状态
+            if (args.Parameters.Count == 1)
+            {
+                if (isWildcard)
+                {
+                    args.Player.SendInfoMessage($"全局 PVP 锁定: {FormatPvPLock(PvPLockManager.GlobalLock)}");
+                    return;
+                }
+                args.Player.SendInfoMessage($"{target} 的 PVP 锁定: {FormatPvPLock(PvPLockManager.GetEffectiveLock(target))}");
+                return;
+            }
+
+            string mode = args.Parameters[1].ToLower();
+            bool? lockState;
+            if (mode == "on" || mode == "true" || mode == "1")
+            {
+                lockState = true;
+            }
+            else if (mode == "off" || mode == "false" || mode == "0")
+            {
+                lockState = false;
+            }
+            else if (mode == "unlock" || mode == "none")
+            {
+                lockState = null;
+            }
+            else
+            {
+                args.Player.SendErrorMessage("锁定参数必须是 on/off/unlock.");
+                return;
+            }
+
+            // * 通配符：全局锁定状态（新进入的玩家也会被强制应用）
+            if (isWildcard)
+            {
+                PvPLockManager.SetGlobal(lockState);
+                args.Player.SendSuccessMessage($"全局 PVP 锁定已设置为 {FormatPvPLock(lockState)}" +
+                    (lockState != null ? "，对所有在线及新进玩家生效" : ""));
+                return;
+            }
+
+            var players = TShockAPI.TSPlayer.FindByNameOrID(target);
+            if (players.Count == 0)
+            {
+                // 离线玩家也允许按名字设置锁定（重新上线后生效）
+                PvPLockManager.SetPlayer(target, lockState);
+                args.Player.SendSuccessMessage($"已{(lockState == null ? "解除" : "锁定")}玩家 {target} 的 PVP: {FormatPvPLock(lockState)}");
+                return;
+            }
+            if (players.Count > 1)
+            {
+                args.Player.SendMultipleMatchError(players.Select(p => p.Name));
+                return;
+            }
+
+            var tp = players[0];
+            PvPLockManager.SetPlayer(tp.Name, lockState);
+            if (lockState != null)
+            {
+                tp.SetPvP(lockState.Value, false);
+            }
+            args.Player.SendSuccessMessage($"已{(lockState == null ? "解除" : "锁定")}玩家 {tp.Name} 的 PVP: {FormatPvPLock(lockState)}");
+        }
+
+        private static void ShowPvPLockHelp(TSPlayer player)
+        {
+            player.SendInfoMessage("用法: /pvplock <玩家名|*> on|off|unlock");
+            player.SendInfoMessage("      /pvplock <玩家名>  - 查看该玩家锁定状态");
+            player.SendInfoMessage("      /pvplock *  - 查看全局锁定状态");
+        }
+
+        private static string FormatPvPLock(bool? state)
+        {
+            return state == null ? "未锁定" : (state.Value ? "开启(锁定)" : "关闭(锁定)");
+        }
+
         public static List<string> FindPlayersWithItem(int netID)
         {
             List<string> playersWithItem = new List<string>();
@@ -738,6 +909,207 @@ namespace TShockData
             throw new Exception($"{type}封禁重试 {maxRetries} 次后仍失败");
         }
 
+    }
+
+    /// <summary>
+    /// PVP 锁定管理器：支持按玩家锁定与全局锁定，状态持久化到 TSWeb/PvPLock.json（兼容热重载）。
+    /// 全局锁定时新进入的玩家也会被强制应用。
+    /// </summary>
+    public static class PvPLockManager
+    {
+        private static readonly object _syncLock = new object();
+        private static bool? _globalLock;                                     // null=未锁定, true=全开锁定, false=全关锁定
+        private static readonly Dictionary<string, bool> _playerLocks = new(StringComparer.OrdinalIgnoreCase); // 玩家名→锁定状态
+        private static string SavePath => Path.Combine(TShock.SavePath, "TSWeb", "PvPLock.json");
+        private static TerrariaPlugin? _plugin;
+        private static bool _initialized;
+
+        public static bool? GlobalLock
+        {
+            get { lock (_syncLock) return _globalLock; }
+        }
+
+        public static void Initialize(TerrariaPlugin plugin)
+        {
+            if (_initialized)
+                return;
+
+            _plugin = plugin;
+            Load();
+
+            GetDataHandlers.TogglePvp.Register(OnTogglePvp);
+            ServerApi.Hooks.NetGreetPlayer.Register(plugin, OnPlayerJoin);
+
+            _initialized = true;
+            TShock.Log.ConsoleInfo("[PvPLock] PVP 锁定模块已启用");
+        }
+
+        public static void Dispose()
+        {
+            if (!_initialized)
+                return;
+
+            GetDataHandlers.TogglePvp.UnRegister(OnTogglePvp);
+            if (_plugin != null)
+                ServerApi.Hooks.NetGreetPlayer.Deregister(_plugin, OnPlayerJoin);
+
+            Save();
+            _initialized = false;
+            TShock.Log.ConsoleInfo("[PvPLock] PVP 锁定模块已停用");
+        }
+
+        /// <summary>
+        /// 获取玩家生效的锁定状态（单玩家锁定优先于全局锁定）。
+        /// </summary>
+        public static bool? GetEffectiveLock(string playerName)
+        {
+            lock (_syncLock)
+            {
+                if (_playerLocks.TryGetValue(playerName, out bool v))
+                    return v;
+                return _globalLock;
+            }
+        }
+
+        public static void SetGlobal(bool? state)
+        {
+            lock (_syncLock)
+            {
+                _globalLock = state;
+            }
+            // 对当前所有在线玩家立即强制生效
+            ApplyLockToOnline();
+            Save();
+        }
+
+        public static void SetPlayer(string playerName, bool? state)
+        {
+            lock (_syncLock)
+            {
+                if (state == null)
+                    _playerLocks.Remove(playerName);
+                else
+                    _playerLocks[playerName] = state.Value;
+            }
+            Save();
+        }
+
+        private static void ApplyLockToOnline()
+        {
+            foreach (var p in TShock.Players)
+            {
+                if (p != null && p.Active && p.RealPlayer)
+                {
+                    var locked = GetEffectiveLock(p.Name);
+                    if (locked != null)
+                        p.SetPvP(locked.Value, false);
+                }
+            }
+        }
+
+        private static void OnPlayerJoin(GreetPlayerEventArgs args)
+        {
+            try
+            {
+                if (args.Who < 0 || args.Who >= TShock.Players.Length)
+                    return;
+                var player = TShock.Players[args.Who];
+                if (player == null || !player.Active)
+                    return;
+
+                var locked = GetEffectiveLock(player.Name);
+                if (locked != null)
+                    player.SetPvP(locked.Value, false);
+            }
+            catch (Exception ex)
+            {
+                TShock.Log.ConsoleError($"[PvPLock] 玩家加入处理失败: {ex.Message}");
+            }
+        }
+
+        private static void OnTogglePvp(object sender, GetDataHandlers.TogglePvpEventArgs args)
+        {
+            try
+            {
+                var player = args.Player;
+                if (player == null)
+                    return;
+
+                var locked = GetEffectiveLock(player.Name);
+                if (locked == null)
+                    return;
+
+                // 玩家请求的状态与锁定状态不一致 → 拒绝并强制恢复
+                if (args.Pvp != locked.Value)
+                {
+                    args.Handled = true;
+                    player.SetPvP(locked.Value, false);
+                    player.SendInfoMessage($"你的 PVP 已被管理员锁定为 {(locked.Value ? "开启" : "关闭")}");
+                }
+            }
+            catch (Exception ex)
+            {
+                TShock.Log.ConsoleError($"[PvPLock] 拦截 PVP 切换失败: {ex.Message}");
+            }
+        }
+
+        private class PvPLockSaveData
+        {
+            public bool? Global { get; set; }
+            public Dictionary<string, bool> Players { get; set; } = new();
+        }
+
+        private static void Load()
+        {
+            try
+            {
+                if (!File.Exists(SavePath))
+                    return;
+
+                var data = JsonConvert.DeserializeObject<PvPLockSaveData>(File.ReadAllText(SavePath));
+                if (data == null)
+                    return;
+
+                lock (_syncLock)
+                {
+                    _globalLock = data.Global;
+                    _playerLocks.Clear();
+                    if (data.Players != null)
+                    {
+                        foreach (var kv in data.Players)
+                            _playerLocks[kv.Key] = kv.Value;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                TShock.Log.ConsoleError($"[PvPLock] 加载锁定配置失败: {ex.Message}");
+            }
+        }
+
+        private static void Save()
+        {
+            try
+            {
+                string dir = Path.GetDirectoryName(SavePath);
+                if (!string.IsNullOrEmpty(dir))
+                    Directory.CreateDirectory(dir);
+
+                lock (_syncLock)
+                {
+                    var data = new PvPLockSaveData
+                    {
+                        Global = _globalLock,
+                        Players = new Dictionary<string, bool>(_playerLocks)
+                    };
+                    File.WriteAllText(SavePath, JsonConvert.SerializeObject(data, Formatting.Indented));
+                }
+            }
+            catch (Exception ex)
+            {
+                TShock.Log.ConsoleError($"[PvPLock] 保存锁定配置失败: {ex.Message}");
+            }
+        }
     }
 }
 
