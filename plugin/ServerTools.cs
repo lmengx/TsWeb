@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System;
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System;
 using System.IO;
 using System.Security.Cryptography;
 using System.Threading;
@@ -40,7 +40,7 @@ namespace TShockData
         {
             if (args.Parameters.Count == 0)
             {
-                args.Player.SendInfoMessage("用法: /planrestart <时间(秒)> 或 /planrestart cancel");
+                args.Player.SendInfoMessage("用法: /planoff <时间(秒)> 或 /planoff cancel");
                 if (isOffScheduled && scheduledOffTime != null)
                 {
                     var remaining = scheduledOffTime.Value - DateTime.Now;
