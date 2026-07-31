@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System.Collections.Concurrent;
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System.Collections.Concurrent;
 using System.Data;
 using System.Diagnostics;
 using System.IO;
@@ -628,10 +628,8 @@ namespace TShockData
 
             var tp = players[0];
             PvPLockManager.SetPlayer(tp.Name, lockState);
-            if (lockState != null)
-            {
-                tp.SetPvP(lockState.Value, false);
-            }
+            // 同步一次状态：锁定 → 强制为锁定值；解锁 → 将当前状态同步到客户端
+            tp.SetPvP(lockState ?? tp.Hostile, false);
             args.Player.SendSuccessMessage($"已{(lockState == null ? "解除" : "锁定")}玩家 {tp.Name} 的 PVP: {FormatPvPLock(lockState)}");
         }
 
@@ -1001,8 +999,8 @@ namespace TShockData
                 if (p != null && p.Active && p.RealPlayer)
                 {
                     var locked = GetEffectiveLock(p.Name);
-                    if (locked != null)
-                        p.SetPvP(locked.Value, false);
+                    // 锁定 → 强制为锁定值；未锁定 → 将当前状态同步到客户端
+                    p.SetPvP(locked ?? p.Hostile, false);
                 }
             }
         }
