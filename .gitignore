@@ -146,3 +146,4 @@ frontend/dist.zip
 backend/world.wld
 backend/config/config.json
 /plugin-son/House/bin
+/plugin-son/HotReload/bin

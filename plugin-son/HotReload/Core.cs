@@ -105,10 +105,9 @@ public static class Core
                 continue;
 
             asmToFile.TryGetValue(assembly, out var fileName);
-            var dllFile = fileName != null ? fileName + ".dll" : "";
-            var fullPath = !string.IsNullOrEmpty(dllFile)
-                ? Path.Combine(ServerPluginsPath, dllFile)
-                : "";
+            // 反射拿不到文件名时，回退用程序集名拼接，避免被 ScanDirectory 误判为"新增"
+            var dllFile = !string.IsNullOrEmpty(fileName) ? fileName + ".dll" : asmName + ".dll";
+            var fullPath = Path.Combine(ServerPluginsPath, dllFile);
 
             var rec = new PluginRecord
             {
@@ -379,61 +378,46 @@ public static class Core
     {
         EnsureInitialized();
 
-        var changes = GetUnloadedFromDisk();
-        PluginRecord? targetChange = null;
-
-        // 尝试按序号或名称匹配变更列表
-        if (int.TryParse(target, out var index))
+        // ── 解析目标：数字 → 台账 Id；名称 → 磁盘变更列表 → 台账记录 ──
+        PluginRecord? record;
+        if (int.TryParse(target, out _))
         {
-            if (index >= 1 && index <= changes.Count)
-                targetChange = changes[index - 1];
+            // 数字一律按台账 Id 解析（与仪表盘 / unload / info 保持一致）
+            record = ResolveRecord(target);
+            if (record == null)
+                return (false, $"未找到序号为 {target} 的插件。磁盘新增的插件请使用名称：/hr load <插件名>");
         }
         else
         {
-            targetChange = changes.FirstOrDefault(c =>
+            var changes = GetUnloadedFromDisk();
+            record = changes.FirstOrDefault(c =>
                 string.Equals(c.AssemblyName, target, StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(c.DllFileName, target, StringComparison.OrdinalIgnoreCase));
+
+            // 磁盘变更中没有 → 回退到台账记录（DisplayName / AssemblyName / DllFileName）
+            record ??= ResolveRecord(target);
         }
 
-        // 如果变更列表里没有，尝试从已加载列表中找（重新加载）
-        if (targetChange == null)
+        if (record == null)
+            return (false, $"未找到匹配的插件: {target}");
+
+        if (record.IsProtected)
+            return (false, $"禁止操作: {record.DisplayName} 是受保护的系统插件，无法热重载");
+
+        // ── 若台账中该插件仍在运行，先卸载（用台账真实记录，勿用临时对象）──
+        var running = _records.FirstOrDefault(r =>
+            string.Equals(r.AssemblyName, record.AssemblyName, StringComparison.OrdinalIgnoreCase) && r.IsLoaded);
+        if (running != null)
         {
-            var record = ResolveRecord(target);
-            if (record == null)
-                return (false, $"未找到匹配的插件: {target}");
-
-            if (record.IsProtected)
-                return (false, $"禁止操作: {record.DisplayName} 是受保护的系统插件，无法热重载");
-
-            // 已加载 → 先卸载再加载
-            if (record.IsLoaded)
-            {
-                var (ok, msg) = RemovePluginInternal(record);
-                if (!ok) return (false, msg);
-            }
-
-            // 从磁盘加载
-            return LoadPluginFromDisk(record);
-        }
-
-        // 来自变更列表
-        if (targetChange.IsProtected)
-            return (false, $"禁止操作: {targetChange.AssemblyName} 是受保护的系统插件，无法热重载");
-
-        // 如果已加载，先卸载
-        var existingRec = _records.FirstOrDefault(r =>
-            string.Equals(r.AssemblyName, targetChange.AssemblyName, StringComparison.OrdinalIgnoreCase) && r.IsLoaded);
-        if (existingRec != null)
-        {
-            var (ok, msg) = RemovePluginInternal(existingRec);
+            var (ok, msg) = RemovePluginInternal(running);
             if (!ok) return (false, msg);
         }
 
-        // 备份旧 dll
-        BackupDll(targetChange.FullPath);
+        // 备份旧 dll（若存在）
+        BackupDll(record.FullPath);
 
-        // 从磁盘加载
-        return LoadPluginFromDisk(targetChange);
+        // 从磁盘加载（内部会把结果同步回台账）
+        return LoadPluginFromDisk(record);
     }
 
     private static (bool, string) LoadPluginFromDisk(PluginRecord record)
@@ -487,19 +471,25 @@ public static class Core
                 plugins.Add(container);
                 container.Initialize();
 
-                // 更新记录
-                record.DisplayName = pluginInstance.Name;
-                record.Version = pluginInstance.Version;
-                record.Author = pluginInstance.Author;
-                record.IsLoaded = true;
-                record.FileHash = ComputeFileHash(record.FullPath);
+                // 台账同步：必须更新台账中的真实记录（record 可能是 GetUnloadedFromDisk 的临时对象）
+                var rec = _records.FirstOrDefault(r =>
+                    string.Equals(r.AssemblyName, record.AssemblyName, StringComparison.OrdinalIgnoreCase));
 
-                // 如果记录不存在，加入列表
-                if (!_records.Any(r => string.Equals(r.AssemblyName, record.AssemblyName, StringComparison.OrdinalIgnoreCase)))
+                if (rec == null)
                 {
-                    record.Id = _records.Count > 0 ? _records.Max(r => r.Id) + 1 : 1;
-                    _records.Add(record);
+                    rec = record;
+                    rec.Id = _records.Count > 0 ? _records.Max(r => r.Id) + 1 : 1;
+                    _records.Add(rec);
                 }
+
+                // 将加载结果回写到台账记录
+                rec.DisplayName = pluginInstance.Name;
+                rec.Version = pluginInstance.Version;
+                rec.Author = pluginInstance.Author;
+                rec.IsLoaded = true;
+                rec.FullPath = record.FullPath;
+                rec.DllFileName = Path.GetFileName(record.FullPath);
+                rec.FileHash = ComputeFileHash(record.FullPath);
 
                 loaded = true;
                 _hotReloadCount++;
