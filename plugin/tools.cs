@@ -1,6 +1,7 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System.Collections.Concurrent;
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System.Collections.Concurrent;
 using System.Data;
 using System.Diagnostics;
+using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using Newtonsoft.Json;
@@ -144,7 +145,7 @@ namespace TShockData
         {
             if (args.Parameters.Count < 1)
             {
-                args.Player.SendErrorMessage("语法错误。正确格式: /remove <玩家名|*> <物品ID> 或 /remove <物品ID>(清除所有玩家)");
+                args.Player.SendErrorMessage("语法错误。正确格式: /remove <玩家名|*> <物品ID|all> 或 /remove <物品ID|all>(清除所有玩家)");
                 return;
             }
 
@@ -162,9 +163,40 @@ namespace TShockData
                 itemIdStr = args.Parameters[1];
             }
 
+            // all 模式：清空整个背包（所有角色、所有栏位：主背包/护甲/染料/时装/存钱罐/保险箱/垃圾桶/熔炉/虚空袋/三套配装）
+            bool clearAll = itemIdStr.Equals("all", StringComparison.OrdinalIgnoreCase) || itemIdStr == "*";
+
+            if (clearAll)
+            {
+                if (target == "*")
+                {
+                    args.Player.SendInfoMessage("正在后台批量清空所有玩家的整个背包，请稍后查看控制台日志...");
+                    System.Threading.Tasks.Task.Run(BatchClearInventory);
+                }
+                else
+                {
+                    var account = TShock.UserAccounts.GetUserAccountByName(target);
+                    if (account == null)
+                    {
+                        args.Player.SendErrorMessage($"找不到玩家: {target}");
+                        return;
+                    }
+
+                    if (ClearInventoryFromPlayer(account.ID, account.Name))
+                    {
+                        args.Player.SendSuccessMessage($"已清空玩家 {target} 的整个背包(含存钱罐/保险箱/熔炉/虚空袋/三套配装)");
+                    }
+                    else
+                    {
+                        args.Player.SendErrorMessage($"玩家 {target} 没有可清空的角色数据");
+                    }
+                }
+                return;
+            }
+
             if (!int.TryParse(itemIdStr, out int netID))
             {
-                args.Player.SendErrorMessage($"物品ID必须是数字: {itemIdStr}");
+                args.Player.SendErrorMessage($"物品ID必须是数字或 all: {itemIdStr}");
                 return;
             }
 
@@ -239,52 +271,34 @@ namespace TShockData
             try
             {
                 IDbConnection db = TShock.DB;
-                string strinventory = "";
-                using (QueryResult res = db.QueryReader("SELECT Inventory FROM tsCharacter WHERE Account = @0", accountId))
+                bool anyCleared = false;
+
+                // 一个账号可能拥有多个角色(tsCharacter 每行一个角色)，必须遍历所有角色行
+                using (QueryResult res = db.QueryReader("SELECT ID, Inventory FROM tsCharacter WHERE Account = @0", accountId))
                 {
-                    if (res.Read())
+                    while (res.Read())
                     {
-                        strinventory = res.Get<string>("Inventory");
-                    }
-                    else
-                    {
-                        return false;
+                        int characterId = res.Get<int>("ID");
+                        string updated = RemoveItemFromInventoryString(res.Get<string>("Inventory"), netID, out bool cleared);
+                        if (cleared)
+                        {
+                            db.Query("UPDATE tsCharacter SET Inventory = @0 WHERE ID = @1", updated, characterId);
+                            anyCleared = true;
+                        }
                     }
                 }
 
-                if (strinventory != "")
+                if (anyCleared)
                 {
-                    string[] arrinventory = strinventory.Split("~");
-                    bool cleared = false;
-
-                    for (int i = 0; i < arrinventory.Length; i++)
+                    // 玩家在线 → 从 DB 重新加载并同步到客户端
+                    if (onlinePlayer != null)
                     {
-                        string[] item = arrinventory[i].Split(",");
-                        if (item.Length >= 1 && int.TryParse(item[0], out int slotItemId) && slotItemId == netID)
-                        {
-                            item[0] = "0";
-                            item[1] = "0";
-                            item[2] = "0";
-                            arrinventory[i] = string.Join(",", item);
-                            cleared = true;
-                        }
+                        onlinePlayer.PlayerData = TShock.CharacterDB.GetPlayerData(onlinePlayer, accountId);
+                        onlinePlayer.PlayerData.RestoreCharacter(onlinePlayer);
                     }
 
-                    if (cleared)
-                    {
-                        string finalinv = string.Join("~", arrinventory);
-                        db.Query("UPDATE tsCharacter SET Inventory = @0 WHERE Account = @1", finalinv, accountId);
-
-                        // 玩家在线 → 从 DB 重新加载并同步到客户端
-                        if (onlinePlayer != null)
-                        {
-                            onlinePlayer.PlayerData = TShock.CharacterDB.GetPlayerData(onlinePlayer, accountId);
-                            onlinePlayer.PlayerData.RestoreCharacter(onlinePlayer);
-                        }
-
-                        TShock.Log.ConsoleInfo($"[remove] 已清除玩家 {playerName} 的物品: {itemName}");
-                        return true;
-                    }
+                    TShock.Log.ConsoleInfo($"[remove] 已清除玩家 {playerName} 的物品: {itemName}");
+                    return true;
                 }
             }
             catch (Exception ex)
@@ -293,6 +307,117 @@ namespace TShockData
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// 在序列化的背包字符串中清除指定物品。
+        /// 遍历全部槽位(NetItem.MaxInventory，含主背包/护甲/染料/时装/存钱罐/保险箱/垃圾桶/熔炉/虚空袋/三套配装)，
+        /// 只要槽位 netID 匹配即整槽置空，确保"整个背包"都被覆盖。
+        /// </summary>
+        private static string RemoveItemFromInventoryString(string inventory, int netID, out bool cleared)
+        {
+            cleared = false;
+            if (string.IsNullOrEmpty(inventory))
+                return inventory;
+
+            var slots = inventory.Split('~');
+            for (int i = 0; i < slots.Length; i++)
+            {
+                var fields = slots[i].Split(',');
+                // 空槽位或不完整字段直接跳过，避免解析异常导致整次清除失败
+                if (fields.Length == 0 || !int.TryParse(fields[0], out int slotItemId) || slotItemId <= 0)
+                    continue;
+
+                if (slotItemId == netID)
+                {
+                    slots[i] = "0,0,0,0"; // 整槽置空(含 favorited 标志)，不留脏数据
+                    cleared = true;
+                }
+            }
+
+            return string.Join("~", slots);
+        }
+
+        /// <summary>
+        /// 清空玩家整个背包(所有角色、所有栏位)。
+        /// </summary>
+        private static bool ClearInventoryFromPlayer(int accountId, string playerName)
+        {
+            // 在线玩家先同步当前状态到 DB
+            var onlinePlayers = TShockAPI.TSPlayer.FindByNameOrID(playerName);
+            TSPlayer? onlinePlayer = null;
+            if (onlinePlayers.Count > 0 && onlinePlayers[0].Active)
+            {
+                onlinePlayer = onlinePlayers[0];
+                onlinePlayer.PlayerData.CopyCharacter(onlinePlayer);
+                TShock.CharacterDB.InsertPlayerData(onlinePlayer);
+            }
+
+            try
+            {
+                IDbConnection db = TShock.DB;
+                bool anyCleared = false;
+
+                using (QueryResult res = db.QueryReader("SELECT ID FROM tsCharacter WHERE Account = @0", accountId))
+                {
+                    while (res.Read())
+                    {
+                        int characterId = res.Get<int>("ID");
+                        // 全空背包：NetItem.MaxInventory 个空槽位
+                        string emptyInventory = string.Join("~", Enumerable.Repeat("0,0,0,0", NetItem.MaxInventory));
+                        db.Query("UPDATE tsCharacter SET Inventory = @0 WHERE ID = @1", emptyInventory, characterId);
+                        anyCleared = true;
+                    }
+                }
+
+                if (anyCleared)
+                {
+                    // 玩家在线 → 从 DB 重新加载并同步到客户端
+                    if (onlinePlayer != null)
+                    {
+                        onlinePlayer.PlayerData = TShock.CharacterDB.GetPlayerData(onlinePlayer, accountId);
+                        onlinePlayer.PlayerData.RestoreCharacter(onlinePlayer);
+                    }
+
+                    TShock.Log.ConsoleInfo($"[remove] 已清空玩家 {playerName} 的整个背包");
+                    return true;
+                }
+            }
+            catch (Exception ex)
+            {
+                TShock.Log.ConsoleError($"[remove] 清空玩家 {playerName} 的背包失败: {ex.Message}");
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// 批量清空所有玩家的整个背包。
+        /// </summary>
+        private static void BatchClearInventory()
+        {
+            int clearedCount = 0;
+            IDbConnection db = TShock.DB;
+
+            List<Tuple<int, string>> users = new List<Tuple<int, string>>();
+            using (QueryResult res = db.QueryReader("SELECT ID, Username FROM Users"))
+            {
+                while (res.Read())
+                {
+                    users.Add(Tuple.Create(res.Get<int>("ID"), res.Get<string>("Username")));
+                }
+            }
+
+            foreach (var user in users)
+            {
+                if (ClearInventoryFromPlayer(user.Item1, user.Item2))
+                {
+                    clearedCount++;
+                }
+                System.Threading.Thread.Sleep(_random.Next(50, 150));
+            }
+
+            TShock.Log.ConsoleInfo($"[remove] 批量清空完成，共清空 {clearedCount} 个玩家的背包");
         }
 
         public static void find(CommandArgs args)
