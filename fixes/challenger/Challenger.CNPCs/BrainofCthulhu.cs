@@ -64,7 +64,7 @@ internal class BrainofCthulhu : CNPC
                 this.state = 1;
                 if (global::Challenger.Challenger.config.EnableBroadcastConsumptionMode)
                 {
-                    TSPlayer.All.SendMessage(GetString("畸形怪脑发现了新鲜的脑子"), new Color(255, 94, 94));
+                    TSPlayer.All.SendMessage("畸形怪脑发现了新鲜的脑子", new Color(255, 94, 94));
                 }
             }
             return this.state;
@@ -76,7 +76,7 @@ internal class BrainofCthulhu : CNPC
                 this.state = 2;
                 if (global::Challenger.Challenger.config.EnableBroadcastConsumptionMode)
                 {
-                    TSPlayer.All.SendMessage(GetString("你真的能分清真假血弹吗"), new Color(255, 94, 94));
+                    TSPlayer.All.SendMessage("你真的能分清真假血弹吗", new Color(255, 94, 94));
                 }
             }
             return this.state;
@@ -86,7 +86,7 @@ internal class BrainofCthulhu : CNPC
             this.state = 3;
             if (global::Challenger.Challenger.config.EnableBroadcastConsumptionMode)
             {
-                TSPlayer.All.SendMessage(GetString("虚虚实实，实实虚虚"), new Color(255, 94, 94));
+                TSPlayer.All.SendMessage("虚虚实实，实实虚虚", new Color(255, 94, 94));
             }
         }
         return this.state;
@@ -99,11 +99,11 @@ internal class BrainofCthulhu : CNPC
             var num = Main.rand.Next(1, 3);
             if (num == 1)
             {
-                global::Challenger.Challenger.SendPlayerText(GetString("糊你一脸"), Color.Red, this.npc.Center + new Vector2(0f, -30f));
+                global::Challenger.Challenger.SendPlayerText("糊你一脸", Color.Red, this.npc.Center + new Vector2(0f, -30f));
             }
             else
             {
-                global::Challenger.Challenger.SendPlayerText(GetString("哇哇嗷"), Color.Red, this.npc.Center + new Vector2(0f, -30f));
+                global::Challenger.Challenger.SendPlayerText("哇哇嗷", Color.Red, this.npc.Center + new Vector2(0f, -30f));
             }
         }
     }

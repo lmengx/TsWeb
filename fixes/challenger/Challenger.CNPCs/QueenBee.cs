@@ -125,7 +125,7 @@ public class QueenBee : CNPC
                 this.state = 1;
                 if (global::Challenger.Challenger.config.EnableBroadcastConsumptionMode)
                 {
-                    TSPlayer.All.SendMessage(GetString("谁人惊扰了我的蜂巢！"), Color.Yellow);
+                    TSPlayer.All.SendMessage("谁人惊扰了我的蜂巢！", Color.Yellow);
                 }
             }
             return this.state;
@@ -137,7 +137,7 @@ public class QueenBee : CNPC
                 this.state = 2;
                 if (global::Challenger.Challenger.config.EnableBroadcastConsumptionMode)
                 {
-                    TSPlayer.All.SendMessage(GetString("不许抢我的蜂蜜"), Color.Yellow);
+                    TSPlayer.All.SendMessage("不许抢我的蜂蜜", Color.Yellow);
                 }
             }
             return this.state;
@@ -149,7 +149,7 @@ public class QueenBee : CNPC
                 this.state = 3;
                 if (global::Challenger.Challenger.config.EnableBroadcastConsumptionMode)
                 {
-                    TSPlayer.All.SendMessage(GetString("毒刺射你一脸"), Color.Yellow);
+                    TSPlayer.All.SendMessage("毒刺射你一脸", Color.Yellow);
                 }
             }
             return this.state;
@@ -168,13 +168,13 @@ public class QueenBee : CNPC
             switch (Main.rand.Next(1, 4))
             {
                 case 1:
-                    global::Challenger.Challenger.SendPlayerText(GetString("嗡嗡"), Color.Yellow, this.npc.Center + new Vector2(0f, -30f));
+                    global::Challenger.Challenger.SendPlayerText("嗡嗡", Color.Yellow, this.npc.Center + new Vector2(0f, -30f));
                     break;
                 case 2:
-                    global::Challenger.Challenger.SendPlayerText(GetString("嗡嗡嗡嗡"), Color.Yellow, this.npc.Center + new Vector2(0f, -30f));
+                    global::Challenger.Challenger.SendPlayerText("嗡嗡嗡嗡", Color.Yellow, this.npc.Center + new Vector2(0f, -30f));
                     break;
                 default:
-                    global::Challenger.Challenger.SendPlayerText(GetString("吱嗡"), Color.Yellow, this.npc.Center + new Vector2(0f, -30f));
+                    global::Challenger.Challenger.SendPlayerText("吱嗡", Color.Yellow, this.npc.Center + new Vector2(0f, -30f));
                     break;
             }
         }

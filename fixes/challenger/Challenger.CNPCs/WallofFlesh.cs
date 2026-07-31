@@ -83,7 +83,7 @@ public class WallofFlesh : CNPC
                 this.state = 1;
                 if (global::Challenger.Challenger.config.EnableBroadcastConsumptionMode)
                 {
-                    TSPlayer.All.SendMessage(GetString("罪恶血祭召唤远古守卫"), new Color(255, 77, 0));
+                    TSPlayer.All.SendMessage("罪恶血祭召唤远古守卫", new Color(255, 77, 0));
                 }
             }
             return this.state;
@@ -95,7 +95,7 @@ public class WallofFlesh : CNPC
                 this.state = 2;
                 if (global::Challenger.Challenger.config.EnableBroadcastConsumptionMode)
                 {
-                    TSPlayer.All.SendMessage(GetString("付出代价吧！"), new Color(255, 77, 0));
+                    TSPlayer.All.SendMessage("付出代价吧！", new Color(255, 77, 0));
                 }
             }
             return this.state;
@@ -105,7 +105,7 @@ public class WallofFlesh : CNPC
             this.state = 3;
             if (global::Challenger.Challenger.config.EnableBroadcastConsumptionMode)
             {
-                TSPlayer.All.SendMessage(GetString("速度与激情"), new Color(255, 77, 0));
+                TSPlayer.All.SendMessage("速度与激情", new Color(255, 77, 0));
             }
         }
         return this.state;
@@ -115,7 +115,7 @@ public class WallofFlesh : CNPC
     {
         if (global::Challenger.Challenger.config.EnableConsumptionMode)
         {
-            global::Challenger.Challenger.SendPlayerText(GetString("咬碎你"), new Color(0, 146, 255), this.npc.Center);
+            global::Challenger.Challenger.SendPlayerText("咬碎你", new Color(0, 146, 255), this.npc.Center);
         }
     }
 }

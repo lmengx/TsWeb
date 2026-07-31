@@ -49,8 +49,8 @@ public class BeetleHeal : CProjectile
                         val2.SetBuff(95, 300, false);
                         if (Challenger.config.EnableConsumptionMode)
                         {
-                            Challenger.SendPlayerText(GetString($"甲虫治疗 + {num} 治疗者:{Main.player[this.proj.owner].name}"), new Color(210, 0, 255), val2.TPlayer.Center + new Vector2(Main.rand.Next(-60, 61), Main.rand.Next(61)));
-                            val2.SendMessage(GetString($"你被 {Main.player[this.proj.owner].name} 治疗了 {num} 点生命值"), new Color(210, 0, 255));
+                            Challenger.SendPlayerText($"甲虫治疗 + {num} 治疗者:{Main.player[this.proj.owner].name}", new Color(210, 0, 255), val2.TPlayer.Center + new Vector2(Main.rand.Next(-60, 61), Main.rand.Next(61)));
+                            val2.SendMessage($"你被 {Main.player[this.proj.owner].name} 治疗了 {num} 点生命值", new Color(210, 0, 255));
                         }
                         else
                         {
@@ -63,8 +63,8 @@ public class BeetleHeal : CProjectile
             }
             catch (Exception ex)
             {
-                TShock.Log.Error(GetString($"代码异常4：{ex}"));
-                Console.WriteLine(GetString($"代码异常4：{ex}"));
+                TShock.Log.Error($"代码异常4：{ex}");
+                Console.WriteLine($"代码异常4：{ex}");
             }
         }
         this.Update();

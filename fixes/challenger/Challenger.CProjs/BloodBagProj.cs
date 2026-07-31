@@ -92,7 +92,7 @@ public class BloodBagProj : CProjectile
                 obj3.life += healAmount;
                 if (Challenger.config.EnableConsumptionMode)
                 {
-                    Challenger.SendPlayerText(GetString($"敌怪治疗 + {(int) this.ai[4]}"), new Color(190, 255, 0), val.Center);
+                    Challenger.SendPlayerText($"敌怪治疗 + {(int) this.ai[4]}", new Color(190, 255, 0), val.Center);
                 }
                 else
                 {
@@ -118,7 +118,7 @@ public class BloodBagProj : CProjectile
                     if (Challenger.config.EnableConsumptionMode)
                     {
                         Challenger.HealPlayer(Main.player[val3.whoAmI], (int) this.ai[0], visible: false);
-                        Challenger.SendPlayerText(GetString($"血包治疗 + {(int) this.ai[0]}"), new Color(0, 255, 0), val3.Center);
+                        Challenger.SendPlayerText($"血包治疗 + {(int) this.ai[0]}", new Color(0, 255, 0), val3.Center);
                     }
                     else
                     {

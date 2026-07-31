@@ -1,3 +1,4 @@
+using Terraria;
 using TShockAPI;
 
 namespace Challenger;

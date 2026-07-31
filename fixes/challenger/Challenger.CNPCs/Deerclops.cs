@@ -119,7 +119,7 @@ public class Deerclops : CNPC
                 this.state = 1;
                 if (global::Challenger.Challenger.config.EnableBroadcastConsumptionMode)
                 {
-                    TSPlayer.All.SendMessage(GetString("远方的巨兽将会摧毁你所拥有的一切"), new Color(111, 160, 213));
+                    TSPlayer.All.SendMessage("远方的巨兽将会摧毁你所拥有的一切", new Color(111, 160, 213));
                 }
             }
             return this.state;
@@ -131,7 +131,7 @@ public class Deerclops : CNPC
                 this.state = 2;
                 if (global::Challenger.Challenger.config.EnableBroadcastConsumptionMode)
                 {
-                    TSPlayer.All.SendMessage(GetString("冰雪从天而降"), new Color(111, 160, 213));
+                    TSPlayer.All.SendMessage("冰雪从天而降", new Color(111, 160, 213));
                 }
             }
             return this.state;
@@ -141,7 +141,7 @@ public class Deerclops : CNPC
             this.state = 3;
             if (global::Challenger.Challenger.config.EnableBroadcastConsumptionMode)
             {
-                TSPlayer.All.SendMessage(GetString("你将受到灭顶之灾"), new Color(111, 160, 213));
+                TSPlayer.All.SendMessage("你将受到灭顶之灾", new Color(111, 160, 213));
             }
         }
         return this.state;
@@ -154,11 +154,11 @@ public class Deerclops : CNPC
             var num = Main.rand.Next(1, 3);
             if (num == 1)
             {
-                global::Challenger.Challenger.SendPlayerText(GetString("拆掉拆掉！"), new Color(111, 160, 213), this.npc.Center + new Vector2(0f, -30f));
+                global::Challenger.Challenger.SendPlayerText("拆掉拆掉！", new Color(111, 160, 213), this.npc.Center + new Vector2(0f, -30f));
             }
             else
             {
-                global::Challenger.Challenger.SendPlayerText(GetString("嗷嗷"), new Color(111, 160, 213), this.npc.Center + new Vector2(0f, -30f));
+                global::Challenger.Challenger.SendPlayerText("嗷嗷", new Color(111, 160, 213), this.npc.Center + new Vector2(0f, -30f));
             }
         }
     }

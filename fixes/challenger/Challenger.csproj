@@ -1,3 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
-	<Import Project="..\..\template.targets" />
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="TShock" Version="6.1.0" />
+  </ItemGroup>
+
 </Project>

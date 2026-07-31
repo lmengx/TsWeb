@@ -32,8 +32,8 @@ public class CrystalLeafShot : CProjectile
         }
         catch (Exception ex)
         {
-            TShock.Log.Error(GetString($"CrystalLeafShot -> MyEffect 异常：{ex}"));
-            Console.WriteLine(GetString($"CrystalLeafShot -> MyEffect 异常：{ex}"));
+            TShock.Log.Error($"CrystalLeafShot -> MyEffect 异常：{ex}");
+            Console.WriteLine($"CrystalLeafShot -> MyEffect 异常：{ex}");
         }
     }
 }
