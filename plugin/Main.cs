@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿using System.Reflection;
+﻿﻿﻿﻿﻿﻿using System.Reflection;
 using TShockAPI;
 using Terraria;
 using TerrariaApi.Server;
@@ -27,6 +27,7 @@ namespace TShockData
             BypassHelper.RegisterPermissionHook();
 
             PvPLockManager.Initialize(this);
+            TeamLockManager.Initialize(this);
 
             AutoRegister.Initialize(this);
 
@@ -73,6 +74,8 @@ namespace TShockData
 
             TShockAPI.Commands.ChatCommands.Add(new Command("tshock.admin", tools.pvp, "pvp"));
             TShockAPI.Commands.ChatCommands.Add(new Command("tshock.admin", tools.pvplock, "pvplock"));
+            TShockAPI.Commands.ChatCommands.Add(new Command("tshock.admin", tools.team, "team"));
+            TShockAPI.Commands.ChatCommands.Add(new Command("tshock.admin", tools.teamlock, "teamlock"));
 
             TShockAPI.Commands.ChatCommands.Add(new Command("", BossProgress.GetBossInfo, "进度", "bossinfo"));
 
@@ -177,6 +180,7 @@ namespace TShockData
 				ItemDetection.StopAutoScan();
 				BypassHelper.UnregisterPermissionHook();
 				PvPLockManager.Dispose();
+				TeamLockManager.Dispose();
 
 				CleanupChatCommands();
 				CleanupRestApiRoutes();
@@ -191,7 +195,7 @@ namespace TShockData
 		{
 			var tswebCommandNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
 			{
-				"runas", "banp", "remove", "find", "pvp", "pvplock",
+				"runas", "banp", "remove", "find", "pvp", "pvplock", "team", "teamlock",
 				"进度", "bossinfo",
 				"planoff",
 				"autoregister", "ar",

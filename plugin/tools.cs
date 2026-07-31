@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System.Collections.Concurrent;
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System.Collections.Concurrent;
 using System.Data;
 using System.Diagnostics;
 using System.IO;
@@ -645,6 +645,214 @@ namespace TShockData
             return state == null ? "未锁定" : (state.Value ? "开启(锁定)" : "关闭(锁定)");
         }
 
+        private static readonly string[] TeamNames = { "白(无队伍)", "红", "绿", "蓝", "黄", "粉" };
+
+        internal static string FormatTeam(int team)
+        {
+            if (team < 0 || team >= TeamNames.Length)
+                return $"未知({team})";
+            return $"{team} ({TeamNames[team]})";
+        }
+
+        private static string FormatTeamLock(int? state)
+        {
+            return state == null ? "未锁定" : $"锁定为 {FormatTeam(state.Value)}";
+        }
+
+        private static bool TryParseTeam(string input, out int team)
+        {
+            team = -1;
+            if (string.IsNullOrEmpty(input))
+                return false;
+
+            switch (input.Trim().ToLower())
+            {
+                case "0":
+                case "white":
+                case "none":
+                case "白":
+                case "无":
+                    team = 0;
+                    return true;
+                case "1":
+                case "red":
+                case "红":
+                    team = 1;
+                    return true;
+                case "2":
+                case "green":
+                case "绿":
+                    team = 2;
+                    return true;
+                case "3":
+                case "blue":
+                case "蓝":
+                    team = 3;
+                    return true;
+                case "4":
+                case "yellow":
+                case "黄":
+                    team = 4;
+                    return true;
+                case "5":
+                case "pink":
+                case "粉":
+                case "粉红":
+                    team = 5;
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        public static void team(CommandArgs args)
+        {
+            if (args.Parameters.Count == 0 || args.Parameters.Count > 2)
+            {
+                args.Player.SendInfoMessage("用法: /team <玩家名|*> <队伍0-5|white|red|green|blue|yellow|pink>");
+                args.Player.SendInfoMessage("      /team <玩家名>  - 查看当前队伍");
+                return;
+            }
+
+            bool isWildcard = args.Parameters[0] == "*";
+
+            // 仅一个参数：查看当前队伍
+            if (args.Parameters.Count == 1)
+            {
+                if (isWildcard)
+                {
+                    args.Player.SendInfoMessage("用法: /team * <队伍>");
+                    return;
+                }
+                var queryPlayers = TShockAPI.TSPlayer.FindByNameOrID(args.Parameters[0]);
+                if (queryPlayers.Count == 0)
+                {
+                    args.Player.SendErrorMessage("玩家不存在.");
+                    return;
+                }
+                if (queryPlayers.Count > 1)
+                {
+                    args.Player.SendMultipleMatchError(queryPlayers.Select(p => p.Name));
+                    return;
+                }
+                args.Player.SendInfoMessage($"{queryPlayers[0].Name} 当前队伍: {FormatTeam(queryPlayers[0].Team)}");
+                return;
+            }
+
+            if (!TryParseTeam(args.Parameters[1], out int teamId))
+            {
+                args.Player.SendErrorMessage("队伍参数无效，可用: 0-5 / white / red / green / blue / yellow / pink");
+                return;
+            }
+
+            // * 通配符：批量设置所有在线玩家
+            if (isWildcard)
+            {
+                int count = 0;
+                foreach (var p in TShock.Players)
+                {
+                    if (p != null && p.Active && p.RealPlayer)
+                    {
+                        p.SetTeam(teamId);
+                        count++;
+                    }
+                }
+                args.Player.SendSuccessMessage($"已将 {count} 个在线玩家的队伍设置为 {FormatTeam(teamId)}");
+                return;
+            }
+
+            var players = TShockAPI.TSPlayer.FindByNameOrID(args.Parameters[0]);
+            if (players.Count == 0)
+            {
+                args.Player.SendErrorMessage("玩家不存在.");
+                return;
+            }
+            if (players.Count > 1)
+            {
+                args.Player.SendMultipleMatchError(players.Select(p => p.Name));
+                return;
+            }
+
+            players[0].SetTeam(teamId);
+            args.Player.SendSuccessMessage($"已将 {players[0].Name} 的队伍设置为 {FormatTeam(teamId)}");
+        }
+
+        public static void teamlock(CommandArgs args)
+        {
+            if (args.Parameters.Count == 0 || args.Parameters.Count > 2)
+            {
+                ShowTeamLockHelp(args.Player);
+                return;
+            }
+
+            bool isWildcard = args.Parameters[0] == "*";
+            string target = args.Parameters[0];
+
+            // 仅一个参数：查看锁定状态
+            if (args.Parameters.Count == 1)
+            {
+                if (isWildcard)
+                {
+                    args.Player.SendInfoMessage($"全局队伍锁定: {FormatTeamLock(TeamLockManager.GlobalLock)}");
+                    return;
+                }
+                args.Player.SendInfoMessage($"{target} 的队伍锁定: {FormatTeamLock(TeamLockManager.GetEffectiveLock(target))}");
+                return;
+            }
+
+            string mode = args.Parameters[1].ToLower();
+            int? lockTeam;
+            if (mode == "unlock" || mode == "none")
+            {
+                lockTeam = null;
+            }
+            else if (TryParseTeam(mode, out int t))
+            {
+                lockTeam = t;
+            }
+            else
+            {
+                args.Player.SendErrorMessage("锁定参数必须是 队伍(0-5/white/red/...) 或 unlock.");
+                return;
+            }
+
+            // * 通配符：全局队伍锁定（新进入的玩家也会被强制应用）
+            if (isWildcard)
+            {
+                TeamLockManager.SetGlobal(lockTeam);
+                args.Player.SendSuccessMessage($"全局队伍锁定已设置为 {FormatTeamLock(lockTeam)}" +
+                    (lockTeam != null ? "，对所有在线及新进玩家生效" : ""));
+                return;
+            }
+
+            var players = TShockAPI.TSPlayer.FindByNameOrID(target);
+            if (players.Count == 0)
+            {
+                // 离线玩家也允许按名字设置锁定（重新上线后生效）
+                TeamLockManager.SetPlayer(target, lockTeam);
+                args.Player.SendSuccessMessage($"已{(lockTeam == null ? "解除" : "锁定")}玩家 {target} 的队伍: {FormatTeamLock(lockTeam)}");
+                return;
+            }
+            if (players.Count > 1)
+            {
+                args.Player.SendMultipleMatchError(players.Select(p => p.Name));
+                return;
+            }
+
+            var tp = players[0];
+            TeamLockManager.SetPlayer(tp.Name, lockTeam);
+            // 同步一次：锁定 → 强制为锁定队伍；解锁 → 将当前队伍同步到客户端
+            tp.SetTeam(lockTeam ?? tp.Team);
+            args.Player.SendSuccessMessage($"已{(lockTeam == null ? "解除" : "锁定")}玩家 {tp.Name} 的队伍: {FormatTeamLock(lockTeam)}");
+        }
+
+        private static void ShowTeamLockHelp(TSPlayer player)
+        {
+            player.SendInfoMessage("用法: /teamlock <玩家名|*> <队伍|unlock>");
+            player.SendInfoMessage("队伍: 0-5 / white / red / green / blue / yellow / pink");
+            player.SendInfoMessage("      /teamlock <玩家名|*>  - 查看锁定状态");
+        }
+
         public static List<string> FindPlayersWithItem(int netID)
         {
             List<string> playersWithItem = new List<string>();
@@ -1106,6 +1314,207 @@ namespace TShockData
             catch (Exception ex)
             {
                 TShock.Log.ConsoleError($"[PvPLock] 保存锁定配置失败: {ex.Message}");
+            }
+        }
+    }
+
+    /// <summary>
+    /// 队伍锁定管理器：支持按玩家锁定与全局锁定，状态持久化到 TSWeb/TeamLock.json（兼容热重载）。
+    /// 全局锁定时新进入的玩家也会被强制应用。
+    /// </summary>
+    public static class TeamLockManager
+    {
+        private static readonly object _syncLock = new object();
+        private static int? _globalLock;                                               // null=未锁定, 0-5=锁定队伍
+        private static readonly Dictionary<string, int> _playerLocks = new(StringComparer.OrdinalIgnoreCase); // 玩家名→锁定队伍
+        private static string SavePath => Path.Combine(TShock.SavePath, "TSWeb", "TeamLock.json");
+        private static TerrariaPlugin? _plugin;
+        private static bool _initialized;
+
+        public static int? GlobalLock
+        {
+            get { lock (_syncLock) return _globalLock; }
+        }
+
+        public static void Initialize(TerrariaPlugin plugin)
+        {
+            if (_initialized)
+                return;
+
+            _plugin = plugin;
+            Load();
+
+            GetDataHandlers.PlayerTeam.Register(OnPlayerTeam);
+            ServerApi.Hooks.NetGreetPlayer.Register(plugin, OnPlayerJoin);
+
+            _initialized = true;
+            TShock.Log.ConsoleInfo("[TeamLock] 队伍锁定模块已启用");
+        }
+
+        public static void Dispose()
+        {
+            if (!_initialized)
+                return;
+
+            GetDataHandlers.PlayerTeam.UnRegister(OnPlayerTeam);
+            if (_plugin != null)
+                ServerApi.Hooks.NetGreetPlayer.Deregister(_plugin, OnPlayerJoin);
+
+            Save();
+            _initialized = false;
+            TShock.Log.ConsoleInfo("[TeamLock] 队伍锁定模块已停用");
+        }
+
+        /// <summary>
+        /// 获取玩家生效的锁定队伍（单玩家锁定优先于全局锁定）。
+        /// </summary>
+        public static int? GetEffectiveLock(string playerName)
+        {
+            lock (_syncLock)
+            {
+                if (_playerLocks.TryGetValue(playerName, out int v))
+                    return v;
+                return _globalLock;
+            }
+        }
+
+        public static void SetGlobal(int? state)
+        {
+            lock (_syncLock)
+            {
+                _globalLock = state;
+            }
+            // 对当前所有在线玩家立即强制生效
+            ApplyLockToOnline();
+            Save();
+        }
+
+        public static void SetPlayer(string playerName, int? state)
+        {
+            lock (_syncLock)
+            {
+                if (state == null)
+                    _playerLocks.Remove(playerName);
+                else
+                    _playerLocks[playerName] = state.Value;
+            }
+            Save();
+        }
+
+        private static void ApplyLockToOnline()
+        {
+            foreach (var p in TShock.Players)
+            {
+                if (p != null && p.Active && p.RealPlayer)
+                {
+                    var locked = GetEffectiveLock(p.Name);
+                    // 锁定 → 强制为锁定队伍；未锁定 → 将当前队伍同步到客户端
+                    p.SetTeam(locked ?? p.Team);
+                }
+            }
+        }
+
+        private static void OnPlayerJoin(GreetPlayerEventArgs args)
+        {
+            try
+            {
+                if (args.Who < 0 || args.Who >= TShock.Players.Length)
+                    return;
+                var player = TShock.Players[args.Who];
+                if (player == null || !player.Active)
+                    return;
+
+                var locked = GetEffectiveLock(player.Name);
+                if (locked != null)
+                    player.SetTeam(locked.Value);
+            }
+            catch (Exception ex)
+            {
+                TShock.Log.ConsoleError($"[TeamLock] 玩家加入处理失败: {ex.Message}");
+            }
+        }
+
+        private static void OnPlayerTeam(object sender, GetDataHandlers.PlayerTeamEventArgs args)
+        {
+            try
+            {
+                var player = args.Player;
+                if (player == null)
+                    return;
+
+                var locked = GetEffectiveLock(player.Name);
+                if (locked == null)
+                    return;
+
+                // 玩家请求的队伍与锁定队伍不一致 → 拒绝并强制恢复
+                if (args.Team != locked.Value)
+                {
+                    args.Handled = true;
+                    player.SetTeam(locked.Value);
+                    player.SendInfoMessage($"你的队伍已被管理员锁定为 {tools.FormatTeam(locked.Value)}");
+                }
+            }
+            catch (Exception ex)
+            {
+                TShock.Log.ConsoleError($"[TeamLock] 拦截队伍切换失败: {ex.Message}");
+            }
+        }
+
+        private class TeamLockSaveData
+        {
+            public int? Global { get; set; }
+            public Dictionary<string, int> Players { get; set; } = new();
+        }
+
+        private static void Load()
+        {
+            try
+            {
+                if (!File.Exists(SavePath))
+                    return;
+
+                var data = JsonConvert.DeserializeObject<TeamLockSaveData>(File.ReadAllText(SavePath));
+                if (data == null)
+                    return;
+
+                lock (_syncLock)
+                {
+                    _globalLock = data.Global;
+                    _playerLocks.Clear();
+                    if (data.Players != null)
+                    {
+                        foreach (var kv in data.Players)
+                            _playerLocks[kv.Key] = kv.Value;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                TShock.Log.ConsoleError($"[TeamLock] 加载锁定配置失败: {ex.Message}");
+            }
+        }
+
+        private static void Save()
+        {
+            try
+            {
+                string dir = Path.GetDirectoryName(SavePath);
+                if (!string.IsNullOrEmpty(dir))
+                    Directory.CreateDirectory(dir);
+
+                lock (_syncLock)
+                {
+                    var data = new TeamLockSaveData
+                    {
+                        Global = _globalLock,
+                        Players = new Dictionary<string, int>(_playerLocks)
+                    };
+                    File.WriteAllText(SavePath, JsonConvert.SerializeObject(data, Formatting.Indented));
+                }
+            }
+            catch (Exception ex)
+            {
+                TShock.Log.ConsoleError($"[TeamLock] 保存锁定配置失败: {ex.Message}");
             }
         }
     }
