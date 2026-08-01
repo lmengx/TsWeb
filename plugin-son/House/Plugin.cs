@@ -576,7 +576,6 @@ public class HousingPlugin : TerrariaPlugin
         var authorName = "?";
         try { authorName = TShock.UserAccounts.GetUserAccountByID(Convert.ToInt32(house.Author)).Name; } catch { }
         plr.SendMessage($"房主: {authorName}    区域: {house.HouseArea.Width}×{house.HouseArea.Height}    传送点: ({house.TpX},{house.TpY})", green);
-        plr.SendMessage("[c/7CFC00:使用：/h 配置名 0/1] [c/FFA500:修改] [c/7CFC00:例如 /h 箱子 0（站在房屋内操作）]", green);
 
         // 通知
         string NotifyItem(string label, int val)
@@ -604,6 +603,9 @@ public class HousingPlugin : TerrariaPlugin
             PermItem("植物", house.AllowPlant) + "    " + PermItem("易碎品", house.AllowFragile) + "    " + PermItem("挖坟", house.AllowGrave) + "    " + PermItem("复活点", house.AllowSpawn), green);
         plr.SendMessage(
             PermItem("违规驱离", house.ExpelOnViolate), green);
+
+        // 使用说明（授权提示上方）
+        plr.SendMessage("[c/7CFC00:使用：/h 配置名 0/1] [c/FFA500:修改] [c/7CFC00:例如 /h 箱子 0（站在房屋内操作）]", green);
 
         // 授权信息
         string NamesFromIds(IEnumerable<string> ids)
