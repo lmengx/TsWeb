@@ -433,12 +433,12 @@ public class HousingPlugin : TerrariaPlugin
                 HandleInfo(args);
                 break;
 
-            case "allow":
-                HandleAllow(args);
+            case "addowner":
+                HandleAddOwner(args);
                 break;
 
-            case "disallow":
-                HandleDisallow(args);
+            case "delowner":
+                HandleDelOwner(args);
                 break;
 
             case "adduser":
@@ -505,7 +505,7 @@ public class HousingPlugin : TerrariaPlugin
             args.Player.SendMessage("你还没有房屋，使用 /h c 创建一个吧", Color.Gray);
         }
 
-        args.Player.SendMessage("/h c 圈地  |  /h set 查看设置  |  /h tp <屋名> 传送", Color.Lime);
+        args.Player.SendMessage("/h c 圈地  |  /h set 查看设置  |  /htp 屋名 传送", Color.Lime);
     }
 
     // ── 新命令 ──
@@ -557,7 +557,7 @@ public class HousingPlugin : TerrariaPlugin
 
         if (house == null)
         {
-            args.Player.SendMessage("请站在房屋内或指定屋名: /h settings 屋名", Color.Yellow);
+            args.Player.SendMessage("请站在房屋内查看当前房屋设置", Color.Yellow);
             return;
         }
 
@@ -576,7 +576,7 @@ public class HousingPlugin : TerrariaPlugin
         var authorName = "?";
         try { authorName = TShock.UserAccounts.GetUserAccountByID(Convert.ToInt32(house.Author)).Name; } catch { }
         plr.SendMessage($"房主: {authorName}    区域: {house.HouseArea.Width}×{house.HouseArea.Height}    传送点: ({house.TpX},{house.TpY})", green);
-        plr.SendMessage("[c/7CFC00:使用：/h 配置名 0/1] [c/FFA500:修改] [c/7CFC00:例如 /h 箱子 0]", green);
+        plr.SendMessage("[c/7CFC00:使用：/h 配置名 0/1] [c/FFA500:修改] [c/7CFC00:例如 /h 箱子 0（站在房屋内操作）]", green);
 
         // 通知
         string NotifyItem(string label, int val)
@@ -598,13 +598,27 @@ public class HousingPlugin : TerrariaPlugin
         plr.SendMessage(
             PermItem("进入", house.AllowEntry) + "    " + PermItem("传送", house.AllowTP), green);
         plr.SendMessage(
-            PermItem("放置", house.AllowPlace) + "    " + PermItem("破坏", house.AllowBreak) + "    " + PermItem("液体", house.AllowLiquid), green);
-        plr.SendMessage(
-            PermItem("箱子", house.AllowChest) + "    " + PermItem("开关", house.AllowSwitch) + "    " + PermItem("门", house.AllowDoor), green);
+            PermItem("放置", house.AllowPlace) + "    " + PermItem("破坏", house.AllowBreak) + "    " + PermItem("液体", house.AllowLiquid) +
+            "    " + PermItem("箱子", house.AllowChest) + "    " + PermItem("开关", house.AllowSwitch) + "    " + PermItem("门", house.AllowDoor), green);
         plr.SendMessage(
             PermItem("植物", house.AllowPlant) + "    " + PermItem("易碎品", house.AllowFragile) + "    " + PermItem("挖坟", house.AllowGrave) + "    " + PermItem("复活点", house.AllowSpawn), green);
         plr.SendMessage(
             PermItem("违规驱离", house.ExpelOnViolate), green);
+
+        // 授权信息
+        string NamesFromIds(IEnumerable<string> ids)
+        {
+            var names = new List<string>();
+            foreach (var id in ids)
+            {
+                try { var u = TShock.UserAccounts.GetUserAccountByID(Convert.ToInt32(id)); if (u != null) names.Add(u.Name); } catch { }
+            }
+            return names.Count > 0 ? string.Join("、", names) : "无";
+        }
+        plr.SendMessage(
+            "当前共有者：" + NamesFromIds(house.Owners) + "    当前使用者：" + NamesFromIds(house.Users) +
+            "    授权他人使用：/h addowner <名字> 或 /h adduser <名字>",
+            Color.Gold);
 
         if (!canEdit)
             plr.SendMessage("你无权修改此房屋设置", Color.Red);
@@ -746,7 +760,7 @@ public class HousingPlugin : TerrariaPlugin
             args.Player.TileX, args.Player.TileY))
         {
             args.Player.SendMessage("你建造了新房子 " + houseName, Color.Yellow);
-            args.Player.SendMessage("站到房屋内使用 /h set 查看和修改房屋设置", Color.Lime);
+            args.Player.SendMessage("站进房屋用 /h set 查看/修改设置，/h addowner <名字> 可邀请共有者", Color.Lime);
             TShock.Log.ConsoleInfo("{0} 建了新房子: {1}", args.Player.Account.Name, houseName);
         }
         else
@@ -760,13 +774,11 @@ public class HousingPlugin : TerrariaPlugin
 
     private void HandleDelete(CommandArgs args)
     {
-        if (args.Parameters.Count <= 1)
-        {
-            args.Player.SendErrorMessage("语法错误! 正确语法: /house delete [屋名]");
-            return;
-        }
-        var houseName = string.Join(" ", args.Parameters.GetRange(1, args.Parameters.Count - 1));
-        var house = Utils.GetHouseByName(houseName);
+        House? house;
+        if (args.Parameters.Count > 1)
+            house = Utils.GetHouseByName(string.Join(" ", args.Parameters.GetRange(1, args.Parameters.Count - 1)));
+        else
+            house = Utils.CurrentHouse(args.Player);
         if (house == null) { args.Player.SendErrorMessage("没有找到这个房子!"); return; }
         if (house.Author != args.Player.Account.ID.ToString() && !args.Player.Group.HasPermission(GetDataHandlers.AdminHouse))
         { args.Player.SendErrorMessage("你没有权力删除这个房子!"); return; }
@@ -786,19 +798,17 @@ public class HousingPlugin : TerrariaPlugin
 
     private void HandleRedefine(CommandArgs args)
     {
-        if (args.Parameters.Count <= 1)
-        {
-            args.Player.SendErrorMessage("语法错误! 正确语法: /house redefine [屋名]");
-            return;
-        }
         if (args.Player.TempPoints.Any(p => p == Point.Zero))
         {
             args.Player.SendErrorMessage("未设置完整的房屋点,建议先使用指令: /house help");
             return;
         }
 
-        var houseName = string.Join(" ", args.Parameters.GetRange(1, args.Parameters.Count - 1));
-        var house = Utils.GetHouseByName(houseName);
+        House? house;
+        if (args.Parameters.Count > 1)
+            house = Utils.GetHouseByName(string.Join(" ", args.Parameters.GetRange(1, args.Parameters.Count - 1)));
+        else
+            house = Utils.CurrentHouse(args.Player);
         if (house == null) { args.Player.SendErrorMessage("没有找到这个房子!"); return; }
         if (house.Author != args.Player.Account.ID.ToString() && !args.Player.Group.HasPermission(GetDataHandlers.AdminHouse))
         { args.Player.SendErrorMessage("你没有权力修改这个房子!"); return; }
@@ -830,10 +840,10 @@ public class HousingPlugin : TerrariaPlugin
             }
         }
 
-        if (HouseManager.RedefineHouse(x, y, width, height, houseName))
+        if (HouseManager.RedefineHouse(x, y, width, height, house.Name))
         {
-            args.Player.SendMessage("重新定义了房子 " + houseName, Color.Yellow);
-            TShock.Log.ConsoleInfo("{0} 重新定义的房子: {1}", args.Player.Account.Name, houseName);
+            args.Player.SendMessage("重新定义了房子 " + house.Name, Color.Yellow);
+            TShock.Log.ConsoleInfo("{0} 重新定义的房子: {1}", args.Player.Account.Name, house.Name);
         }
         else
         {
@@ -944,13 +954,16 @@ public class HousingPlugin : TerrariaPlugin
 
     // ── 共有者/使用者管理 ──
 
-    private void HandleAllow(CommandArgs args)
+    private void HandleAddOwner(CommandArgs args)
     {
-        if (args.Parameters.Count <= 2)
-        { args.Player.SendErrorMessage("语法错误! 正确语法: /house allow [名字] [屋名]"); return; }
+        if (args.Parameters.Count <= 1)
+        { args.Player.SendErrorMessage("语法错误! 正确语法: /house addowner [名字] [屋名]"); return; }
         var playerName = args.Parameters[1];
-        var housename = string.Join(" ", args.Parameters.GetRange(2, args.Parameters.Count - 2));
-        var house = Utils.GetHouseByName(housename);
+        House? house;
+        if (args.Parameters.Count > 2)
+            house = Utils.GetHouseByName(string.Join(" ", args.Parameters.GetRange(2, args.Parameters.Count - 2)));
+        else
+            house = Utils.CurrentHouse(args.Player);
         if (house == null) { args.Player.SendErrorMessage("没有找到这个房子!"); return; }
         if (house.Author != args.Player.Account.ID.ToString() && !args.Player.Group.HasPermission(GetDataHandlers.AdminHouse))
         { args.Player.SendErrorMessage("你没有权力分享这个房子!"); return; }
@@ -968,12 +981,16 @@ public class HousingPlugin : TerrariaPlugin
         else { args.Player.SendErrorMessage("添加用户权力失败。"); }
     }
 
-    private void HandleDisallow(CommandArgs args)
+    private void HandleDelOwner(CommandArgs args)
     {
-        if (args.Parameters.Count <= 2)
-        { args.Player.SendErrorMessage("语法错误! 正确语法: /house disallow [名字] [屋名]"); return; }
+        if (args.Parameters.Count <= 1)
+        { args.Player.SendErrorMessage("语法错误! 正确语法: /house delowner [名字] [屋名]"); return; }
         var playerName = args.Parameters[1];
-        var house = Utils.GetHouseByName(string.Join(" ", args.Parameters.GetRange(2, args.Parameters.Count - 2)));
+        House? house;
+        if (args.Parameters.Count > 2)
+            house = Utils.GetHouseByName(string.Join(" ", args.Parameters.GetRange(2, args.Parameters.Count - 2)));
+        else
+            house = Utils.CurrentHouse(args.Player);
         if (house == null) { args.Player.SendErrorMessage("没有找到这个房子!"); return; }
         if (house.Author != args.Player.Account.ID.ToString() && !args.Player.Group.HasPermission(GetDataHandlers.AdminHouse))
         { args.Player.SendErrorMessage("你没有权力管理这个房子!"); return; }
@@ -993,11 +1010,14 @@ public class HousingPlugin : TerrariaPlugin
 
     private void HandleAddUser(CommandArgs args)
     {
-        if (args.Parameters.Count <= 2)
+        if (args.Parameters.Count <= 1)
         { args.Player.SendErrorMessage("语法错误! 正确语法: /house adduser [名字] [屋名]"); return; }
         var playerName = args.Parameters[1];
-        var housename = string.Join(" ", args.Parameters.GetRange(2, args.Parameters.Count - 2));
-        var house = Utils.GetHouseByName(housename);
+        House? house;
+        if (args.Parameters.Count > 2)
+            house = Utils.GetHouseByName(string.Join(" ", args.Parameters.GetRange(2, args.Parameters.Count - 2)));
+        else
+            house = Utils.CurrentHouse(args.Player);
         if (house == null) { args.Player.SendErrorMessage("没有找到这个房子!"); return; }
         if (house.Author != args.Player.Account.ID.ToString() && !Utils.OwnsHouse(args.Player.Account.ID.ToString(), house) && !args.Player.Group.HasPermission(GetDataHandlers.AdminHouse))
         { args.Player.SendErrorMessage("你没有权力分享这个房子!"); return; }
@@ -1017,10 +1037,14 @@ public class HousingPlugin : TerrariaPlugin
 
     private void HandleDelUser(CommandArgs args)
     {
-        if (args.Parameters.Count <= 2)
+        if (args.Parameters.Count <= 1)
         { args.Player.SendErrorMessage("语法错误! 正确语法: /house deluser [名字] [屋名]"); return; }
         var playerName = args.Parameters[1];
-        var house = Utils.GetHouseByName(string.Join(" ", args.Parameters.GetRange(2, args.Parameters.Count - 2)));
+        House? house;
+        if (args.Parameters.Count > 2)
+            house = Utils.GetHouseByName(string.Join(" ", args.Parameters.GetRange(2, args.Parameters.Count - 2)));
+        else
+            house = Utils.CurrentHouse(args.Player);
         if (house == null) { args.Player.SendErrorMessage("没有找到这个房子!"); return; }
         if (house.Author != args.Player.Account.ID.ToString() && !Utils.OwnsHouse(args.Player.Account.ID.ToString(), house) && !args.Player.Group.HasPermission(GetDataHandlers.AdminHouse))
         { args.Player.SendErrorMessage("你没有权力管理这个房子!"); return; }
