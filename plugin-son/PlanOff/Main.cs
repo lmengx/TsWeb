@@ -1,4 +1,4 @@
-﻿using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework;
 
 
 using Terraria;
@@ -27,6 +27,8 @@ namespace TShockData
             if (Disposing)
             {
                 PlannedOff.Dispose();
+                // 移除本插件注册的 planoff 命令，避免热重载/卸载后命令残留
+                Commands.ChatCommands.RemoveAll(cmd => cmd.CommandDelegate == PlannedOff.PlanOff);
             }
             base.Dispose(Disposing);
         }
