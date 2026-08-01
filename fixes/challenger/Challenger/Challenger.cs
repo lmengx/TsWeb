@@ -2004,7 +2004,7 @@ public class Challenger : TerrariaPlugin
                                 NetMessage.SendData(53, -1, -1, null, val.whoAmI, 31f, 300f, 0f, 0, 0, 0);
                             }
                         }
-                        TSPlayer.All.SendMessage(string.Format("{0} 发动了混乱之脑迷惑，成功迷惑了附近 {1}个敌人", args.Player.Name, num2), new Color(241, 108, 108));
+                        args.Player.SendMessage(string.Format("你发动了混乱之脑迷惑，成功迷惑了附近 {1}个敌人", args.Player.Name, num2), new Color(241, 108, 108));
                         return;
                     }
                     case 5113:
