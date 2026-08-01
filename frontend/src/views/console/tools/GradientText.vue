@@ -18,7 +18,7 @@ const colors = ref([
 ])
 
 const presets = [
-  { name: 'Rainbow', colors: [
+  { name: '彩虹', colors: [
     { r: 255, g: 0, b: 0 },
     { r: 255, g: 165, b: 0 },
     { r: 255, g: 255, b: 0 },
@@ -27,7 +27,7 @@ const presets = [
     { r: 75, g: 0, b: 130 },
     { r: 148, g: 0, b: 211 }
   ]},
-  { name: 'Heat Map', colors: [
+  { name: '热力', colors: [
     { r: 0, g: 0, b: 255 },
     { r: 0, g: 255, b: 255 },
     { r: 0, g: 255, b: 0 },
@@ -35,12 +35,12 @@ const presets = [
     { r: 255, g: 128, b: 0 },
     { r: 255, g: 0, b: 0 }
   ]},
-  { name: 'Terminal', colors: [
+  { name: '终端', colors: [
     { r: 0, g: 0, b: 0 },
     { r: 0, g: 128, b: 0 },
     { r: 0, g: 255, b: 0 }
   ]},
-  { name: 'Mantle', colors: [
+  { name: '灰色渐变', colors: [
     { r: 255, g: 255, b: 255 },
     { r: 200, g: 200, b: 200 },
     { r: 150, g: 150, b: 150 },
@@ -48,7 +48,7 @@ const presets = [
     { r: 50, g: 50, b: 50 },
     { r: 0, g: 0, b: 0 }
   ]},
-  { name: 'Combi', colors: [
+  { name: '组合', colors: [
     { r: 255, g: 0, b: 128 },
     { r: 128, g: 0, b: 255 },
     { r: 0, g: 128, b: 255 },
@@ -58,7 +58,7 @@ const presets = [
   ]}
 ]
 
-const selectedPreset = ref('Rainbow')
+const selectedPreset = ref('彩虹')
 
 const selectedColor = computed(() => {
   if (colors.value.length === 0) return { id: 0, r: 0, g: 0, b: 0 }
@@ -191,10 +191,184 @@ const selectColor = (index) => {
   selectedColorIndex.value = index
 }
 
+// ── 颜色拖拽排序（Pointer Events，兼容触屏）──
+const colorItemEls = ref([])
+const dragIndex = ref(-1)
+const startIndex = ref(-1)
+const dragPointerId = ref(null)
+const dragStartX = ref(0)
+const dragStartY = ref(0)
+const dragging = ref(false)
+
+const onColorPointerDown = (e, index) => {
+  if (e.pointerType === 'mouse' && e.button !== 0) return
+  startIndex.value = index
+  dragIndex.value = index
+  dragPointerId.value = e.pointerId
+  dragStartX.value = e.clientX
+  dragStartY.value = e.clientY
+  dragging.value = false
+  e.currentTarget.setPointerCapture(e.pointerId)
+}
+
+const onColorPointerMove = (e) => {
+  if (dragPointerId.value !== e.pointerId) return
+  if (!dragging.value) {
+    const dx = e.clientX - dragStartX.value
+    const dy = e.clientY - dragStartY.value
+    if (Math.sqrt(dx * dx + dy * dy) < 6) return
+    dragging.value = true
+  }
+  let target = -1
+  let best = Infinity
+  colorItemEls.value.forEach((el, i) => {
+    if (!el) return
+    const r = el.getBoundingClientRect()
+    const cx = r.left + r.width / 2
+    const cy = r.top + r.height / 2
+    const d = (e.clientX - cx) ** 2 + (e.clientY - cy) ** 2
+    if (d < best) { best = d; target = i }
+  })
+  if (target >= 0 && target !== dragIndex.value) {
+    const arr = colors.value
+    const [moved] = arr.splice(dragIndex.value, 1)
+    arr.splice(target, 0, moved)
+    dragIndex.value = target
+    selectedColorIndex.value = target
+  }
+}
+
+const onColorPointerUp = (e) => {
+  if (dragPointerId.value !== e.pointerId) return
+  const wasDragging = dragging.value
+  dragPointerId.value = null
+  dragging.value = false
+  dragIndex.value = -1
+  if (!wasDragging) selectColor(startIndex.value)
+  startIndex.value = -1
+}
+
+const onColorPointerCancel = (e) => {
+  if (dragPointerId.value !== e.pointerId) return
+  dragPointerId.value = null
+  dragging.value = false
+  dragIndex.value = -1
+  startIndex.value = -1
+}
+
 const updateRGB = (channel, value) => {
   const num = parseInt(value) || 0
   const clamped = Math.max(0, Math.min(255, num))
   colors.value[selectedColorIndex.value][channel] = clamped
+}
+
+// ── 自定义颜色选择器（SV 面板 + 色相滑杆）──
+const svArea = ref(null)
+const hueArea = ref(null)
+
+const rgbToHsv = (r, g, b) => {
+  r /= 255; g /= 255; b /= 255
+  const max = Math.max(r, g, b)
+  const min = Math.min(r, g, b)
+  const d = max - min
+  let h = 0
+  if (d !== 0) {
+    if (max === r) h = ((g - b) / d) % 6
+    else if (max === g) h = (b - r) / d + 2
+    else h = (r - g) / d + 4
+    h *= 60
+    if (h < 0) h += 360
+  }
+  const s = max === 0 ? 0 : d / max
+  return { h, s: s * 100, v: max * 100 }
+}
+
+const hsvToRgb = (h, s, v) => {
+  s /= 100; v /= 100
+  const c = v * s
+  const x = c * (1 - Math.abs((h / 60) % 2 - 1))
+  const m = v - c
+  let r = 0, g = 0, b = 0
+  if (h < 60) { r = c; g = x }
+  else if (h < 120) { r = x; g = c }
+  else if (h < 180) { g = c; b = x }
+  else if (h < 240) { g = x; b = c }
+  else if (h < 300) { r = x; b = c }
+  else { r = c; b = x }
+  return { r: Math.round((r + m) * 255), g: Math.round((g + m) * 255), b: Math.round((b + m) * 255) }
+}
+
+const currentHsv = computed(() => {
+  const c = selectedColor.value
+  return rgbToHsv(c.r, c.g, c.b)
+})
+
+const svPos = computed(() => {
+  const { s, v } = currentHsv.value
+  return { x: s, y: 100 - v }
+})
+
+const huePos = computed(() => (currentHsv.value.h / 360) * 100)
+
+const svAreaStyle = computed(() => {
+  const { h } = currentHsv.value
+  return {
+    background: `linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, hsl(${h}, 100%, 50%))`
+  }
+})
+
+const applyRgb = (rgb) => {
+  const c = colors.value[selectedColorIndex.value]
+  if (!c) return
+  c.r = rgb.r
+  c.g = rgb.g
+  c.b = rgb.b
+}
+
+const pickFromSv = (clientX, clientY) => {
+  const el = svArea.value
+  if (!el) return
+  const rect = el.getBoundingClientRect()
+  let x = (clientX - rect.left) / rect.width
+  let y = (clientY - rect.top) / rect.height
+  x = Math.max(0, Math.min(1, x))
+  y = Math.max(0, Math.min(1, y))
+  const { h } = currentHsv.value
+  applyRgb(hsvToRgb(h, x * 100, (1 - y) * 100))
+}
+
+const pickFromHue = (clientX) => {
+  const el = hueArea.value
+  if (!el) return
+  const rect = el.getBoundingClientRect()
+  let x = (clientX - rect.left) / rect.width
+  x = Math.max(0, Math.min(1, x))
+  const { s, v } = currentHsv.value
+  applyRgb(hsvToRgb(x * 360, s, v))
+}
+
+const onSvPointerDown = (e) => {
+  e.preventDefault()
+  svArea.value?.setPointerCapture(e.pointerId)
+  pickFromSv(e.clientX, e.clientY)
+}
+const onSvPointerMove = (e) => {
+  if (e.buttons > 0) pickFromSv(e.clientX, e.clientY)
+}
+const onSvPointerUp = (e) => {
+  svArea.value?.releasePointerCapture(e.pointerId)
+}
+
+const onHuePointerDown = (e) => {
+  e.preventDefault()
+  hueArea.value?.setPointerCapture(e.pointerId)
+  pickFromHue(e.clientX)
+}
+const onHuePointerMove = (e) => {
+  if (e.buttons > 0) pickFromHue(e.clientX)
+}
+const onHuePointerUp = (e) => {
+  hueArea.value?.releasePointerCapture(e.pointerId)
 }
 
 const copyToClipboard = async (text) => {
@@ -328,8 +502,35 @@ onMounted(() => {
             <span class="panel-title">颜色信息</span>
             <span class="color-count">共 {{ colorCount }} 个颜色</span>
           </div>
-          
-          <div class="color-preview-box" :style="{ background: hexValue }"></div>
+
+          <div class="picker-wrap">
+            <div
+              class="sv-picker"
+              ref="svArea"
+              :style="svAreaStyle"
+              @pointerdown="onSvPointerDown"
+              @pointermove="onSvPointerMove"
+              @pointerup="onSvPointerUp"
+              @pointercancel="onSvPointerUp"
+            >
+              <div class="sv-handle" :style="{ left: svPos.x + '%', top: svPos.y + '%' }"></div>
+            </div>
+            <div
+              class="hue-slider"
+              ref="hueArea"
+              @pointerdown="onHuePointerDown"
+              @pointermove="onHuePointerMove"
+              @pointerup="onHuePointerUp"
+              @pointercancel="onHuePointerUp"
+            >
+              <div class="hue-handle" :style="{ left: huePos + '%' }"></div>
+            </div>
+          </div>
+
+          <div class="selected-color-row">
+            <div class="color-preview-box" :style="{ background: hexValue }"></div>
+            <span class="selected-hex">{{ hexValue }}</span>
+          </div>
           
           <div class="color-inputs">
             <div class="input-group">
@@ -394,12 +595,17 @@ onMounted(() => {
             <div 
               v-for="(color, index) in colors"
               :key="color.id"
+              :ref="el => colorItemEls[index] = el"
               class="color-item"
-              :class="{ selected: index === selectedColorIndex }"
+              :class="{ selected: index === selectedColorIndex, dragging: dragging && index === dragIndex }"
               :style="{ background: '#' + [color.r, color.g, color.b].map(x => x.toString(16).padStart(2, '0')).join('') }"
-              @click="selectColor(index)"
+              @pointerdown="onColorPointerDown($event, index)"
+              @pointermove="onColorPointerMove"
+              @pointerup="onColorPointerUp"
+              @pointercancel="onColorPointerCancel"
             ></div>
           </div>
+          <div class="drag-hint">按住拖拽色块可调整渐变顺序</div>
         </div>
 
         <div class="control-buttons">
@@ -631,7 +837,7 @@ onMounted(() => {
 
 .bottom-section {
   display: grid;
-  grid-template-columns: 280px 180px 1fr;
+  grid-template-columns: 360px 180px 1fr;
   gap: 20px;
 }
 
@@ -645,12 +851,79 @@ onMounted(() => {
   border: 1px solid var(--border-light);
 }
 
-.color-preview-box {
-  width: 100%;
-  height: 48px;
-  border-radius: var(--radius-md);
+.picker-wrap {
   margin-bottom: 16px;
+}
+
+.sv-picker {
+  position: relative;
+  width: 100%;
+  height: 200px;
+  border-radius: var(--radius-md);
   border: 2px solid var(--border-color);
+  cursor: crosshair;
+  touch-action: none;
+  overflow: hidden;
+  user-select: none;
+}
+
+.sv-handle {
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1.5px rgba(0, 0, 0, 0.6), 0 0 4px rgba(0, 0, 0, 0.5);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.hue-slider {
+  position: relative;
+  width: 100%;
+  height: 18px;
+  margin-top: 12px;
+  border-radius: var(--radius-md);
+  border: 2px solid var(--border-color);
+  background: linear-gradient(to right, #f00 0%, #ff0 16.66%, #0f0 33.33%, #0ff 50%, #00f 66.66%, #f0f 83.33%, #f00 100%);
+  cursor: pointer;
+  touch-action: none;
+  user-select: none;
+}
+
+.hue-handle {
+  position: absolute;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1.5px rgba(0, 0, 0, 0.6), 0 0 4px rgba(0, 0, 0, 0.5);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.selected-color-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.color-preview-box {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-md);
+  border: 2px solid var(--border-color);
+  flex-shrink: 0;
+}
+
+.selected-hex {
+  font-family: monospace;
+  font-size: 0.95rem;
+  color: var(--text-primary);
+  letter-spacing: 0.5px;
 }
 
 .color-inputs {
@@ -728,9 +1001,12 @@ onMounted(() => {
   width: 28px;
   height: 28px;
   border-radius: var(--radius-sm);
-  cursor: pointer;
+  cursor: grab;
   border: 2px solid transparent;
   transition: all 0.2s ease;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .color-item:hover {
@@ -740,6 +1016,21 @@ onMounted(() => {
 .color-item.selected {
   border-color: var(--text-primary);
   box-shadow: 0 0 0 2px var(--bg-card);
+}
+
+.color-item.dragging {
+  cursor: grabbing;
+  opacity: 0.65;
+  transform: scale(1.25);
+  z-index: 10;
+  position: relative;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+}
+
+.drag-hint {
+  margin-top: 12px;
+  font-size: 0.78rem;
+  color: var(--text-muted);
 }
 
 .control-buttons {
