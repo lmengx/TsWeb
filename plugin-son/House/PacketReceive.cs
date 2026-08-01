@@ -232,7 +232,11 @@ public static class GetDataHandlers
         {
             // 植物
             if (PlantTiles.Contains(tileType))
+            {
+                if (house.AllowPlant == 1)
+                    return false;
                 return Deny(args, house, "无权采集被房子保护的植物。");
+            }
 
             // 墓碑
             if (tileType == TileID.Tombstones)
@@ -244,7 +248,11 @@ public static class GetDataHandlers
 
             // 易碎品（蜘蛛网、草类）
             if (FragileTiles.Contains(tileType))
+            {
+                if (house.AllowFragile == 1)
+                    return false;
                 return Deny(args, house, "无权破坏被房子保护的物品。");
+            }
 
             // 普通破坏
             if (house.AllowBreak == 1)
