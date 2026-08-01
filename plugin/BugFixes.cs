@@ -117,13 +117,13 @@ namespace TShockData
                 {
                     _passwordPending.Remove(player.Name);
                     TShock.Log.ConsoleWarn($"[TSWeb] 来自{player.IP}的访问尝试登录账号:{player.Name},但密码验证失败:");
-                    player.Kick(
+                    // 踢出文本可配置（TSWeb/config.json 中的 KickPasswordMessage）
+                    var kickMessage = AutoRegister.Config?.KickPasswordMessage ??
                         "密码错误\n" +
                         "请输入角色密码。已登录设备可使用 /pwd 新密码 设置密码。\n" +
                         "如果没有可以登录的设备，请联系服务器管理员。\n" +
-                        "如果这是你第一次进服，说明你的角色名已被占用，请更换。",
-                        true, true
-                    );
+                        "如果这是你第一次进服，说明你的角色名已被占用，请更换。";
+                    player.Kick(kickMessage, true, true);
                     return;
                 }
 

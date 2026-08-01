@@ -83,13 +83,28 @@ const routes = [
         path: 'settings',
         name: 'Settings',
         component: SettingsView,
-        meta: { requiresAuth: true, requiresAdmin: true }
-      },
-      {
-        path: 'settings/promotion',
-        name: 'PromotionConfig',
-        component: () => import('../views/console/PromotionConfigView.vue'),
-        meta: { requiresAuth: true, requiresAdmin: true }
+        meta: { requiresAuth: true, requiresAdmin: true },
+        redirect: '/console/settings/register',
+        children: [
+          {
+            path: 'register',
+            name: 'RegisterLoginSettings',
+            component: () => import('../views/console/settings/RegisterLoginSettingsView.vue'),
+            meta: { requiresAuth: true, requiresAdmin: true }
+          },
+          {
+            path: 'boss',
+            name: 'BossLimitSettings',
+            component: () => import('../views/console/settings/BossLimitSettingsView.vue'),
+            meta: { requiresAuth: true, requiresAdmin: true }
+          },
+          {
+            path: 'promotion',
+            name: 'PromotionConfig',
+            component: () => import('../views/console/PromotionConfigView.vue'),
+            meta: { requiresAuth: true, requiresAdmin: true }
+          }
+        ]
       },
       {
         path: 'terminal',
