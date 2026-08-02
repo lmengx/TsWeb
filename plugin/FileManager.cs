@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text;
 using Rests;
 
 namespace TShockData
@@ -67,7 +68,16 @@ namespace TShockData
                 if (fileInfo.Length > 5 * 1024 * 1024)
                     return new RestObject("413") { { "error", "文件过大（超过5MB）" } };
 
-                var content = File.ReadAllText(fullPath);
+                // 注意：不能使用 File.ReadAllText！其内部以 FileShare.Read 打开文件（不含 Write 共享），
+                // 而正在被写入的文件（如 TShock 正在写入的日志）已占用 Write 权限，会触发共享冲突异常：
+                // "The process cannot access the file ... because it is being used by another process"。
+                // 这里显式声明 FileShare.ReadWrite | FileShare.Delete，允许读取正在被写入的文件。
+                string content;
+                using (var fs = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+                using (var reader = new StreamReader(fs, Encoding.UTF8, true))
+                {
+                    content = reader.ReadToEnd();
+                }
                 return new RestObject("200") { { "content", content } };
             }
             catch (Exception ex)

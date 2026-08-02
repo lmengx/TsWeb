@@ -33,11 +33,42 @@
 
         <div class="editor-content" v-if="currentFile">
           <textarea
+            ref="editorRef"
             v-model="editorContent"
             class="code-editor"
             spellcheck="false"
             :readonly="!canWrite"
+            @scroll="updateScrollState"
           ></textarea>
+          <!-- 悬浮按钮组：⬇ 滚动到最下方(已在底部/内容不足时隐藏)；刷新文件内容 -->
+          <div class="editor-float-btns" v-if="currentFile">
+            <button
+              v-if="showScrollBtn"
+              class="scroll-bottom-btn"
+              title="滚动到最下方"
+              @click="scrollToBottom"
+            >⬇</button>
+            <button
+              class="refresh-btn"
+              title="刷新文件内容"
+              :disabled="refreshing"
+              @click="handleRefresh"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                width="16"
+                height="16"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M21 12a9 9 0 1 1-2.64-6.36"></path>
+                <polyline points="21 3 21 9 15 9"></polyline>
+              </svg>
+            </button>
+          </div>
           <div class="editor-toolbar" v-if="canWrite">
             <button class="btn btn-save" @click="handleSave" :disabled="saving">
               {{ saving ? '保存中...' : '保存' }}
@@ -55,7 +86,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, nextTick } from 'vue'
 import { getAccessRules, readFile, writeFile } from '../../utils/fileApi.js'
 import TreeNode from '../../components/TreeNode.vue'
 
@@ -67,6 +98,77 @@ const canWrite = ref(false)
 const saving = ref(false)
 const saveMessage = ref('')
 const saveStatus = ref('')
+const editorRef = ref(null)
+const atBottom = ref(true)      // 是否处于底部附近(刷新后智能滚动依据)
+const showScrollBtn = ref(false) // 是否显示"滚动到底部"按钮
+const refreshing = ref(false)    // 是否正在刷新文件
+
+/** 底部判定容差(px)：在此范围内视为已到底部 */
+const BOTTOM_TOLERANCE = 20
+
+/**
+ * 更新滚动状态：内容不足以滚动 或 已在底部附近 时不显示"滚动到底部"按钮
+ */
+function updateScrollState() {
+  const el = editorRef.value
+  if (!el) {
+    showScrollBtn.value = false
+    return
+  }
+  const { scrollTop, clientHeight, scrollHeight } = el
+  const maxScroll = scrollHeight - clientHeight
+  atBottom.value = maxScroll <= 0 || scrollTop >= maxScroll - BOTTOM_TOLERANCE
+  showScrollBtn.value = !atBottom.value
+}
+
+/**
+ * 滚动到编辑器最下方（日志文件打开时默认在顶部，可一键跳到最新内容）
+ */
+function scrollToBottom() {
+  nextTick(() => {
+    if (editorRef.value) {
+      editorRef.value.scrollTop = editorRef.value.scrollHeight
+      updateScrollState()
+    }
+  })
+}
+
+/**
+ * 刷新当前文件内容
+ * 刷新前若已在底部附近(或内容不足)，刷新后自动滚动到底部；否则保持原滚动位置
+ */
+async function handleRefresh() {
+  if (!currentFile.value || refreshing.value) return
+
+  const el = editorRef.value
+  const prevScrollTop = el ? el.scrollTop : 0
+  const wasNearBottom = atBottom.value
+
+  refreshing.value = true
+  saveMessage.value = ''
+  saveStatus.value = ''
+  try {
+    const result = await readFile(currentFile.value)
+    if (result.content !== undefined) {
+      editorContent.value = result.content
+      canWrite.value = result.canWrite === true
+    } else {
+      throw new Error(result.error || '读取失败')
+    }
+    await nextTick()
+    if (el && wasNearBottom) {
+      el.scrollTop = el.scrollHeight // 原在底部 → 刷新后仍跳到底部(看到最新内容)
+    } else if (el) {
+      el.scrollTop = prevScrollTop // 原在中间/顶部 → 保持原位置
+    }
+    updateScrollState()
+  } catch (e) {
+    saveMessage.value = `❌ 刷新失败: ${e.message}`
+    saveStatus.value = 'error'
+  } finally {
+    refreshing.value = false
+  }
+}
 
 onMounted(async () => {
   try {
@@ -85,9 +187,10 @@ async function onFileSelect({ path, isDir }) {
   currentFile.value = path
   editorContent.value = ''
   saveMessage.value = ''
+  saveStatus.value = ''
   canWrite.value = false
 
-    try {
+  try {
     const result = await readFile(path)
     if (result.content !== undefined) {
       editorContent.value = result.content
@@ -97,6 +200,10 @@ async function onFileSelect({ path, isDir }) {
     }
   } catch (e) {
     editorContent.value = `// 读取失败: ${e.message}`
+  } finally {
+    // 内容渲染完成后更新按钮显示状态
+    await nextTick()
+    updateScrollState()
   }
 }
 
@@ -193,6 +300,7 @@ async function handleSave() {
   flex-direction: column;
   overflow: hidden;
   border: 1px solid var(--border-light);
+  position: relative;
 }
 .editor-filename {
   color: var(--text-primary);
@@ -265,6 +373,46 @@ async function handleSave() {
 }
 .save-message.error {
   color: var(--accent-error);
+}
+/* 悬浮按钮组：滚动到底部 + 刷新（横向摆放） */
+.editor-float-btns {
+  position: absolute;
+  right: 18px;
+  bottom: 64px;
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  z-index: 5;
+}
+.scroll-bottom-btn,
+.refresh-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid var(--border-light);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+  opacity: 0.75;
+  transition: all 0.2s;
+}
+.scroll-bottom-btn {
+  font-size: 16px;
+  line-height: 1;
+}
+.scroll-bottom-btn:hover,
+.refresh-btn:hover:not(:disabled) {
+  opacity: 1;
+  background: var(--accent-primary);
+  color: #fff;
+}
+.refresh-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 .editor-empty {
   flex: 1;
