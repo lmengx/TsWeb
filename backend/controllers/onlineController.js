@@ -112,7 +112,11 @@ export const streamLogs = async (req, res) => {
 
     // 验证 JWT
     const cfg = await getConfig()
-    const secret = cfg?.security?.jwtSecret || 'fallback-secret'
+    const secret = cfg?.security?.jwtSecret
+    if (!secret) {
+      // 密钥未配置时拒绝服务，绝不允许回退到弱密钥
+      return res.status(500).json({ error: 'JWT secret not configured' })
+    }
     let decoded
     try {
       decoded = jwt.verify(token, secret)

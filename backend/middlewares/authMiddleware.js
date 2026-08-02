@@ -3,7 +3,11 @@ import { getConfig } from '../config.js'
 
 async function getJwtSecret() {
   const config = await getConfig()
-  return config?.security?.jwtSecret || 'fallback-secret'
+  if (!config?.security?.jwtSecret) {
+    // 密钥未配置时拒绝服务，绝不允许回退到弱密钥
+    throw new Error('JWT secret not configured')
+  }
+  return config.security.jwtSecret
 }
 
 export const verifyToken = async (req, res, next) => {
