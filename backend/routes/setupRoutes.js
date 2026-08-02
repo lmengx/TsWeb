@@ -6,6 +6,7 @@ import { exec } from 'child_process'
 import { promisify } from 'util'
 import fs from 'fs/promises'
 import path from 'path'
+import crypto from 'crypto'
 import { fileURLToPath } from 'url'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -331,12 +332,8 @@ router.post('/ssc-config', async (req, res) => {
 })
 
 function generateRandomToken(length) {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
-  let result = ''
-  for (let i = 0; i < length; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length))
-  }
-  return result
+  // 使用密码学安全随机数生成器（CSPRNG）生成 REST API token
+  return crypto.randomBytes(length).toString('base64url').slice(0, length)
 }
 
 // 在本地浏览器打开管理页面

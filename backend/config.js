@@ -1,5 +1,6 @@
 import fs from 'fs/promises'
 import path from 'path'
+import crypto from 'crypto'
 import { fileURLToPath } from 'url'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -73,12 +74,8 @@ export async function saveNewConfig(setupData) {
 }
 
 function generateSecret() {
-  const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()'
-  let secret = ''
-  for (let i = 0; i < 48; i++) {
-    secret += chars.charAt(Math.floor(Math.random() * chars.length))
-  }
-  return secret
+  // 使用密码学安全随机数生成器（CSPRNG）生成 JWT 密钥
+  return crypto.randomBytes(48).toString('base64url')
 }
 
 export async function getTshockConfig() {
