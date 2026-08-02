@@ -1603,6 +1603,32 @@ export class TShockService {
       return { error: error.message }
     }
   }
+
+  // ===== 通用数据代理：/data/tasks/* 等自定义端点 =====
+
+  async proxyDataRequest(subPath, method = 'GET', params = {}) {
+    if (!this.baseUrl) await this.init()
+
+    const query = Object.entries(params).map(([k, v]) => {
+      const val = typeof v === 'object' ? JSON.stringify(v) : String(v)
+      return `${k}=${encodeURIComponent(val)}`
+    }).join('&')
+
+    const url = `${this.baseUrl}/data/${subPath}${query ? `?${query}` : ''}${this.apiKey ? `${query ? '&' : '?'}token=${encodeURIComponent(this.apiKey)}` : ''}`
+    console.log(`[OUTGOING] ${method} ${url.substring(0, 600)}`)
+
+    try {
+      const response = await fetch(url, {
+        method,
+        headers: { 'Accept': 'application/json' }
+      })
+      const text = await response.text()
+      try { return JSON.parse(text) } catch { return { error: 'Invalid JSON', rawResponse: text } }
+    } catch (error) {
+      this.isConnected = false
+      return { error: error.message }
+    }
+  }
 }
 
 export default new TShockService()

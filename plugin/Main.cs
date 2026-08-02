@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿using System.Reflection;
+﻿﻿﻿﻿using System.Reflection;
 using TShockAPI;
 using Terraria;
 using TerrariaApi.Server;
@@ -117,6 +117,16 @@ namespace TShockData
 
             SSELogger.Initialize(this);
 
+            // ═══ 自动任务系统 ═══
+            TaskScheduler.Initialize();
+            TShock.RestApi.Register(new SecureRestCommand("/data/tasks/list", TaskScheduler.ListTasksApi, "data.rest.invsee"));
+            TShock.RestApi.Register(new SecureRestCommand("/data/tasks/get", TaskScheduler.GetTaskApi, "data.rest.invsee"));
+            TShock.RestApi.Register(new SecureRestCommand("/data/tasks/save", TaskScheduler.SaveTaskApi, "data.rest.invsee"));
+            TShock.RestApi.Register(new SecureRestCommand("/data/tasks/delete", TaskScheduler.DeleteTaskApi, "data.rest.invsee"));
+            TShock.RestApi.Register(new SecureRestCommand("/data/tasks/run", TaskScheduler.RunTaskApi, "data.rest.invsee"));
+            TShock.RestApi.Register(new SecureRestCommand("/data/tasks/log", TaskScheduler.ListLogsApi, "data.rest.invsee"));
+            TShock.RestApi.Register(new SecureRestCommand("/data/tasks/log/detail", TaskScheduler.LogDetailApi, "data.rest.invsee"));
+
             // ═══ Webhook 日志推流注册 API ═══
             TShock.RestApi.Register(new SecureRestCommand("/data/config/log-webhook/register", SSELogger.RegisterWebhookApi, "tshock.admin"));
             TShock.RestApi.Register(new SecureRestCommand("/data/config/log-webhook/unregister", SSELogger.UnregisterWebhookApi, "tshock.admin"));
@@ -160,6 +170,7 @@ namespace TShockData
             ItemDetection.RefreshRestrictedItems();
             ItemDetection.StartAutoScan();
             PromotionManager.LoadConfig();
+            TaskScheduler.Reload();
 
             TShock.Log.ConsoleInfo("[TSWeb] 反作弊配置已重新加载");
         }
@@ -175,6 +186,7 @@ namespace TShockData
 				ItemRestrict.Dispose();
 				OnlineData.Dispose();
 				SSELogger.Dispose();
+                TaskScheduler.Dispose();
 				RuntimeHooks.Dispose();
 				BossLimit.Dispose();
 				ItemDetection.StopAutoScan();
@@ -273,7 +285,14 @@ namespace TShockData
                 "/data/config/log-webhook/register",
                 "/data/config/log-webhook/unregister",
                 "/data/config/log-webhook/status",
-				"/data/online/log/command",
+                "/data/online/log/command",
+				"/data/tasks/list",
+                "/data/tasks/get",
+                "/data/tasks/save",
+                "/data/tasks/delete",
+                "/data/tasks/run",
+                "/data/tasks/log",
+                "/data/tasks/log/detail",
 			};
 
 			try

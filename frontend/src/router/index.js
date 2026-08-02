@@ -113,6 +113,12 @@ const routes = [
         meta: { requiresAuth: true }
       },
       {
+        path: 'tasks',
+        name: 'Tasks',
+        component: () => import('../views/console/TasksView.vue'),
+        meta: { requiresAuth: true, requiresAdmin: true }
+      },
+      {
         path: 'players',
         name: 'Players',
         component: PlayersView,
