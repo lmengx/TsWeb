@@ -2,12 +2,25 @@ import { Router } from 'express'
 import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
+import { verifyToken, requireRole } from '../middlewares/authMiddleware.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 const resourceDir = path.join(__dirname, '../resource')
 
 const router = Router()
+
+// 所有资源端点需要登录 + admin 权限（owner/superadmin）
+router.use(verifyToken, requireRole('admin'))
+
+// 校验解析后的路径必须位于 resourceDir 内（防路径穿越）
+function isPathInside(baseDir, targetPath) {
+  const base = path.resolve(baseDir)
+  const target = path.resolve(targetPath)
+  if (target === base) return true
+  // Windows 不区分大小写，统一转小写比较
+  return target.toLowerCase().startsWith(base.toLowerCase() + path.sep)
+}
 
 router.get('/list', (req, res) => {
   try {
@@ -36,9 +49,13 @@ router.get('/list', (req, res) => {
 router.get('/download/:filename', (req, res) => {
   try {
     const { filename } = req.params
-    const filePath = path.join(resourceDir, filename)
+    // 防路径穿越：解析后必须位于 resourceDir 内
+    const filePath = path.resolve(resourceDir, filename)
+    if (!isPathInside(resourceDir, filePath)) {
+      return res.status(403).json({ status: '403', error: 'Access denied' })
+    }
 
-    if (!fs.existsSync(filePath)) {
+    if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
       return res.status(404).json({ status: '404', error: 'File not found' })
     }
 

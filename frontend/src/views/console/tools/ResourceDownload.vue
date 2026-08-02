@@ -37,18 +37,30 @@ const fetchResources = async () => {
   }
 }
 
-const downloadFile = (filename) => {
+const downloadFile = async (filename) => {
   const token = getToken()
+  const headers = {}
   if (token) {
+    headers['Authorization'] = `Bearer ${token}`
+  }
+  try {
+    const response = await fetch(`/api/resources/download/${encodeURIComponent(filename)}`, { headers })
+    if (!response.ok) {
+      console.error('下载失败:', response.status)
+      return
+    }
+    // 使用 fetch + Blob 下载（携带 JWT，避免 token 泄露到 URL）
+    const blob = await response.blob()
+    const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
-    link.href = `/api/resources/download/${encodeURIComponent(filename)}`
+    link.href = url
     link.download = filename
-    link.target = '_blank'
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
-  } else {
-    window.open(`/api/resources/download/${encodeURIComponent(filename)}`, '_blank')
+    URL.revokeObjectURL(url)
+  } catch (error) {
+    console.error('Failed to download:', error)
   }
 }
 

@@ -1,7 +1,11 @@
 import { Router } from 'express'
 import tshockService from '../services/tshockService.js'
+import { verifyToken, requireRole } from '../middlewares/authMiddleware.js'
 
 const router = Router()
+
+// 所有反作弊端点需要登录 + admin 权限（owner/superadmin）
+router.use(verifyToken, requireRole('admin'))
 
 router.get('/config', (req, res) => {
   tshockService.getItemConfig()
