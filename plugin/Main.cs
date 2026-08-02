@@ -1,4 +1,4 @@
-﻿﻿﻿﻿using System.Reflection;
+﻿﻿﻿using System.Reflection;
 using TShockAPI;
 using Terraria;
 using TerrariaApi.Server;
@@ -91,6 +91,10 @@ namespace TShockData
 
             BugFixes.Initialize(this);
 
+            // ping 命令：测量玩家到服务器的延迟（/ping 查自己，/ping 玩家名 需 tshock.admin）
+            TShockAPI.Commands.ChatCommands.Add(new Command("", Ping.PingCommand, "ping") { HelpText = "查看你到服务器的延迟；管理员可用 /ping 玩家名 查看指定玩家延迟" });
+            Ping.Initialize(this);
+
             TShockAPI.Commands.ChatCommands.Add(new Command("tshock.admin", AutoRegister.HandleCommand, "autoregister", "ar"));
 
             TShockAPI.Commands.ChatCommands.Add(new Command("tshock.admin", ExportPlayer.Export, "export", "导出"));
@@ -182,6 +186,7 @@ namespace TShockData
 				TShockAPI.Hooks.GeneralHooks.ReloadEvent -= OnReload;
 				PlannedOff.Dispose();
 				BugFixes.Dispose(this);
+                Ping.Dispose(this);
 				AutoRegister.Dispose(this);
 				ItemRestrict.Dispose();
 				OnlineData.Dispose();
@@ -216,6 +221,7 @@ namespace TShockData
 				"scan", "扫描",
 				"projlist", "违禁弹幕",
 				"scanlist", "违禁物品",
+                "ping",
 				"bosslimit", "进度锁",			};
 
 			Commands.ChatCommands.RemoveAll(cmd =>

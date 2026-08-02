@@ -88,10 +88,11 @@ namespace TShockData
         {
             try
             {
-                var results = ItemDetection.ScanAllPlayers();
-                
-                var playerGroups = results.GroupBy(r => r.PlayerName);
-                
+                // 只扫描在线玩家，命中违禁规则自动执行违规处理
+                var report = ItemDetection.ScanAllPlayers();
+
+                var playerGroups = report.Results.GroupBy(r => r.PlayerName);
+
                 var players = new System.Collections.Generic.List<object>();
                 foreach (var group in playerGroups)
                 {
@@ -108,7 +109,7 @@ namespace TShockData
                             slot = result.Slot
                         });
                     }
-                    
+
                     players.Add(new
                     {
                         name = group.Key,
@@ -116,7 +117,15 @@ namespace TShockData
                     });
                 }
 
-                return new { status = 200, players = players, count = players.Count };
+                return new
+                {
+                    status = 200,
+                    players = players,
+                    count = players.Count,
+                    scannedPlayers = report.ScannedPlayers,
+                    violationCount = report.ViolationCount,
+                    durationMs = report.DurationMs
+                };
             }
             catch (Exception ex)
             {
@@ -141,21 +150,31 @@ namespace TShockData
                     return new { status = 400, error = "缺少有效的 itemId 参数" };
                 }
 
-                // 复用 tools.FindPlayersWithItem 的数据库扫描逻辑
-                var playerNames = tools.FindPlayersWithItem(itemId);
+                // 只扫描在线玩家，命中违禁规则自动执行违规处理
+                var report = ItemDetection.ScanOnlinePlayersByItem(itemId);
 
                 var players = new System.Collections.Generic.List<object>();
-                foreach (var name in playerNames)
+                foreach (var result in report.Results)
                 {
                     players.Add(new
                     {
-                        name = name,
-                        itemId = itemId,
-                        itemName = AntiCheat.GetItemName(itemId)
+                        name = result.PlayerName,
+                        itemId = result.ItemID,
+                        itemName = result.ItemName,
+                        stack = result.FoundStack,
+                        allowedStack = result.AllowedStack,
+                        method = result.Method
                     });
                 }
 
-                return new { status = 200, players = players, count = players.Count };
+                return new
+                {
+                    status = 200,
+                    players = players,
+                    count = players.Count,
+                    scannedPlayers = report.ScannedPlayers,
+                    durationMs = report.DurationMs
+                };
             }
             catch (Exception ex)
             {

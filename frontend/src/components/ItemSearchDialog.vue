@@ -205,6 +205,9 @@ watch(() => props.show, (val) => {
             <div class="scan-results-container">
               <div class="scan-result-header">
                 <h4>扫描持有者: {{ scanResults.itemName }} (ID: {{ scanResults.itemId }})</h4>
+                <span v-if="scanResults.durationMs !== undefined" class="scan-result-meta">
+                  扫描 {{ scanResults.scannedPlayers }} 名在线玩家，耗时 {{ scanResults.durationMs }}ms
+                </span>
               </div>
               <div v-if="scanResults.players && scanResults.players.length > 0" class="scan-player-list">
                 <div v-for="player in scanResults.players" :key="player.name" class="scan-player-row">
@@ -433,6 +436,17 @@ watch(() => props.show, (val) => {
   margin: 0;
   color: var(--text-primary);
   font-size: 1rem;
+}
+
+.scan-result-header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.scan-result-meta {
+  font-size: 0.8rem;
+  color: var(--text-muted);
 }
 
 .scan-player-list {

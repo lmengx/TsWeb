@@ -370,6 +370,9 @@ onMounted(() => {
 
           <div v-if="scanResult" class="scan-result">
             <h4>扫描结果</h4>
+            <div v-if="scanResult.scannedPlayers !== undefined" class="scan-summary">
+              扫描 {{ scanResult.scannedPlayers }} 名在线玩家，发现 {{ scanResult.violationCount || 0 }} 条违规，耗时 {{ scanResult.durationMs }}ms
+            </div>
             <div v-if="scanResult.players && scanResult.players.length > 0">
               <div v-for="player in scanResult.players" :key="player.name" class="player-scan">
                 <span class="player-name">{{ player.name }}</span>
@@ -382,7 +385,7 @@ onMounted(() => {
                 <div v-else class="no-violation">未发现违规物品</div>
               </div>
             </div>
-            <div v-else class="no-players">当前没有在线玩家</div>
+            <div v-else class="no-players">未发现违规物品</div>
           </div>
 
           <div v-if="scanError" class="scan-error">{{ scanError }}</div>
@@ -1553,6 +1556,15 @@ onMounted(() => {
   font-size: 0.95rem;
   font-weight: 600;
   color: var(--text-primary);
+}
+
+.scan-summary {
+  margin: 0 0 12px 0;
+  padding: 8px 12px;
+  background: rgba(59, 130, 246, 0.08);
+  border-radius: 6px;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
 }
 
 .player-scan {

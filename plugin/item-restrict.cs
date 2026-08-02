@@ -1,11 +1,9 @@
 using System;
 using System.Collections.Generic;
-using System.Data;
 using System.Linq;
 using Newtonsoft.Json;
 using Terraria;
 using TShockAPI;
-using TShockAPI.DB;
 
 namespace TShockData
 {
@@ -38,6 +36,17 @@ namespace TShockData
         public string Progress { get; set; }
         public string Method { get; set; }
         public int Slot { get; set; }
+    }
+
+    /// <summary>
+    /// 扫描报告：统一扫描入口的返回结构（结果 + 统计）
+    /// </summary>
+    public class ScanReport
+    {
+        public List<CheatResult> Results { get; set; } = new List<CheatResult>();
+        public int ScannedPlayers { get; set; }
+        public long DurationMs { get; set; }
+        public int ViolationCount => Results.Count;
     }
 
     /// <summary>
@@ -83,19 +92,15 @@ namespace TShockData
         {
             try
             {
-                int totalViolations = 0;
-                foreach (var player in TShock.Players)
-                {
-                    if (player == null || !player.Active || !player.IsLoggedIn)
-                        continue;
+                var report = ScanAllPlayers();
 
-                    var results = ScanOnlinePlayer(player);
-                    totalViolations += results.Count;
+                if (report.ViolationCount > 0)
+                {
+                    TShock.Log.ConsoleInfo($"[ItemDetection] 自动扫描完成，扫描 {report.ScannedPlayers} 名在线玩家，耗时 {report.DurationMs}ms，共检测到 {report.ViolationCount} 条违规");
                 }
-
-                if (totalViolations > 0)
+                else
                 {
-                    TShock.Log.ConsoleInfo($"[ItemDetection] 自动扫描完成，共检测到 {totalViolations} 条违规");
+                    TShock.Log.ConsoleInfo($"[ItemDetection] 自动扫描完成，扫描 {report.ScannedPlayers} 名在线玩家，耗时 {report.DurationMs}ms，无违规");
                 }
             }
             catch (Exception ex)
@@ -316,37 +321,93 @@ namespace TShockData
             return results;
         }
 
-        public static List<CheatResult> ScanAllPlayers()
+        /// <summary>
+        /// 全服扫描：仅扫描在线且已登录的玩家（含违禁检测与违规处理执行）。
+        /// </summary>
+        public static ScanReport ScanAllPlayers()
         {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
             List<CheatResult> allResults = new List<CheatResult>();
+            int scannedPlayers = 0;
+
+            // 只扫描在线且已登录的玩家（离线玩家数据不参与扫描）
+            foreach (var player in TShock.Players)
+            {
+                if (player == null || !player.Active || !player.IsLoggedIn)
+                    continue;
+
+                scannedPlayers++;
+                var results = ScanOnlinePlayer(player);
+                allResults.AddRange(results);
+            }
+
+            sw.Stop();
+            return new ScanReport
+            {
+                Results = allResults,
+                ScannedPlayers = scannedPlayers,
+                DurationMs = sw.ElapsedMilliseconds
+            };
+        }
+
+        /// <summary>
+        /// 按物品 ID 扫描所有在线玩家（仅在线）：命中违禁规则则执行违规处理，只返回该物品的违规结果。
+        /// </summary>
+        public static ScanReport ScanOnlinePlayersByItem(int itemId)
+        {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            List<CheatResult> allResults = new List<CheatResult>();
+            int scannedPlayers = 0;
 
             foreach (var player in TShock.Players)
             {
                 if (player == null || !player.Active || !player.IsLoggedIn)
                     continue;
 
-                var results = ScanOnlinePlayer(player);
-                allResults.AddRange(results);
-            }
+                scannedPlayers++;
+                List<InventoryData> inventory = GetPlayerInv.GetOnlinePlayerInventory(player);
+                if (inventory == null)
+                    continue;
 
-            IDbConnection db = TShock.DB;
-            string query = "SELECT ID, Username FROM Users";
-            using (QueryResult res = db.QueryReader(query))
-            {
-                while (res.Read())
+                // 背包中不含该物品则跳过
+                if (!inventory.Any(i => i.netID == itemId))
+                    continue;
+
+                foreach (var item in inventory)
                 {
-                    int userId = res.Get<int>("ID");
-                    string username = res.Get<string>("Username");
+                    if (item.netID != itemId)
+                        continue;
 
-                    bool isOnline = TShock.Players.Any(p => p != null && p.Active && p.Account != null && p.Account.ID == userId);
-                    if (isOnline) continue;
+                    var matchedItems = CheckItem(player, item.netID, item.stack);
+                    foreach (var matchedItem in matchedItems)
+                    {
+                        TShock.Log.ConsoleError($"[ItemDetection] 检测到违禁物品! 玩家: {player.Name}, 物品ID: {item.netID}, 数量: {item.stack}, 限制: {matchedItem.Stack}, 处理方式: {matchedItem.Method}");
 
-                    var results = ScanOfflinePlayer(userId, username);
-                    allResults.AddRange(results);
+                        allResults.Add(new CheatResult
+                        {
+                            PlayerName = player.Name,
+                            PlayerID = player.Account?.ID ?? 0,
+                            ItemID = item.netID,
+                            ItemName = AntiCheat.GetItemName(item.netID),
+                            FoundStack = item.stack,
+                            AllowedStack = matchedItem.Stack,
+                            Progress = "当前进度",
+                            Method = matchedItem.Method,
+                            Slot = item.slot
+                        });
+
+                        ViolationExecutor.ExecuteViolation(player, matchedItem.Method, itemId: item.netID, itemName: AntiCheat.GetItemName(item.netID));
+                    }
                 }
             }
 
-            return allResults;
+            sw.Stop();
+            return new ScanReport
+            {
+                Results = allResults,
+                ScannedPlayers = scannedPlayers,
+                DurationMs = sw.ElapsedMilliseconds
+            };
         }
     }
 

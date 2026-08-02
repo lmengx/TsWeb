@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System;
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System;
 using System.Collections.Generic;
 using System.Data;
 using System.IO;
@@ -247,15 +247,17 @@ namespace TShockData
                     return;
                 }
 
+                var sw = System.Diagnostics.Stopwatch.StartNew();
                 var results = ItemDetection.ScanOnlinePlayer(player);
+                sw.Stop();
 
                 if (results.Count == 0)
                 {
-                    args.Player.SendSuccessMessage($"玩家 {playerName} 未检测到违规物品");
+                    args.Player.SendSuccessMessage($"玩家 {playerName} 未检测到违规物品（耗时 {sw.ElapsedMilliseconds}ms）");
                     return;
                 }
 
-                args.Player.SendInfoMessage($"=== 扫描结果: {playerName} (在线) ===");
+                args.Player.SendInfoMessage($"=== 扫描结果: {playerName} (在线，耗时 {sw.ElapsedMilliseconds}ms) ===");
                 foreach (var result in results)
                 {
                     string msg = $"[警告] 物品ID:{result.ItemID}({result.ItemName}) 数量:{result.FoundStack} 限制:{result.AllowedStack}";
@@ -272,15 +274,17 @@ namespace TShockData
                     return;
                 }
 
+                var sw = System.Diagnostics.Stopwatch.StartNew();
                 var results = ItemDetection.ScanOfflinePlayer(account.ID, account.Name);
+                sw.Stop();
 
                 if (results.Count == 0)
                 {
-                    args.Player.SendSuccessMessage($"玩家 {playerName} 未检测到违规物品");
+                    args.Player.SendSuccessMessage($"玩家 {playerName} 未检测到违规物品（耗时 {sw.ElapsedMilliseconds}ms）");
                     return;
                 }
 
-                args.Player.SendInfoMessage($"=== 扫描结果: {playerName} (离线) ===");
+                args.Player.SendInfoMessage($"=== 扫描结果: {playerName} (离线，耗时 {sw.ElapsedMilliseconds}ms) ===");
                 foreach (var result in results)
                 {
                     string msg = $"[警告] 物品ID:{result.ItemID}({result.ItemName}) 数量:{result.FoundStack} 限制:{result.AllowedStack}";
@@ -292,17 +296,18 @@ namespace TShockData
 
         private static void ScanAllCommand(CommandArgs args)
         {
-            var results = ItemDetection.ScanAllPlayers();
+            // 只扫描在线玩家，命中违禁规则自动执行违规处理
+            var report = ItemDetection.ScanAllPlayers();
 
-            if (results.Count == 0)
+            if (report.ViolationCount == 0)
             {
-                args.Player.SendSuccessMessage("所有在线玩家未检测到违规物品");
+                args.Player.SendSuccessMessage($"已扫描 {report.ScannedPlayers} 名在线玩家，未检测到违规物品（耗时 {report.DurationMs}ms）");
                 return;
             }
 
-            args.Player.SendInfoMessage($"=== 批量扫描结果 (共 {results.Count} 条违规) ===");
+            args.Player.SendInfoMessage($"=== 批量扫描结果 (共 {report.ViolationCount} 条违规，扫描 {report.ScannedPlayers} 名在线玩家，耗时 {report.DurationMs}ms) ===");
 
-            foreach (var result in results)
+            foreach (var result in report.Results)
             {
                 string msg = $"玩家:{result.PlayerName} 物品ID:{result.ItemID}({result.ItemName}) 数量:{result.FoundStack} 限制:{result.AllowedStack}";
                 args.Player.SendInfoMessage(msg);
