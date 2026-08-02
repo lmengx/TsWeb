@@ -48,6 +48,64 @@ const EXEC_MODES = [
 const HOURS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'))
 const MINUTES = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0'))
 
+// ===== 任务模板（新建时点击填充） =====
+const TASK_TEMPLATES = [
+  {
+    name: '凌晨关服重启',
+    desc: '每天 03:00，玩家数为 0 时执行关服（重启需自行配置）',
+    build: () => ({
+      name: '凌晨关服重启',
+      enabled: true,
+      triggerMode: 'daily',
+      dailyTime: '03:00',
+      condition: { type: 'online_count', not: false, params: { min: 0, max: 0, bossNames: [], playerNames: [] } },
+      execMode: 'sequential',
+      commands: [
+        '/bc 服务器即将关闭',
+        '/off confirm'
+      ]
+    })
+  },
+  {
+    name: '自动清理地面物品',
+    desc: '每 2 小时广播提示，1 分钟后清理地面掉落物',
+    build: () => ({
+      name: '自动清理地面物品',
+      enabled: true,
+      triggerMode: 'interval',
+      intervalSeconds: 7200,
+      condition: { type: 'always', not: false, params: { min: 0, max: 9999, bossNames: [], playerNames: [] } },
+      execMode: 'sequential',
+      commands: [
+        '/bc 1分钟后将清理地面物品',
+        '/wait 60000',
+        '/clear item 9999'
+      ]
+    })
+  },
+  {
+    name: '定时自动保存',
+    desc: '每 30 分钟自动保存世界',
+    build: () => ({
+      name: '定时自动保存',
+      enabled: true,
+      triggerMode: 'interval',
+      intervalSeconds: 1800,
+      condition: { type: 'always', not: false, params: { min: 0, max: 9999, bossNames: [], playerNames: [] } },
+      execMode: 'sequential',
+      commands: [
+        '/bc 正在保存世界',
+        '/save'
+      ]
+    })
+  }
+]
+
+const applyTemplate = (tpl) => {
+  Object.assign(form, tpl.build())
+  editing.value = false
+}
+
 // 每日时间的 时/分 双联选择（组合成 HH:mm）
 const dailyHour = computed({
   get: () => form.dailyTime?.split(':')[0] ?? '00',
@@ -401,6 +459,22 @@ onMounted(() => { loadTasks() })
         </div>
 
         <div class="editor-body">
+          <!-- 模板选择（仅新建时显示） -->
+          <div v-if="!editing" class="template-section">
+            <h4>从模板创建</h4>
+            <div class="template-grid">
+              <button
+                v-for="tpl in TASK_TEMPLATES"
+                :key="tpl.name"
+                class="template-card"
+                @click="applyTemplate(tpl)"
+              >
+                <span class="template-name">{{ tpl.name }}</span>
+                <span class="template-desc">{{ tpl.desc }}</span>
+              </button>
+            </div>
+          </div>
+
           <!-- 基础设置 -->
           <div class="form-row">
             <div class="form-group grow">
@@ -500,12 +574,15 @@ onMounted(() => { loadTasks() })
               :key="i"
               class="cmd-row"
               :class="{ dragging: dragIndex === i }"
-              draggable="true"
-              @dragstart="onDragStart(i, $event)"
               @dragover="onDragOver(i, $event)"
               @dragend="onDragEnd"
             >
-              <span class="drag-handle" title="拖动排序">⠿</span>
+              <span
+                class="drag-handle"
+                title="按住拖动排序"
+                draggable="true"
+                @dragstart="onDragStart(i, $event)"
+              >⠿</span>
               <span class="cmd-index">{{ i + 1 }}</span>
               <input v-model="form.commands[i]" class="form-input cmd-input" placeholder="/broadcast 示例" />
               <button class="btn-mini btn-danger" @click="removeCommand(i)" title="删除">✕</button>
@@ -755,6 +832,27 @@ onMounted(() => { loadTasks() })
 .sub-section h4 { margin: 0 0 12px; font-size: 0.95rem; color: var(--text-primary); }
 .hint { font-size: 0.75rem; color: var(--text-muted); font-weight: 400; margin-left: 8px; }
 
+/* ── 任务模板 ── */
+.template-section { margin-bottom: 18px; }
+.template-section h4 { margin: 0 0 10px; font-size: 0.95rem; color: var(--text-primary); }
+.template-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+.template-card {
+  flex: 1 1 200px;
+  min-width: 200px;
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px dashed var(--border-light);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.2s;
+}
+.template-card:hover { border-color: var(--accent-primary); background: rgba(99, 102, 241, 0.08); transform: translateY(-1px); }
+.template-name { font-size: 0.88rem; font-weight: 700; color: var(--accent-primary); }
+.template-desc { font-size: 0.75rem; color: var(--text-muted); line-height: 1.4; }
+
 /* BOSS 选择器 */
 .boss-selector { margin-bottom: 14px; }
 .boss-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
@@ -786,8 +884,11 @@ onMounted(() => { loadTasks() })
 .cmd-row.dragging { opacity: 0.5; border-color: var(--accent-primary); background: rgba(99, 102, 241, 0.08); }
 .drag-handle {
   cursor: grab; color: var(--text-muted); font-size: 1.1rem; flex-shrink: 0;
-  padding: 0 2px; line-height: 1;
+  padding: 4px 6px; margin: -4px 0; border-radius: 6px; line-height: 1;
+  user-select: none; -webkit-user-select: none;
+  transition: color 0.15s, background 0.15s;
 }
+.drag-handle:hover { color: var(--accent-primary); background: rgba(99, 102, 241, 0.1); }
 .drag-handle:active { cursor: grabbing; }
 .cmd-index { width: 20px; text-align: center; color: var(--text-muted); font-size: 0.8rem; flex-shrink: 0; }
 .cmd-input { flex: 1; font-family: monospace; font-size: 0.85rem; }
