@@ -5,7 +5,7 @@ import { verifyToken, requireRole } from '../middlewares/authMiddleware.js'
 const router = Router()
 
 router.post('/command', verifyToken, requireRole('admin'), executeCommand)
-router.get('/rawcmd', verifyToken, testCommand)
+router.get('/rawcmd', verifyToken, requireRole('admin'), testCommand)
 router.get('/users', verifyToken, requireRole('admin'), getUsers)
 router.get('/activeusers', verifyToken, requireRole('admin'), getActiveUsers)
 router.get('/invsee', verifyToken, requireRole('admin'), getInventory)
