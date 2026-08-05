@@ -79,7 +79,8 @@ namespace TShockData
     /// </summary>
     public static class PacketCatchCore
     {
-        private const int HEADER_SIZE = 14; // ticks(8) + who(1) + pid(1) + nameLen(1) + ipLen(1) + payloadLen(2)
+        // ticks(8) + who(1) + pid(1) + dir(1) + nameLen(1) + ipLen(1) + payloadLen(2)
+        private const int HEADER_SIZE = 15;
 
         private static readonly object _writeLock = new object();
         private static PacketCatchConfig _config = new PacketCatchConfig();
@@ -106,8 +107,9 @@ namespace TShockData
             EnsureOutputDir();
             DumpPacketTypeNames();
 
-            // 底层钩子：每个入站包触发（不拦截，仅记录）
+            // 底层钩子：入站 + 出站（不拦截，仅记录）
             OTAPI.Hooks.MessageBuffer.GetData += OnGetData;
+            OTAPI.Hooks.NetMessage.SendBytes += OnSendBytes;
 
             _flushTimer = new Timer(_ => Flush(), null,
                 TimeSpan.FromSeconds(_config.FlushSeconds), TimeSpan.FromSeconds(_config.FlushSeconds));
@@ -128,6 +130,7 @@ namespace TShockData
             _flushTimer?.Dispose();
             _flushTimer = null;
             OTAPI.Hooks.MessageBuffer.GetData -= OnGetData;
+            OTAPI.Hooks.NetMessage.SendBytes -= OnSendBytes;
             lock (_writeLock)
             {
                 _stream?.Flush();
@@ -140,10 +143,10 @@ namespace TShockData
 
         // ═══════════════════ 核心：包捕获 ═══════════════════
 
+        /// <summary>入站：客户端 → 服务器（MessageBuffer 层，含握手期/未注册包）</summary>
         private static void OnGetData(object? sender, OTAPI.Hooks.MessageBuffer.GetDataEventArgs args)
         {
             if (!_running || _fatalError) return;
-
             try
             {
                 var buf = args.Instance?.readBuffer;
@@ -151,8 +154,6 @@ namespace TShockData
 
                 int off = args.ReadOffset;
                 int len = args.Length;
-
-                // 边界保护
                 if (off < 0 || len < 0 || off > buf.Length || len > buf.Length - Math.Max(off, 0)) return;
 
                 // 真实包 ID：从原始缓冲区读取（args.PacketId 可能被其他插件改写为 255 以取消包）
@@ -163,65 +164,103 @@ namespace TShockData
                 if (id == (byte)PacketTypes.PlayerUpdate && !_config.RecordPlayerUpdate) return;
 
                 int who = args.Instance?.whoAmI ?? 255;
-
-                // 玩家名 + IP（O(1) 数组索引 + 字符串引用，开销可忽略）
-                string pname = "";
-                string pip = "";
-                if (who >= 0 && who < TShock.Players.Length && TShock.Players[who] != null)
-                {
-                    pname = TShock.Players[who].Name ?? "";
-                    pip = TShock.Players[who].IP ?? "";
-                }
-                else if (who >= 0 && who < Netplay.Clients.Length && Netplay.Clients[who]?.Socket != null)
-                {
-                    // 握手早期 TShock 玩家对象未建立，退回 socket 取远程地址
-                    try { pip = Netplay.Clients[who].Socket.GetRemoteAddress()?.ToString() ?? ""; } catch { }
-                }
-
-                var nameBytes = Encoding.UTF8.GetBytes(pname.Length > 60 ? pname.Substring(0, 60) : pname);
-                if (nameBytes.Length > 255) Array.Resize(ref nameBytes, 255);
-                var ipBytes = Encoding.UTF8.GetBytes(pip.Length > 45 ? pip.Substring(0, 45) : pip);
-                if (ipBytes.Length > 255) Array.Resize(ref ipBytes, 255);
+                var (pname, pip) = ResolveNameIp(who);
 
                 // 密码包脱敏：仅记元数据
-                if (id == (byte)PacketTypes.PasswordSend && _config.MaskPasswordPackets)
-                {
-                    len = 0;
-                }
+                if (id == (byte)PacketTypes.PasswordSend && _config.MaskPasswordPackets) len = 0;
 
-                lock (_writeLock)
-                {
-                    if (_stream == null) return;
-
-                    // 滚动检查
-                    if (_bytesWritten >= (long)_config.RotateMB * 1024 * 1024)
-                    {
-                        RotateLocked();
-                        if (_stream == null) return;
-                    }
-
-                    // 记录头: ticks(8) who(1) pid(1) nameLen(1) [name] ipLen(1) [ip] payloadLen(2) [payload]
-                    Span<byte> header = stackalloc byte[HEADER_SIZE];
-                    BinaryPrimitives.WriteInt64LittleEndian(header, DateTime.UtcNow.Ticks);
-                    header[8] = (byte)who;
-                    header[9] = id;
-                    header[10] = (byte)nameBytes.Length;
-                    header[11] = (byte)ipBytes.Length;
-                    BinaryPrimitives.WriteUInt16LittleEndian(header.Slice(12), (ushort)len);
-
-                    _stream.Write(header);
-                    if (nameBytes.Length > 0) _stream.Write(nameBytes);
-                    if (ipBytes.Length > 0) _stream.Write(ipBytes);
-                    if (len > 0) _stream.Write(buf, off, len);
-                    _bytesWritten += HEADER_SIZE + nameBytes.Length + ipBytes.Length + len;
-                    _totalPackets++;
-                }
+                WriteRecord(who, id, 0, pname, pip, buf, off, len);
             }
             catch (Exception ex)
             {
-                // 记录失败不崩溃：停用并提示（避免刷屏）
                 _fatalError = true;
                 TShock.Log.ConsoleError($"[PacketCatch] 记录异常，已自动停用: {ex}");
+            }
+        }
+
+        /// <summary>出站：服务器 → 客户端（socket 发送层）。缓冲格式: [2字节长度][msgType][data...]</summary>
+        private static void OnSendBytes(object? sender, OTAPI.Hooks.NetMessage.SendBytesEventArgs args)
+        {
+            if (!_running || _fatalError) return;
+            try
+            {
+                var buf = args.Data;
+                if (buf == null) return;
+
+                int off = args.Offset;
+                int size = args.Size;
+                if (off < 0 || size < 0 || off + 2 > buf.Length || off + size > buf.Length) return;
+
+                byte id = buf[off + 2]; // 跳过 2 字节长度前缀
+
+                if (_filter.Count > 0 && !_filter.Contains(id)) return;
+                if (id == (byte)PacketTypes.PlayerUpdate && !_config.RecordPlayerUpdate) return;
+
+                int who = args.RemoteClient; // 目标客户端索引
+                var (pname, pip) = ResolveNameIp(who);
+
+                int bodyOff = off + 3;      // 跳过长度前缀 + msgType
+                int bodyLen = size - 3;
+                if (bodyLen < 0) return;
+
+                WriteRecord(who, id, 1, pname, pip, buf, bodyOff, bodyLen);
+            }
+            catch (Exception ex)
+            {
+                _fatalError = true;
+                TShock.Log.ConsoleError($"[PacketCatch] 出站记录异常，已自动停用: {ex}");
+            }
+        }
+
+        /// <summary>解析玩家名+IP（O(1) 数组索引，开销可忽略）；握手早期退回 socket 远程地址</summary>
+        private static (string, string) ResolveNameIp(int who)
+        {
+            if (who >= 0 && who < TShock.Players.Length && TShock.Players[who] != null)
+            {
+                return (TShock.Players[who].Name ?? "", TShock.Players[who].IP ?? "");
+            }
+            if (who >= 0 && who < Netplay.Clients.Length && Netplay.Clients[who]?.Socket != null)
+            {
+                try { return ("", Netplay.Clients[who].Socket.GetRemoteAddress()?.ToString() ?? ""); } catch { }
+            }
+            return ("", "");
+        }
+
+        /// <summary>公共写入：v3 记录头 + name + ip + payload（锁内调用）</summary>
+        private static void WriteRecord(int who, byte id, byte dir, string pname, string pip,
+            byte[] srcBuf, int srcOff, int srcLen)
+        {
+            var nameBytes = Encoding.UTF8.GetBytes(pname.Length > 60 ? pname.Substring(0, 60) : pname);
+            if (nameBytes.Length > 255) Array.Resize(ref nameBytes, 255);
+            var ipBytes = Encoding.UTF8.GetBytes(pip.Length > 45 ? pip.Substring(0, 45) : pip);
+            if (ipBytes.Length > 255) Array.Resize(ref ipBytes, 255);
+
+            lock (_writeLock)
+            {
+                if (_stream == null) return;
+
+                if (_bytesWritten >= (long)_config.RotateMB * 1024 * 1024)
+                {
+                    RotateLocked();
+                    if (_stream == null) return;
+                }
+
+                // 记录头: ticks(8) who(1) pid(1) dir(1) nameLen(1) ipLen(1) payloadLen(2) [name][ip][payload]
+                Span<byte> header = stackalloc byte[HEADER_SIZE];
+                BinaryPrimitives.WriteInt64LittleEndian(header, DateTime.UtcNow.Ticks);
+                header[8] = (byte)who;
+                header[9] = id;
+                header[10] = dir;
+                header[11] = (byte)nameBytes.Length;
+                header[12] = (byte)ipBytes.Length;
+                BinaryPrimitives.WriteUInt16LittleEndian(header.Slice(13), (ushort)srcLen);
+
+                _stream.Write(header);
+                if (nameBytes.Length > 0) _stream.Write(nameBytes);
+                if (ipBytes.Length > 0) _stream.Write(ipBytes);
+                if (srcLen > 0) _stream.Write(srcBuf, srcOff, srcLen);
+                _bytesWritten += HEADER_SIZE + nameBytes.Length + ipBytes.Length + srcLen;
+                _totalPackets++;
             }
         }
 
@@ -285,7 +324,7 @@ namespace TShockData
             // 文件头：magic + version + 创建时间
             Span<byte> header = stackalloc byte[13];
             Encoding.ASCII.GetBytes("PCAT").CopyTo(header);
-            header[4] = 2; // version 2: 每条记录内嵌玩家名 + IP
+            header[4] = 3; // version 3: 入站+出站双向，dir 字段
             BinaryPrimitives.WriteInt64LittleEndian(header.Slice(5), DateTime.UtcNow.Ticks);
             _stream.Write(header);
             _bytesWritten += 13;

@@ -154,8 +154,7 @@ namespace TShockData
 			s.LastSlot = slot;
 			s.SendTime = DateTime.Now;
 			// number2=byte.MaxValue(255) 是关键：客户端仅在收到 owner==255 时才回发 ItemOwner 包
-			bool sent = NetMessage.TrySendData(39, target.Index, -1, null, slot, byte.MaxValue);
-			TShock.Log.ConsoleInfo($"[Ping] 发送测量包 → {target.Name}(idx:{target.Index}) slot:{slot} 成功:{sent} 剩余:{s.Remaining}");
+			NetMessage.TrySendData(39, target.Index, -1, null, slot, byte.MaxValue);
 		}
 
 		/// <summary>
@@ -173,21 +172,13 @@ namespace TShockData
 			if (player == null || !player.Active)
 				return;
 
-			TShock.Log.ConsoleInfo($"[Ping] 收到回包 玩家:{player.Name} MsgID:{(int)args.MsgID} Index:{args.Index} Length:{args.Length}");
-
 			PingSession s;
 			lock (SyncLock)
 			{
 				if (!Sessions.TryGetValue(player, out s))
-				{
-					TShock.Log.ConsoleInfo($"[Ping] 玩家 {player.Name} 无进行中的测量会话，忽略");
 					return;
-				}
 				if (s.NextSendTick != 0)   // 不处于"等待回复"状态（重复/多余回包）
-				{
-					TShock.Log.ConsoleInfo($"[Ping] 重复回包，忽略");
 					return;
-				}
 			}
 
 			// 校验回包内容：short 槽位 + byte 255（无主）
@@ -197,14 +188,13 @@ namespace TShockData
 				{
 					short itemIndex = reader.ReadInt16();
 					byte owner = reader.ReadByte();
-					TShock.Log.ConsoleInfo($"[Ping] 解析回包 slot:{itemIndex} owner:{owner} 期望slot:{s.LastSlot}");
 					if (owner != byte.MaxValue || itemIndex != s.LastSlot)
 						return;
 				}
 			}
 			catch (Exception ex)
 			{
-				TShock.Log.ConsoleInfo($"[Ping] 回包解析异常: {ex.Message}");
+				TShock.Log.ConsoleError($"[Ping] 回包解析异常: {ex.Message}");
 				return;
 			}
 
