@@ -14,14 +14,10 @@
   "packageManager": "pnpm@10.33.0",
   "dependencies": {
     "bcrypt": "^6.0.0",
-    "better-sqlite3": "^12.10.0",
     "cors": "^2.8.6",
-    "crypto": "^1.0.1",
     "express": "^5.2.1",
     "iconv-lite": "^0.7.3",
     "jsonwebtoken": "^9.0.3",
-    "node-forge": "^1.4.0",
-    "sql.js": "^1.14.1",
-    "sqlite3": "^5.1.6"
+    "node-forge": "^1.4.0"
   }
 }
