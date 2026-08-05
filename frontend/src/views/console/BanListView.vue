@@ -455,28 +455,6 @@ onMounted(() => {
             </tr>
           </tbody>
         </table>
-
-        <!-- 分页栏 + 大小选择 -->
-        <div class="pagination-bar">
-          <div class="pagination-info">共 {{ totalItems }} 条，{{ totalPages }} 页</div>
-          <div class="pagination-controls">
-            <button class="page-btn" :disabled="currentPage <= 1" @click="goToPage(1)">«</button>
-            <button class="page-btn" :disabled="currentPage <= 1" @click="goToPage(currentPage - 1)">‹</button>
-            <span class="page-indicator">{{ currentPage }} / {{ totalPages }}</span>
-            <button class="page-btn" :disabled="currentPage >= totalPages" @click="goToPage(currentPage + 1)">›</button>
-            <button class="page-btn" :disabled="currentPage >= totalPages" @click="goToPage(totalPages)">»</button>
-          </div>
-          <div class="pagination-size">
-            <label>每页</label>
-            <select v-model="pageSize" @change="currentPage = 1">
-              <option :value="10">10</option>
-              <option :value="20">20</option>
-              <option :value="50">50</option>
-              <option :value="100">100</option>
-            </select>
-            <label>条</label>
-          </div>
-        </div>
       </div>
 
       <div v-else class="empty-state">
