@@ -581,7 +581,9 @@ public static class GetDataHandlers
                 }
                 if (PlayerActiveHouses.TryGetValue(playerIndex, out var list))
                 {
-                    foreach (var rect in list)
+                    // 快照遍历，避免枚举期间 list 被 ShowHouseDisplay/HideHouseDisplay 修改而崩溃
+                    var snapshot = list.ToList();
+                    foreach (var rect in snapshot)
                     {
                         ShowRegion(player, rect);
                     }
