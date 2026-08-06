@@ -478,6 +478,14 @@ public class HousingPlugin : TerrariaPlugin
                 HandleShowOthers(args);
                 break;
 
+            case "export":
+                HandleExport(args);
+                break;
+
+            case "import":
+                HandleImport(args);
+                break;
+
             default:
                 // 尝试匹配房屋权限设置: /house [屋名] 项目名 0/1
                 TryHandlePermission(args, cmd);
@@ -506,6 +514,11 @@ public class HousingPlugin : TerrariaPlugin
         }
 
         args.Player.SendMessage("/h c 圈地  |  /h set 查看设置  |  /htp 屋名 传送", Color.Lime);
+        if (args.Player.Group.HasPermission(GetDataHandlers.AdminHouse))
+        {
+            args.Player.SendMessage("/h export [屋名] ——导出房屋区域建筑为 .tsb（管理员）", Color.Aqua);
+            args.Player.SendMessage("/h import <文件名> ——导入 .tsb 建筑（以你为中心粘贴，管理员）", Color.Aqua);
+        }
     }
 
     // ── 新命令 ──
@@ -656,6 +669,61 @@ public class HousingPlugin : TerrariaPlugin
         var id = args.Player.Account.ID.ToString();
         bool now = ShowPrefManager.ToggleShowOthers(id);
         args.Player.SendSuccessMessage($"他人房屋自动边框: {(now ? "开" : "关")}");
+    }
+
+    // ── 导出（管理员）──
+
+    private void HandleExport(CommandArgs args)
+    {
+        if (!args.Player.Group.HasPermission(GetDataHandlers.AdminHouse))
+        {
+            args.Player.SendErrorMessage("你没有权限使用房屋导出功能。");
+            return;
+        }
+
+        House? house;
+        if (args.Parameters.Count > 1)
+            house = Utils.GetHouseByName(string.Join(" ", args.Parameters.GetRange(1, args.Parameters.Count - 1)));
+        else
+            house = Utils.CurrentHouse(args.Player);
+
+        if (house == null)
+        {
+            args.Player.SendErrorMessage("未找到要导出的房屋。用法: /h export [屋名]（不写屋名则导出当前所在房屋）");
+            return;
+        }
+
+        HouseExporter.Export(args.Player, house);
+    }
+
+    // ── 导入（管理员）──
+
+    private void HandleImport(CommandArgs args)
+    {
+        if (!args.Player.Group.HasPermission(GetDataHandlers.AdminHouse))
+        {
+            args.Player.SendErrorMessage("你没有权限使用房屋导入功能。");
+            return;
+        }
+
+        // 无参数：列出可用文件
+        if (args.Parameters.Count <= 1)
+        {
+            var files = HouseImporter.ListFiles();
+            if (files.Count == 0)
+            {
+                args.Player.SendErrorMessage($"建筑目录中没有 .tsb 文件（目录: {Path.Combine(TShock.SavePath, "TSWeb", "Buildings")}）。");
+                return;
+            }
+            args.Player.SendMessage($"可用建筑文件 ({files.Count}):", Color.Gold);
+            foreach (var f in files)
+                args.Player.SendMessage(f, Color.Yellow);
+            args.Player.SendMessage("/h import <文件名> ——导入建筑（以你所在位置为中心粘贴）", Color.Lime);
+            return;
+        }
+
+        var fileName = string.Join(" ", args.Parameters.GetRange(1, args.Parameters.Count - 1));
+        HouseImporter.Import(args.Player, fileName);
     }
 
     // ── 圈地相关 ──
