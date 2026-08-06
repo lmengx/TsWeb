@@ -453,11 +453,11 @@ public class HousingPlugin : TerrariaPlugin
                 HandleTP(args);
                 break;
 
-            case "settp":
+            case "传送点":
                 HandleSetTP(args);
                 break;
 
-            case "setexpel":
+            case "驱离点":
                 HandleSetExpel(args);
                 break;
 
@@ -616,6 +616,20 @@ public class HousingPlugin : TerrariaPlugin
             PermItem("植物", house.AllowPlant) + "    " + PermItem("易碎品", house.AllowFragile) + "    " + PermItem("挖坟", house.AllowGrave) + "    " + PermItem("复活点", house.AllowSpawn), green);
         plr.SendMessage(
             PermItem("违规驱离", house.ExpelOnViolate), green);
+
+        // 传送点 / 驱离点
+        string LocItem(string label, string value, bool hasValue)
+        {
+            var c = hasValue ? "7CFC00" : "FFA500";
+            return $"[c/{c}:{label} {value}]";
+        }
+        var hasExpel = house.ExpelX.HasValue && house.ExpelY.HasValue;
+        plr.SendMessage(
+            LocItem("传送点", $"({house.TpX},{house.TpY})（使用 /h 传送点 设置当前位置为房屋传送点）", true) + "    " +
+            LocItem("驱离点", hasExpel
+                ? $"({house.ExpelX},{house.ExpelY})（在房屋外且附近100格设置为驱离点）"
+                : "未设置（在房屋外且附近100格设置为驱离点）", hasExpel),
+            green);
 
         // 使用说明（授权提示上方）
         plr.SendMessage("[c/7CFC00:使用：/h 配置名 0/1] [c/FFA500:修改] [c/7CFC00:例如 /h 箱子 0（站在房屋内操作）]", green);
@@ -1132,7 +1146,7 @@ public class HousingPlugin : TerrariaPlugin
         else { args.Player.SendErrorMessage("移除用户权力失败。"); }
     }
 
-    // ── 新增指令：tp / settp / setexpel / editmsg ──
+    // ── 新增指令：tp / 传送点 / 驱离点 / editmsg ──
 
     private void HandleTP(CommandArgs args)
     {
@@ -1167,23 +1181,27 @@ public class HousingPlugin : TerrariaPlugin
     private void HandleSetTP(CommandArgs args)
     {
         House? house;
-        int px, py;
-        ParseHouseWithCoords(args, out house, out px, out py);
-        if (house == null) { args.Player.SendErrorMessage("未找到房屋。"); return; }
+        if (args.Parameters.Count > 1)
+            house = Utils.GetHouseByName(string.Join(" ", args.Parameters.GetRange(1, args.Parameters.Count - 1)));
+        else
+            house = Utils.CurrentHouse(args.Player);
+        if (house == null) { args.Player.SendErrorMessage("未找到房屋。用法: /h 传送点 [屋名]（缺省当前所在房屋）"); return; }
 
         if (house.Author != args.Player.Account.ID.ToString() &&
             !Utils.OwnsHouse(args.Player.Account.ID.ToString(), house) &&
             !args.Player.Group.HasPermission(GetDataHandlers.AdminHouse))
         { args.Player.SendErrorMessage("你没有权力修改这个房子!"); return; }
 
-        // 校验：传送点必须在房屋内
+        // 以玩家当前位置作为传送点，必须在房屋内
+        var px = args.Player.TileX;
+        var py = args.Player.TileY;
         if (!house.HouseArea.Contains(px, py))
-        { args.Player.SendErrorMessage("传送点必须在房屋矩形范围内!"); return; }
+        { args.Player.SendErrorMessage($"传送点必须在房屋 {house.Name} 的矩形范围内! 当前位置 ({px},{py}) 不在其中。"); return; }
 
         if (HouseManager.UpdateTP(house.Name, px, py))
         {
             house.TpX = px; house.TpY = py;
-            args.Player.SendSuccessMessage($"房屋 {house.Name} 的传送点已设置为 ({px}, {py})。");
+            args.Player.SendSuccessMessage($"房屋 {house.Name} 的传送点已设置为当前位置 ({px}, {py})。");
         }
         else { args.Player.SendErrorMessage("设置传送点失败。"); }
     }
@@ -1191,20 +1209,23 @@ public class HousingPlugin : TerrariaPlugin
     private void HandleSetExpel(CommandArgs args)
     {
         House? house;
-        int px, py;
-        ParseHouseWithCoords(args, out house, out px, out py);
-        if (house == null) { args.Player.SendErrorMessage("未找到房屋。"); return; }
+        if (args.Parameters.Count > 1)
+            house = Utils.GetHouseByName(string.Join(" ", args.Parameters.GetRange(1, args.Parameters.Count - 1)));
+        else
+            house = FindNearestHouse(args.Player);
+        if (house == null) { args.Player.SendErrorMessage("未找到房屋。用法: /h 驱离点 [屋名]（缺省选择离你最近的房屋）"); return; }
 
         if (house.Author != args.Player.Account.ID.ToString() &&
             !Utils.OwnsHouse(args.Player.Account.ID.ToString(), house) &&
             !args.Player.Group.HasPermission(GetDataHandlers.AdminHouse))
         { args.Player.SendErrorMessage("你没有权力修改这个房子!"); return; }
 
-        // 校验：驱离点必须在房屋外
+        // 以玩家当前位置作为驱离点，必须在房屋外且距边界 ≤100 格
+        var px = args.Player.TileX;
+        var py = args.Player.TileY;
         if (house.HouseArea.Contains(px, py))
-        { args.Player.SendErrorMessage("驱离点必须在房屋矩形范围外!"); return; }
+        { args.Player.SendErrorMessage($"驱离点必须在房屋 {house.Name} 的矩形范围外!"); return; }
 
-        // 校验：距离不超过 100 格
         var dist = Utils.DistanceToRect(new Point(px, py), house.HouseArea);
         if (dist > 100)
         { args.Player.SendErrorMessage($"驱离点距离房屋边界 {dist} 格，不能超过 100 格!"); return; }
@@ -1212,9 +1233,29 @@ public class HousingPlugin : TerrariaPlugin
         if (HouseManager.UpdateExpel(house.Name, px, py))
         {
             house.ExpelX = px; house.ExpelY = py;
-            args.Player.SendSuccessMessage($"房屋 {house.Name} 的驱离点已设置为 ({px}, {py})。");
+            args.Player.SendSuccessMessage($"房屋 {house.Name} 的驱离点已设置为当前位置 ({px}, {py})。");
         }
         else { args.Player.SendErrorMessage("设置驱离点失败。"); }
+    }
+
+    /// <summary>选择离玩家最近的房屋（驱离点缺省屋名时使用）</summary>
+    private static House? FindNearestHouse(TSPlayer ply)
+    {
+        House? best = null;
+        var bestDist = int.MaxValue;
+        var pos = new Point(ply.TileX, ply.TileY);
+        for (var i = 0; i < HousingPlugin.Houses.Count; i++)
+        {
+            var h = HousingPlugin.Houses[i];
+            if (h == null) continue;
+            var d = Utils.DistanceToRect(pos, h.HouseArea);
+            if (d < bestDist)
+            {
+                bestDist = d;
+                best = h;
+            }
+        }
+        return best;
     }
 
     private void HandleEditMsg(CommandArgs args)
@@ -1365,40 +1406,5 @@ public class HousingPlugin : TerrariaPlugin
     }
 
     // ── 辅助方法 ──
-
-    /// <summary>
-    /// 解析可变参数：屋名可选，坐标可选。缺省屋名用当前房屋，缺省坐标用玩家位置。
-    /// </summary>
-    private void ParseHouseWithCoords(CommandArgs args, out House? house, out int px, out int py)
-    {
-        house = null;
-        px = args.Player.TileX;
-        py = args.Player.TileY;
-
-        if (args.Parameters.Count <= 1)
-        {
-            house = Utils.CurrentHouse(args.Player);
-            return;
-        }
-
-        // 参数顺序: /house settp [屋名] [x] [y]
-        // 尝试将 args.Parameters[1] 解析为屋名
-        var maybeHouse = Utils.GetHouseByName(args.Parameters[1]);
-        int coordStart;
-        if (maybeHouse != null)
-        {
-            house = maybeHouse;
-            coordStart = 2;
-        }
-        else
-        {
-            house = Utils.CurrentHouse(args.Player);
-            coordStart = 1;
-        }
-
-        if (args.Parameters.Count > coordStart && int.TryParse(args.Parameters[coordStart], out var x))
-            px = x;
-        if (args.Parameters.Count > coordStart + 1 && int.TryParse(args.Parameters[coordStart + 1], out var y))
-            py = y;
-    }
+    // （原 ParseHouseWithCoords 已移除：传送点/驱离点改为以玩家当前位置设置）
 }
