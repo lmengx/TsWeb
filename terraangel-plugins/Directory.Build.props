@@ -1,0 +1,80 @@
+<Project>
+  <!--
+    TerraAngel 插件公共引用配置（方案A）
+    ====================================
+    原理：MSBuild 会自动把本文件导入到本目录下所有子项目的构建过程，
+    因此每个插件 csproj 只需声明目标框架与输出名，无需重复写引用。
+
+    ★ 唯一需要配置的路径：TerraAngelClientDir
+      指向客户端构建产物目录（TerraAngel/Terraria/bin/Release/net10.0/），
+      把 TerraAngel.PluginAPI.dll / Terraria.dll / ReLogic.dll 等放在该目录即可。
+  -->
+  <PropertyGroup>
+    <TerraAngelClientDir>$(MSBuildThisFileDirectory)client-build</TerraAngelClientDir>
+
+    <!-- 公共编译属性 -->
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <Platforms>AnyCPU</Platforms>
+  </PropertyGroup>
+
+  <!-- 缺失客户端产物时给出明确提示，而不是晦涩的 MSB3245 -->
+  <Target Name="CheckTerraAngelClientDlls" BeforeTargets="ResolveAssemblyReferences">
+    <Error
+      Condition="!Exists('$(TerraAngelClientDir)/TerraAngel.PluginAPI.dll') or !Exists('$(TerraAngelClientDir)/Terraria.dll')"
+      Text="缺少 TerraAngel 客户端产物：请将 TerraAngel.PluginAPI.dll、Terraria.dll（建议连同 ReLogic.dll）复制到 $(TerraAngelClientDir)，或修改 Directory.Build.props 中 TerraAngelClientDir 指向你的客户端构建目录。" />
+  </Target>
+
+  <ItemGroup>
+    <!-- 必需：插件基类（Plugin / Load / Update / Unload）。
+         注意实际文件名带点：TerraAngel.PluginAPI.dll（官方文档写 TerraAngelPluginAPI.dll 已过时） -->
+    <Reference Include="TerraAngel.PluginAPI">
+      <HintPath>$(TerraAngelClientDir)\TerraAngel.PluginAPI.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+
+    <!-- 必需：魔改后的客户端游戏本体（Main / NetMessage / Player / NPC ...） -->
+    <Reference Include="Terraria">
+      <HintPath>$(TerraAngelClientDir)\Terraria.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+
+    <!-- 建议：渲染/框架库（ImGui UI、Tool 系统等场景需要） -->
+    <Reference Include="ReLogic">
+      <HintPath>$(TerraAngelClientDir)\ReLogic.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+
+    <!--
+      可选引用（按需取消注释）：
+      <Reference Include="TrProtocol">
+        <HintPath>$(TerraAngelClientDir)\TrProtocol.dll</HintPath>
+        <Private>false</Private>
+      </Reference>
+      <Reference Include="ImGui.NET">
+        <HintPath>$(TerraAngelClientDir)\ImGui.NET.dll</HintPath>
+        <Private>false</Private>
+      </Reference>
+      <Reference Include="TNA">
+        <HintPath>$(TerraAngelClientDir)\TNA.dll</HintPath>
+        <Private>false</Private>
+      </Reference>
+      <Reference Include="CSharpEval">
+        <HintPath>$(TerraAngelClientDir)\CSharpEval.dll</HintPath>
+        <Private>false</Private>
+      </Reference>
+    -->
+  </ItemGroup>
+
+  <!--
+    说明：
+    - Private=false：引用 dll 不拷贝进插件输出目录。
+      TerraAngel 用 AssemblyLoadContext 加载插件，插件对
+      TerraAngelPluginAPI/Terraria 的解析会回退到客户端已加载的同名程序集，
+      拷贝副本反而可能导致版本冲突。
+    - 若插件还需要第三方依赖（如 Newtonsoft.Json），把 dll 一并放入
+      client-build 或插件输出目录；客户端 ClientLoader 的 AssemblyResolve
+      会解析 Plugins 目录下的任意 dll。
+  -->
+</Project>

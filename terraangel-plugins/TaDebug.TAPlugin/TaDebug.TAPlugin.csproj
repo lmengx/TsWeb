@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    TerraAngel 插件工程模板
+    - 目标框架必须为 net10.0（与 TerraAngel 客户端一致，官方文档的 net7.0 已过时）
+    - AssemblyName 必须以 .TAPlugin 结尾（PluginLoader 只识别 .TAPlugin.dll）
+    - 引用统一由上级 Directory.Build.props 提供，无需在此重复声明
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>TaDebug.TAPlugin</AssemblyName>
+    <RootNamespace>TaDebug.TAPlugin</RootNamespace>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <EnableDefaultCompileItems>true</EnableDefaultCompileItems>
+  </PropertyGroup>
+
+</Project>
