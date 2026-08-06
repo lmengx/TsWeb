@@ -386,9 +386,15 @@ public class HousingPlugin : TerrariaPlugin
             return;
         }
 
-        var cmd = "help";
-        if (args.Parameters.Count > 0)
-            cmd = args.Parameters[0].ToLower();
+        var cmd = args.Parameters.Count > 0 ? args.Parameters[0].ToLower() : "";
+
+        // 无参数：引导行，完整帮助见 /h help
+        if (cmd.Length == 0)
+        {
+            args.Player.SendMessage("输入 /h help 查看完整帮助提示", Color.Lime);
+            args.Player.SendMessage("/h c 圈地  |  /h set 查看设置  |  /htp 屋名 传送", Color.Lime);
+            return;
+        }
 
         switch (cmd)
         {
@@ -513,9 +519,25 @@ public class HousingPlugin : TerrariaPlugin
             args.Player.SendMessage("你还没有房屋，使用 /h c 创建一个吧", Color.Gray);
         }
 
+        args.Player.SendMessage("━━━ 房屋操作 ━━━", Color.Gold);
         args.Player.SendMessage("/h c 圈地  |  /h set 查看设置  |  /htp 屋名 传送", Color.Lime);
+        args.Player.SendMessage("/h delete [屋名] 删除房屋    /h redefine [屋名] 重新定义范围", Color.Lime);
+        args.Player.SendMessage("/h list [页码] 查看房屋列表    /h info [屋名] 查看房屋信息    /h name 敲击查询归属", Color.Lime);
+
+        args.Player.SendMessage("━━━ 边框显示 ━━━", Color.Gold);
+        var pid = args.Player.Account.ID.ToString();
+        var showMe = ShowPrefManager.GetShowMe(pid);
+        var showOthers = ShowPrefManager.GetShowOthers(pid);
+        var cMe = showMe ? "7CFC00" : "FFA500";
+        var cOthers = showOthers ? "7CFC00" : "FFA500";
+        args.Player.SendMessage(
+            $"[c/{cMe}:自己房屋边框 {(showMe ? "开" : "关")}] /h showme 切换    " +
+            $"[c/{cOthers}:他人房屋边框 {(showOthers ? "开" : "关")}] /h showothers 切换",
+            Color.Lime);
+
         if (args.Player.Group.HasPermission(GetDataHandlers.AdminHouse))
         {
+            args.Player.SendMessage("━━━ 管理员 ━━━", Color.Gold);
             args.Player.SendMessage("/h export [屋名] ——导出房屋区域建筑为 .tsb（管理员）", Color.Aqua);
             args.Player.SendMessage("/h import <文件名> ——导入 .tsb 建筑（以你为中心粘贴，管理员）", Color.Aqua);
         }
