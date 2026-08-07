@@ -192,10 +192,22 @@ const routes = [
             component: () => import('../views/console/FileManagerView.vue'),
             meta: { requiresAuth: true, requiresAdmin: true }
           },
-          {
-            path: 'groups',
+      {
+        path: 'groups',
         name: 'Groups',
         component: () => import('../views/console/GroupsView.vue'),
+        meta: { requiresAuth: true, requiresAdmin: true }
+      },
+      {
+        path: 'houses',
+        name: 'Houses',
+        component: () => import('../views/console/HousesView.vue'),
+        meta: { requiresAuth: true, requiresAdmin: true }
+      },
+      {
+        path: 'buildings',
+        name: 'Buildings',
+        component: () => import('../views/console/BuildingsView.vue'),
         meta: { requiresAuth: true, requiresAdmin: true }
       },
       {

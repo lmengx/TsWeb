@@ -1,10 +1,11 @@
-﻿﻿﻿using System.Reflection;
+﻿using System.Reflection;
 using TShockAPI;
 using Terraria;
 using TerrariaApi.Server;
 using Rests;
 using System.Data;
 using TShockAPI.DB;
+using HouseRegion;
 
 namespace TShockData
 {
@@ -35,6 +36,10 @@ namespace TShockData
 
             QQBind.Initialize();
             PromotionManager.LoadConfig();
+
+            // ═══ House 房屋系统（原 plugin-son/House 并入）═══
+            HouseCore.Instance.Initialize(this);
+            HouseApi.Register();
 
 			TShock.RestApi.Register(new SecureRestCommand("/data/users/invsee", GetPlayerInv.GetInv, "data.rest.invsee"));
 			TShock.RestApi.Register(new SecureRestCommand("/data/users/editinv", GetPlayerInv.EditInv, "data.rest.invsee"));
@@ -198,6 +203,7 @@ namespace TShockData
 				BypassHelper.UnregisterPermissionHook();
 				PvPLockManager.Dispose();
 				TeamLockManager.Dispose();
+				HouseCore.Instance.Dispose();
 
 				CleanupChatCommands();
 				CleanupRestApiRoutes();
@@ -299,6 +305,9 @@ namespace TShockData
                 "/data/tasks/run",
                 "/data/tasks/log",
                 "/data/tasks/log/detail",
+                "/data/house/list",
+                "/data/buildings/list",
+                "/data/buildings/info",
 			};
 
 			try

@@ -36,6 +36,8 @@ const sidebarItems = [
   { id: 'terminal', name: '控制台', path: '/console/terminal', adminOnly: true, icon: '💻' },
   { id: 'players', name: '玩家管理', path: '/console/players', adminOnly: true, icon: '👥' },
   { id: 'groups', name: '组管理', path: '/console/groups', adminOnly: true },
+  { id: 'houses', name: '房屋管理', path: '/console/houses', adminOnly: true, icon: '🏠' },
+  { id: 'buildings', name: '建筑存档', path: '/console/buildings', adminOnly: true, icon: '📦' },
   { id: 'tasks', name: '自动任务', path: '/console/tasks', adminOnly: true, icon: '⏰' },
   {
     id: 'anticheat', name: '反作弊', path: '/console/anticheat', adminOnly: true,
