@@ -1,6 +1,8 @@
 using Microsoft.Xna.Framework;
 using Newtonsoft.Json;
+using System.Collections;
 using System.IO.Compression;
+using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using Terraria;
@@ -79,7 +81,7 @@ public static class HouseImporter
         catch (Exception ex)
         {
             TShock.Log.Error("[HouseRegion] 导入房屋建筑失败: " + ex);
-            op.SendErrorMessage($"导入房屋建筑失败: {ex.Message}");
+            op.SendErrorMessage($"导入房屋建筑失败: {ex.Message}\n{ex.StackTrace}");
             return false;
         }
     }
@@ -329,6 +331,7 @@ public static class HouseImporter
 
         // 1) 清除目标区域旧实体（箱子/标牌/各类 TileEntity）
         KillAll(startX, startY, w, h);
+        TShock.Log.ConsoleInfo($"[HouseRegion] 导入 1/5 清除完成 ({w}x{h})");
 
         // 2) 写入 tile（越界格也读取消耗流，保证后续字节对齐）
         using var ms = new MemoryStream(raw);
@@ -357,12 +360,15 @@ public static class HouseImporter
                 Main.tile[worldX, worldY] = tile;
             }
         }
+        TShock.Log.ConsoleInfo("[HouseRegion] 导入 2/5 写 tile 完成");
 
         // 3) 重建实体骨架（chest/sign/TileEntity）
         FixAll(startX, startY, w, h);
+        TShock.Log.ConsoleInfo("[HouseRegion] 导入 3/5 实体骨架完成");
 
         // 4) 还原实体数据
         RestoreEntities(doc.Entities, startX, startY);
+        TShock.Log.ConsoleInfo("[HouseRegion] 导入 4/5 实体数据完成");
 
         // 5) 刷新帧图 + 强制全量重发 tile 数据
         for (var x = startX; x < endX; x++)
@@ -427,37 +433,116 @@ public static class HouseImporter
                     Sign.ReadSign(x, y, true);
                 }
                 else if (type == TileID.ItemFrame && tile.frameX % 36 == 0 && tile.frameY == 0)
-                    PlaceTe<TEItemFrame>(x, y);
+                    PlaceEntity(x, y, typeof(TEItemFrame));
                 else if ((type == TileID.WeaponsRack || type == TileID.WeaponsRack2) && tile.frameX % 54 == 0 && tile.frameY == 0)
-                    PlaceTe<TEWeaponsRack>(x, y);
+                    PlaceEntity(x, y, typeof(TEWeaponsRack));
                 else if (type == TileID.FoodPlatter)
-                    PlaceTe<TEFoodPlatter>(x, y);
+                    PlaceEntity(x, y, typeof(TEFoodPlatter));
                 else if (type == TileID.DisplayDoll && tile.frameX % 36 == 0 && tile.frameY == 0)
-                    PlaceTe<TEDisplayDoll>(x, y);
+                    PlaceEntity(x, y, typeof(TEDisplayDoll));
                 else if (type == TileID.HatRack && tile.frameX == 0 && tile.frameY == 0)
-                    PlaceTe<TEHatRack>(x, y);
+                    PlaceEntity(x, y, typeof(TEHatRack));
                 else if (type == TileID.LogicSensor)
-                    PlaceTe<TELogicSensor>(x, y);
+                    PlaceEntity(x, y, typeof(TELogicSensor));
                 else if (type == TileID.TeleportationPylon && tile.frameX % 54 == 0 && tile.frameY == 0)
-                    PlaceTe<TETeleportationPylon>(x, y);
+                    PlaceEntity(x, y, typeof(TETeleportationPylon));
                 else if (type == TileID.TargetDummy && tile.frameX % 36 == 0 && tile.frameY == 0)
-                    PlaceTe<TETrainingDummy>(x, y);
+                    PlaceEntity(x, y, typeof(TETrainingDummy));
                 else if (type == TileID.DeadCellsDisplayJar)
-                    PlaceTe<TEDeadCellsDisplayJar>(x, y);
+                    PlaceEntity(x, y, typeof(TEDeadCellsDisplayJar));
                 else if (type == TileID.KiteAnchor)
-                    PlaceTe<TEKiteAnchor>(x, y);
+                    PlaceEntity(x, y, typeof(TEKiteAnchor));
                 else if (type == TileID.CritterAnchor)
-                    PlaceTe<TECritterAnchor>(x, y);
+                    PlaceEntity(x, y, typeof(TECritterAnchor));
             }
         }
     }
 
-    private static void PlaceTe<T>(int x, int y) where T : TileEntity
+    private static void PlaceEntity(int x, int y, Type type)
     {
         if (TileEntity.ByPosition.ContainsKey(new Point16(x, y))) return;
-        var place = typeof(T).GetMethod("Place", new[] { typeof(int), typeof(int) });
-        place?.Invoke(null, new object[] { x, y });
+
+        // 强类型调用各子类的 Place(int,int)（基类泛型 Place<T> 经子类类型推断，返回实体 ID）。
+        // 不用反射：GetMethod(name, types) 匹配不到泛型方法定义（会返回 null）。
+        int id;
+        if (type == typeof(TEItemFrame)) id = TEItemFrame.Place(x, y);
+        else if (type == typeof(TEWeaponsRack)) id = TEWeaponsRack.Place(x, y);
+        else if (type == typeof(TEFoodPlatter)) id = TEFoodPlatter.Place(x, y);
+        else if (type == typeof(TEDisplayDoll)) id = TEDisplayDoll.Place(x, y);
+        else if (type == typeof(TEHatRack)) id = TEHatRack.Place(x, y);
+        else if (type == typeof(TELogicSensor)) id = TELogicSensor.Place(x, y);
+        else if (type == typeof(TETeleportationPylon)) id = TETeleportationPylon.Place(x, y);
+        else if (type == typeof(TETrainingDummy) || type == typeof(TEDeadCellsDisplayJar)
+              || type == typeof(TEKiteAnchor) || type == typeof(TECritterAnchor))
+        {
+            // 这几种无 public 无参构造，基类泛型 Place<T> 的 new() 约束不满足，强类型调用会被解析到
+            // 非泛型 Place(int,int,int) 而缺 type 参数；改用反射构造 + 注册（绕开 new() 约束与类型码不确定性）
+            CreateTeReflect(x, y, type);
+            return;
+        }
+        else
+        {
+            TShock.Log.ConsoleError($"[HouseRegion] 未知实体类型 {type.Name} @ ({x},{y})");
+            return;
+        }
+
+        if (id != -1 && TileEntity.ByID.TryGetValue(id, out var te))
+        {
+            PrepareTeArrays(te);  // 确保 Item[] 字段空槽为非 null Item（TEDisplayDoll/TEHatRack 序列化无 null 检查）
+            BroadcastTe(te);      // 创建后必须广播，否则在线客户端本地 ByPosition 无此实体，右键无法交互
+        }
+        else
+            TShock.Log.ConsoleError($"[HouseRegion] 创建实体失败: {type.Name} @ ({x},{y})");
     }
+
+    /// <summary>反射：把实体所有 Item[] 字段的空槽填为非 null Item。</summary>
+    /// <remarks>Terraria 约定空槽是 netID=0 的 Item 实例，WriteExtraData 序列化无 null 检查，null 元素会 NRE。</remarks>
+    private static void PrepareTeArrays(TileEntity te)
+    {
+        const BindingFlags all = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
+        foreach (var f in te.GetType().GetFields(all))
+        {
+            if (f.FieldType != typeof(Item[])) continue;
+            var arr = f.GetValue(te) as Item[];
+            if (arr == null)
+            {
+                f.SetValue(te, new Item[0]);
+                continue;
+            }
+            for (var i = 0; i < arr.Length; i++)
+                if (arr[i] == null) arr[i] = new Item();
+        }
+    }
+
+    /// <summary>反射创建 TileEntity：构造实例 + 分配 ID + 注册到 ByID/ByPosition/_TileEntities + 广播。</summary>
+    /// <remarks>用于无 public 无参构造（泛型 Place 的 new() 约束不满足）的实体，如训练假人/死细胞罐/风筝锚/生物锚。</remarks>
+    private static void CreateTeReflect(int x, int y, Type type)
+    {
+        const BindingFlags all = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
+        const BindingFlags allS = all | BindingFlags.Static;
+
+        // 允许私有/内部构造创建实例
+        var instance = (TileEntity)Activator.CreateInstance(type, nonPublic: true)!;
+
+        var id = 0;
+        var assignNewId = typeof(TileEntity).GetMethod("AssignNewID", allS);
+        if (assignNewId != null) id = (int)assignNewId.Invoke(null, null)!;
+
+        typeof(TileEntity).GetField("ID", all)?.SetValue(instance, id);
+        typeof(TileEntity).GetField("Position", all)?.SetValue(instance, new Point16(x, y));
+
+        (typeof(TileEntity).GetField("ByID", allS)?.GetValue(null) as IDictionary)?.Add(id, instance);
+        (typeof(TileEntity).GetField("ByPosition", allS)?.GetValue(null) as IDictionary)?.Add(new Point16(x, y), instance);
+        (typeof(TileEntity).GetField("_TileEntities", allS)?.GetValue(null) as IList)?.Add(instance);
+
+        PrepareTeArrays(instance);  // 空槽填非 null Item，避免序列化 NRE
+        // 创建后必须广播，否则在线客户端本地 ByPosition 无此实体，右键无法交互
+        BroadcastTe(instance);
+    }
+
+    /// <summary>广播单个 TileEntity 给所有在线客户端（服务器创建/修改实体后必须发）</summary>
+    private static void BroadcastTe(TileEntity te)
+        => NetMessage.SendData((int)MessageID.TileEntitySharing, -1, -1, null, te.ID, te.Position.X, te.Position.Y);
 
     // ══════════════════════════════════════════════════════════
     //  实体数据还原
@@ -531,15 +616,13 @@ public static class HouseImporter
                 break;
 
             case "displayDoll" when te is TEDisplayDoll dd:
-                dd._equip = new Item[8];
-                dd._dyes = new Item[8];
+                // 不要重建 _equip/_dyes：vanilla 创建时数组元素已是非 null Item（空槽 netID=0），
+                // WriteExtraData 序列化无 null 检查，重建会把空槽变 null 导致 NRE
                 RestoreSlotItems(dd._equip, e.Items, 8);
                 RestoreSlotItems(dd._dyes, e.Dyes, 8);
                 break;
 
             case "hatRack" when te is TEHatRack hr:
-                hr._items = new Item[2];
-                hr._dyes = new Item[2];
                 RestoreSlotItems(hr._items, e.Items, 2);
                 RestoreSlotItems(hr._dyes, e.Dyes, 2);
                 break;
@@ -563,11 +646,14 @@ public static class HouseImporter
 
             // pylon / trainingDummy：无载荷，跳过
         }
+
+        // 数据已还原，广播最新实体给所有在线客户端
+        BroadcastTe(te);
     }
 
-    private static void RestoreSlotItems(Item[] target, List<TsbItem>? items, int capacity)
+    private static void RestoreSlotItems(Item[]? target, List<TsbItem>? items, int capacity)
     {
-        if (items == null) return;
+        if (target == null || items == null) return;
         foreach (var it in items)
         {
             if (it.Slot is not int slot || slot < 0 || slot >= capacity) continue;
