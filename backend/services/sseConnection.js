@@ -1,0 +1,239 @@
+/**
+ * 插件 SSE 常驻长连接服务
+ * 后端启动即对每台启用服务器建立到插件 /tsweb/stream 的 SSE 长连接（REST token 鉴权），
+ * 持续接收日志与定向文件推送；不随前端连接状态变化而断联。
+ *
+ * 事件协议：
+ *   connected  -> { connected: true, clientId }
+ *   ping       -> 心跳
+ *   log        -> { id, time, level, segments:[{t,c}] }   → pushWebhookLog 入队广播给前端
+ *   file.begin / file.chunk / file.end / file.error       → 定向文件组装保存
+ */
+import fs from 'fs'
+import path from 'path'
+import crypto from 'crypto'
+import { fileURLToPath } from 'url'
+import { getServers } from '../config.js'
+import { pushWebhookLog } from './logBroadcast.js'
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+
+// serverId -> 连接状态
+const _conns = new Map()
+
+const sleep = (ms) => new Promise(r => setTimeout(r, ms))
+const delay = (retry) => Math.min(1000 * 2 ** Math.min(retry, 5), 30000) // 1s→30s 指数退避
+
+/**
+ * 启动时对全部启用服务器建立 SSE 长连接
+ */
+export async function connectAll() {
+  const servers = await getServers()
+  const enabled = servers.filter(s => s.enabled && s.host && s.port && s.apiKey)
+  for (const s of enabled) {
+    connect(s)
+  }
+  return { success: true, connected: enabled.length }
+}
+
+/**
+ * 对单台服务器建立（或重建）SSE 连接
+ */
+export function connect(server) {
+  disconnect(server.id)
+  const conn = {
+    server,
+    clientId: null,
+    connected: false,
+    retry: 0,
+    closed: false,
+    transfers: new Map() // 文件传输 id -> 组装状态
+  }
+  _conns.set(server.id, conn)
+  runLoop(conn)
+}
+
+export function disconnect(serverId) {
+  const conn = _conns.get(serverId)
+  if (!conn) return
+  conn.closed = true
+  _conns.delete(serverId)
+}
+
+async function runLoop(conn) {
+  while (!conn.closed) {
+    const base = `${conn.server.host.startsWith('http') ? conn.server.host : `http://${conn.server.host}`}:${conn.server.port}`
+    const url = `${base}/tsweb/stream?token=${encodeURIComponent(conn.server.apiKey)}`
+    // 仅连接阶段 15s 超时；连接建立后移除，避免定时器切断长连接（靠心跳/读流异常检测断线）
+    const ac = new AbortController()
+    const connectTimer = setTimeout(() => ac.abort(), 15000)
+    let res
+    try {
+      res = await fetch(url, { signal: ac.signal })
+    } catch (e) {
+      if (!conn.closed) console.warn(`[SSE] 与插件 ${conn.server.name} 连接失败: ${e.message}`)
+    } finally {
+      clearTimeout(connectTimer)
+    }
+
+    if (res && res.ok && res.body) {
+      conn.retry = 0
+      conn.connected = true
+      console.log(`[SSE] 已连接插件 ${conn.server.name} (${conn.server.host}:${conn.server.port})`)
+      try {
+        const reader = res.body.getReader()
+        const decoder = new TextDecoder()
+        let buffer = ''
+        while (!conn.closed) {
+          const { done, value } = await reader.read()
+          if (done) break
+          buffer += decoder.decode(value, { stream: true })
+          let idx
+          while ((idx = buffer.indexOf('\n\n')) >= 0) {
+            const frame = buffer.slice(0, idx)
+            buffer = buffer.slice(idx + 2)
+            handleFrame(conn, frame)
+          }
+        }
+      } catch (e) {
+        if (!conn.closed) console.warn(`[SSE] 与插件 ${conn.server.name} 连接断开: ${e.message}`)
+      } finally {
+        conn.connected = false
+        conn.clientId = null
+      }
+    } else if (!conn.closed) {
+      conn.connected = false
+      console.warn(`[SSE] 与插件 ${conn.server.name} 连接失败: HTTP ${res ? res.status : 'no response'}`)
+    }
+
+    if (conn.closed) break
+    await sleep(delay(conn.retry++))
+  }
+}
+
+function handleFrame(conn, frame) {
+  let event = 'message'
+  let data = ''
+  for (const line of frame.split('\n')) {
+    if (line.startsWith('event:')) event = line.slice(6).trim()
+    else if (line.startsWith('data:')) data += line.slice(5).replace(/^\s+/, '') + '\n'
+  }
+  data = data.replace(/\n$/, '')
+  if (!data) return
+
+  let parsed
+  try { parsed = JSON.parse(data) } catch { return }
+
+  switch (event) {
+    case 'connected':
+      conn.clientId = parsed.clientId
+      console.log(`[SSE] ${conn.server.name} clientId=${parsed.clientId}`)
+      break
+    case 'ping':
+      break
+    case 'log':
+      // data 即插件端包装好的日志 JSON 字符串，原样入队广播给前端
+      pushWebhookLog(data)
+      break
+    default:
+      if (event.startsWith('file.')) handleFileEvent(conn, event, parsed)
+  }
+}
+
+// ═══════════════ 文件接收组装 ═══════════════
+
+const SaveRoot = path.join(__dirname, '..', 'res', '导出数据', 'sse-files')
+
+function handleFileEvent(conn, event, parsed) {
+  const id = parsed.id
+  if (event === 'file.begin') {
+    conn.transfers.set(id, {
+      name: parsed.name || 'file',
+      size: parsed.size || 0,
+      chunks: parsed.chunks || 0,
+      chunkSize: parsed.chunkSize || 0,
+      received: new Array(parsed.chunks || 0).fill(null),
+      count: 0
+    })
+  } else if (event === 'file.chunk') {
+    const t = conn.transfers.get(id)
+    if (!t || parsed.n == null || parsed.n >= t.received.length) return
+    if (t.received[parsed.n] !== null) return // 该段已收到，忽略重复
+    t.received[parsed.n] = Buffer.from(parsed.d || '', 'base64')
+    t.count++
+    if (t.count >= t.chunks) finishFile(conn, id, t)
+  } else if (event === 'file.end') {
+    const t = conn.transfers.get(id)
+    if (t) finishFile(conn, id, t, parsed.sha256)
+  } else if (event === 'file.error') {
+    console.warn(`[SSE] ${conn.server.name} 文件传输失败: ${parsed.reason || 'unknown'}`)
+    conn.transfers.delete(id)
+  }
+}
+
+function finishFile(conn, id, t, sha256) {
+  if (t.saved) return
+  const buf = Buffer.concat(t.received.map(b => b || Buffer.alloc(0)))
+  if (sha256) {
+    const hash = crypto.createHash('sha256').update(buf).digest('hex')
+    if (hash.toLowerCase() !== String(sha256).toLowerCase()) {
+      console.warn(`[SSE] ${conn.server.name} 文件校验失败: ${t.name}`)
+      conn.transfers.delete(id)
+      return
+    }
+  }
+  try {
+    const dir = path.join(SaveRoot, String(conn.server.id))
+    fs.mkdirSync(dir, { recursive: true })
+    const safeName = path.basename(String(t.name || 'file')).replace(/[\\/:*?"<>|]/g, '_')
+    const full = path.join(dir, safeName)
+    fs.writeFileSync(full, buf)
+    console.log(`[SSE] ${conn.server.name} 文件已保存: ${safeName} (${buf.length} bytes)`)
+  } catch (e) {
+    console.error(`[SSE] 文件保存失败: ${e.message}`)
+  }
+  t.saved = true
+  conn.transfers.delete(id)
+}
+
+// ═══════════════ 对外接口 ═══════════════
+
+/**
+ * 请求插件定向推送一个文件（TShock.SavePath 相对路径）到本后端的 SSE 连接
+ * @param {string} serverId
+ * @param {string} filePath 如 tshock.json、logs/xxx.log
+ */
+export async function requestFile(serverId, filePath) {
+  const conn = _conns.get(serverId)
+  if (!conn || !conn.connected || !conn.clientId) {
+    return { success: false, message: 'SSE 未连接' }
+  }
+  const server = conn.server
+  const base = `${server.host.startsWith('http') ? server.host : `http://${server.host}`}:${server.port}`
+  const url = `${base}/tsweb/file?token=${encodeURIComponent(server.apiKey)}&clientId=${encodeURIComponent(conn.clientId)}&path=${encodeURIComponent(filePath)}`
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(5000) })
+    const json = await res.json().catch(() => ({}))
+    return { success: res.ok, ...json }
+  } catch (e) {
+    return { success: false, message: e.message }
+  }
+}
+
+/**
+ * 获取所有连接的实时状态
+ */
+export function getSseStatus() {
+  const list = []
+  for (const [id, conn] of _conns) {
+    list.push({ id, name: conn.server.name, connected: conn.connected, clientId: conn.clientId })
+  }
+  return list
+}
+
+/**
+ * 停止所有连接
+ */
+export function disconnectAll() {
+  for (const id of [..._conns.keys()]) disconnect(id)
+}

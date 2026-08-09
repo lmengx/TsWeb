@@ -9,7 +9,16 @@ const _logQueue = []
 const _sseClients = new Set()
 const MaxQueueLines = 2000
 
+// SSE 常连主通道与 webhook 附加通道可能推送同一行，按内容对最近几条去重，避免前端重复
+const _recentHashes = []
+const MaxRecentHashes = 4
+
 export function pushWebhookLog(line) {
+  const hash = String(line)
+  if (_recentHashes.includes(hash)) return
+  _recentHashes.push(hash)
+  if (_recentHashes.length > MaxRecentHashes) _recentHashes.shift()
+
   // 存入内存队列
   _logQueue.push(line)
   if (_logQueue.length > MaxQueueLines) {

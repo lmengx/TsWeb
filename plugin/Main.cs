@@ -1,4 +1,4 @@
-﻿using System.Reflection;
+using System.Reflection;
 using TShockAPI;
 using Terraria;
 using TerrariaApi.Server;
@@ -126,6 +126,13 @@ namespace TShockData
 
             SSELogger.Initialize(this);
 
+            // ═══ 现代 REST 监听接管（替换旧 HttpServer.dll，支持 SSE 长连接/日志实时推送）═══
+            if (TShock.Config.Settings.RestApiEnabled)
+            {
+                TShock.RestApi.Stop();   // 释放旧 HttpServer 占用的端口
+                WebRestServer.Start(TShock.Config.Settings.RestApiPort);
+            }
+
             // ═══ 自动任务系统 ═══
             TaskScheduler.Initialize();
             TShock.RestApi.Register(new SecureRestCommand("/data/tasks/list", TaskScheduler.ListTasksApi, "data.rest.invsee"));
@@ -207,6 +214,15 @@ namespace TShockData
 
 				CleanupChatCommands();
 				CleanupRestApiRoutes();
+
+                // ═══ 让出现代 REST 监听，恢复 TShock 原 REST（热卸载场景服务器仍运行）═══
+                WebRestServer.Stop();
+                try
+                {
+                    if (TShock.Config.Settings.RestApiEnabled)
+                        TShock.RestApi.Start();
+                }
+                catch { }
 			}
 			base.Dispose(Disposing);
 		}

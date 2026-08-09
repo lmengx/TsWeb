@@ -71,10 +71,10 @@ namespace TShockData
 
             if (_segments.Count == 0) return;
 
-            var json = JsonConvert.SerializeObject(_segments);
+            var segments = new List<LogSegment>(_segments);
             _segments.Clear();
 
-            SSELogger.AddLogLine(json);
+            SSELogger.AddLogLine(segments);
         }
 
         public override void Write(char value)
@@ -195,6 +195,7 @@ namespace TShockData
         private static readonly List<string> _logHistory = new();
         private static readonly object _logLock = new();
         private const int MaxLogLines = 1000;
+        private static long _nextId = 1; // 日志全局递增序号（供断线补拉/去重）
 
         private static LogInterceptor? _interceptor;
         private static TextWriter? _originalOut;
@@ -242,20 +243,31 @@ namespace TShockData
         }
 
         /// <summary>
-        /// 添加一行日志到环形缓冲区并推送到 webhook
-        /// line 是 LogSegment[] 序列化的 JSON 字符串
+        /// 添加一行日志到环形缓冲区并推送
+        /// 包装为 { id, time, segments }，segments 为带原始颜色的片段（不做级别推断）
         /// </summary>
-        public static void AddLogLine(string line)
+        public static void AddLogLine(List<LogSegment> segments)
         {
-            // 存入环形缓冲区
+            string json;
             lock (_logLock)
             {
-                _logHistory.Add(line);
+                var wrapped = new
+                {
+                    id = _nextId++,
+                    time = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    segments
+                };
+                json = JsonConvert.SerializeObject(wrapped);
+                _logHistory.Add(json);
                 if (_logHistory.Count > MaxLogLines)
                     _logHistory.RemoveRange(0, _logHistory.Count - MaxLogLines);
             }
 
-            // 异步推送到 webhook（fire-and-forget）
+            // SSE 实时推送（现代监听服务）
+            try { WebRestServer.Broadcast("log", json); }
+            catch { }
+
+            // 异步推送到 webhook（fire-and-forget，兼容旧链路）
             string? url;
             lock (_webhookLock)
             {
@@ -263,7 +275,7 @@ namespace TShockData
             }
             if (!string.IsNullOrEmpty(url))
             {
-                var lineCopy = line; // 捕获局部变量
+                var lineCopy = json; // 捕获局部变量
                 _ = PostToWebhookAsync(url, lineCopy);
             }
         }

@@ -1,5 +1,6 @@
 <script setup>
 import { ref, onMounted, onUnmounted, nextTick } from 'vue'
+import { getCurrentServerId } from '../utils/serverStore.js'
 
 const logs = ref([])
 const inputCmd = ref('')
@@ -70,26 +71,36 @@ function connectSSE() {
       if (Array.isArray(data)) {
         data.forEach(line => {
           let segments = []
+          let time = new Date().toLocaleTimeString('zh-CN', { hour12: false })
+          let lineId = Date.now() + Math.random()
           try {
-            if (typeof line === 'string') {
-              const parsed = JSON.parse(line)
-              if (Array.isArray(parsed)) {
-                segments = parsed
-              } else {
-                segments = [{ t: line, c: null }]
+            let parsed = line
+            if (typeof line === 'string') parsed = JSON.parse(line)
+            if (Array.isArray(parsed)) {
+              // 旧格式：[{t,c}]
+              segments = parsed
+            } else if (parsed && Array.isArray(parsed.segments)) {
+              // 新格式：{ id, time, segments }
+              segments = parsed.segments
+              if (parsed.time) {
+                const d = new Date(parsed.time)
+                if (!isNaN(d.getTime())) time = d.toLocaleTimeString('zh-CN', { hour12: false })
               }
-            } else if (Array.isArray(line)) {
-              segments = line
+              if (parsed.id != null) lineId = parsed.id
+            } else if (parsed && typeof parsed === 'object') {
+              segments = [{ t: JSON.stringify(parsed), c: null }]
+            } else {
+              segments = [{ t: String(line), c: null }]
             }
           } catch {
             segments = [{ t: String(line), c: null }]
           }
 
           logs.value.push({
-            id: Date.now() + Math.random(),
+            id: lineId,
             type: 'line',
             segments,
-            time: new Date().toLocaleTimeString('zh-CN', { hour12: false })
+            time
           })
         })
         if (logs.value.length > MAX_LOG) {
@@ -155,7 +166,11 @@ async function sendCommand() {
     } catch {}
     const res = await fetch('/api/online/log/command', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+        'x-server-id': getCurrentServerId() || ''
+      },
       body: JSON.stringify({ cmd, executor: username })
     })
 

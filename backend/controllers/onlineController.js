@@ -1,30 +1,19 @@
 import onlineService from '../services/onlineService.js'
 import jwt from 'jsonwebtoken'
+import path from 'path'
+import fs from 'fs'
+import { fileURLToPath } from 'url'
 import { getConfig } from '../config.js'
-import { updatePluginWebhook, reRegisterWebhook } from '../services/webhookRegistration.js'
 import audit from '../services/auditLogger.js'
 import { getCurrentServerId } from '../services/tshockService.js'
+import { requestFile } from '../services/sseConnection.js'
 import { pushWebhookLog, getSseClients, addSseClient, removeSseClient, sseClientCount } from '../services/logBroadcast.js'
 
-// ═══ SSE 客户端数量监听（防抖） ═══
-let _sseThrottleTimer = null
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const SseFilesRoot = path.join(__dirname, '..', 'res', '导出数据', 'sse-files')
 
-/**
- * SSE 客户端数量变化时，自动注册/注销 webhook
- */
-function onSseClientCountChanged(serverId) {
-  if (_sseThrottleTimer) clearTimeout(_sseThrottleTimer)
-  _sseThrottleTimer = setTimeout(async () => {
-    _sseThrottleTimer = null
-    const count = sseClientCount()
-    // 显式绑定服务器 id（避免依赖 AsyncLocalStorage 在定时器中的传播）
-    if (count === 0) {
-      await updatePluginWebhook(serverId, null)
-    } else {
-      await reRegisterWebhook(serverId)
-    }
-  }, 2000)
-}
+// ═══ 说明：日志主通道已改为后端→插件 SSE 常驻长连接（sseConnection.js），
+// 前端日志流由后端内存队列 + 广播提供，不再需要随前端连接状态注册/注销插件 webhook ═══
 
 export const getHourlyOnline = async (req, res) => {
   const { date } = req.query
@@ -125,8 +114,6 @@ export const streamLogs = async (req, res) => {
 
     // 注册到 SSE 客户端集合
     addSseClient(res)
-    // 显式捕获当前请求的服务器 id（AsyncLocalStorage 在异步回调中不保证传播）
-    const boundServerId = getCurrentServerId()
 
     // 定时心跳 + 僵尸检测
     const keepAlive = setInterval(() => {
@@ -139,7 +126,6 @@ export const streamLogs = async (req, res) => {
       } catch {
         clearInterval(keepAlive)
         removeSseClient(res)
-        onSseClientCountChanged(boundServerId)
       }
     }, 30000)
 
@@ -147,14 +133,12 @@ export const streamLogs = async (req, res) => {
     res.socket?.once('close', () => {
       clearInterval(keepAlive)
       removeSseClient(res)
-      onSseClientCountChanged(boundServerId)
     })
 
     // 客户端断开
     req.on('close', () => {
       clearInterval(keepAlive)
       removeSseClient(res)
-      onSseClientCountChanged(boundServerId)
       console.log('[SSE] 客户端断开')
     })
 
@@ -164,6 +148,60 @@ export const streamLogs = async (req, res) => {
       res.status(502).json({ error: error.message })
     }
   }
+}
+
+/**
+ * 请求插件定向推送一个文件（TShock.SavePath 相对路径）到本后端 SSE 连接并保存
+ * POST /api/online/file/pull  body: { path: "tshock.json" }
+ */
+export const pullFile = async (req, res) => {
+  const { path: filePath } = req.body || {}
+  if (!filePath) {
+    return res.status(400).json({ error: 'Missing path' })
+  }
+  const serverId = getCurrentServerId()
+  const result = await requestFile(serverId, String(filePath))
+  res.json(result)
+}
+
+/**
+ * 列出已通过 SSE 接收保存的文件
+ * GET /api/online/file/list
+ */
+export const listReceivedFiles = (req, res) => {
+  const serverId = getCurrentServerId()
+  const dir = path.join(SseFilesRoot, String(serverId))
+  let files = []
+  try {
+    if (fs.existsSync(dir)) {
+      files = fs.readdirSync(dir)
+        .filter(f => fs.statSync(path.join(dir, f)).isFile())
+        .map(f => {
+          const st = fs.statSync(path.join(dir, f))
+          return { name: f, size: st.size, mtime: st.mtimeMs }
+        })
+        .sort((a, b) => b.mtime - a.mtime)
+    }
+  } catch (e) {
+    return res.status(500).json({ error: e.message })
+  }
+  res.json({ files })
+}
+
+/**
+ * 下载已接收的文件
+ * GET /api/online/file/download?name=xxx
+ */
+export const downloadReceivedFile = (req, res) => {
+  const serverId = getCurrentServerId()
+  const name = String(req.query.name || '')
+  if (!name) return res.status(400).json({ error: 'Missing name' })
+  const safeName = path.basename(name).replace(/[\\/:*?"<>|]/g, '_')
+  const full = path.join(SseFilesRoot, String(serverId), safeName)
+  if (!fs.existsSync(full)) {
+    return res.status(404).json({ error: 'File not found' })
+  }
+  res.download(full, safeName)
 }
 
 export const execCommand = async (req, res) => {

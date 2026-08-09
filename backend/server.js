@@ -21,6 +21,7 @@ import auditRoutes from './routes/auditRoutes.js'
 import hookRoutes from './routes/hookRoutes.js'
 import { loadRules as loadFileAccessRules } from './services/fileAccessService.js'
 import tshockService, { registerServer, runWithServer, getServicesStatus } from './services/tshockService.js'
+import { connectAll as connectAllSse } from './services/sseConnection.js'
 import audit from './services/auditLogger.js'
 import readline from 'readline'
 import iconv from 'iconv-lite'
@@ -298,18 +299,16 @@ async function startServer() {
       nodeVersion: process.version
     })
 
-    // ═══ 启动后注册 webhook 到各服务器插件（需开启且服务器已配置） ═══
-    const whCfg = config.logWebhook || {}
-    if (whCfg.enabled && servers.length > 0) {
-      const { registerAllWebhooks } = await import('./services/webhookRegistration.js')
-      const result = await registerAllWebhooks(actualPort)
-      if (result.success) {
-        console.log(`  Webhook 已注册: ${result.registered?.length || 0} 台服务器`)
-      } else {
-        console.warn(`  Webhook 注册失败: ${result.message}`)
-      }
-    } else if (!whCfg.enabled) {
-      console.log('  日志 Webhook 未启用，跳过注册')
+    // ═══ 启动后建立到各服务器插件的 SSE 常驻长连接（日志/文件推送主通道） ═══
+    if (servers.length > 0) {
+      const result = connectAllSse()
+      result.then(r => {
+        console.log(`  插件 SSE 长连接已建立: ${r.connected || 0} 台服务器`)
+      }).catch(e => {
+        console.warn(`  插件 SSE 长连接建立失败: ${e.message}`)
+      })
+    } else {
+      console.log('  暂无已配置服务器，跳过 SSE 长连接')
     }
   })
 }
