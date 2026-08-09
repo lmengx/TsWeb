@@ -1,12 +1,13 @@
 import { Router } from 'express'
-import { verifyToken, requireRole } from '../middlewares/authMiddleware.js'
+import { verifyToken, requireAdmin } from '../middlewares/authMiddleware.js'
 import * as fileController from '../controllers/fileController.js'
 
 const router = Router()
 
-router.get('/access', verifyToken, requireRole('admin'), fileController.getAccessRules)
-router.get('/read', verifyToken, requireRole('admin'), fileController.readFile)
-router.post('/write', verifyToken, requireRole('admin'), fileController.writeFile)
-router.get('/list', verifyToken, requireRole('admin'), fileController.listDir)
+// 文件管理：仅 admin（用户明确 subadmin 禁用）
+router.get('/access', verifyToken, requireAdmin, fileController.getAccessRules)
+router.get('/read', verifyToken, requireAdmin, fileController.readFile)
+router.post('/write', verifyToken, requireAdmin, fileController.writeFile)
+router.get('/list', verifyToken, requireAdmin, fileController.listDir)
 
 export default router

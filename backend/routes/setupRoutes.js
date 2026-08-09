@@ -1,6 +1,7 @@
 import { Router } from 'express'
-import { saveNewConfig, getConfig } from '../config.js'
-import { validateSetupToken, generateSetupToken, getSetupToken } from '../setupToken.js'
+import jwt from 'jsonwebtoken'
+import { getConfig, getServers, addServer } from '../config.js'
+import { validateSetupToken, generateSetupToken } from '../setupToken.js'
 import tshockService from '../services/tshockService.js'
 import { exec } from 'child_process'
 import { promisify } from 'util'
@@ -8,18 +9,22 @@ import fs from 'fs/promises'
 import path from 'path'
 import crypto from 'crypto'
 import { fileURLToPath } from 'url'
+import audit from '../services/auditLogger.js'
+import { createAccount, hasAnyAccount, ADMIN_USERNAME } from '../services/accountService.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
 const execAsync = promisify(exec)
 
-// 直接向 TShock REST API 发请求
+// 直接向 TShock REST API 发请求（用于插件初始化阶段；此时可能尚未配置服务器 → 用请求级 x-server-id）
 const tshockFetch = async (pathname) => {
-  const config = await getConfig()
-  const host = config.tshock?.host || 'localhost'
-  const baseUrl = (host.startsWith('http://') || host.startsWith('https://') ? host : `http://${host}`) + ':' + (config.tshock?.port || 7878)
-  const apiKey = config.tshock?.apiKey || ''
+  const servers = await getServers()
+  const current = servers.find(s => s.enabled) || servers[0]
+  if (!current) return { error: '尚未配置任何服务器' }
+  const host = current.host || 'localhost'
+  const baseUrl = (host.startsWith('http://') || host.startsWith('https://') ? host : `http://${host}`) + ':' + (current.port || 7878)
+  const apiKey = current.apiKey || ''
   const sep = pathname.includes('?') ? '&' : '?'
   const url = `${baseUrl}${pathname}${sep}token=${encodeURIComponent(apiKey)}`
   const res = await fetch(url)
@@ -28,34 +33,56 @@ const tshockFetch = async (pathname) => {
 
 const router = Router()
 
+// ═══════════════════════════════════════════════════════════
+// 兼容鉴权：setup token（首次初始化）或 admin JWT（登录后管理页）二选一
+// 用于初始化/自动配置类接口，使登录后的服务器管理页也能调用
+// ═══════════════════════════════════════════════════════════
+async function setupOrAdmin(req, res, next) {
+  const token = req.body?.token || req.query?.token
+  if (token && validateSetupToken(token)) {
+    return next()
+  }
+  // 尝试 admin JWT
+  const authHeader = req.headers.authorization
+  if (authHeader?.startsWith('Bearer ')) {
+    try {
+      const cfg = await getConfig()
+      const secret = cfg?.security?.jwtSecret
+      if (!secret) throw new Error('no secret')
+      const decoded = jwt.verify(authHeader.slice(7), secret)
+      if (decoded.usergroup === 'admin') {
+        req.user = decoded
+        return next()
+      }
+    } catch { /* 无效 token，继续走 setup token 判定 */ }
+  }
+  res.status(403).json({ error: '无效的 Setup Token 或权限不足' })
+}
+
 router.get('/check', async (req, res) => {
   const token = req.query.token
   if (!token || !validateSetupToken(token)) {
     return res.json({ configured: false, needToken: true })
   }
-  const { isConfigFileExists, getConfig } = await import('../config.js')
+  const { isConfigFileExists } = await import('../config.js')
   const exists = await isConfigFileExists()
-  let config = { host: '', port: '', apiKey: '' }
-  if (exists) {
-    try {
-      const cfg = await getConfig()
-      config = {
-        host: cfg.tshock?.host || 'localhost',
-        port: cfg.tshock?.port || 7878,
-        apiKey: cfg.tshock?.apiKey || ''
-      }
-    } catch {}
-  }
-  res.json({ configured: exists, needToken: false, setupToken: token, config })
+  const servers = await getServers()
+  const hasAccounts = await hasAnyAccount()
+  res.json({
+    configured: exists,
+    needToken: false,
+    setupToken: token,
+    hasAccounts,
+    servers: servers.map(s => ({
+      id: s.id, name: s.name, host: s.host, port: s.port,
+      enabled: s.enabled, hasApiKey: !!s.apiKey
+    }))
+  })
 })
 
-router.post('/init', async (req, res) => {
+router.post('/init', setupOrAdmin, async (req, res) => {
   try {
-    const token = req.body.token || req.query.token
-    if (!token || !validateSetupToken(token)) {
-      return res.status(403).json({ error: '无效的 Setup Token' })
-    }
-    const { host, port, apiKey } = req.body
+    const { name, host, port, apiKey, note } = req.body
     if (!host || !port || !apiKey) {
       return res.status(400).json({ error: 'host、port、apiKey 均为必填' })
     }
@@ -63,24 +90,75 @@ router.post('/init', async (req, res) => {
     if (!result.success) {
       return res.json({ success: false, error: result.error })
     }
-    await saveNewConfig({ host, port, apiKey })
-    const { loadConfig } = await import('../config.js')
-    const cfg = await loadConfig()
-    tshockService.reloadConfig(cfg)
-    res.json({ success: true })
+    const server = await addServer({ name, host, port, apiKey, note })
+    const { registerServer } = await import('../services/tshockService.js')
+    registerServer(server)
+    audit.record('setup.init', {
+      serverName: server.name,
+      actor: req.user?.username || 'setup'
+    })
+    res.json({ success: true, server: { id: server.id, name: server.name } })
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
 })
 
-router.get('/probe', async (req, res) => {
+// 首次初始化：创建全局唯一 admin 账户
+router.post('/create-admin', async (req, res) => {
   try {
-    const token = req.query.token
+    const token = req.body.token || req.query.token
     if (!token || !validateSetupToken(token)) {
       return res.status(403).json({ error: '无效的 Setup Token' })
     }
+    const { username, password } = req.body
+    if (!username || !password) {
+      return res.status(400).json({ error: 'username、password 均为必填' })
+    }
+    if ((await hasAnyAccount())) {
+      return res.status(400).json({ error: '已存在账户，无法重复初始化' })
+    }
+    const account = await createAccount(username, password, 'admin')
+    audit.record('setup.create_admin', {
+      username: account.username,
+      ip: req.ip
+    })
+
+    // 创建成功后签发 JWT，前端可直接自动登录进入后台（用户选：设置密码→引导跳服务器管理页）
+    let jwtToken = null
+    try {
+      const { getConfig } = await import('../config.js')
+      const cfg = await getConfig()
+      const jwt = (await import('jsonwebtoken')).default
+      const secret = cfg?.security?.jwtSecret
+      const expire = cfg?.security?.tokenExpire || '24h'
+      if (secret) {
+        jwtToken = jwt.sign(
+          { username: account.username, usergroup: 'admin' },
+          secret,
+          { expiresIn: expire }
+        )
+      }
+    } catch (err) {
+      console.warn('[Setup] JWT 签发失败（前端将跳登录页）:', err.message)
+    }
+
+    res.json({ success: true, username: account.username, token: jwtToken })
+  } catch (err) {
+    res.status(400).json({ error: err.message })
+  }
+})
+
+router.get('/probe', setupOrAdmin, async (req, res) => {
+  try {
     const port = req.query.port || '7777'
-    const { stdout: netstatOut } = await execAsync(`netstat -ano | findstr :${port} `)
+    // findstr 无匹配时退出码非 0，需 catch 视为无结果
+    let netstatOut = ''
+    try {
+      const { stdout } = await execAsync(`netstat -ano | findstr :${port} `)
+      netstatOut = stdout
+    } catch {
+      netstatOut = ''
+    }
     const lines = netstatOut.trim().split('\n').filter(l => l.includes('LISTENING'))
     if (lines.length === 0) {
       return res.json({ found: false, port: parseInt(port), processes: [] })
@@ -116,12 +194,8 @@ router.get('/probe', async (req, res) => {
   }
 })
 
-router.post('/auto-read', async (req, res) => {
+router.post('/auto-read', setupOrAdmin, async (req, res) => {
   try {
-    const token = req.body.token || req.query.token
-    if (!token || !validateSetupToken(token)) {
-      return res.status(403).json({ error: '无效的 Setup Token' })
-    }
     const { processPath } = req.body
     if (!processPath) {
       return res.status(400).json({ error: '缺少 processPath' })
@@ -194,12 +268,8 @@ router.post('/auto-read', async (req, res) => {
   }
 })
 
-router.post('/auto-verify', async (req, res) => {
+router.post('/auto-verify', setupOrAdmin, async (req, res) => {
   try {
-    const token = req.body.token || req.query.token
-    if (!token || !validateSetupToken(token)) {
-      return res.status(403).json({ error: '无效的 Setup Token' })
-    }
     const { host, port, apiKey } = req.body
     if (!host || !port || !apiKey) {
       return res.status(400).json({ error: 'host、port、apiKey 均为必填' })
@@ -208,22 +278,23 @@ router.post('/auto-verify', async (req, res) => {
     if (!connected.success) {
       return res.json({ success: false, error: connected.error })
     }
-    await saveNewConfig({ host, port, apiKey })
-    const { loadConfig } = await import('../config.js')
-    const cfg = await loadConfig()
-    tshockService.reloadConfig(cfg)
-    res.json({ success: true })
+    const server = await addServer({ host, port, apiKey })
+    const { registerServer } = await import('../services/tshockService.js')
+    registerServer(server)
+    audit.record('server.add', {
+      name: server.name,
+      host: server.host,
+      port: server.port,
+      actor: req.user?.username || 'setup'
+    })
+    res.json({ success: true, serverId: server.id })
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
 })
 
-router.post('/auto-remote', async (req, res) => {
+router.post('/auto-remote', setupOrAdmin, async (req, res) => {
   try {
-    const token = req.body.token || req.query.token
-    if (!token || !validateSetupToken(token)) {
-      return res.status(403).json({ error: '无效的 Setup Token' })
-    }
     const { configRaw } = req.body
     if (!configRaw) {
       return res.status(400).json({ error: '缺少 configRaw' })
@@ -274,11 +345,7 @@ router.post('/auto-remote', async (req, res) => {
 })
 
 // 插件初始化完成
-router.post('/plugin-init', async (req, res) => {
-  const token = req.body.token || req.query.token
-  if (!token || !validateSetupToken(token)) {
-    return res.status(403).json({ error: '无效的 Setup Token' })
-  }
+router.post('/plugin-init', setupOrAdmin, async (req, res) => {
   const { mode, bossLimitMode, bossLimitMinPlayers } = req.body
   if (!mode || !['default', 'auto', 'block'].includes(mode)) {
     return res.status(400).json({ error: 'mode 必须为 default/auto/block' })
@@ -300,11 +367,7 @@ router.post('/plugin-init', async (req, res) => {
 })
 
 // 读取 SSC 配置
-router.get('/ssc-config', async (req, res) => {
-  const token = req.query.token
-  if (!token || !validateSetupToken(token)) {
-    return res.status(403).json({ error: '无效的 Setup Token' })
-  }
+router.get('/ssc-config', setupOrAdmin, async (req, res) => {
   try {
     const result = await tshockService.fileRead('tshock/sscconfig.json')
     res.json(result)
@@ -314,11 +377,7 @@ router.get('/ssc-config', async (req, res) => {
 })
 
 // 保存 SSC 配置
-router.post('/ssc-config', async (req, res) => {
-  const token = req.body.token || req.query.token
-  if (!token || !validateSetupToken(token)) {
-    return res.status(403).json({ error: '无效的 Setup Token' })
-  }
+router.post('/ssc-config', setupOrAdmin, async (req, res) => {
   const { content } = req.body
   if (!content) {
     return res.status(400).json({ error: '缺少 content' })

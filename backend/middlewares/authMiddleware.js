@@ -1,5 +1,6 @@
 import jwt from 'jsonwebtoken'
 import { getConfig } from '../config.js'
+import audit from '../services/auditLogger.js'
 
 async function getJwtSecret() {
   const config = await getConfig()
@@ -10,14 +11,21 @@ async function getJwtSecret() {
   return config.security.jwtSecret
 }
 
+// 角色常量（与 accountService 保持一致）
+const ROLE_ADMIN = 'admin'          // 全局唯一管理员：全部权限
+const ROLE_SUBADMIN = 'subadmin'    // 子管理员：服务器操作（除文件/后端配置）
+
+/** 从 JWT usergroup 字段解析角色列表（兼容逗号分隔） */
+function getRoles(req) {
+  if (!req.user?.usergroup) return []
+  return String(req.user.usergroup).split(',').map(g => g.trim().toLowerCase())
+}
+
 export const verifyToken = async (req, res, next) => {
   const authHeader = req.headers.authorization
   const token = authHeader?.split(' ')[1]
-  
-  console.log(`[AUTH] verifyToken - Authorization header: ${authHeader ? 'Bearer ' + token?.slice(0, 20) + '...' : 'missing'}`)
-  
+
   if (!token) {
-    console.log(`[AUTH] verifyToken - Failed: No token provided`)
     return res.status(401).json({ error: 'Unauthorized' })
   }
 
@@ -25,42 +33,53 @@ export const verifyToken = async (req, res, next) => {
     const secret = await getJwtSecret()
     const decoded = jwt.verify(token, secret)
     req.user = decoded
-    console.log(`[AUTH] verifyToken - Success: user=${decoded.username}, usergroup=${decoded.usergroup}`)
     next()
   } catch (error) {
-    console.log(`[AUTH] verifyToken - Failed: ${error.message}`)
+    // 无效/过期 token 落审计（warn），辅助追踪异常访问
+    audit.record('auth.token_invalid', {
+      actor: 'unknown',
+      reason: error.message,
+      ip: req.ip
+    })
     return res.status(401).json({ error: 'Invalid token' })
   }
 }
 
+/**
+ * 仅 admin：后端级配置（账户管理、服务器管理、后端配置、webhook 回传、审计日志）
+ */
+export const requireAdmin = (req, res, next) => {
+  const roles = getRoles(req)
+  if (!roles.includes(ROLE_ADMIN)) {
+    return res.status(403).json({ error: 'Forbidden: Requires admin role' })
+  }
+  next()
+}
+
+/**
+ * 所有管理（admin + subadmin）：服务器内操作（发命令、查信息、权限组、封禁等）
+ */
+export const requireManager = (req, res, next) => {
+  const roles = getRoles(req)
+  if (!roles.includes(ROLE_ADMIN) && !roles.includes(ROLE_SUBADMIN)) {
+    return res.status(403).json({ error: 'Forbidden: Requires admin or subadmin role' })
+  }
+  next()
+}
+
+/**
+ * 兼容旧签名：requireRole('admin') → 视为管理员
+ * 新代码请使用 requireAdmin / requireManager 明确语义
+ */
 export const requireRole = (role) => {
   return (req, res, next) => {
-    console.log(`[AUTH] requireRole - Checking role: required=${role}, user=${req.user?.username}, usergroup=${req.user?.usergroup}`)
-    
-    if (!req.user || !req.user.usergroup) {
-      console.log(`[AUTH] requireRole - Failed: No user group`)
-      return res.status(403).json({ error: 'Forbidden: No user group' })
+    if (String(role).toLowerCase() === 'admin') {
+      return requireAdmin(req, res, next)
     }
-    
-    const userGroups = req.user.usergroup.split(',').map(g => g.trim().toLowerCase())
-    console.log(`[AUTH] requireRole - User groups: ${userGroups.join(', ')}`)
-    
-    if (role.toLowerCase() === 'admin') {
-      const adminRoles = ['owner', 'superadmin']
-      const hasAdminAccess = userGroups.some(g => adminRoles.includes(g))
-      console.log(`[AUTH] requireRole - Admin check: required roles=${adminRoles.join(', ')}, has access=${hasAdminAccess}`)
-      if (!hasAdminAccess) {
-        console.log(`[AUTH] requireRole - Failed: User is not owner/superadmin`)
-        return res.status(403).json({ error: 'Forbidden: Requires owner or superadmin role' })
-      }
-    } else {
-      if (!userGroups.includes(role.toLowerCase())) {
-        console.log(`[AUTH] requireRole - Failed: User does not have ${role} role`)
-        return res.status(403).json({ error: `Forbidden: Requires ${role} role` })
-      }
+    const roles = getRoles(req)
+    if (!roles.includes(String(role).toLowerCase())) {
+      return res.status(403).json({ error: `Forbidden: Requires ${role} role` })
     }
-    
-    console.log(`[AUTH] requireRole - Success: User has required role`)
     next()
   }
 }

@@ -2,7 +2,7 @@ import { Router } from 'express'
 import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
-import { verifyToken, requireRole } from '../middlewares/authMiddleware.js'
+import { verifyToken, requireManager } from '../middlewares/authMiddleware.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -15,8 +15,8 @@ if (!fs.existsSync(presetDir)) {
 
 const router = Router()
 
-// 所有预设端点需要登录 + admin 权限（owner/superadmin）
-router.use(verifyToken, requireRole('admin'))
+// 所有预设端点需要登录 + 管理权限（admin/subadmin）
+router.use(verifyToken, requireManager)
 
 // 保存预设
 router.post('/save', (req, res) => {

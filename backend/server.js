@@ -2,7 +2,7 @@ import express from 'express'
 import cors from 'cors'
 import path from 'path'
 import { fileURLToPath } from 'url'
-import { loadConfig, isConfigFileExists } from './config.js'
+import { loadConfig, getServers, isConfigFileExists, saveNewConfig } from './config.js'
 import { generateSetupToken } from './setupToken.js'
 import { exec } from 'child_process'
 import authRoutes from './routes/authRoutes.js'
@@ -16,8 +16,12 @@ import unverifiedRoutes from './routes/unverifiedRoutes.js'
 import fileRoutes from './routes/fileRoutes.js'
 import presetRoutes from './routes/presetRoutes.js'
 import userRoutes from './routes/userRoutes.js'
+import serverRoutes from './routes/serverRoutes.js'
+import auditRoutes from './routes/auditRoutes.js'
+import hookRoutes from './routes/hookRoutes.js'
 import { loadRules as loadFileAccessRules } from './services/fileAccessService.js'
-import tshockService from './services/tshockService.js'
+import tshockService, { registerServer, runWithServer } from './services/tshockService.js'
+import audit from './services/auditLogger.js'
 import readline from 'readline'
 import iconv from 'iconv-lite'
 
@@ -43,13 +47,51 @@ const __dirname = path.dirname(__filename)
 const app = express()
 
 app.use(cors())
+
+// ═══════════════════════════════════════════════════════════
+// /hook/* 端点（插件 → 后端 webhook 回传）：必须在全局 express.json 之前
+// 1) 捕获原始 body（HMAC 签名需要对原始字节做 sha256）
+// 2) 独立 json 解析（大 body 限制 10mb）
+// 3) 跳过请求体日志（webhook 高频推送，避免刷屏）
+// ═══════════════════════════════════════════════════════════
+app.use('/hook', (req, res, next) => {
+  const chunks = []
+  req.on('data', (c) => chunks.push(c))
+  req.on('end', () => {
+    req.rawBody = Buffer.concat(chunks).toString('utf8')
+    next()
+  })
+  req.on('error', (e) => {
+    console.error('[Hook] rawBody 读取失败:', e.message)
+    next(e)
+  })
+})
+app.use('/hook', express.json({ limit: '10mb' }), hookRoutes)
+
+// 全局 JSON 解析（其余 /api 端点）
 app.use(express.json())
 
 app.use((req, res, next) => {
+  // /hook 路径已在上面独立处理且不打印 body
+  if (req.path.startsWith('/hook')) return next()
   const fullUrl = `${req.protocol}://${req.get('host')}${req.originalUrl}`
   console.log(`[${new Date().toISOString()}] ${req.method} ${fullUrl}`)
   if (req.body && Object.keys(req.body).length > 0) {
     console.log('Request body:', JSON.stringify(req.body))
+  }
+  next()
+})
+
+// ═══════════════════════════════════════════════════════════
+// x-server-id 中间件：请求级服务器上下文（无全局 currentServerId）
+// 前端每个请求带 x-server-id header → AsyncLocalStorage 绑定到该请求
+// 后续 tshockService 默认导出 Proxy 自动转发到目标服务器实例
+// 注意：/hook/*（webhook 回传）与 /api/auth、/api/servers、/api/audit 不依赖 x-server-id
+// ═══════════════════════════════════════════════════════════
+app.use('/api', (req, res, next) => {
+  const serverId = req.headers['x-server-id']
+  if (serverId) {
+    return runWithServer(serverId, next)
   }
   next()
 })
@@ -67,19 +109,36 @@ app.use('/api/unverified', unverifiedRoutes)
 app.use('/api/files', fileRoutes)
 app.use('/api/presets', presetRoutes)
 app.use('/api/user', userRoutes)
+app.use('/api/servers', serverRoutes)
+app.use('/api/audit', auditRoutes)
 app.use('/api/setup', setupRoutes)
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: Date.now() })
 })
 
-app.get('/api/status', (req, res) => {
-  const isConnected = tshockService.getConnectionStatus()
-  res.json({ 
-    status: isConnected ? 'connected' : 'disconnected',
-    connected: isConnected,
-    message: isConnected ? 'TShock服务器已连接' : '服务器连接失败，请联系管理员配置后重启服务'
-  })
+app.get('/api/status', async (req, res) => {
+  try {
+    const servers = await getServers()
+    const servicesStatus = tshockService.getServicesStatus?.() || []
+    const statusList = servers.map(s => {
+      const svc = servicesStatus.find(x => x.id === s.id)
+      return {
+        id: s.id,
+        name: s.name,
+        host: s.host,
+        port: s.port,
+        enabled: s.enabled,
+        connected: svc?.connected || false
+      }
+    })
+    res.json({
+      servers: statusList,
+      hasServers: statusList.length > 0
+    })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
 })
 
 // IP 地理位置查询代理（绕过前端 CORS 限制，处理 GBK 编码）
@@ -173,8 +232,17 @@ function listenWithFallback(app, port, host, onListening) {
 async function startServer() {
   const token = generateSetupToken()
   const hasConfig = await isConfigFileExists()
+  const config = hasConfig ? await loadConfig() : null
+
+  // 注册全部已配置服务器到实例注册表
+  const servers = await getServers()
+  for (const s of servers) {
+    registerServer(s)
+  }
 
   if (!hasConfig) {
+    // 首次启动：立即创建基础配置（含随机 jwtSecret），否则后续 create-admin 无法签发 JWT
+    await saveNewConfig()
     const port = 3000
     console.log('')
     console.log('='.repeat(58))
@@ -182,6 +250,7 @@ async function startServer() {
     console.log('='.repeat(58))
     console.log('')
     console.log('  Setup Token: ' + token)
+    console.log('  请打开浏览器访问下方地址，设置管理员密码：')
     console.log('')
 
     // 首次启动不阻塞，先加载白名单再 listen
@@ -190,9 +259,9 @@ async function startServer() {
     listenWithFallback(app, port, '0.0.0.0', (actualPort) => {
       _serverPort = actualPort
       console.log('  请访问:')
-      console.log('  http://localhost:' + actualPort + '/backend?token=' + token)
+      console.log('  http://localhost:' + actualPort + '/backend/init?token=' + token)
       console.log('')
-      const url = 'http://localhost:' + actualPort + '/backend?token=' + token
+      const url = 'http://localhost:' + actualPort + '/backend/init?token=' + token
       exec('start ' + url, (err) => {
         if (err) {
           console.log('  请手动访问: ' + url)
@@ -202,29 +271,16 @@ async function startServer() {
     return
   }
 
-  const config = await loadConfig()
   const port = config.server.port || 3000
   const host = config.server.host || '0.0.0.0'
 
-  const hasTshockConfig = config.tshock?.host && config.tshock?.port && config.tshock?.apiKey
-
-  if (hasTshockConfig) {
-    console.log('')
-    console.log('='.repeat(58))
-    console.log('  Setup Token: ' + token)
-    console.log('='.repeat(58))
-    console.log('  如需修改 TShock 连接配置，请访问:')
-    console.log('  http://localhost:' + port + '/backend?token=' + token)
-    console.log('')
-    console.log('Testing TShock connection...')
-    tshockService.testConnection().catch(() => {})
-  } else {
-    console.log('TShock not configured. Status set to disconnected.')
-    console.log('')
-    console.log('  Setup Token: ' + token)
-    console.log('  请访问: http://localhost:' + port + '/backend?token=' + token)
-    console.log('')
-  }
+  console.log('')
+  console.log('='.repeat(58))
+  console.log('  Setup Token: ' + token)
+  console.log('='.repeat(58))
+  console.log('  如需修改服务器配置，请访问:')
+  console.log('  http://localhost:' + port + '/backend?token=' + token)
+  console.log('')
 
   // 提前加载白名单（不阻塞 listen）
   loadFileRules()
@@ -234,18 +290,20 @@ async function startServer() {
     const displayHost = host === '0.0.0.0' ? 'localhost' : host
     _serverPort = actualPort
     console.log(`Server running on http://${displayHost}:${actualPort}`)
-    if (config.tshock?.host && config.tshock?.port) {
-      console.log(`TShock API: ${config.tshock.host}:${config.tshock.port}`)
-    }
 
-    // ═══ 启动后注册 webhook 到插件（需开启且 TShock 已配置） ═══
+    // 审计：后端启动
+    audit.record('system.start', {
+      version: '1.0.0',
+      nodeVersion: process.version
+    })
+
+    // ═══ 启动后注册 webhook 到各服务器插件（需开启且服务器已配置） ═══
     const whCfg = config.logWebhook || {}
-    if (whCfg.enabled && config.tshock?.host && config.tshock?.port && config.tshock?.apiKey) {
-      const webhookUrl = whCfg.publicUrl || `http://127.0.0.1:${actualPort}/api/online/log-webhook`
-      const { updatePluginWebhook } = await import('./services/webhookRegistration.js')
-      const result = await updatePluginWebhook(webhookUrl)
+    if (whCfg.enabled && servers.length > 0) {
+      const { registerAllWebhooks } = await import('./services/webhookRegistration.js')
+      const result = await registerAllWebhooks(actualPort)
       if (result.success) {
-        console.log(`  Webhook 已注册: ${webhookUrl}`)
+        console.log(`  Webhook 已注册: ${result.registered?.length || 0} 台服务器`)
       } else {
         console.warn(`  Webhook 注册失败: ${result.message}`)
       }
@@ -268,7 +326,7 @@ function startConsole() {
   })
 
   console.log('')
-  console.log('可用命令: backend - 打开管理页面, token - 显示 Token, exit - 退出')
+  console.log('可用命令: backend - 打开管理页面, token - 显示 Token, reset-admin - 重置唯一管理员密码(显示一次), exit - 退出')
   rl.prompt()
 
   rl.on('line', async (line) => {
@@ -291,11 +349,35 @@ function startConsole() {
     } else if (cmd === 'token' || cmd === 't') {
       const token = generateSetupToken()
       console.log('Token: ' + token)
+    } else if (cmd === 'reset-admin' || cmd === 'reset') {
+      // 重置唯一管理员密码（或指定账户）：生成随机强密码，控制台显示一次，强制改密
+      try {
+        const { resetPassword, hasAnyAccount } = await import('./services/accountService.js')
+        if (!(await hasAnyAccount())) {
+          console.log('账户库为空，无需重置')
+        } else {
+          const target = cmd === 'reset' ? (line.trim().split(/\s+/)[1] || 'admin') : 'admin'
+          const result = await resetPassword(target)
+          audit.record('account.password_reset', {
+            username: result.username,
+            actor: 'console',
+            via: 'console'
+          })
+          console.log('')
+          console.log('[admin] 密码已重置（仅显示一次，请立即保存）:')
+          console.log('  用户名: ' + result.username)
+          console.log('  新密码: ' + result.plainPassword)
+          console.log('')
+        }
+      } catch (err) {
+        console.log('重置失败: ' + err.message)
+      }
     } else if (cmd === 'exit' || cmd === 'quit' || cmd === 'q') {
+      audit.record('system.stop', { reason: 'console-exit' })
       console.log('正在退出...')
       process.exit(0)
     } else if (cmd) {
-      console.log('未知命令: ' + cmd + '  (可用: backend, token, exit)')
+      console.log('未知命令: ' + cmd + '  (可用: backend, token, reset-admin, exit)')
     }
     rl.prompt()
   })
@@ -307,3 +389,8 @@ function startConsole() {
 }
 
 setTimeout(startConsole, 1000)
+
+// 审计日志退出冲刷 + system.stop 记录
+audit.registerShutdownHook()
+process.on('SIGINT', () => { audit.record('system.stop', { reason: 'sigint' }) })
+process.on('SIGTERM', () => { audit.record('system.stop', { reason: 'sigterm' }) })

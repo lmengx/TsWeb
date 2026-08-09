@@ -1,14 +1,15 @@
 import { Router } from 'express'
-import { verifyToken, requireRole } from '../middlewares/authMiddleware.js'
-import * as unverified from '../controllers/unverifiedController.js'
+import { list, detail, register, forceLogin, kick, ban } from '../controllers/unverifiedController.js'
+import { verifyToken, requireManager } from '../middlewares/authMiddleware.js'
 
 const router = Router()
 
-router.get('/list', verifyToken, requireRole('admin'), unverified.list)
-router.get('/detail', verifyToken, requireRole('admin'), unverified.detail)
-router.post('/register', verifyToken, requireRole('admin'), unverified.register)
-router.post('/force-login', verifyToken, requireRole('admin'), unverified.forceLogin)
-router.post('/kick', verifyToken, requireRole('admin'), unverified.kick)
-router.post('/ban', verifyToken, requireRole('admin'), unverified.ban)
+// 未验证玩家管理：admin + subadmin
+router.get('/list', verifyToken, requireManager, list)
+router.get('/detail', verifyToken, requireManager, detail)
+router.post('/register', verifyToken, requireManager, register)
+router.post('/force-login', verifyToken, requireManager, forceLogin)
+router.post('/kick', verifyToken, requireManager, kick)
+router.post('/ban', verifyToken, requireManager, ban)
 
 export default router

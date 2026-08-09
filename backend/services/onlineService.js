@@ -1,111 +1,51 @@
-import { getConfig, onConfigUpdate } from '../config.js'
+import { getCurrentServer } from './tshockService.js'
 
-let baseUrl = 'http://localhost:7878'
-let apiKey = ''
+// 从请求级上下文获取当前目标服务器（由 x-server-id header 决定）
+const getEndpoint = () => {
+  const server = getCurrentServer()
+  return server ? { baseUrl: server.baseUrl, apiKey: server.apiKey } : { baseUrl: null, apiKey: '' }
+}
+
+const tshockFetch = async (path, method = 'GET') => {
+  const { baseUrl, apiKey } = getEndpoint()
+  if (!baseUrl) return { error: '当前服务器未配置或未选择' }
+  const url = `${baseUrl}${path}${path.includes('?') ? '&' : '?'}token=${encodeURIComponent(apiKey)}`
+  console.log(`[OUTGOING] ${method} ${url}`)
+  try {
+    const res = await fetch(url, { method, headers: { 'Accept': 'application/json' } })
+    const text = await res.text()
+    try { return JSON.parse(text) } catch { return { error: 'Invalid JSON', raw: text } }
+  } catch (error) {
+    return { error: error.message }
+  }
+}
 
 class OnlineService {
-  constructor() {
-    onConfigUpdate((config) => {
-      const host = config.tshock?.host || 'localhost'
-      const h = host.startsWith('http') ? host : `http://${host}`
-      baseUrl = `${h}:${config.tshock?.port || 7878}`
-      apiKey = config.tshock?.apiKey || ''
-    })
-  }
-
-  async init() {
-    const config = await getConfig()
-    const host = config.tshock?.host || 'localhost'
-    const h = host.startsWith('http') ? host : `http://${host}`
-    baseUrl = `${h}:${config.tshock?.port || 7878}`
-    apiKey = config.tshock?.apiKey || ''
-  }
-
   async getHourlyOnline(date) {
-    await this.init()
-    const url = `${baseUrl}/data/online/hourly?date=${encodeURIComponent(date)}&token=${encodeURIComponent(apiKey)}`
-    console.log(`[OUTGOING] GET ${url}`)
-    try {
-      const res = await fetch(url, { headers: { 'Accept': 'application/json' } })
-      const text = await res.text()
-      console.log(`[RESPONSE] Status: ${res.status}`)
-      try {
-        return JSON.parse(text)
-      } catch {
-        return { error: 'Invalid JSON', raw: text }
-      }
-    } catch (error) {
-      return { error: error.message }
-    }
+    return tshockFetch(`/data/online/hourly?date=${encodeURIComponent(date)}`)
   }
 
   async getRanking(mode = 'today') {
-    await this.init()
-    const url = `${baseUrl}/data/online/ranking?mode=${encodeURIComponent(mode)}&token=${encodeURIComponent(apiKey)}`
-    console.log(`[OUTGOING] GET ${url}`)
-    try {
-      const res = await fetch(url, { headers: { 'Accept': 'application/json' } })
-      const text = await res.text()
-      console.log(`[RESPONSE] Status: ${res.status}`)
-      try {
-        return JSON.parse(text)
-      } catch {
-        return { error: 'Invalid JSON', raw: text }
-      }
-    } catch (error) {
-      return { error: error.message }
-    }
+    return tshockFetch(`/data/online/ranking?mode=${encodeURIComponent(mode)}`)
   }
 
   async getPlayerCalendar(name, year) {
-    await this.init()
-    const url = `${baseUrl}/data/online/player?name=${encodeURIComponent(name)}&year=${year}&token=${encodeURIComponent(apiKey)}`
-    console.log(`[OUTGOING] GET ${url}`)
-    try {
-      const res = await fetch(url, { headers: { 'Accept': 'application/json' } })
-      const text = await res.text()
-      console.log(`[RESPONSE] Status: ${res.status}`)
-      try {
-        return JSON.parse(text)
-      } catch {
-        return { error: 'Invalid JSON', raw: text }
-      }
-    } catch (error) {
-      return { error: error.message }
-    }
+    return tshockFetch(`/data/online/player?name=${encodeURIComponent(name)}&year=${year}`)
   }
 
   async getRankingStats(type, page = 1, pageSize = 10) {
-    await this.init()
-    const url = `${baseUrl}/data/online/ranking/stats?type=${encodeURIComponent(type)}&page=${encodeURIComponent(page)}&pageSize=${encodeURIComponent(pageSize)}&token=${encodeURIComponent(apiKey)}`
-    console.log(`[OUTGOING] GET ${url}`)
-    try {
-      const res = await fetch(url, { headers: { 'Accept': 'application/json' } })
-      const text = await res.text()
-      console.log(`[RESPONSE] Status: ${res.status}`)
-      try { return JSON.parse(text) } catch { return { error: 'Invalid JSON', raw: text } }
-    } catch (error) {
-      return { error: error.message }
-    }
+    return tshockFetch(`/data/online/ranking/stats?type=${encodeURIComponent(type)}&page=${encodeURIComponent(page)}&pageSize=${encodeURIComponent(pageSize)}`)
   }
 
   async execCommand(cmd, executor = 'SSE-Console') {
-    await this.init()
-    const url = `${baseUrl}/data/online/log/command?cmd=${encodeURIComponent(cmd)}&executor=${encodeURIComponent(executor)}&token=${encodeURIComponent(apiKey)}`
-    try {
-      const res = await fetch(url, { headers: { 'Accept': 'application/json' } })
-      const text = await res.text()
-      try { return JSON.parse(text) } catch { return { error: 'Invalid JSON', raw: text } }
-    } catch (error) {
-      return { error: error.message }
-    }
+    return tshockFetch(`/data/online/log/command?cmd=${encodeURIComponent(cmd)}&executor=${encodeURIComponent(executor)}`)
   }
 
   /**
    * 获取 SSE 流的 URL（前端直接连接用）
    */
   getSSEUrl() {
-    // 前端通过后端代理 SSE，或者直接连接 TShock 端口
+    // 前端通过后端代理 SSE
     return `/api/online/log/stream`
   }
 }

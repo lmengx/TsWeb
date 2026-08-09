@@ -2,7 +2,7 @@ import { Router } from 'express'
 import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
-import { verifyToken, requireRole } from '../middlewares/authMiddleware.js'
+import { verifyToken, requireManager } from '../middlewares/authMiddleware.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -10,8 +10,8 @@ const resourceDir = path.join(__dirname, '../resource')
 
 const router = Router()
 
-// 所有资源端点需要登录 + admin 权限（owner/superadmin）
-router.use(verifyToken, requireRole('admin'))
+// 所有资源端点需要登录 + 管理权限（admin/subadmin）
+router.use(verifyToken, requireManager)
 
 // 校验解析后的路径必须位于 resourceDir 内（防路径穿越）
 function isPathInside(baseDir, targetPath) {

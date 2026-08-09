@@ -1,7 +1,10 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { get } from '../../utils/api.js'
 import InventoryViewer from '../../components/InventoryViewer.vue'
+
+const router = useRouter()
 
 const userDetails = ref(null)
 const inventory = ref([])
@@ -28,6 +31,8 @@ const formatLocalDate = (dateStr) => {
   }
   return new Date(dateStr).toLocaleString('zh-CN')
 }
+
+const goChangePassword = () => { router.push('/change-password') }
 
 const avatarLetter = computed(() => {
   const name = userDetails.value?.Username || '?'
@@ -108,6 +113,7 @@ onMounted(() => {
                 <span class="gc-dot"></span>
                 {{ isOnline ? '在线' : '离线' }}
               </span>
+              <button class="change-pwd-btn" @click="goChangePassword">🔑 修改密码</button>
             </div>
           </div>
         </div>

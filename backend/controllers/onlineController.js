@@ -2,12 +2,9 @@ import onlineService from '../services/onlineService.js'
 import jwt from 'jsonwebtoken'
 import { getConfig } from '../config.js'
 import { updatePluginWebhook, reRegisterWebhook } from '../services/webhookRegistration.js'
-
-// ═══ 内存日志队列 + SSE 客户端管理 ═══
-const _logQueue = []
-const _sseClients = new Set()
-const _queueLock = {}
-const MaxQueueLines = 2000
+import audit from '../services/auditLogger.js'
+import { getCurrentServerId } from '../services/tshockService.js'
+import { pushWebhookLog, getSseClients, addSseClient, removeSseClient, sseClientCount } from '../services/logBroadcast.js'
 
 // ═══ SSE 客户端数量监听（防抖） ═══
 let _sseThrottleTimer = null
@@ -15,16 +12,16 @@ let _sseThrottleTimer = null
 /**
  * SSE 客户端数量变化时，自动注册/注销 webhook
  */
-function onSseClientCountChanged() {
+function onSseClientCountChanged(serverId) {
   if (_sseThrottleTimer) clearTimeout(_sseThrottleTimer)
   _sseThrottleTimer = setTimeout(async () => {
     _sseThrottleTimer = null
-    const count = _sseClients.size
+    const count = sseClientCount()
+    // 显式绑定服务器 id（避免依赖 AsyncLocalStorage 在定时器中的传播）
     if (count === 0) {
-      await updatePluginWebhook(null)
+      await updatePluginWebhook(serverId, null)
     } else {
-      // 有客户端时主动重注册 webhook，防止插件端连接断裂
-      await reRegisterWebhook()
+      await reRegisterWebhook(serverId)
     }
   }, 2000)
 }
@@ -63,7 +60,7 @@ export const getRankingStats = async (req, res) => {
 }
 
 /**
- * Webhook 接收端点 — 插件端通过 HTTP POST 推送日志行到此端点
+ * Webhook 接收端点 — 兼容旧端点（无签名，仅供向后兼容；新端点走 /hook/log 带 HMAC 签名）
  * POST /api/online/log-webhook
  * Body: { lines: ["[{\"t\":\"text\",\"c\":\"Red\"}]"] }
  */
@@ -74,25 +71,7 @@ export const logWebhookReceiver = (req, res) => {
   }
 
   for (const line of lines) {
-    // 存入内存队列
-    _logQueue.push(line)
-    if (_logQueue.length > MaxQueueLines) {
-      _logQueue.splice(0, _logQueue.length - MaxQueueLines)
-    }
-
-    // 广播给所有 SSE 客户端（跳过僵尸连接）
-    const data = JSON.stringify([line])
-    for (const client of _sseClients) {
-      try {
-        if (client.socket?.destroyed || !client.writable) {
-          _sseClients.delete(client)
-          continue
-        }
-        client.write(`data: ${data}\n\n`)
-      } catch {
-        _sseClients.delete(client)
-      }
-    }
+    pushWebhookLog(line)
   }
 
   res.json({ status: 'ok', received: lines.length })
@@ -125,11 +104,11 @@ export const streamLogs = async (req, res) => {
       return res.status(401).json({ error: 'Invalid token' })
     }
 
-    // 检查 admin 权限
+    // 检查管理权限（admin/subadmin 均可查看日志流）
     const userGroups = (decoded.usergroup || '').split(',').map(g => g.trim().toLowerCase())
-    const adminRoles = ['owner', 'superadmin']
-    if (!userGroups.some(g => adminRoles.includes(g))) {
-      console.error('[SSE] 用户无 admin 权限:', decoded.username, userGroups)
+    const managerRoles = ['admin', 'subadmin']
+    if (!userGroups.some(g => managerRoles.includes(g))) {
+      console.error('[SSE] 用户无管理权限:', decoded.username, userGroups)
       return res.status(403).json({ error: 'Forbidden' })
     }
 
@@ -145,7 +124,9 @@ export const streamLogs = async (req, res) => {
     res.write(`data: ${JSON.stringify({ connected: true, transport: 'webhook' })}\n\n`)
 
     // 注册到 SSE 客户端集合
-    _sseClients.add(res)
+    addSseClient(res)
+    // 显式捕获当前请求的服务器 id（AsyncLocalStorage 在异步回调中不保证传播）
+    const boundServerId = getCurrentServerId()
 
     // 定时心跳 + 僵尸检测
     const keepAlive = setInterval(() => {
@@ -157,23 +138,23 @@ export const streamLogs = async (req, res) => {
         res.write(': heartbeat\n\n')
       } catch {
         clearInterval(keepAlive)
-        _sseClients.delete(res)
-        onSseClientCountChanged()
+        removeSseClient(res)
+        onSseClientCountChanged(boundServerId)
       }
     }, 30000)
 
     // 额外监听 socket 级别断开（比 req.close 更可靠）
     res.socket?.once('close', () => {
       clearInterval(keepAlive)
-      _sseClients.delete(res)
-      onSseClientCountChanged()
+      removeSseClient(res)
+      onSseClientCountChanged(boundServerId)
     })
 
     // 客户端断开
     req.on('close', () => {
       clearInterval(keepAlive)
-      _sseClients.delete(res)
-      onSseClientCountChanged()
+      removeSseClient(res)
+      onSseClientCountChanged(boundServerId)
       console.log('[SSE] 客户端断开')
     })
 
@@ -188,6 +169,7 @@ export const streamLogs = async (req, res) => {
 export const execCommand = async (req, res) => {
   const { cmd } = req.body
   const executor = req.user?.username || 'SSE-Console'
+  const serverId = getCurrentServerId()
   if (!cmd) {
     return res.status(400).json({ error: 'Missing cmd parameter' })
   }
@@ -195,9 +177,29 @@ export const execCommand = async (req, res) => {
   try {
     const result = await onlineService.execCommand(cmd, executor)
     console.log('[SSE CMD] 结果:', JSON.stringify(result).substring(0, 100))
+    if (result && result.error) {
+      audit.record('command.execute_failed', {
+        command: String(cmd).substring(0, 200),
+        serverId,
+        actor: executor,
+        error: result.error
+      })
+    } else {
+      audit.record('command.execute', {
+        command: String(cmd).substring(0, 200),
+        serverId,
+        actor: executor
+      })
+    }
     res.json(result)
   } catch (err) {
     console.error('[SSE CMD] 错误:', err.message)
+    audit.record('command.execute_failed', {
+      command: String(cmd).substring(0, 200),
+      serverId,
+      actor: executor,
+      error: err.message
+    })
     res.status(500).json({ error: err.message })
   }
 }

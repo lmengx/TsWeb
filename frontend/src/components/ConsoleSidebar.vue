@@ -1,14 +1,38 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { isAdmin } from '../utils/authHelper.js'
+import { isAdmin, isManager } from '../utils/authHelper.js'
+import { getServers, getCurrentServer, fetchServers } from '../utils/serverStore.js'
 
 const route = useRoute()
 const router = useRouter()
 
+const isLoggedIn = computed(() => !!localStorage.getItem('user'))
+
 const aboutVisible = ref(false)
 const isMobile = ref(false)
 let mql = null
+
+// ── 服务器切换按钮（点击跳转到服务器管理页） ──
+const servers = ref([])
+const currentServer = ref(null)
+const noPermTip = ref(false)
+
+const loadServers = async () => {
+  await fetchServers()
+  servers.value = getServers()
+  currentServer.value = getCurrentServer()
+}
+
+const goServerManage = () => {
+  // 仅唯一管理员可管理服务器
+  if (!isAdmin()) {
+    noPermTip.value = true
+    setTimeout(() => { noPermTip.value = false }, 2200)
+    return
+  }
+  router.push('/console/servers')
+}
 
 // ── 移动端检测 ──
 onMounted(() => {
@@ -17,6 +41,8 @@ onMounted(() => {
     .then(r => r.json())
     .then(d => { if (!d.hidden) aboutVisible.value = true })
     .catch(() => {})
+
+  loadServers()
 
   mql = window.matchMedia('(max-width: 767px)')
   isMobile.value = mql.matches
@@ -30,17 +56,19 @@ onUnmounted(() => {
 const onMediaChange = (e) => { isMobile.value = e.matches }
 
 // ── 侧边栏配置 ──
+// managerOnly: admin + subadmin 可用（服务器内操作）
+// adminOnly: 仅全局唯一管理员（后端配置/服务器管理/审计/文件）
 const sidebarItems = [
   // ═══ 管理 ═══
-  { id: 'online', name: '总览', path: '/console/online', adminOnly: true, icon: '📊' },
-  { id: 'terminal', name: '控制台', path: '/console/terminal', adminOnly: true, icon: '💻' },
-  { id: 'players', name: '玩家管理', path: '/console/players', adminOnly: true, icon: '👥' },
-  { id: 'groups', name: '组管理', path: '/console/groups', adminOnly: true },
-  { id: 'houses', name: '房屋管理', path: '/console/houses', adminOnly: true, icon: '🏠' },
-  { id: 'buildings', name: '建筑存档', path: '/console/buildings', adminOnly: true, icon: '📦' },
-  { id: 'tasks', name: '自动任务', path: '/console/tasks', adminOnly: true, icon: '⏰' },
+  { id: 'online', name: '总览', path: '/console/online', managerOnly: true, icon: '📊' },
+  { id: 'terminal', name: '控制台', path: '/console/terminal', managerOnly: true, icon: '💻' },
+  { id: 'players', name: '玩家管理', path: '/console/players', managerOnly: true, icon: '👥' },
+  { id: 'groups', name: '组管理', path: '/console/groups', managerOnly: true },
+  { id: 'houses', name: '房屋管理', path: '/console/houses', managerOnly: true, icon: '🏠' },
+  { id: 'buildings', name: '建筑存档', path: '/console/buildings', managerOnly: true, icon: '📦' },
+  { id: 'tasks', name: '自动任务', path: '/console/tasks', managerOnly: true, icon: '⏰' },
   {
-    id: 'anticheat', name: '反作弊', path: '/console/anticheat', adminOnly: true,
+    id: 'anticheat', name: '反作弊', path: '/console/anticheat', managerOnly: true,
     children: [
       { id: 'item-restrict', name: '物品限制配置', path: '/console/anticheat/item-restrict' },
       { id: 'proj-restrict', name: '弹幕限制配置', path: '/console/anticheat/proj-restrict' },
@@ -48,6 +76,7 @@ const sidebarItems = [
     ]
   },
   { id: 'files', name: '配置文件', path: '/console/files', adminOnly: true },
+  { id: 'audit', name: '系统日志', path: '/console/audit', adminOnly: true, icon: '📋' },
   { id: 'settings', name: '设置', path: '/console/settings', adminOnly: true },
 
   // ═══ 用户 ═══
@@ -68,6 +97,7 @@ const sidebarItems = [
 const visibleItems = computed(() => {
   return sidebarItems.filter(item => {
     if (item.adminOnly && !isAdmin()) return false
+    if (item.managerOnly && !isManager()) return false
     if (item.id === 'about' && !aboutVisible.value) return false
     return true
   })
@@ -187,6 +217,18 @@ const toolsItems = computed(() => {
 <template>
   <!-- ═══ 桌面侧边栏 ═══ -->
   <aside v-if="!isMobile" class="sidebar glass">
+    <!-- 服务器切换按钮（多服，仅登录用户；点击跳转服务器管理页） -->
+    <div v-if="isLoggedIn" class="server-switcher">
+      <button class="server-switcher-btn" @click="goServerManage" title="服务器管理">
+        <span class="ss-dot" :class="{ online: currentServer?.connected }"></span>
+        <span class="ss-name">{{ currentServer?.name || '暂无服务器' }}</span>
+        <span class="ss-arrow">›</span>
+      </button>
+      <transition name="dropdown">
+        <div v-if="noPermTip" class="ss-noperm">仅管理员可管理服务器</div>
+      </transition>
+    </div>
+
     <nav class="sidebar-nav">
       <template v-for="(item, idx) in visibleItems" :key="item.id">
         <div v-if="idx > 0 && !item.adminOnly && visibleItems[idx - 1]?.adminOnly" class="sidebar-divider"></div>
@@ -357,6 +399,61 @@ const toolsItems = computed(() => {
   padding: 16px 0;
   overflow-y: auto;
 }
+
+/* ═══ 特色服务器切换器 ═══ */
+.server-switcher {
+  position: relative;
+  padding: 0 10px 10px;
+  border-bottom: 1px solid var(--border-light);
+  margin: 0 8px 12px;
+}
+.server-switcher-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  background: linear-gradient(135deg, rgba(99,102,241,.18), rgba(79,70,229,.12));
+  border: 1px solid rgba(99,102,241,.3);
+  color: var(--text-primary);
+  transition: all .25s ease;
+}
+.server-switcher-btn:hover { border-color: var(--accent-primary); box-shadow: 0 2px 12px rgba(99,102,241,.15); }
+.ss-dot {
+  width: 9px; height: 9px; border-radius: 50%;
+  background: #ef4444; flex-shrink: 0;
+  box-shadow: 0 0 0 2px rgba(239,68,68,.15);
+}
+.ss-dot.online {
+  background: #22c55e;
+  box-shadow: 0 0 8px rgba(34,197,94,.7);
+}
+.ss-name {
+  flex: 1; text-align: left;
+  font-size: .88rem; font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ss-arrow { font-size: .8rem; color: var(--accent-primary); font-weight: 700; }
+.ss-noperm {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0; right: 0;
+  padding: 8px 12px;
+  text-align: center;
+  font-size: .76rem;
+  color: #f59e0b;
+  background: var(--bg-card);
+  border: 1px solid rgba(245,158,11,.3);
+  border-radius: 10px;
+  box-shadow: var(--shadow-lg);
+  z-index: 300;
+}
+.dropdown-enter-active, .dropdown-leave-active { transition: all .2s ease; }
+.dropdown-enter-from, .dropdown-leave-to { opacity: 0; transform: translateY(-6px); }
 .sidebar-nav { display: flex; flex-direction: column; gap: 2px; padding: 0 8px; }
 .sidebar-divider { height: 1px; background: var(--border-light); margin: 8px 14px 6px; flex-shrink: 0; }
 .sidebar-item {

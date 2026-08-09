@@ -2,6 +2,7 @@ import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import tshockService from '../services/tshockService.js'
+import audit from '../services/auditLogger.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -52,6 +53,42 @@ export const getConfigFile = async (req, res) => {
 
     const content = fs.readFileSync(filePath, 'utf8')
     res.json({ status: '200', content })
+  } catch (error) {
+    res.status(500).json({ status: '500', error: error.message })
+  }
+}
+
+// ═══ 后端监听设置（server.port / server.host） ═══
+
+export const getListenConfig = async (req, res) => {
+  try {
+    const { getConfig } = await import('../config.js')
+    const cfg = await getConfig()
+    if (!cfg) return res.json({ status: '200', server: { port: 3000, host: '0.0.0.0' } })
+    res.json({ status: '200', server: { port: cfg.server?.port || 3000, host: cfg.server?.host || '0.0.0.0' } })
+  } catch (error) {
+    res.status(500).json({ status: '500', error: error.message })
+  }
+}
+
+export const saveListenConfig = async (req, res) => {
+  try {
+    const { getConfig, saveConfig } = await import('../config.js')
+    const { port, host } = req.body?.server || req.body || {}
+    const cfg = await getConfig()
+    if (!cfg) return res.status(400).json({ status: '400', error: '配置未初始化' })
+    const newPort = parseInt(port)
+    if (!newPort || newPort < 1 || newPort > 65535) {
+      return res.status(400).json({ status: '400', error: '端口必须是 1-65535 之间的数字' })
+    }
+    await saveConfig({
+      server: { port: newPort, host: String(host || '0.0.0.0') }
+    })
+    audit.record('config.update', {
+      changedKeys: ['server.port', 'server.host'],
+      actor: req.user?.username
+    })
+    res.json({ status: '200', message: '监听配置已保存（重启后生效）' })
   } catch (error) {
     res.status(500).json({ status: '500', error: error.message })
   }
@@ -150,19 +187,28 @@ export const getLogWebhookConfig = async (req, res) => {
 
 export const setLogWebhookConfig = async (req, res) => {
   try {
-    const { saveLogWebhookConfig } = await import('../config.js')
+    const { saveLogWebhookConfig, getServers } = await import('../config.js')
     const { enabled, publicUrl } = req.body
     const result = await saveLogWebhookConfig({ enabled, publicUrl })
 
-    // 保存后立即生效：注册或注销
+    // 保存后立即生效：对全部已配置服务器注册/注销
+    const { registerAllWebhooks, updatePluginWebhook } = await import('../services/webhookRegistration.js')
+    const servers = await getServers()
     if (enabled) {
-      const { updatePluginWebhook } = await import('../services/webhookRegistration.js')
-      const regResult = await updatePluginWebhook(result.publicUrl)
-      res.json({ status: '200', ...result, registerResult: regResult })
+      const results = []
+      for (const s of servers.filter(x => x.enabled && x.host && x.port && x.apiKey)) {
+        const url = result.publicUrl || `http://127.0.0.1:${result.port || 3000}/hook/log`
+        const r = await updatePluginWebhook(s.id, url)
+        results.push({ serverId: s.id, ...r })
+      }
+      res.json({ status: '200', ...result, registerResults: results })
     } else {
-      const { updatePluginWebhook } = await import('../services/webhookRegistration.js')
-      const unregResult = await updatePluginWebhook(null)
-      res.json({ status: '200', ...result, registerResult: unregResult })
+      const results = []
+      for (const s of servers) {
+        const r = await updatePluginWebhook(s.id, null)
+        results.push({ serverId: s.id, ...r })
+      }
+      res.json({ status: '200', ...result, registerResults: results })
     }
   } catch (error) {
     res.status(500).json({ status: '500', error: error.message })

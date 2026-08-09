@@ -1,19 +1,19 @@
-import { getConfig, onConfigUpdate } from '../config.js'
+import { AsyncLocalStorage } from 'async_hooks'
 
-let TSHOCK_HOST = 'http://localhost'
-let TSHOCK_PORT = 7878
-let TSHOCK_API_KEY = ''
+function buildBaseUrl(server) {
+  const host = server?.host || 'localhost'
+  const h = host.startsWith('http://') || host.startsWith('https://') ? host : `http://${host}`
+  return `${h}:${server?.port || 7878}`
+}
 
 export class TShockService {
-  constructor() {
-    this.baseUrl = null
-    this.apiKey = ''
+  constructor(server = null) {
+    this.id = server?.id || null
+    this.name = server?.name || ''
+    this.baseUrl = server ? buildBaseUrl(server) : null
+    this.apiKey = server?.apiKey || ''
     this.isConnected = false
     this.retryTimer = null
-
-    onConfigUpdate((config) => {
-      this.reloadConfig(config)
-    })
   }
 
   startAutoRetry() {
@@ -34,20 +34,19 @@ export class TShockService {
   }
 
   async init() {
-    const config = await getConfig()
-    this.reloadConfig(config)
+    // 实例已自带连接配置（构造/注册时传入），无需全局初始化
+    return this
   }
 
-  reloadConfig(config) {
-    const host = config.tshock?.host || 'localhost'
-    TSHOCK_HOST = host.startsWith('http://') || host.startsWith('https://') ? host : `http://${host}`
-    TSHOCK_PORT = config.tshock?.port || 7878
-    TSHOCK_API_KEY = config.tshock?.apiKey || ''
-    this.baseUrl = `${TSHOCK_HOST}:${TSHOCK_PORT}`
-    this.apiKey = TSHOCK_API_KEY
+  /** 更新实例连接配置（服务器编辑后调用） */
+  reloadConfig(server) {
+    this.id = server.id || this.id
+    this.name = server.name || this.name
+    this.baseUrl = buildBaseUrl(server)
+    this.apiKey = server.apiKey || ''
     this.isConnected = false
-    console.log(`[Config] TShock config updated: ${this.baseUrl}`)
-    this.startAutoRetry()
+    console.log(`[Config] TShock 实例已更新: ${this.baseUrl} (${this.id})`)
+    this.stopAutoRetry()
   }
 
   async testConnection() {
@@ -1631,4 +1630,82 @@ export class TShockService {
   }
 }
 
-export default new TShockService()
+// ═══════════════════════════════════════════════════════════
+// 服务器实例注册表 + 请求级上下文（无全局 currentServerId）
+// 当前目标服务器由每个请求的 x-server-id header 决定，
+// 通过 AsyncLocalStorage 绑定到该请求的上下文，controller 零改动
+// ═══════════════════════════════════════════════════════════
+
+const serverContext = new AsyncLocalStorage()
+const serverInstances = new Map()
+
+/** 注册/更新服务器实例（config servers[] 变更时同步调用） */
+export function registerServer(server) {
+  let inst = serverInstances.get(server.id)
+  if (inst) {
+    inst.reloadConfig(server)
+    return inst
+  }
+  inst = new TShockService(server)
+  serverInstances.set(server.id, inst)
+  inst.startAutoRetry()
+  return inst
+}
+
+/** 注销服务器实例 */
+export function unregisterServer(id) {
+  const inst = serverInstances.get(id)
+  if (inst) {
+    inst.stopAutoRetry()
+    serverInstances.delete(id)
+  }
+}
+
+/** 获取指定服务器实例（不依赖请求上下文，供注册/状态查询用） */
+export function getServerInstance(id) {
+  return serverInstances.get(id) || null
+}
+
+/** 全部实例状态（/api/status 用） */
+export function getServicesStatus() {
+  return [...serverInstances.values()].map(s => ({
+    id: s.id,
+    name: s.name,
+    connected: s.isConnected
+  }))
+}
+
+/** 在指定服务器上下文内执行（中间件用：runWithServer(serverId, () => next())） */
+export function runWithServer(serverId, fn) {
+  return serverContext.run(serverId, fn)
+}
+
+/** 当前请求绑定的服务器 id（无则 null） */
+export function getCurrentServerId() {
+  return serverContext.getStore() || null
+}
+
+/** 当前请求绑定的服务器实例（无则 null） */
+export function getCurrentServer() {
+  const id = serverContext.getStore()
+  if (!id) return null
+  return serverInstances.get(id) || null
+}
+
+// 默认导出：Proxy 转发到当前请求的服务器实例
+// 无请求上下文（如后端启动阶段）→ 回退到空实例（方法返回未配置错误）
+const fallback = new TShockService()
+const instanceProxy = new Proxy(fallback, {
+  get(target, prop, receiver) {
+    const current = getCurrentServer()
+    if (current && typeof current[prop] === 'function') {
+      return current[prop].bind(current)
+    }
+    if (typeof target[prop] === 'function') {
+      return target[prop].bind(target)
+    }
+    return current && prop in current ? current[prop] : target[prop]
+  }
+})
+
+export default instanceProxy

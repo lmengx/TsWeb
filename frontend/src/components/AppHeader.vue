@@ -23,13 +23,13 @@ const currentUser = computed(() => user.value?.username || '未登录')
 const userGroup = computed(() => user.value?.usergroup || '')
 const displayGroup = computed(() => {
   const g = userGroup.value.toLowerCase()
-  if (g.includes('owner')) return 'Owner'
-  if (g.includes('superadmin')) return 'SuperAdmin'
+  if (g.includes('admin')) return '管理员'
+  if (g.includes('subadmin')) return '子管理员'
   return userGroup.value || '未知'
 })
 const isAdmin = computed(() => {
   const g = userGroup.value.toLowerCase()
-  return g.includes('owner') || g.includes('superadmin')
+  return g.includes('admin') && !g.includes('subadmin')
 })
 
 const loadUser = () => {
@@ -82,7 +82,7 @@ const handleClickOutside = (event) => {
 onMounted(() => {
   loadUser()
   fetchStatus()
-  statusTimer = setInterval(fetchStatus, 10000)
+  statusTimer = setInterval(() => { fetchStatus() }, 10000)
   document.addEventListener('click', handleClickOutside)
 })
 

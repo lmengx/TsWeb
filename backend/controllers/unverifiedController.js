@@ -1,20 +1,15 @@
-import { getConfig } from '../config.js'
+import { getCurrentServer } from '../services/tshockService.js'
 
-let baseUrl = null
-let apiKey = ''
-
-const ensureInit = async () => {
-  if (!baseUrl) {
-    const config = await getConfig()
-    const host = config.tshock?.host || 'localhost'
-    const tshockHost = host.startsWith('http://') || host.startsWith('https://') ? host : `http://${host}`
-    baseUrl = `${tshockHost}:${config.tshock?.port || 7878}`
-    apiKey = config.tshock?.apiKey || ''
-  }
+// 从请求级上下文获取当前目标服务器（由 x-server-id header 决定）
+const getEndpoint = () => {
+  const server = getCurrentServer()
+  if (!server) return { baseUrl: null, apiKey: '' }
+  return { baseUrl: server.baseUrl, apiKey: server.apiKey }
 }
 
 const tshockFetch = async (path, method = 'GET') => {
-  await ensureInit()
+  const { baseUrl, apiKey } = getEndpoint()
+  if (!baseUrl) return { error: '当前服务器未配置或未选择' }
   const sep = path.includes('?') ? '&' : '?'
   const url = `${baseUrl}${path}${sep}token=${encodeURIComponent(apiKey)}`
   const response = await fetch(url, { method })
@@ -60,8 +55,7 @@ export const kick = async (req, res) => {
 }
 
 export const ban = async (req, res) => {
-  const { nickname, reason } = req.body
-  const character = req.user?.username || '后台操作'
+  const { nickname, reason, character } = req.body
   if (!nickname) return res.status(400).json({ error: 'nickname is required' })
   let path = `/data/users/unverified/ban?nickname=${encodeURIComponent(nickname)}`
   if (reason) path += `&reason=${encodeURIComponent(reason)}`

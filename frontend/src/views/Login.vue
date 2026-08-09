@@ -15,14 +15,12 @@ const loginForm = ref({
 
 const statusMessage = computed(() => {
   switch (loginStatus.value) {
-    case 'user_not_found':
-      return { type: 'error', text: '用户不存在，请检查用户名' }
-    case 'wrong_password':
-      return { type: 'error', text: '密码错误，请重新输入' }
+    case 'validation_error':
+      return { type: 'error', text: '请输入用户名和密码' }
     case 'success':
       return { type: 'success', text: '登录成功，正在跳转...' }
     case 'server_error':
-      return { type: 'error', text: '服务器错误，请稍后重试' }
+      return { type: 'error', text: '用户名或密码错误' }
     default:
       return null
   }
@@ -85,17 +83,18 @@ const login = async () => {
       
       saveUserToStorage(userData)
       
-      setTimeout(() => {
-        router.push('/console')
-      }, 1500)
-    } else {
-      if (loginResult.error === 'User not found') {
-        loginStatus.value = 'user_not_found'
-      } else if (loginResult.error === 'Wrong password') {
-        loginStatus.value = 'wrong_password'
+      // 需要强制改密（首次创建/管理员重置）→ 跳转改密页
+      if (loginResult.mustChangePassword) {
+        setTimeout(() => {
+          router.push('/change-password?forced=1')
+        }, 500)
       } else {
-        loginStatus.value = 'server_error'
+        setTimeout(() => {
+          router.push('/console')
+        }, 1500)
       }
+    } else {
+      loginStatus.value = 'server_error'
     }
   } catch (errorMsg) {
     console.error('Login error:', errorMsg)
