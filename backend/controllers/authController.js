@@ -87,7 +87,7 @@ export const setupLogin = async (req, res) => {
         via: 'setup-token',
         ip: req.ip
       })
-      return res.json({ success: true, token: jwtToken, userGroup: 'admin', mustChangePassword: true, hasAccounts: false })
+      return res.json({ success: true, token: jwtToken, userGroup: 'admin', hasAccounts: false })
     }
 
     // 已存在账户 → 不允许 setup token 直接登录
@@ -154,15 +154,13 @@ export const login = async (req, res) => {
       res.json({
         success: true,
         encryptedToken,
-        userGroup: account.role,
-        mustChangePassword: account.mustChangePassword
+        userGroup: account.role
       })
     } catch (e) {
       res.json({
         success: true,
         token,
-        userGroup: account.role,
-        mustChangePassword: account.mustChangePassword
+        userGroup: account.role
       })
     }
   } catch (error) {

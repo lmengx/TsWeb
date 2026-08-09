@@ -22,7 +22,7 @@ const manualToken = ref('')
 const authError = ref('')
 
 // 设置密码表单
-const username = ref('admin')          // 全局唯一 admin，用户名固定，不可修改
+const username = ref('admin')          // 全局唯一 admin
 const password = ref('')
 const showPwd = ref(false)
 const submitting = ref(false)
@@ -197,7 +197,6 @@ async function submitCreateAdmin() {
             <div class="form-group">
               <label class="form-label">管理员用户名</label>
               <input :value="username" type="text" class="form-input" disabled readonly />
-              <p class="field-hint">唯一管理员用户名固定为 <code>admin</code>，不可修改</p>
             </div>
           </div>
 

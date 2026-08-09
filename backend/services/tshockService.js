@@ -19,11 +19,10 @@ export class TShockService {
   startAutoRetry() {
     this.stopAutoRetry()
     this.testConnection()
+    // 无论在线/离线都定期探活：在线时保活（掉线及时转灰），离线时自动重连（恢复及时转绿）
     this.retryTimer = setInterval(() => {
-      if (!this.isConnected) {
-        this.testConnection().catch(() => {})
-      }
-    }, 5000)
+      this.testConnection().catch(() => {})
+    }, 15000)
   }
 
   stopAutoRetry() {
@@ -85,46 +84,8 @@ export class TShockService {
   }
 
   async testConnectionWith(host, port, apiKey) {
-    const baseUrl = `${host.startsWith('http://') || host.startsWith('https://') ? host : `http://${host}`}:${port}`
-    const url = `${baseUrl}/tokentest?token=${encodeURIComponent(apiKey)}`
-
-    console.log(`[OUTGOING] Testing TShock connection (temp): GET ${url}`)
-
-    try {
-      const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 3000)
-
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: { 'Accept': 'application/json' },
-        signal: controller.signal
-      })
-
-      clearTimeout(timeoutId)
-      console.log(`[RESPONSE] Status: ${response.status}`)
-
-      if (response.status === 200) {
-        return { success: true }
-      } else if (response.status === 401 || response.status === 403) {
-        return { success: false, type: 'auth', status: response.status, error: `TShock REST 接口返回 ${response.status}，API 密钥无效或权限不足` }
-      } else if (response.status === 404) {
-        return { success: false, type: 'notfound', status: response.status, error: `TShock REST 接口返回 ${response.status}，接口路径可能不正确` }
-      } else {
-        return { success: false, type: 'unknown', status: response.status, error: `TShock REST 接口返回 ${response.status}` }
-      }
-    } catch (error) {
-      console.log(`[RESPONSE] Error: ${error.message}`)
-      if (error.name === 'AbortError') {
-        return { success: false, type: 'timeout', status: 0, error: '连接超时（3秒），目标服务器无响应，请确认地址和端口是否正确' }
-      }
-      if (error.code === 'ECONNREFUSED') {
-        return { success: false, type: 'refused', status: 0, error: '连接被拒绝（ECONNREFUSED），目标服务器未启动或端口错误' }
-      }
-      if (error.code === 'ENOTFOUND' || error.code === 'EAI_AGAIN') {
-        return { success: false, type: 'dns', status: 0, error: '无法解析主机名（' + error.code + '），请检查地址是否正确' }
-      }
-      return { success: false, type: 'error', status: 0, error: '连接失败：请确认目标服务器已开启并且监听对应 REST 端口（' + error.message + '）' }
-    }
+    // 委托给模块级独立测试函数（不依赖实例，供添加向导"仅测试"复用）
+    return testConnectionWith(host, port, apiKey)
   }
 
   getConnectionStatus() {
@@ -1630,6 +1591,50 @@ export class TShockService {
   }
 }
 
+/** 独立连接测试（不依赖服务器实例）：添加向导"仅测试"用 */
+export async function testConnectionWith(host, port, apiKey) {
+  const baseUrl = `${host.startsWith('http://') || host.startsWith('https://') ? host : `http://${host}`}:${port}`
+  const url = `${baseUrl}/tokentest?token=${encodeURIComponent(apiKey)}`
+
+  console.log(`[OUTGOING] Testing TShock connection (temp): GET ${url}`)
+
+  try {
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 3000)
+
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: { 'Accept': 'application/json' },
+      signal: controller.signal
+    })
+
+    clearTimeout(timeoutId)
+    console.log(`[RESPONSE] Status: ${response.status}`)
+
+    if (response.status === 200) {
+      return { success: true }
+    } else if (response.status === 401 || response.status === 403) {
+      return { success: false, type: 'auth', status: response.status, error: `TShock REST 接口返回 ${response.status}，API 密钥无效或权限不足` }
+    } else if (response.status === 404) {
+      return { success: false, type: 'notfound', status: response.status, error: `TShock REST 接口返回 ${response.status}，接口路径可能不正确` }
+    } else {
+      return { success: false, type: 'unknown', status: response.status, error: `TShock REST 接口返回 ${response.status}` }
+    }
+  } catch (error) {
+    console.log(`[RESPONSE] Error: ${error.message}`)
+    if (error.name === 'AbortError') {
+      return { success: false, type: 'timeout', status: 0, error: '连接超时（3秒），目标服务器无响应，请确认地址和端口是否正确' }
+    }
+    if (error.code === 'ECONNREFUSED') {
+      return { success: false, type: 'refused', status: 0, error: '连接被拒绝（ECONNREFUSED），目标服务器未启动或端口错误' }
+    }
+    if (error.code === 'ENOTFOUND' || error.code === 'EAI_AGAIN') {
+      return { success: false, type: 'dns', status: 0, error: '无法解析主机名（' + error.code + '），请检查地址是否正确' }
+    }
+    return { success: false, type: 'error', status: 0, error: '连接失败：请确认目标服务器已开启并且监听对应 REST 端口（' + error.message + '）' }
+  }
+}
+
 // ═══════════════════════════════════════════════════════════
 // 服务器实例注册表 + 请求级上下文（无全局 currentServerId）
 // 当前目标服务器由每个请求的 x-server-id header 决定，
@@ -1644,6 +1649,8 @@ export function registerServer(server) {
   let inst = serverInstances.get(server.id)
   if (inst) {
     inst.reloadConfig(server)
+    // reloadConfig 内会 stopAutoRetry 并重置 isConnected，必须重新启动心跳
+    inst.startAutoRetry()
     return inst
   }
   inst = new TShockService(server)

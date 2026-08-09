@@ -82,17 +82,10 @@ const login = async () => {
       }
       
       saveUserToStorage(userData)
-      
-      // 需要强制改密（首次创建/管理员重置）→ 跳转改密页
-      if (loginResult.mustChangePassword) {
-        setTimeout(() => {
-          router.push('/change-password?forced=1')
-        }, 500)
-      } else {
-        setTimeout(() => {
-          router.push('/console')
-        }, 1500)
-      }
+
+      setTimeout(() => {
+        router.push('/console')
+      }, 1500)
     } else {
       loginStatus.value = 'server_error'
     }

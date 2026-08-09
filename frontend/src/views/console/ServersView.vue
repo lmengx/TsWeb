@@ -1,13 +1,11 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { apiRequest, post, put, del } from '../../utils/api.js'
 import { getCurrentServerId, selectServer, fetchServers } from '../../utils/serverStore.js'
 import ServerCard from '../../components/ServerCard.vue'
 import AddServerWizard from '../../components/AddServerWizard.vue'
-import SystemSettingsPanel from '../../components/SystemSettingsPanel.vue'
 
 // ═══════════════ 状态 ═══════════════
-const activeTab = ref('servers')       // servers | system
 const servers = ref([])
 const loading = ref(false)
 const error = ref('')
@@ -120,27 +118,32 @@ const handleAdded = async () => {
   await loadServers()
 }
 
-const switchTab = (tab) => { activeTab.value = tab }
+// 定时刷新 + 切换事件监听：保持卡片在线状态实时同步
+let statusTimer = null
+const refreshServers = () => { loadServers() }
 
-onMounted(loadServers)
+onMounted(() => {
+  loadServers()
+  statusTimer = setInterval(refreshServers, 15000)
+  window.addEventListener('server-changed', refreshServers)
+})
+
+onUnmounted(() => {
+  if (statusTimer) clearInterval(statusTimer)
+  window.removeEventListener('server-changed', refreshServers)
+})
 </script>
 
 <template>
   <div class="servers-content">
     <div class="section-header">
       <h2>服务器管理</h2>
-      <div class="tab-switch">
-        <button :class="{ active: activeTab === 'servers' }" @click="switchTab('servers')">服务器</button>
-        <button :class="{ active: activeTab === 'system' }" @click="switchTab('system')">系统设置</button>
-      </div>
     </div>
 
     <div v-if="success" class="flash success">{{ success }}</div>
     <div v-if="error" class="flash error">{{ error }}</div>
 
-    <!-- ══════════ 服务器页签 ══════════ -->
-    <template v-if="activeTab === 'servers'">
-      <!-- 统计条 -->
+    <!-- 统计条 -->
       <div class="stats-bar">
         <div class="stat-item">
           <span class="stat-num">{{ servers.length }}</span>
@@ -195,10 +198,6 @@ onMounted(loadServers)
           @remove="removeServer"
         />
       </div>
-    </template>
-
-    <!-- ══════════ 系统设置页签 ══════════ -->
-    <SystemSettingsPanel v-else />
   </div>
 
   <!-- ══════════ 添加服务器向导 ══════════ -->

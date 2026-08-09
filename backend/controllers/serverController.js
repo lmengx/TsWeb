@@ -5,7 +5,7 @@ import {
 } from '../config.js'
 import { registerServer, unregisterServer, getServerInstance, testConnectionWith } from '../services/tshockService.js'
 
-/** 脱敏：apiKey / pushSecret 只返回是否已设置，不返回明文 */
+/** 脱敏：apiKey / pushSecret 只返回是否已设置，不返回明文；同时附上实时在线状态 */
 function sanitize(server) {
   if (!server) return null
   return {
@@ -16,7 +16,8 @@ function sanitize(server) {
     enabled: server.enabled,
     note: server.note,
     hasApiKey: !!(server.apiKey && server.apiKey.length > 0),
-    hasPushSecret: !!(server.pushSecret && server.pushSecret.length > 0)
+    hasPushSecret: !!(server.pushSecret && server.pushSecret.length > 0),
+    connected: !!getServerInstance(server.id)?.isConnected
   }
 }
 

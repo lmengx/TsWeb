@@ -20,7 +20,7 @@ import serverRoutes from './routes/serverRoutes.js'
 import auditRoutes from './routes/auditRoutes.js'
 import hookRoutes from './routes/hookRoutes.js'
 import { loadRules as loadFileAccessRules } from './services/fileAccessService.js'
-import tshockService, { registerServer, runWithServer } from './services/tshockService.js'
+import tshockService, { registerServer, runWithServer, getServicesStatus } from './services/tshockService.js'
 import audit from './services/auditLogger.js'
 import readline from 'readline'
 import iconv from 'iconv-lite'
@@ -120,7 +120,8 @@ app.get('/api/health', (req, res) => {
 app.get('/api/status', async (req, res) => {
   try {
     const servers = await getServers()
-    const servicesStatus = tshockService.getServicesStatus?.() || []
+    // getServicesStatus 是模块级命名导出，不能通过默认导出的 Proxy 访问（实例无此方法）
+    const servicesStatus = getServicesStatus() || []
     const statusList = servers.map(s => {
       const svc = servicesStatus.find(x => x.id === s.id)
       return {

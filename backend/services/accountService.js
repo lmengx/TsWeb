@@ -66,7 +66,6 @@ export async function listAccounts() {
     .map(a => ({
       username: a.username,
       role: a.role,
-      mustChangePassword: !!a.mustChangePassword,
       createdAt: a.createdAt,
       updatedAt: a.updatedAt
     }))
@@ -110,8 +109,6 @@ export async function createAccount(username, password, role) {
     username: name,
     passwordHash: hash,
     role: targetRole,
-    // 创建时默认要求改密（首次登录强制设置）
-    mustChangePassword: true,
     createdAt: now,
     updatedAt: now
   }
@@ -127,23 +124,23 @@ export async function verifyAccount(username, password) {
   if (!ok) return null
   return {
     username: account.username,
-    role: account.role,
-    mustChangePassword: !!account.mustChangePassword
+    role: account.role
   }
 }
 
 /**
- * 修改密码（自助改密：oldPassword 校验；管理员重置：无需旧密码）
+ * 修改密码（自助改密：必须提供旧密码校验；管理员重置走 resetPassword，不经过此方法）
  * 永不返回/记录密码原文
  */
 export async function changePassword(username, oldPassword, newPassword) {
   const account = await getAccount(username)
   if (!account) throw new Error('用户不存在')
 
-  if (oldPassword !== undefined && oldPassword !== null) {
-    const ok = await bcrypt.compare(String(oldPassword), account.passwordHash)
-    if (!ok) throw new Error('旧密码错误')
+  if (!oldPassword) {
+    throw new Error('旧密码为必填')
   }
+  const ok = await bcrypt.compare(String(oldPassword), account.passwordHash)
+  if (!ok) throw new Error('旧密码错误')
 
   if (!newPassword || String(newPassword).length < 8) {
     throw new Error('新密码长度至少 8 位')
@@ -153,7 +150,6 @@ export async function changePassword(username, oldPassword, newPassword) {
   }
 
   account.passwordHash = await bcrypt.hash(String(newPassword), 12)
-  account.mustChangePassword = false
   account.updatedAt = new Date().toISOString()
   await persist()
   return { username: account.username, role: account.role }
@@ -169,7 +165,6 @@ export async function resetPassword(username) {
 
   const plain = generateStrongPassword(16)
   account.passwordHash = await bcrypt.hash(plain, 12)
-  account.mustChangePassword = true
   account.updatedAt = new Date().toISOString()
   await persist()
   return { username: account.username, plainPassword: plain }

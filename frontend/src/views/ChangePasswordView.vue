@@ -1,13 +1,11 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRouter } from 'vue-router'
 import { post } from '../utils/api.js'
 import { getUserFromStorage } from '../utils/authHelper.js'
 
-const route = useRoute()
 const router = useRouter()
 
-const forced = computed(() => route.query.forced === '1')
 const currentUser = ref('')
 const oldPassword = ref('')
 const newPassword = ref('')
@@ -45,7 +43,7 @@ const submit = async () => {
   error.value = ''
   success.value = ''
 
-  if (!forced.value && !oldPassword.value) {
+  if (!oldPassword.value) {
     error.value = '请输入旧密码'
     return
   }
@@ -57,17 +55,17 @@ const submit = async () => {
     error.value = '两次输入的新密码不一致'
     return
   }
-  if (!forced.value && newPassword.value === oldPassword.value) {
+  if (newPassword.value === oldPassword.value) {
     error.value = '新密码不能与旧密码相同'
     return
   }
 
   loading.value = true
   try {
-    const body = { newPassword: newPassword.value }
-    if (!forced.value) body.oldPassword = oldPassword.value
-
-    const res = await post('/api/auth/change-password', body)
+    const res = await post('/api/auth/change-password', {
+      oldPassword: oldPassword.value,
+      newPassword: newPassword.value
+    })
     const data = await res.json()
 
     if (res.ok) {
@@ -96,16 +94,15 @@ const cancel = () => {
     <div class="cp-card">
       <div class="cp-header">
         <div class="cp-logo">🔑</div>
-        <h2>{{ forced ? '设置初始密码' : '修改密码' }}</h2>
-        <p v-if="forced" class="cp-sub">首次登录或密码已被重置，请设置新密码后才能继续使用</p>
-        <p v-else class="cp-sub">登录账户：{{ currentUser }}</p>
+        <h2>修改密码</h2>
+        <p class="cp-sub">登录账户：{{ currentUser }}</p>
       </div>
 
       <div v-if="error" class="cp-msg error">{{ error }}</div>
       <div v-if="success" class="cp-msg success">{{ success }}</div>
 
       <div class="cp-form">
-        <div v-if="!forced" class="cp-row">
+        <div class="cp-row">
           <label>旧密码</label>
           <input v-model="oldPassword" type="password" autocomplete="current-password" @keyup.enter="submit" />
         </div>
@@ -133,9 +130,9 @@ const cancel = () => {
         </div>
 
         <button class="cp-submit" :disabled="loading" @click="submit">
-          {{ loading ? '提交中...' : (forced ? '设置密码' : '确认修改') }}
+          {{ loading ? '提交中...' : '确认修改' }}
         </button>
-        <button v-if="!forced" class="cp-cancel" @click="cancel">暂不修改</button>
+        <button class="cp-cancel" @click="cancel">暂不修改</button>
       </div>
     </div>
   </div>

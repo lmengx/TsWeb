@@ -12,7 +12,7 @@ import BackendView from '../views/BackendView.vue'
 import BackendInit from '../views/BackendInit.vue'
 import NotFound from '../views/NotFound.vue'
 import { isAdmin, isManager } from '../utils/authHelper.js'
-import { fetchServers, getCurrentServerId, selectServer, getServers } from '../utils/serverStore.js'
+import { fetchServers } from '../utils/serverStore.js'
 
 const routes = [
   {
@@ -70,21 +70,13 @@ const routes = [
       {
         path: '',
         name: 'ConsoleHome',
-        redirect: (to) => {
-          return isManager() ? '/console/online' : '/console/guide'
-        }
-      },
-      {
-        path: 'profile',
-        name: 'Profile',
-        component: () => import('../views/console/ProfileView.vue'),
-        meta: { requiresAuth: true }
+        redirect: '/console/online'
       },
       {
         path: 'progress',
         name: 'Progress',
         component: () => import('../views/console/ProgressView.vue'),
-        meta: { requiresAuth: true }
+        meta: { requiresAuth: true, requiresManager: true }
       },
       {
         path: 'settings',
@@ -168,34 +160,34 @@ const routes = [
         meta: { requiresAuth: true, requiresAdmin: true }
       },
       {
-        path: 'guide',
-        name: 'Guide',
-        component: () => import('../views/console/GuideView.vue'),
-        meta: { requiresAuth: true }
+        path: 'accounts',
+        name: 'Accounts',
+        component: () => import('../views/console/BackendSettingsView.vue'),
+        meta: { requiresAuth: true, requiresAdmin: true }
       },
       {
         path: 'tools',
         name: 'Tools',
         redirect: '/console/tools/home',
-        meta: { requiresAuth: true },
+        meta: { requiresAuth: true, requiresManager: true },
         children: [
           {
             path: 'home',
             name: 'ToolsHome',
             component: () => import('../views/console/tools/ToolsHome.vue'),
-            meta: { requiresAuth: true }
+            meta: { requiresAuth: true, requiresManager: true }
           },
           {
             path: 'item-search',
             name: 'ItemSearch',
             component: () => import('../views/console/tools/ItemSearch.vue'),
-            meta: { requiresAuth: true }
+            meta: { requiresAuth: true, requiresManager: true }
           },
           {
             path: 'gradient-text',
             name: 'GradientText',
             component: () => import('../views/console/tools/GradientText.vue'),
-            meta: { requiresAuth: true }
+            meta: { requiresAuth: true, requiresManager: true }
           },
           {
             path: 'resources',
@@ -261,12 +253,6 @@ const routes = [
           }
         ]
       },
-      {
-        path: 'about',
-        name: 'About',
-        component: () => import('../views/console/AboutView.vue'),
-        meta: { requiresAuth: true, requiresAdmin: true }
-      }
     ]
   },
   {
@@ -328,19 +314,6 @@ router.beforeEach(async (to, from) => {
 
   if (to.path === '/error/server' || to.path === '/setup' || to.path === '/backend' || to.path === '/backend/init' || to.path === '/login') {
     return true
-  }
-
-  // 关于页许可检查
-  if (to.path === '/console/about') {
-    try {
-      const res = await fetch('/api/config/license-check')
-      if (res.ok) {
-        const data = await res.json()
-        if (data.hidden) {
-          return '/console'
-        }
-      }
-    } catch {}
   }
 
   const isLoggedIn = localStorage.getItem('user') !== null

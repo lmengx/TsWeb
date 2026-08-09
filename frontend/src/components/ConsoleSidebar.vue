@@ -9,7 +9,6 @@ const router = useRouter()
 
 const isLoggedIn = computed(() => !!localStorage.getItem('user'))
 
-const aboutVisible = ref(false)
 const isMobile = ref(false)
 let mql = null
 
@@ -34,34 +33,38 @@ const goServerManage = () => {
   router.push('/console/servers')
 }
 
+let statusTimer = null
+const refreshServerStatus = () => { loadServers() }
+
 // ── 移动端检测 ──
 onMounted(() => {
-  // 检查许可
-  fetch('/api/config/license-check')
-    .then(r => r.json())
-    .then(d => { if (!d.hidden) aboutVisible.value = true })
-    .catch(() => {})
-
   loadServers()
 
   mql = window.matchMedia('(max-width: 767px)')
   isMobile.value = mql.matches
   mql.addEventListener('change', onMediaChange)
+
+  // 定时刷新服务器在线状态（与后端心跳 15s 同频），保持状态点颜色同步
+  statusTimer = setInterval(refreshServerStatus, 15000)
+  // 切换服务器后立即刷新当前服务器信息
+  window.addEventListener('server-changed', refreshServerStatus)
 })
 
 onUnmounted(() => {
+  if (statusTimer) clearInterval(statusTimer)
+  window.removeEventListener('server-changed', refreshServerStatus)
   if (mql) mql.removeEventListener('change', onMediaChange)
 })
 
 const onMediaChange = (e) => { isMobile.value = e.matches }
 
-// ── 侧边栏配置 ──
-// managerOnly: admin + subadmin 可用（服务器内操作）
-// adminOnly: 仅全局唯一管理员（后端配置/服务器管理/审计/文件）
-const sidebarItems = [
-  // ═══ 管理 ═══
-  { id: 'online', name: '总览', path: '/console/online', managerOnly: true, icon: '📊' },
+// ── 侧边栏配置（分两个分区） ──
+// 服务器设置：服务器内操作（managerOnly = admin+subadmin，adminOnly = 仅 admin）
+// 后端设置：后端级配置（仅 admin）
+const serverSection = [
+  { id: 'online', name: '服务器总览', path: '/console/online', managerOnly: true, icon: '📊' },
   { id: 'terminal', name: '控制台', path: '/console/terminal', managerOnly: true, icon: '💻' },
+  { id: 'progress', name: '世界进度', path: '/console/progress', managerOnly: true },
   { id: 'players', name: '玩家管理', path: '/console/players', managerOnly: true, icon: '👥' },
   { id: 'groups', name: '组管理', path: '/console/groups', managerOnly: true },
   { id: 'houses', name: '房屋管理', path: '/console/houses', managerOnly: true, icon: '🏠' },
@@ -76,32 +79,36 @@ const sidebarItems = [
     ]
   },
   { id: 'files', name: '配置文件', path: '/console/files', adminOnly: true },
-  { id: 'audit', name: '系统日志', path: '/console/audit', adminOnly: true, icon: '📋' },
-  { id: 'settings', name: '设置', path: '/console/settings', adminOnly: true },
-
-  // ═══ 用户 ═══
-  { id: 'guide', name: '公告', path: '/console/guide' },
-  { id: 'profile', name: '个人资料', path: '/console/profile', icon: '👤' },
-  { id: 'progress', name: '世界进度', path: '/console/progress' },
+  { id: 'settings', name: '插件设置', path: '/console/settings', adminOnly: true },
   {
-    id: 'tools', name: '工具', path: '/console/tools',
+    id: 'tools', name: '工具', path: '/console/tools', managerOnly: true,
     children: [
       { id: 'item-search', name: '物品查询', path: '/console/tools/item-search' },
       { id: 'gradient-text', name: '彩色文字', path: '/console/tools/gradient-text' },
       { id: 'resources', name: '资源下载', path: '/console/tools/resources' }
     ]
-  },
-  { id: 'about', name: '关于', path: '/console/about', adminOnly: true }
+  }
 ]
 
-const visibleItems = computed(() => {
-  return sidebarItems.filter(item => {
-    if (item.adminOnly && !isAdmin()) return false
-    if (item.managerOnly && !isManager()) return false
-    if (item.id === 'about' && !aboutVisible.value) return false
-    return true
-  })
-})
+const backendSection = [
+  { id: 'accounts', name: '账户管理', path: '/console/accounts', adminOnly: true, icon: '🔑' },
+  { id: 'audit', name: '系统日志', path: '/console/audit', adminOnly: true, icon: '📋' }
+]
+
+const filterVisible = (item) => {
+  if (item.adminOnly && !isAdmin()) return false
+  if (item.managerOnly && !isManager()) return false
+  return true
+}
+
+const serverItems = computed(() => serverSection.filter(filterVisible))
+const backendItems = computed(() => backendSection.filter(filterVisible))
+const visibleItems = computed(() => [...serverItems.value, ...backendItems.value])
+// 过滤空分区：subadmin 无后端设置项时，不显示“后端设置”分区标题与分割线
+const sections = computed(() => [
+  { label: '服务器设置', items: serverItems.value },
+  { label: '后端设置', items: backendItems.value }
+].filter(sec => sec.items.length > 0))
 
 // ── 桌面端侧边栏 ──
 const isActive = (path) => route.path === path
@@ -130,8 +137,6 @@ const mainTabs = computed(() => {
     ]
   } else {
     return [
-      { id: 'guide', name: '公告', path: '/console/guide' },
-      { id: 'profile', name: '个人资料', path: '/console/profile' },
       { id: 'progress', name: '世界进度', path: '/console/progress' },
       { id: 'tools', name: '工具', isTools: true },
     ]
@@ -161,7 +166,7 @@ const closeMoreMenu = () => { showMoreMenu.value = false; expandedMoreItem.value
 
 const moreItems = computed(() => {
   return visibleItems.value.filter(item =>
-    !['online', 'terminal', 'players', 'profile', 'guide', 'progress', 'tools'].includes(item.id) &&
+    !['online', 'terminal', 'players', 'progress', 'tools'].includes(item.id) &&
     item.adminOnly
   )
 })
@@ -204,12 +209,12 @@ const closeToolsMenu = () => { showToolsMenu.value = false }
 
 const otherItems = computed(() => {
   return visibleItems.value.filter(item =>
-    ['guide', 'profile', 'progress', 'tools'].includes(item.id)
+    ['progress', 'tools'].includes(item.id)
   )
 })
 
 const toolsItems = computed(() => {
-  const toolsItem = sidebarItems.find(item => item.id === 'tools')
+  const toolsItem = serverSection.find(item => item.id === 'tools')
   return toolsItem?.children || []
 })
 </script>
@@ -230,32 +235,34 @@ const toolsItems = computed(() => {
     </div>
 
     <nav class="sidebar-nav">
-      <template v-for="(item, idx) in visibleItems" :key="item.id">
-        <div v-if="idx > 0 && !item.adminOnly && visibleItems[idx - 1]?.adminOnly" class="sidebar-divider"></div>
+      <template v-for="sec in sections" :key="sec.label">
+        <div class="sidebar-section-label">{{ sec.label }}</div>
+        <template v-for="item in sec.items" :key="item.id">
+          <!-- 有子项目的组 -->
+          <div v-if="item.children && item.children.length > 0" class="sidebar-item-group">
+            <div class="sidebar-item parent-item" :class="{ active: isActiveParent(item.path) }"
+              @click="handleParentClick(item)">
+              <span class="sidebar-name">{{ item.name }}</span>
+              <span class="expand-icon" :class="{ rotated: isExpanded(item.path) }">▼</span>
+              <div v-if="isActiveParent(item.path)" class="active-indicator"></div>
+            </div>
+            <div v-if="isExpanded(item.path)" class="sidebar-submenu">
+              <router-link v-for="child in item.children" :key="child.id" :to="child.path"
+                class="sidebar-item child-item" :class="{ active: isActive(child.path) }">
+                <span class="sidebar-name">{{ child.name }}</span>
+                <div v-if="isActive(child.path)" class="active-indicator"></div>
+              </router-link>
+            </div>
+          </div>
 
-        <!-- 有子项目的组 -->
-        <div v-if="item.children && item.children.length > 0" class="sidebar-item-group">
-          <div class="sidebar-item parent-item" :class="{ active: isActiveParent(item.path) }"
-            @click="handleParentClick(item)">
+          <!-- 普通路由 -->
+          <router-link v-else :to="item.path" class="sidebar-item"
+            :class="{ active: isActive(item.path) }">
             <span class="sidebar-name">{{ item.name }}</span>
-            <span class="expand-icon" :class="{ rotated: isExpanded(item.path) }">▼</span>
-            <div v-if="isActiveParent(item.path)" class="active-indicator"></div>
-          </div>
-          <div v-if="isExpanded(item.path)" class="sidebar-submenu">
-            <router-link v-for="child in item.children" :key="child.id" :to="child.path"
-              class="sidebar-item child-item" :class="{ active: isActive(child.path) }">
-              <span class="sidebar-name">{{ child.name }}</span>
-              <div v-if="isActive(child.path)" class="active-indicator"></div>
-            </router-link>
-          </div>
-        </div>
-
-        <!-- 普通路由 -->
-        <router-link v-else :to="item.path" class="sidebar-item"
-          :class="{ active: isActive(item.path) }">
-          <span class="sidebar-name">{{ item.name }}</span>
-          <div v-if="isActive(item.path)" class="active-indicator"></div>
-        </router-link>
+            <div v-if="isActive(item.path)" class="active-indicator"></div>
+          </router-link>
+        </template>
+        <div v-if="sec !== sections[sections.length - 1]" class="sidebar-divider"></div>
       </template>
     </nav>
   </aside>
@@ -281,14 +288,6 @@ const toolsItems = computed(() => {
         <!-- 管理: 齿轮 -->
         <svg v-else-if="tab.id === 'more'" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-        </svg>
-        <!-- 公告: 铃铛 -->
-        <svg v-else-if="tab.id === 'guide'" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>
-        </svg>
-        <!-- 个人资料: 单人 -->
-        <svg v-else-if="tab.id === 'profile'" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
         </svg>
         <!-- 世界进度: 奖杯/进度 -->
         <svg v-else-if="tab.id === 'progress'" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -455,7 +454,15 @@ const toolsItems = computed(() => {
 .dropdown-enter-active, .dropdown-leave-active { transition: all .2s ease; }
 .dropdown-enter-from, .dropdown-leave-to { opacity: 0; transform: translateY(-6px); }
 .sidebar-nav { display: flex; flex-direction: column; gap: 2px; padding: 0 8px; }
-.sidebar-divider { height: 1px; background: var(--border-light); margin: 8px 14px 6px; flex-shrink: 0; }
+.sidebar-section-label {
+  padding: 10px 14px 4px;
+  font-size: .7rem;
+  font-weight: 700;
+  letter-spacing: .5px;
+  color: var(--text-muted);
+  opacity: .8;
+}
+.sidebar-divider { height: 1px; background: var(--border-light); margin: 10px 14px 6px; flex-shrink: 0; }
 .sidebar-item {
   display: flex; align-items: center; padding: 10px 14px; cursor: pointer;
   border-radius: 10px; transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
