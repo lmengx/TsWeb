@@ -14,4 +14,18 @@
     <EnableDefaultCompileItems>true</EnableDefaultCompileItems>
   </PropertyGroup>
 
+  <ItemGroup>
+    <!-- 项目级引用（不依赖上级 Directory.Build.props 继承，最稳妥）：
+         - ImGui.NET：Tool.DrawUI 的 ImGui 面板（ImGuiIOPtr / ImGui 类型）
+         - TNA：XNA 兼容层（Vector2 / Color / Graphics，AssemblyName=TNA, RootNamespace=Microsoft.Xna.Framework） -->
+    <Reference Include="ImGui.NET">
+      <HintPath>..\client-build\ImGui.NET.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="TNA">
+      <HintPath>..\client-build\TNA.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
 </Project>

@@ -52,10 +52,6 @@
         <HintPath>$(TerraAngelClientDir)\TrProtocol.dll</HintPath>
         <Private>false</Private>
       </Reference>
-      <Reference Include="ImGui.NET">
-        <HintPath>$(TerraAngelClientDir)\ImGui.NET.dll</HintPath>
-        <Private>false</Private>
-      </Reference>
       <Reference Include="TNA">
         <HintPath>$(TerraAngelClientDir)\TNA.dll</HintPath>
         <Private>false</Private>
@@ -65,6 +61,12 @@
         <Private>false</Private>
       </Reference>
     -->
+
+    <!-- 已启用：Tool.DrawUI 的 ImGui 面板（ImGuiIOPtr 等类型来自 ImGui.NET.dll） -->
+    <Reference Include="ImGui.NET">
+      <HintPath>$(TerraAngelClientDir)\ImGui.NET.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
   </ItemGroup>
 
   <!--

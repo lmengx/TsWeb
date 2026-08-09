@@ -1,5 +1,6 @@
 using TerraAngel;
 using TerraAngel.Plugin;
+using TerraAngel.Tools;
 
 namespace TaDebug.TAPlugin;
 
@@ -24,11 +25,14 @@ public sealed class DebugPlugin : Plugin
     {
     }
 
-    /// <summary>加载时调用一次：注册控制台命令。</summary>
+    /// <summary>加载时调用一次：注册控制台命令与工具面板。</summary>
     public override void Load()
     {
         ClientLoader.Console.WriteLine($"[{Name}] 已加载，dll 路径: {PluginPath}");
         ClientLoader.Console.WriteLine($"[{Name}] 程序集: {PluginAssembly.FullName}");
+
+        // 注册 NPC 召唤面板（主窗口出现 NPC Summoner 标签页）
+        ToolManager.AddTool<NPCSummonerTool>();
 
         ClientLoader.Console.AddCommand("hi",
             x =>
@@ -52,6 +56,11 @@ public sealed class DebugPlugin : Plugin
     /// <summary>卸载时调用一次：反注册资源。</summary>
     public override void Unload()
     {
+        try
+        {
+            ToolManager.RemoveTool<NPCSummonerTool>();
+        }
+        catch { }
         ClientLoader.Console.WriteLine($"[{Name}] 已卸载");
     }
 }
