@@ -111,8 +111,8 @@ namespace TShockData
             ItemConfigHandler.LoadItemConfig();
             ItemDetection.Initialize();
 
-            // ═══ 粒子防线：拦截客户端伪造粒子请求（82 + NetParticlesModule）═══
-            ParticleGuard.Initialize();
+			// ═══ 粒子防线：拦截客户端伪造粒子请求（82 + NetParticlesModule）═══
+            ParticleGuard.Initialize(this);
 
             OnlineData.Initialize(this);
 
