@@ -111,6 +111,9 @@ namespace TShockData
             ItemConfigHandler.LoadItemConfig();
             ItemDetection.Initialize();
 
+            // ═══ 粒子防线：拦截客户端伪造粒子请求（82 + NetParticlesModule）═══
+            ParticleGuard.Initialize();
+
             OnlineData.Initialize(this);
 
             TShock.RestApi.Register(new SecureRestCommand("/data/online/hourly", OnlineData.GetHourlyOnline, "data.rest.invsee"));
@@ -176,6 +179,9 @@ namespace TShockData
             TShockAPI.Commands.ChatCommands.Add(new Command("tshock.admin", ProjDetection.ShowRestrictedList, "projlist", "违禁弹幕"));
             TShockAPI.Commands.ChatCommands.Add(new Command("tshock.admin", ItemDetection.ShowRestrictedList, "scanlist", "违禁物品"));
 
+            // /lightning：服务端广播闪电（管理员受控入口，配合 ParticleGuard）
+            TShockAPI.Commands.ChatCommands.Add(new Command("tshock.admin", ParticleGuard.LightningCommand, "lightning", "闪电"));
+
             TShockAPI.Hooks.GeneralHooks.ReloadEvent += OnReload;
         }
 
@@ -209,6 +215,7 @@ namespace TShockData
 				RuntimeHooks.Dispose();
 				BossLimit.Dispose();
 				ItemDetection.StopAutoScan();
+                ParticleGuard.Dispose();
 				BypassHelper.UnregisterPermissionHook();
 				PvPLockManager.Dispose();
 				TeamLockManager.Dispose();
@@ -245,6 +252,7 @@ namespace TShockData
 				"scan", "扫描",
 				"projlist", "违禁弹幕",
 				"scanlist", "违禁物品",
+                "lightning", "闪电",
                 "ping",
 				"bosslimit", "进度锁",			};
 
