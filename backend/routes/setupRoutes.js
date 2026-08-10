@@ -4,7 +4,6 @@ import { getConfig, getServers, addServer } from '../config.js'
 import { validateSetupToken, generateSetupToken } from '../setupToken.js'
 import tshockService from '../services/tshockService.js'
 import { exec } from 'child_process'
-import iconv from 'iconv-lite'
 import { promisify } from 'util'
 import fs from 'fs/promises'
 import path from 'path'
@@ -18,13 +17,9 @@ const __dirname = path.dirname(__filename)
 
 const execAsync = promisify(exec)
 
-// Windows 中文系统下 cmd/powershell 子进程 stdout 是 GBK(CP936) 字节流，
-// Node 的 exec 默认按 utf8 解码会乱码（如中文路径）→ 统一以 buffer 接收 + iconv 转码。
-// GBK 兼容 ASCII，故在纯 ASCII 输出上此解码结果与 utf8 一致。
-const decodeCmdOutput = (buf) => {
-  if (Buffer.isBuffer(buf)) return iconv.decode(buf, 'gbk')
-  return String(buf || '')
-}
+// Windows 下子进程输出编码取决于系统代码页（GBK/UTF-8 因机器而异，甚至会话间不同），
+// 不能猜编码：统一强制 UTF-8 输出（cmd 工具前置 chcp 65001；powershell 前置 [Console]::OutputEncoding），
+// Node 端固定按 utf8 解码，彻底避免中文路径乱码。
 
 // 直接向 TShock REST API 发请求（用于插件初始化阶段；此时可能尚未配置服务器 → 用请求级 x-server-id）
 const tshockFetch = async (pathname) => {
@@ -163,8 +158,8 @@ router.get('/probe', setupOrAdmin, async (req, res) => {
     // findstr 无匹配时退出码非 0，需 catch 视为无结果
     let netstatOut = ''
     try {
-      const { stdout } = await execAsync(`netstat -ano | findstr :${port} `, { encoding: 'buffer' })
-      netstatOut = decodeCmdOutput(stdout)
+      const { stdout } = await execAsync(`chcp 65001>nul & netstat -ano | findstr :${port} `)
+      netstatOut = stdout
     } catch {
       netstatOut = ''
     }
@@ -176,26 +171,25 @@ router.get('/probe', setupOrAdmin, async (req, res) => {
     const processes = []
     for (const pid of pids) {
       let path = '未知'
-      // 首选 CIM（wmic 已废弃，Win11 24H2+ 已移除）；同时解决中文路径 GBK 乱码
+      // 首选 CIM（wmic 已废弃，Win11 24H2+ 已移除）；强制 UTF-8 输出，解决中文路径乱码
       try {
         const { stdout } = await execAsync(
-          `powershell -NoProfile -Command "(Get-CimInstance Win32_Process -Filter 'ProcessId=${pid}').ExecutablePath"`,
-          { encoding: 'buffer' }
+          `powershell -NoProfile -Command "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; (Get-CimInstance Win32_Process -Filter 'ProcessId=${pid}').ExecutablePath"`
         )
-        const p = decodeCmdOutput(stdout).trim()
+        const p = (stdout || '').trim()
         if (p) path = p
       } catch {}
       if (path === '未知') {
         try {
-          const { stdout } = await execAsync(`powershell -NoProfile -Command "(Get-Process -Id ${pid}).Path"`, { encoding: 'buffer' })
-          const p = decodeCmdOutput(stdout).trim().split('\r\n')[0].trim()
+          const { stdout } = await execAsync(`powershell -NoProfile -Command "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; (Get-Process -Id ${pid}).Path"`)
+          const p = (stdout || '').trim().split('\r\n')[0].trim()
           if (p) path = p
         } catch {}
       }
       if (path === '未知') {
         try {
-          const { stdout } = await execAsync(`tasklist /FI "PID eq ${pid}" /FO CSV /NH`, { encoding: 'buffer' })
-          const parts = decodeCmdOutput(stdout).trim().split(',')
+          const { stdout } = await execAsync(`chcp 65001>nul & tasklist /FI "PID eq ${pid}" /FO CSV /NH`)
+          const parts = (stdout || '').trim().split(',')
           if (parts[0]) path = parts[0].replace(/"/g, '')
         } catch {}
       }
