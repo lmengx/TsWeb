@@ -34,9 +34,10 @@ namespace TShockData
 	///   - 只捕获客户端 → 服务端的 82 号包（服务端 Broadcast 直接写 socket，不经 Read）
 	///   - moduleId != Particles(8) 的模块（Text/Ping/Liquid 等）原样放行
 	///
-	/// /lightning 指令：持续劈闪模式 —— 用户指定总数，每帧发 5 道（≈300 道/秒），
-	///   自动持续劈直到劈完。服务端广播走 NetManager.Broadcast / SendToClient 不经
-	///   NetManager.Read，不受防线拦截影响，同时作为反制是否误伤广播通道的验证工具。
+	/// /lightning 指令：持续劈闪模式 —— 用户自定义时长（秒 s / 帧 f）与每帧数量，
+	///   自动每帧发送指定数量，直到时长结束。默认仅目标玩家可见（self）。
+	///   服务端广播走 NetManager.Broadcast / SendToClient 不经 NetManager.Read，
+	///   不受防线拦截影响，同时作为反制是否误伤广播通道的验证工具。
 	/// </summary>
 	public static class ParticleGuard
 	{
@@ -81,11 +82,23 @@ namespace TShockData
 		//  持续劈闪配置
 		// ════════════════════════════════════════════
 
-		/// <summary>每帧发送的闪电数量（GameUpdate 约每秒 60 帧 → 每秒约 300 道）</summary>
-		private const int PerFrameCount = 5;
+		/// <summary>帧率（GameUpdate 约每秒触发次数）</summary>
+		private const int FrameRate = 60;
 
-		/// <summary>总数上限（防误触，300 道/秒下 100000 ≈ 5.5 分钟）</summary>
-		private const int MaxTotal = 100000;
+		/// <summary>默认时长：120 帧 = 2 秒</summary>
+		private const int DefaultDurationFrames = 120;
+
+		/// <summary>每帧默认数量</summary>
+		private const int DefaultPerFrame = 5;
+
+		/// <summary>每帧数量上限（100）</summary>
+		private const int MaxPerFrame = 100;
+
+		/// <summary>时长上限：360000 帧 = 6000 秒 = 100 分钟</summary>
+		private const int MaxFrames = 360000;
+
+		/// <summary>总道数兜底上限（帧 × 每帧），防误触导致全服广播洪泛</summary>
+		private const int MaxTotalBolts = 100000;
 
 		/// <summary>当前进行中的劈闪会话（服务器主线程访问，无需锁）</summary>
 		private static LightningSession? _session;
@@ -94,7 +107,8 @@ namespace TShockData
 		{
 			public int TargetIndex;     // 目标玩家索引
 			public bool TargetOnly;     // true=仅目标玩家可见, false=全服可见
-			public int Remaining;       // 剩余待劈数量
+			public int FramesLeft;      // 剩余帧数
+			public int PerFrame;        // 每帧数量
 		}
 
 		// ════════════════════════════════════════════
@@ -267,10 +281,14 @@ namespace TShockData
 		// ════════════════════════════════════════════
 
 		/// <summary>
-		/// /lightning <玩家> [总数=100] [all|self]
+		/// /lightning <玩家> [时长=120f] [每帧=5] [all|self]
 		/// /lightning stop
-		///   持续劈闪模式：指定总数后自动每帧发 5 道（≈300 道/秒）劈向目标玩家，
-		///   直到劈完指定总数。all（默认）= 全服可见；self = 仅目标玩家可见。
+		///
+		/// 持续劈闪模式：
+		///   时长    —— 帧数后缀 f（如 120f = 120 帧 = 2 秒），秒数后缀 s 或无后缀（如 10s / 10 = 10 秒）
+		///   每帧    —— 每帧发送的闪电数量，上限 100
+		///   可见性  —— self（默认，仅目标玩家可见）/ all（全服可见）
+		/// 例：/lightning 玩家 120f 5 self = 劈 2 秒，每帧 5 道，仅该玩家可见
 		/// 服务端广播走 NetManager.Broadcast / SendToClient，不经过 NetManager.Read，
 		/// 不受防线拦截影响 —— 同时作为反制是否误伤广播通道的验证工具。
 		/// </summary>
@@ -278,7 +296,10 @@ namespace TShockData
 		{
 			if (args.Parameters.Count < 1)
 			{
-				args.Player.SendInfoMessage("用法: /lightning <玩家> [总数=100] [all|self]  —— 持续劈闪；/lightning stop 停止");
+				args.Player.SendInfoMessage(
+					"用法: /lightning <玩家> [时长=120f] [每帧=5] [all|self]  —— 持续劈闪；/lightning stop 停止");
+				args.Player.SendInfoMessage(
+					"  时长: 帧数加 f（120f=2秒）或秒数（10s/10=10秒）；每帧上限 100；默认仅目标玩家可见（self）");
 				return;
 			}
 
@@ -292,7 +313,7 @@ namespace TShockData
 				}
 				var old = _session;
 				_session = null;
-				args.Player.SendSuccessMessage($"已停止劈闪（剩余 {old.Remaining} 道未劈）。");
+				args.Player.SendSuccessMessage($"已停止劈闪（剩余 {old.FramesLeft * old.PerFrame} 道未劈）。");
 				TShock.Log.ConsoleInfo($"[ParticleGuard] {args.Player.Name} 停止了劈闪");
 				return;
 			}
@@ -316,36 +337,96 @@ namespace TShockData
 				return;
 			}
 
-			// 总数：默认 100，钳制 1~MaxTotal
-			int total = 100;
-			if (args.Parameters.Count >= 2 && !int.TryParse(args.Parameters[1], out total))
+			// 时长：默认 120f（2 秒），支持 f（帧）/ s 或无后缀（秒）
+			int frames = DefaultDurationFrames;
+			if (args.Parameters.Count >= 2)
 			{
-				args.Player.SendErrorMessage("总数必须是整数。");
+				if (!TryParseDuration(args.Parameters[1], out frames))
+				{
+					args.Player.SendErrorMessage("时长格式无效。示例: 120f（帧）/ 10s 或 10（秒）。");
+					return;
+				}
+			}
+			frames = Math.Clamp(frames, 1, MaxFrames);
+
+			// 每帧数量：默认 5，钳制 1~MaxPerFrame
+			int perFrame = DefaultPerFrame;
+			if (args.Parameters.Count >= 3 && !int.TryParse(args.Parameters[2], out perFrame))
+			{
+				args.Player.SendErrorMessage("每帧数量必须是整数。");
 				return;
 			}
-			total = Math.Clamp(total, 1, MaxTotal);
+			perFrame = Math.Clamp(perFrame, 1, MaxPerFrame);
 
-			// 可见性：all（默认）/ self
-			bool targetOnly = args.Parameters.Count >= 3
-				&& args.Parameters[2].Equals("self", StringComparison.OrdinalIgnoreCase);
+			// 可见性：默认 self（仅目标玩家可见），显式 all 才全服可见
+			bool targetOnly = true;
+			if (args.Parameters.Count >= 4)
+			{
+				var vis = args.Parameters[3].ToLowerInvariant();
+				if (vis == "all")
+					targetOnly = false;
+				else if (vis != "self")
+				{
+					args.Player.SendErrorMessage("可见性参数无效，仅支持 self / all。");
+					return;
+				}
+			}
+
+			// 总道数兜底：帧 × 每帧超过上限时压缩帧数
+			long totalBolts = (long)frames * perFrame;
+			if (totalBolts > MaxTotalBolts)
+			{
+				frames = (int)Math.Max(1, MaxTotalBolts / perFrame);
+				totalBolts = (long)frames * perFrame;
+				args.Player.SendInfoMessage($"总道数超过上限 {MaxTotalBolts}，时长已压缩为 {frames} 帧。");
+			}
 
 			// 替换旧会话，启动新劈闪
 			_session = new LightningSession
 			{
 				TargetIndex = target.Index,
 				TargetOnly = targetOnly,
-				Remaining = total
+				FramesLeft = frames,
+				PerFrame = perFrame
 			};
 
-			double seconds = total / (double)(PerFrameCount * 60);
+			double seconds = frames / (double)FrameRate;
 			args.Player.SendSuccessMessage(
-				$"开始劈闪玩家 {target.Name}：共 {total} 道，每帧 {PerFrameCount} 道（≈{PerFrameCount * 60} 道/秒），预计 {seconds:F1} 秒劈完。" +
+				$"开始劈闪玩家 {target.Name}：时长 {frames} 帧（{seconds:F1} 秒），每帧 {perFrame} 道（共 {totalBolts} 道，≈{perFrame * FrameRate} 道/秒）。" +
 				(targetOnly ? "（仅该玩家可见）" : "（全服可见）"));
-			TShock.Log.ConsoleInfo($"[ParticleGuard] {args.Player.Name} 启动劈闪: 目标={target.Name}, 总数={total}, 可见={(!targetOnly ? "all" : "self")}");
+			if (perFrame > 20)
+				args.Player.SendInfoMessage("提示: 每帧 >20 道时客户端渲染负担较重，建议降低或使用 self。");
+			TShock.Log.ConsoleInfo($"[ParticleGuard] {args.Player.Name} 启动劈闪: 目标={target.Name}, 帧={frames}, 每帧={perFrame}, 可见={(!targetOnly ? "all" : "self")}");
 		}
 
 		/// <summary>
-		/// 游戏主循环驱动：每帧发送 PerFrameCount 道闪电，直到劈完总数。
+		/// 解析时长字符串 → 帧数。
+		///   120f → 120 帧；10s / 10 → 10 秒 = 600 帧。
+		/// </summary>
+		private static bool TryParseDuration(string raw, out int frames)
+		{
+			frames = 0;
+			if (string.IsNullOrWhiteSpace(raw))
+				return false;
+
+			var t = raw.Trim();
+			if (t.EndsWith("f", StringComparison.OrdinalIgnoreCase))
+			{
+				if (!int.TryParse(t[..^1], out frames) || frames <= 0)
+					return false;
+				return true;
+			}
+
+			string numPart = t.EndsWith("s", StringComparison.OrdinalIgnoreCase) ? t[..^1] : t;
+			if (!int.TryParse(numPart, out int sec) || sec <= 0)
+				return false;
+
+			frames = sec * FrameRate;
+			return true;
+		}
+
+		/// <summary>
+		/// 游戏主循环驱动：每帧发送指定数量的闪电，直到时长（帧数）耗尽。
 		/// GameUpdate 约每秒触发 60 次（每 tick 一次）。
 		/// </summary>
 		private static void OnGameUpdate(EventArgs args)
@@ -365,12 +446,11 @@ namespace TShockData
 				return;
 			}
 
-			int toSend = Math.Min(PerFrameCount, session.Remaining);
-			for (int i = 0; i < toSend; i++)
+			for (int i = 0; i < session.PerFrame; i++)
 				SendLightningOnce(target, session.TargetOnly);
-			session.Remaining -= toSend;
+			session.FramesLeft--;
 
-			if (session.Remaining <= 0)
+			if (session.FramesLeft <= 0)
 			{
 				_session = null;
 				TShock.Log.ConsoleInfo("[ParticleGuard] 劈闪完成");
