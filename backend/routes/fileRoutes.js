@@ -5,9 +5,12 @@ import * as fileController from '../controllers/fileController.js'
 const router = Router()
 
 // 文件管理：仅 admin（用户明确 subadmin 禁用）
-router.get('/access', verifyToken, requireAdmin, fileController.getAccessRules)
+router.get('/list', verifyToken, requireAdmin, fileController.listDir)
 router.get('/read', verifyToken, requireAdmin, fileController.readFile)
 router.post('/write', verifyToken, requireAdmin, fileController.writeFile)
-router.get('/list', verifyToken, requireAdmin, fileController.listDir)
+router.post('/delete', verifyToken, requireAdmin, fileController.deleteFile)
+router.post('/upload', verifyToken, requireAdmin, fileController.uploadFile)
+// SSE 下载（fetch 流式读取，带 Authorization + x-server-id header，不走 EventSource）
+router.get('/download', verifyToken, requireAdmin, fileController.downloadFile)
 
 export default router

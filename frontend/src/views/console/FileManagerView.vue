@@ -1,433 +1,639 @@
 <template>
   <div class="file-manager">
     <div class="page-header">
-      <h2>📄 配置文件管理</h2>
+      <h2>📁 文件管理</h2>
       <span class="path-badge">根目录: TShock 程序目录</span>
     </div>
 
-    <div class="file-manager-body">
-      <!-- 左侧文件树 -->
-      <div class="file-tree-panel">
-        <div class="panel-header">文件列表</div>
-        <div class="tree-scroll">
-          <div v-if="loadingTree" class="loading-text">加载中...</div>
-          <div v-else-if="tree.length === 0" class="empty-text">无可访问的文件</div>
-          <TreeNode
-            v-for="node in tree"
-            :key="node.name"
-            :node="node"
-            :parent-path="node.name + '/'"
-            @select="onFileSelect"
-          />
-        </div>
-      </div>
-
-      <!-- 右侧编辑器 -->
-      <div class="editor-panel">
-        <div class="panel-header" v-if="currentFile">
-          <span class="editor-filename">{{ currentFile }}</span>
-          <span class="editor-badge" :class="{ readonly: !canWrite }">
-            {{ canWrite ? '可编辑' : '只读' }}
-          </span>
-        </div>
-
-        <div class="editor-content" v-if="currentFile">
-          <textarea
-            ref="editorRef"
-            v-model="editorContent"
-            class="code-editor"
-            spellcheck="false"
-            :readonly="!canWrite"
-            @scroll="updateScrollState"
-          ></textarea>
-          <!-- 悬浮按钮组：⬇ 滚动到最下方(已在底部/内容不足时隐藏)；刷新文件内容 -->
-          <div class="editor-float-btns" v-if="currentFile">
-            <button
-              v-if="showScrollBtn"
-              class="scroll-bottom-btn"
-              title="滚动到最下方"
-              @click="scrollToBottom"
-            >⬇</button>
-            <button
-              class="refresh-btn"
-              title="刷新文件内容"
-              :disabled="refreshing"
-              @click="handleRefresh"
-            >
-              <svg
-                viewBox="0 0 24 24"
-                width="16"
-                height="16"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2.2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              >
-                <path d="M21 12a9 9 0 1 1-2.64-6.36"></path>
-                <polyline points="21 3 21 9 15 9"></polyline>
-              </svg>
-            </button>
-          </div>
-          <div class="editor-toolbar" v-if="canWrite">
-            <button class="btn btn-save" @click="handleSave" :disabled="saving">
-              {{ saving ? '保存中...' : '保存' }}
-            </button>
-            <span v-if="saveMessage" class="save-message" :class="saveStatus">{{ saveMessage }}</span>
-          </div>
-        </div>
-
-        <div class="editor-empty" v-else>
-          <p>点击左侧文件查看内容</p>
-        </div>
+    <!-- ═══ 工具栏 + 面包屑 ═══ -->
+    <div class="toolbar glass">
+      <nav class="breadcrumb">
+        <span class="crumb-link" :class="{ active: currentPath === '' }" @click="goTo('')">/</span>
+        <template v-for="(seg, i) in pathSegments" :key="i">
+          <span class="crumb-sep">/</span>
+          <span class="crumb-link" :class="{ active: i === pathSegments.length - 1 }"
+            @click="goTo(pathSegments.slice(0, i + 1).join('/'))">{{ seg }}</span>
+        </template>
+      </nav>
+      <div class="toolbar-actions">
+        <button class="btn btn-upload" @click="triggerUpload" :disabled="uploadingCount > 0">
+          ⬆ 上传
+        </button>
+        <button class="btn btn-ghost" @click="loadDir" :disabled="loading">
+          <span class="spin" :class="{ spinning: loading }">🔄</span> 刷新
+        </button>
       </div>
     </div>
+
+    <!-- ═══ 文件列表 ═══ -->
+    <div class="file-list glass">
+      <div class="file-row file-row-header">
+        <span class="col-name">名称</span>
+        <span class="col-size">大小</span>
+        <span class="col-actions">操作</span>
+      </div>
+
+      <div v-if="loading" class="list-status">加载中...</div>
+      <div v-else-if="entries.length === 0" class="list-status">空目录</div>
+
+      <div v-for="e in entries" :key="e.type + e.name" class="file-row"
+        :class="{ isdir: e.type === 'dir' }"
+        @click="e.type === 'dir' ? enterDir(e.name) : previewFile(e)">
+        <span class="col-name">
+          <span class="file-icon">{{ e.type === 'dir' ? '📁' : fileIcon(e.name) }}</span>
+          <span class="file-name" :title="e.name">{{ e.name }}</span>
+        </span>
+        <span class="col-size">{{ e.type === 'dir' ? '—' : formatSize(e.size) }}</span>
+        <span class="col-actions">
+          <template v-if="e.type === 'file'">
+            <button class="act-btn" title="预览/编辑" :disabled="!isTextFile(e.name)"
+              @click.stop="previewFile(e)">👁</button>
+            <button class="act-btn" title="下载" @click.stop="startDownload(e)">⬇</button>
+            <button class="act-btn danger" title="删除" @click.stop="confirmDelete(e)">🗑</button>
+          </template>
+          <span v-else class="act-hint">进入</span>
+        </span>
+      </div>
+    </div>
+
+    <!-- ═══ 传输任务（上传/下载进度） ═══ -->
+    <div v-if="activeTransfers.length > 0" class="transfer-panel glass">
+      <div class="transfer-title">传输任务</div>
+      <div v-for="t in activeTransfers" :key="t.id" class="transfer-item">
+        <div class="transfer-info">
+          <span class="transfer-icon">{{ t.dir === 'up' ? '⬆' : '⬇' }}</span>
+          <span class="transfer-name" :title="t.name">{{ t.name }}</span>
+          <span class="transfer-status" :class="t.status">{{ statusText(t) }}</span>
+        </div>
+        <div class="progress-track">
+          <div class="progress-fill" :style="{ width: t.percent + '%' }"></div>
+        </div>
+        <div class="transfer-sub" v-if="t.status === 'running'">
+          {{ formatSize(t.received) }} / {{ formatSize(t.total) }} ({{ t.percent }}%)
+        </div>
+        <div class="transfer-sub" v-else-if="t.status === 'error'">{{ t.error }}</div>
+      </div>
+    </div>
+
+    <!-- ═══ 预览弹层 ═══ -->
+    <Teleport to="body">
+      <div v-if="preview.visible" class="preview-overlay" @click.self="closePreview">
+        <div class="preview-dialog">
+          <div class="preview-header">
+            <span class="preview-name" :title="preview.path">{{ preview.name }}</span>
+            <span class="preview-path">{{ preview.path }}</span>
+            <button class="preview-close" @click="closePreview">✕</button>
+          </div>
+          <div class="preview-body">
+            <div v-if="preview.loading" class="preview-status">加载中...</div>
+            <div v-else-if="preview.error" class="preview-status error">{{ preview.error }}</div>
+            <textarea v-else ref="editorRef" v-model="preview.content" spellcheck="false"
+              class="preview-editor"></textarea>
+          </div>
+          <div class="preview-footer" v-if="!preview.loading && !preview.error">
+            <span class="preview-save-msg" :class="preview.saveStatus">{{ preview.saveMsg }}</span>
+            <button class="btn btn-primary" :disabled="preview.saving" @click="savePreview">
+              {{ preview.saving ? '保存中...' : '保存' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <input ref="fileInput" type="file" multiple hidden @change="onFilesSelected" />
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, nextTick } from 'vue'
-import { getAccessRules, readFile, writeFile } from '../../utils/fileApi.js'
-import TreeNode from '../../components/TreeNode.vue'
+import { ref, computed, nextTick, onMounted } from 'vue'
+import { listDir, readFile, writeFile, deleteFile, uploadFile, downloadFile, saveBlob, isTextFile, formatSize } from '../../utils/fileApi.js'
 
-const tree = ref([])
-const loadingTree = ref(true)
-const currentFile = ref(null)
-const editorContent = ref('')
-const canWrite = ref(false)
-const saving = ref(false)
-const saveMessage = ref('')
-const saveStatus = ref('')
-const editorRef = ref(null)
-const atBottom = ref(true)      // 是否处于底部附近(刷新后智能滚动依据)
-const showScrollBtn = ref(false) // 是否显示"滚动到底部"按钮
-const refreshing = ref(false)    // 是否正在刷新文件
+// ═══ 目录导航 ═══
+const entries = ref([])
+const loading = ref(false)
+const currentPath = ref('')
 
-/** 底部判定容差(px)：在此范围内视为已到底部 */
-const BOTTOM_TOLERANCE = 20
+const pathSegments = computed(() => currentPath.value ? currentPath.value.split('/') : [])
 
-/**
- * 更新滚动状态：内容不足以滚动 或 已在底部附近 时不显示"滚动到底部"按钮
- */
-function updateScrollState() {
-  const el = editorRef.value
-  if (!el) {
-    showScrollBtn.value = false
-    return
+const loadDir = async () => {
+  loading.value = true
+  try {
+    const result = await listDir(currentPath.value)
+    const list = (result.entries || []).map(e => ({ ...e }))
+    list.sort((a, b) => {
+      if (a.type !== b.type) return a.type === 'dir' ? -1 : 1
+      return a.name.localeCompare(b.name)
+    })
+    entries.value = list
+  } catch (e) {
+    alert('加载目录失败: ' + e.message)
+  } finally {
+    loading.value = false
   }
-  const { scrollTop, clientHeight, scrollHeight } = el
-  const maxScroll = scrollHeight - clientHeight
-  atBottom.value = maxScroll <= 0 || scrollTop >= maxScroll - BOTTOM_TOLERANCE
-  showScrollBtn.value = !atBottom.value
 }
 
-/**
- * 滚动到编辑器最下方（日志文件打开时默认在顶部，可一键跳到最新内容）
- */
-function scrollToBottom() {
-  nextTick(() => {
-    if (editorRef.value) {
-      editorRef.value.scrollTop = editorRef.value.scrollHeight
-      updateScrollState()
+const enterDir = (name) => {
+  currentPath.value = currentPath.value
+    ? `${currentPath.value}/${name}`
+    : name
+  loadDir()
+}
+
+const goTo = (path) => {
+  currentPath.value = path
+  loadDir()
+}
+
+const join = (name) => currentPath.value ? `${currentPath.value}/${name}` : name
+
+// ═══ 上传 ═══
+const fileInput = ref(null)
+const uploads = ref([])
+const uploadingCount = computed(() => uploads.value.filter(t => t.status === 'running').length)
+const activeTransfers = computed(() => {
+  const up = uploads.value.map(t => ({ ...t, dir: 'up' }))
+  const down = downloads.value.map(t => ({ ...t, dir: 'down' }))
+  return [...up, ...down].filter(t => t.status !== 'done' || t.justDone)
+})
+
+const triggerUpload = () => fileInput.value?.click()
+
+const onFilesSelected = (e) => {
+  const files = [...(e.target.files || [])]
+  e.target.value = ''
+  if (!files.length) return
+  files.forEach(f => {
+    const task = {
+      id: `up-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      name: f.name,
+      path: join(f.name),
+      size: f.size,
+      received: 0,
+      percent: 0,
+      status: 'running',
+      justDone: true
     }
+    uploads.value.push(task)
+    runUpload(task, f)
   })
 }
 
-/**
- * 刷新当前文件内容
- * 刷新前若已在底部附近(或内容不足)，刷新后自动滚动到底部；否则保持原滚动位置
- */
-async function handleRefresh() {
-  if (!currentFile.value || refreshing.value) return
-
-  const el = editorRef.value
-  const prevScrollTop = el ? el.scrollTop : 0
-  const wasNearBottom = atBottom.value
-
-  refreshing.value = true
-  saveMessage.value = ''
-  saveStatus.value = ''
+const runUpload = async (task, file) => {
   try {
-    const result = await readFile(currentFile.value)
-    if (result.content !== undefined) {
-      editorContent.value = result.content
-      canWrite.value = result.canWrite === true
-    } else {
-      throw new Error(result.error || '读取失败')
-    }
-    await nextTick()
-    if (el && wasNearBottom) {
-      el.scrollTop = el.scrollHeight // 原在底部 → 刷新后仍跳到底部(看到最新内容)
-    } else if (el) {
-      el.scrollTop = prevScrollTop // 原在中间/顶部 → 保持原位置
-    }
-    updateScrollState()
-  } catch (e) {
-    saveMessage.value = `❌ 刷新失败: ${e.message}`
-    saveStatus.value = 'error'
-  } finally {
-    refreshing.value = false
+    await uploadFile(currentPath.value, file, ({ sent, total }) => {
+      task.received = sent
+      task.total = total
+      task.percent = total > 0 ? Math.round((sent / total) * 100) : 0
+    })
+    task.status = 'done'
+    task.percent = 100
+    // 完成后短暂停留展示结果，随后从列表移除
+    setTimeout(() => {
+      const i = uploads.value.indexOf(task)
+      if (i >= 0) uploads.value.splice(i, 1)
+    }, 3000)
+    // 上传完成后刷新列表
+    loadDir()
+  } catch (err) {
+    task.status = 'error'
+    task.error = err.message
   }
 }
 
-onMounted(async () => {
-  try {
-    const result = await getAccessRules()
-    tree.value = result.tree || []
-  } catch (e) {
-    console.error('Failed to load file tree:', e)
-  } finally {
-    loadingTree.value = false
+// ═══ 下载 ═══
+const downloads = ref([])
+
+const startDownload = async (e) => {
+  const task = {
+    id: `dn-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    name: e.name,
+    path: join(e.name),
+    size: e.size || 0,
+    received: 0,
+    percent: 0,
+    status: 'running',
+    justDone: true
   }
+  downloads.value.push(task)
+  try {
+    const { blob, name } = await downloadFile(task.path, ({ received, size, percent }) => {
+      task.received = received
+      task.size = size || task.size
+      task.total = size || task.total
+      task.percent = percent
+    })
+    saveBlob(blob, name)
+    task.status = 'done'
+    task.percent = 100
+    // 完成后短暂停留展示结果，随后从列表移除
+    setTimeout(() => {
+      const i = downloads.value.indexOf(task)
+      if (i >= 0) downloads.value.splice(i, 1)
+    }, 3000)
+  } catch (err) {
+    task.status = 'error'
+    task.error = err.message
+  }
+}
+
+// ═══ 删除 ═══
+const confirmDelete = async (e) => {
+  const msg = `确定要删除文件「${e.name}」吗？\n此操作不可恢复！`
+  if (!confirm(msg)) return
+  try {
+    await deleteFile(join(e.name))
+    alert('删除成功')
+    loadDir()
+  } catch (err) {
+    alert('删除失败: ' + err.message)
+  }
+}
+
+// ═══ 预览 / 编辑 ═══
+const preview = ref({
+  visible: false,
+  name: '',
+  path: '',
+  content: '',
+  loading: false,
+  saving: false,
+  error: '',
+  saveMsg: '',
+  saveStatus: ''
 })
 
-async function onFileSelect({ path, isDir }) {
-  if (isDir) return
+const fileIcon = (name) => {
+  const ext = name.split('.').pop()?.toLowerCase()
+  if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'ico', 'bmp'].includes(ext)) return '🖼'
+  if (['zip', 'rar', '7z', 'tar', 'gz'].includes(ext)) return '🗜'
+  if (['wld', 'twld', 'bak'].includes(ext)) return '🗺'
+  if (['sqlite', 'db'].includes(ext)) return '🗄'
+  if (['dll', 'exe'].includes(ext)) return '⚙'
+  return '📄'
+}
 
-  currentFile.value = path
-  editorContent.value = ''
-  saveMessage.value = ''
-  saveStatus.value = ''
-  canWrite.value = false
-
+const previewFile = async (e) => {
+  if (!isTextFile(e.name)) {
+    alert('仅支持文本文件预览（txt/log/json/yml 等）')
+    return
+  }
+  const path = join(e.name)
+  preview.value.visible = true
+  preview.value.name = e.name
+  preview.value.path = path
+  preview.value.content = ''
+  preview.value.loading = true
+  preview.value.error = ''
+  preview.value.saveMsg = ''
   try {
     const result = await readFile(path)
-    if (result.content !== undefined) {
-      editorContent.value = result.content
-      canWrite.value = result.canWrite === true
-    } else {
-      editorContent.value = `// 错误: ${result.error || '读取失败'}`
-    }
-  } catch (e) {
-    editorContent.value = `// 读取失败: ${e.message}`
+    if (result.error && result.content === undefined) throw new Error(result.error)
+    preview.value.content = result.content ?? ''
+  } catch (err) {
+    preview.value.error = err.message
   } finally {
-    // 内容渲染完成后更新按钮显示状态
-    await nextTick()
-    updateScrollState()
+    preview.value.loading = false
+    nextTick(() => {})
   }
 }
 
-async function handleSave() {
-  if (!currentFile.value) return
-  saving.value = true
-  saveMessage.value = ''
-  saveStatus.value = ''
-
+const savePreview = async () => {
+  preview.value.saving = true
+  preview.value.saveMsg = ''
   try {
-    const result = await writeFile(currentFile.value, editorContent.value)
-    if (result.message || result.status === '200') {
-      saveMessage.value = '✅ 保存成功'
-      saveStatus.value = 'success'
-    } else {
-      saveMessage.value = `❌ ${result.error || '保存失败'}`
-      saveStatus.value = 'error'
-    }
-  } catch (e) {
-    saveMessage.value = `❌ ${e.message}`
-    saveStatus.value = 'error'
+    await writeFile(preview.value.path, preview.value.content)
+    preview.value.saveMsg = '✓ 保存成功'
+    preview.value.saveStatus = 'ok'
+  } catch (err) {
+    preview.value.saveMsg = '✗ 保存失败: ' + err.message
+    preview.value.saveStatus = 'err'
   } finally {
-    saving.value = false
-    setTimeout(() => { saveMessage.value = '' }, 3000)
+    preview.value.saving = false
   }
 }
+
+const closePreview = () => {
+  if (preview.value.saving) return
+  preview.value.visible = false
+}
+
+// ═══ 辅助 ═══
+const statusText = (t) => {
+  if (t.status === 'done') return '完成'
+  if (t.status === 'error') return '失败'
+  return '传输中'
+}
+
+onMounted(loadDir)
 </script>
 
 <style scoped>
 .file-manager {
-  height: 100%;
+  flex: 1;
   display: flex;
   flex-direction: column;
-  color: var(--text-primary);
+  overflow: hidden;
+  padding: 0 20px 20px;
+  gap: 14px;
+  min-height: 0;
 }
 
 .page-header {
   display: flex;
+  justify-content: space-between;
   align-items: center;
-  gap: 12px;
-  padding: 0 0 16px 0;
+  padding-top: 4px;
+  flex-shrink: 0;
 }
+
 .page-header h2 {
   margin: 0;
-  font-size: 20px;
+  color: var(--text-primary);
+  font-size: 1.4rem;
+  font-weight: 600;
+}
+
+.path-badge {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-light);
+  padding: 4px 10px;
+  border-radius: 20px;
+}
+
+/* ── 工具栏 ── */
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: var(--radius-lg, 12px);
+  border: 1px solid var(--border-light);
+  background: var(--bg-card);
+  flex-shrink: 0;
+}
+
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  font-size: 0.9rem;
+  min-width: 0;
+}
+
+.crumb-link {
+  color: var(--accent-primary);
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 6px;
+  transition: background 0.15s;
+  white-space: nowrap;
+}
+
+.crumb-link:hover { background: var(--bg-hover); }
+.crumb-link.active { color: var(--text-primary); font-weight: 600; cursor: default; }
+.crumb-sep { color: var(--text-muted); }
+
+.toolbar-actions { display: flex; gap: 8px; flex-shrink: 0; }
+
+.btn {
+  border: none;
+  border-radius: 10px;
+  padding: 8px 14px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
   color: var(--text-primary);
 }
-.path-badge {
-  font-size: 12px;
+
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.btn-upload {
+  background: linear-gradient(135deg, var(--accent-primary), #4f46e5);
+  color: #fff;
+  box-shadow: 0 2px 10px rgba(99, 102, 241, 0.25);
+}
+
+.btn-upload:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35); }
+
+.btn-ghost {
   background: var(--bg-tertiary);
-  padding: 3px 10px;
-  border-radius: 4px;
-  color: var(--text-muted);
-}
-
-.file-manager-body {
-  display: flex;
-  flex: 1;
-  gap: 16px;
-  overflow: hidden;
-}
-
-/* 左侧文件树 */
-.file-tree-panel {
-  width: 280px;
-  min-width: 200px;
-  background: var(--bg-secondary);
-  border-radius: var(--radius-md);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
   border: 1px solid var(--border-light);
 }
-.panel-header {
-  padding: 10px 14px;
-  background: var(--bg-tertiary);
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  border-bottom: 1px solid var(--border-color);
-}
-.tree-scroll {
+
+.btn-ghost:hover:not(:disabled) { background: var(--bg-hover); }
+
+.spin { display: inline-block; }
+.spin.spinning { animation: spin 0.8s linear infinite; }
+
+/* ── 文件列表 ── */
+.file-list {
   flex: 1;
   overflow-y: auto;
-  padding: 4px 0;
+  border-radius: var(--radius-lg, 12px);
+  border: 1px solid var(--border-light);
+  background: var(--bg-card);
+  min-height: 0;
 }
 
-/* 右侧编辑器 */
-.editor-panel {
-  flex: 1;
-  background: var(--bg-secondary);
-  border-radius: var(--radius-md);
+.file-row {
+  display: flex;
+  align-items: center;
+  padding: 9px 14px;
+  gap: 12px;
+  border-bottom: 1px solid var(--border-light);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.file-row:hover { background: var(--bg-hover); }
+.file-row.isdir .file-name { font-weight: 600; }
+
+.file-row-header {
+  cursor: default;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  position: sticky;
+  top: 0;
+  background: var(--bg-card);
+  z-index: 2;
+}
+
+.col-name { flex: 1; display: flex; align-items: center; gap: 8px; min-width: 0; }
+.col-size { width: 90px; flex-shrink: 0; font-size: 0.8rem; color: var(--text-muted); }
+.col-actions { width: 120px; flex-shrink: 0; display: flex; gap: 4px; justify-content: flex-end; }
+
+.file-icon { font-size: 1rem; flex-shrink: 0; }
+.file-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.act-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: 1px solid var(--border-light);
+  background: var(--bg-tertiary);
+  cursor: pointer;
+  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+}
+
+.act-btn:hover:not(:disabled) { background: var(--bg-hover); border-color: var(--accent-primary); }
+.act-btn.danger:hover:not(:disabled) { border-color: #ef4444; background: rgba(239, 68, 68, 0.12); }
+.act-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+.act-hint { font-size: 0.72rem; color: var(--text-muted); padding-right: 8px; }
+
+.list-status { padding: 32px; text-align: center; color: var(--text-muted); font-size: 0.9rem; }
+
+/* ── 传输任务 ── */
+.transfer-panel {
+  border-radius: var(--radius-lg, 12px);
+  border: 1px solid var(--border-light);
+  background: var(--bg-card);
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex-shrink: 0;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.transfer-title {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  letter-spacing: 0.5px;
+}
+
+.transfer-item { display: flex; flex-direction: column; gap: 4px; }
+
+.transfer-info { display: flex; align-items: center; gap: 8px; font-size: 0.82rem; }
+.transfer-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.transfer-status { font-size: 0.72rem; }
+.transfer-status.running { color: var(--accent-primary); }
+.transfer-status.done { color: #22c55e; }
+.transfer-status.error { color: #ef4444; }
+
+.progress-track {
+  height: 6px;
+  border-radius: 4px;
+  background: var(--bg-tertiary);
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--accent-primary), #4f46e5);
+  transition: width 0.2s;
+}
+
+.transfer-sub { font-size: 0.72rem; color: var(--text-muted); }
+
+/* ── 预览弹层 ── */
+.preview-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.preview-dialog {
+  width: min(900px, 100%);
+  height: min(72vh, 640px);
+  background: var(--bg-primary);
+  border-radius: 14px;
+  border: 1px solid var(--border-light);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  border: 1px solid var(--border-light);
-  position: relative;
 }
-.editor-filename {
-  color: var(--text-primary);
-  font-weight: 500;
-}
-.editor-badge {
-  margin-left: auto;
-  font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 4px;
-  background: #2d7d46;
-  color: #8fecb0;
-}
-.editor-badge.readonly {
-  background: #3d3535;
-  color: #c99;
-}
-.editor-content {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-}
-.code-editor {
-  flex: 1;
-  width: 100%;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  border: none;
-  outline: none;
-  resize: none;
-  padding: 16px;
-  font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
-  font-size: 13px;
-  line-height: 1.6;
-  tab-size: 2;
-}
-.code-editor:read-only {
-  opacity: 0.7;
-}
-.editor-toolbar {
+
+.preview-header {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 16px;
-  background: var(--bg-tertiary);
-  border-top: 1px solid var(--border-color);
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-light);
 }
-.btn-save {
-  padding: 6px 20px;
-  background: var(--accent-primary);
-  color: #fff;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 13px;
-  transition: opacity 0.15s;
-}
-.btn-save:hover:not(:disabled) {
-  opacity: 0.85;
-}
-.btn-save:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-.save-message {
-  font-size: 12px;
-}
-.save-message.success {
-  color: var(--accent-secondary);
-}
-.save-message.error {
-  color: var(--accent-error);
-}
-/* 悬浮按钮组：滚动到底部 + 刷新（横向摆放） */
-.editor-float-btns {
-  position: absolute;
-  right: 18px;
-  bottom: 64px;
-  display: flex;
-  flex-direction: row;
-  gap: 8px;
-  z-index: 5;
-}
-.scroll-bottom-btn,
-.refresh-btn {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
+
+.preview-name { font-weight: 700; color: var(--text-primary); font-size: 0.95rem; }
+.preview-path { flex: 1; font-size: 0.75rem; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.preview-close {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
   border: 1px solid var(--border-light);
   background: var(--bg-tertiary);
-  color: var(--text-primary);
+  color: var(--text-secondary);
   cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
-  opacity: 0.75;
-  transition: all 0.2s;
 }
-.scroll-bottom-btn {
-  font-size: 16px;
-  line-height: 1;
+
+.preview-close:hover { background: var(--bg-hover); }
+
+.preview-body { flex: 1; display: flex; min-height: 0; }
+
+.preview-editor {
+  flex: 1;
+  width: 100%;
+  border: none;
+  outline: none;
+  resize: none;
+  padding: 14px 16px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-family: 'Cascadia Code', Consolas, 'Courier New', monospace;
+  font-size: 0.83rem;
+  line-height: 1.55;
+  tab-size: 4;
 }
-.scroll-bottom-btn:hover,
-.refresh-btn:hover:not(:disabled) {
-  opacity: 1;
-  background: var(--accent-primary);
-  color: #fff;
-}
-.refresh-btn:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-.editor-empty {
+
+.preview-status {
   flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
   color: var(--text-muted);
-  font-size: 14px;
+  font-size: 0.9rem;
+}
+.preview-status.error { color: #ef4444; }
+
+.preview-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border-light);
 }
 
-.loading-text,
-.empty-text {
-  padding: 20px;
-  text-align: center;
-  color: var(--text-muted);
-  font-size: 13px;
+.btn-primary {
+  background: linear-gradient(135deg, var(--accent-primary), #4f46e5);
+  color: #fff;
 }
+
+.btn-primary:hover:not(:disabled) { transform: translateY(-1px); }
+
+.preview-save-msg { font-size: 0.78rem; margin-right: auto; }
+.preview-save-msg.ok { color: #22c55e; }
+.preview-save-msg.err { color: #ef4444; }
+
+@keyframes spin { to { transform: rotate(360deg); } }
 </style>

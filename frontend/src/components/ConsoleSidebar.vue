@@ -78,7 +78,7 @@ const serverSection = [
       { id: 'duplicate-ip', name: '共享IP检测', path: '/console/anticheat/duplicate-ip' }
     ]
   },
-  { id: 'files', name: '配置文件', path: '/console/files', adminOnly: true },
+  { id: 'files', name: '文件管理', path: '/console/files', adminOnly: true },
   { id: 'settings', name: '插件设置', path: '/console/settings', adminOnly: true },
   {
     id: 'tools', name: '工具', path: '/console/tools', managerOnly: true,

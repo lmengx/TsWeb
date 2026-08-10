@@ -1527,6 +1527,48 @@ export class TShockService {
     }
   }
 
+  async fileDelete(relativePath) {
+    if (!this.baseUrl) await this.init()
+    const url = `${this.baseUrl}/data/files/delete?path=${encodeURIComponent(relativePath)}${this.apiKey ? `&token=${encodeURIComponent(this.apiKey)}` : ''}`
+    console.log(`[OUTGOING] POST ${url}`)
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Accept': 'application/json' }
+      })
+      const text = await response.text()
+      try { return JSON.parse(text) } catch { return { error: 'Invalid JSON', rawResponse: text } }
+    } catch (error) {
+      this.isConnected = false
+      return { error: error.message }
+    }
+  }
+
+  /**
+   * 分片上传：data 为 base64 片段；append=true 追加到文件末尾（非首片）
+   */
+  async fileUpload(relativePath, dataBase64, append = false) {
+    if (!this.baseUrl) await this.init()
+    const url = `${this.baseUrl}/data/files/upload${this.apiKey ? `?token=${encodeURIComponent(this.apiKey)}` : ''}`
+    const body = new URLSearchParams({
+      path: relativePath,
+      data: dataBase64,
+      append: append ? '1' : '0'
+    })
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: body.toString()
+      })
+      const text = await response.text()
+      try { return JSON.parse(text) } catch { return { error: 'Invalid JSON', rawResponse: text } }
+    } catch (error) {
+      this.isConnected = false
+      return { error: error.message }
+    }
+  }
+
   // ===== 权限提升配置 =====
 
   async getPromotionConfig() {

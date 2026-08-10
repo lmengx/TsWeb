@@ -21,6 +21,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // serverId -> 连接状态
 const _conns = new Map()
 
+// tag -> 下载会话（文件管理页下载：插件 file.* 事件实时转发给前端，不落盘）
+const downloadSessions = new Map()
+
 const sleep = (ms) => new Promise(r => setTimeout(r, ms))
 const delay = (retry) => Math.min(1000 * 2 ** Math.min(retry, 5), 30000) // 1s→30s 指数退避
 
@@ -136,7 +139,47 @@ function handleFrame(conn, frame) {
       pushWebhookLog(data)
       break
     default:
-      if (event.startsWith('file.')) handleFileEvent(conn, event, parsed)
+      if (event.startsWith('file.')) {
+        // 下载会话优先：tag 匹配时实时转发给前端（不落盘）；否则走资源拉取落盘逻辑
+        if (parsed.tag && downloadSessions.has(parsed.tag)) {
+          forwardToDownloadSession(parsed.tag, event, parsed)
+        } else {
+          handleFileEvent(conn, event, parsed)
+        }
+      }
+  }
+}
+
+// ═══════════════ 下载会话（实时转发，不落盘） ═══════════════
+
+/**
+ * 注册一个下载会话：插件推送的 file.* 事件（带相同 tag）将转发给 handler
+ * @param {string} tag
+ * @param {(eventName: string, parsed: object) => void} handler
+ * @returns {() => void} 取消注册函数
+ */
+export function registerDownloadSession(tag, handler) {
+  downloadSessions.set(tag, { handler })
+  return () => downloadSessions.delete(tag)
+}
+
+/** 取消注册下载会话 */
+export function unregisterDownloadSession(tag) {
+  downloadSessions.delete(tag)
+}
+
+function forwardToDownloadSession(tag, event, parsed) {
+  const session = downloadSessions.get(tag)
+  if (!session) return
+  try {
+    session.handler(event, parsed)
+  } catch (e) {
+    console.warn(`[SSE] 下载会话转发异常: ${e.message}`)
+    downloadSessions.delete(tag)
+  }
+  // 传输结束自动清理会话
+  if (event === 'file.end' || event === 'file.error') {
+    downloadSessions.delete(tag)
   }
 }
 
@@ -199,20 +242,33 @@ function finishFile(conn, id, t, sha256) {
 // ═══════════════ 对外接口 ═══════════════
 
 /**
- * 请求插件定向推送一个文件（TShock.SavePath 相对路径）到本后端的 SSE 连接
+ * 请求插件定向推送一个文件到本后端的 SSE 连接
  * @param {string} serverId
- * @param {string} filePath 如 tshock.json、logs/xxx.log
+ * @param {string} filePath 相对路径
+ * @param {{ root?: 'app'|'tshock', tag?: string }} [options]
+ *   root: 'app'=TShock程序目录（文件管理页）/ 'tshock'=TShock.SavePath（默认，兼容资源拉取）
+ *   tag:  随 file.* 事件回传的标识（用于下载会话关联）
  */
-export async function requestFile(serverId, filePath) {
+export async function requestFile(serverId, filePath, options = {}) {
   const conn = _conns.get(serverId)
   if (!conn || !conn.connected || !conn.clientId) {
     return { success: false, message: 'SSE 未连接' }
   }
   const server = conn.server
   const base = `${server.host.startsWith('http') ? server.host : `http://${server.host}`}:${server.port}`
-  const url = `${base}/tsweb/file?token=${encodeURIComponent(server.apiKey)}&clientId=${encodeURIComponent(conn.clientId)}&path=${encodeURIComponent(filePath)}`
+  const q = new URLSearchParams({
+    token: server.apiKey,
+    clientId: conn.clientId,
+    path: filePath
+  })
+  if (options.root) q.set('root', options.root)
+  if (options.tag) q.set('tag', options.tag)
+  const url = `${base}/tsweb/file?${q.toString()}`
   try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(5000) })
+    // 注意：插件 /tsweb/file 会同步推完全部 chunk 后才返回 HTTP 响应，
+    // 响应时间 ≈ 文件推送时间。不能用短超时（大文件必被 abort），
+    // 用 5 分钟兜底：SSE 断连时插件会立即 404 返回，不会真正挂死。
+    const res = await fetch(url, { signal: AbortSignal.timeout(300000) })
     const json = await res.json().catch(() => ({}))
     return { success: res.ok, ...json }
   } catch (e) {

@@ -123,12 +123,15 @@ namespace TShockData
         public static object ListDirectory(RestRequestArgs args)
         {
             var relativePath = args.Parameters["path"];
-            if (string.IsNullOrEmpty(relativePath))
-                return new RestObject("400") { { "error", "path is required" } };
 
+            string fullPath;
             try
             {
-                var fullPath = ResolveSafePath(relativePath);
+                // 空 path 或 "/" → 根目录（TShock 程序目录）
+                if (string.IsNullOrWhiteSpace(relativePath) || relativePath.Trim('/', '\\').Length == 0)
+                    fullPath = RootDir;
+                else
+                    fullPath = ResolveSafePath(relativePath);
 
                 if (!Directory.Exists(fullPath))
                     return new RestObject("404") { { "error", "目录不存在" } };
@@ -180,6 +183,83 @@ namespace TShockData
                 var fullPath = ResolveSafePath(relativePath);
                 var tree = BuildTree(fullPath, 0, maxDepth);
                 return new RestObject("200") { { "tree", tree } };
+            }
+            catch (Exception ex)
+            {
+                return new RestObject("500") { { "error", ex.Message } };
+            }
+        }
+
+        /// <summary>
+        /// 删除文件（仅文件，不删除目录）
+        /// </summary>
+        public static object DeleteFile(RestRequestArgs args)
+        {
+            var relativePath = args.Parameters["path"];
+            if (string.IsNullOrEmpty(relativePath))
+                return new RestObject("400") { { "error", "path is required" } };
+
+            try
+            {
+                var fullPath = ResolveSafePath(relativePath);
+
+                if (!File.Exists(fullPath))
+                    return new RestObject("404") { { "error", "文件不存在" } };
+
+                // 删除前 TOCTOU 防护：再次检查符号链接
+                var fileInfo = new FileInfo(fullPath);
+                if ((fileInfo.Attributes & FileAttributes.ReparsePoint) != 0)
+                    throw new Exception("Symbolic links are not allowed");
+
+                File.Delete(fullPath);
+                return new RestObject("200") { { "message", "文件删除成功" } };
+            }
+            catch (Exception ex)
+            {
+                return new RestObject("500") { { "error", ex.Message } };
+            }
+        }
+
+        /// <summary>
+        /// 上传文件（分片写入）。
+        /// 参数：path（相对路径）、data（base64 片段）、append（"1"=追加 / "0"=覆盖，默认覆盖）
+        /// 单片 base64 受 REST body 10MB 上限约束，前端按 ~4MB 二进制分片。
+        /// </summary>
+        public static object UploadFile(RestRequestArgs args)
+        {
+            var relativePath = args.Parameters["path"];
+            var data = args.Parameters["data"];
+            if (string.IsNullOrEmpty(relativePath) || string.IsNullOrEmpty(data))
+                return new RestObject("400") { { "error", "path and data are required" } };
+
+            var append = args.Parameters["append"] == "1";
+
+            try
+            {
+                var fullPath = ResolveSafePath(relativePath);
+
+                // 确保目标目录存在
+                var dir = Path.GetDirectoryName(fullPath);
+                if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                    Directory.CreateDirectory(dir);
+
+                // 写入前 TOCTOU 防护：目标已存在且为符号链接时拒绝
+                if (File.Exists(fullPath))
+                {
+                    var fileInfo = new FileInfo(fullPath);
+                    if ((fileInfo.Attributes & FileAttributes.ReparsePoint) != 0)
+                        throw new Exception("Symbolic links are not allowed");
+                }
+
+                var bytes = Convert.FromBase64String(data);
+                using (var fs = new FileStream(fullPath,
+                    append ? FileMode.Append : FileMode.Create,
+                    FileAccess.Write, FileShare.Read))
+                {
+                    fs.Write(bytes, 0, bytes.Length);
+                }
+
+                return new RestObject("200") { { "message", "写入成功" }, { "received", bytes.Length } };
             }
             catch (Exception ex)
             {

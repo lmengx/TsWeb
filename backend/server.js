@@ -70,14 +70,16 @@ app.use('/hook', (req, res, next) => {
 app.use('/hook', express.json({ limit: '10mb' }), hookRoutes)
 
 // 全局 JSON 解析（其余 /api 端点）
-app.use(express.json())
+// 文件分片上传需要承载 ~5MB 的 base64 片段，全局上限提到 10mb（与 /hook 一致）
+app.use(express.json({ limit: '10mb' }))
 
 app.use((req, res, next) => {
   // /hook 路径已在上面独立处理且不打印 body
   if (req.path.startsWith('/hook')) return next()
   const fullUrl = `${req.protocol}://${req.get('host')}${req.originalUrl}`
   console.log(`[${new Date().toISOString()}] ${req.method} ${fullUrl}`)
-  if (req.body && Object.keys(req.body).length > 0) {
+  // 文件上传分片 body 含大段 base64，跳过打印避免刷屏
+  if (req.body && Object.keys(req.body).length > 0 && !req.originalUrl.includes('/api/files/upload')) {
     console.log('Request body:', JSON.stringify(req.body))
   }
   next()

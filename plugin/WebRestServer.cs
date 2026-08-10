@@ -10,6 +10,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using Rests;
 using TShockAPI;
 
@@ -230,6 +231,10 @@ namespace TShockData
 
             var clientId = q.TryGetValue("clientId", out var cid) ? cid : "";
             var pathRaw = q.TryGetValue("path", out var p) ? p : "";
+            // root=app → TShock 程序目录（文件管理页）；root=tshock/缺省 → TShock.SavePath（兼容原资源拉取）
+            var rootMode = q.TryGetValue("root", out var r) ? r : "tshock";
+            // tag：调用方自定义标识，随 file.* 事件原样回传，用于后端关联下载会话（默认空）
+            var tag = q.TryGetValue("tag", out var tg) ? tg : "";
             if (string.IsNullOrEmpty(clientId) || string.IsNullOrEmpty(pathRaw))
             {
                 await WriteErrorJson(stream, 400, "Missing clientId or path", ct);
@@ -238,22 +243,24 @@ namespace TShockData
 
             var path = Uri.UnescapeDataString(pathRaw);
 
-            // ── 防目录穿越：只允许 TShock.SavePath 内 ──
+            // ── 防目录穿越：只允许根目录内 ──
             string root;
             string full;
             try
             {
-                root = Path.GetFullPath(TShock.SavePath);
+                root = rootMode.Equals("app", StringComparison.OrdinalIgnoreCase)
+                    ? Path.GetFullPath(AppDomain.CurrentDomain.BaseDirectory)
+                    : Path.GetFullPath(TShock.SavePath);
                 full = Path.GetFullPath(Path.Combine(root, path.Replace('\\', '/')));
+                if (!full.StartsWith(root, StringComparison.OrdinalIgnoreCase))
+                {
+                    await WriteErrorJson(stream, 403, "Path is outside allowed root", ct);
+                    return;
+                }
             }
             catch
             {
                 await WriteErrorJson(stream, 400, "Invalid path", ct);
-                return;
-            }
-            if (!full.StartsWith(root, StringComparison.OrdinalIgnoreCase))
-            {
-                await WriteErrorJson(stream, 403, "Path is outside allowed root", ct);
                 return;
             }
 
@@ -277,11 +284,17 @@ namespace TShockData
             var shaHex = Convert.ToHexStringLower(SHA256.HashData(bytes));
             var rel = path.Replace('\\', '/').TrimStart('/');
 
-            var begin = JsonConvert.SerializeObject(new
+            var begin = new JObject
             {
-                id = tid, name = rel, size = bytes.Length, chunks, chunkSize = FileChunkSize, mime = "application/octet-stream"
-            });
-            if (!SendToClient(clientId, "file.begin", begin))
+                ["id"] = tid,
+                ["name"] = rel,
+                ["size"] = bytes.Length,
+                ["chunks"] = chunks,
+                ["chunkSize"] = FileChunkSize,
+                ["mime"] = "application/octet-stream"
+            };
+            if (tag.Length > 0) begin["tag"] = tag;
+            if (!SendToClient(clientId, "file.begin", begin.ToString(Formatting.None)))
             {
                 await WriteErrorJson(stream, 404, "SSE client not found", ct);
                 return;
@@ -291,16 +304,28 @@ namespace TShockData
             {
                 var off = i * FileChunkSize;
                 var len = Math.Min(FileChunkSize, bytes.Length - off);
-                var chunk = JsonConvert.SerializeObject(new { id = tid, n = i, d = Convert.ToBase64String(bytes, off, len) });
-                if (!SendToClient(clientId, "file.chunk", chunk))
+                var chunk = new JObject
+                {
+                    ["id"] = tid,
+                    ["n"] = i,
+                    ["d"] = Convert.ToBase64String(bytes, off, len)
+                };
+                if (tag.Length > 0) chunk["tag"] = tag;
+                if (!SendToClient(clientId, "file.chunk", chunk.ToString(Formatting.None)))
                 {
                     await WriteErrorJson(stream, 404, "SSE client disconnected", ct);
                     return;
                 }
             }
 
-            var end = JsonConvert.SerializeObject(new { id = tid, size = bytes.Length, sha256 = shaHex });
-            SendToClient(clientId, "file.end", end);
+            var end = new JObject
+            {
+                ["id"] = tid,
+                ["size"] = bytes.Length,
+                ["sha256"] = shaHex
+            };
+            if (tag.Length > 0) end["tag"] = tag;
+            SendToClient(clientId, "file.end", end.ToString(Formatting.None));
 
             var ok = JsonConvert.SerializeObject(new { status = "200", id = tid, chunks, size = bytes.Length });
             await WriteResponseAsync(stream, 200, "OK", "application/json; charset=utf-8", Encoding.UTF8.GetBytes(ok), ct);

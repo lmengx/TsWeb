@@ -159,6 +159,8 @@ namespace TShockData
             TShock.RestApi.Register(new SecureRestCommand("/data/files/write", FileManager.WriteFile, "data.rest.invsee"));
             TShock.RestApi.Register(new SecureRestCommand("/data/files/list", FileManager.ListDirectory, "data.rest.invsee"));
             TShock.RestApi.Register(new SecureRestCommand("/data/files/tree", FileManager.GetDirectoryTree, "data.rest.invsee"));
+            TShock.RestApi.Register(new SecureRestCommand("/data/files/delete", FileManager.DeleteFile, "data.rest.invsee"));
+            TShock.RestApi.Register(new SecureRestCommand("/data/files/upload", FileManager.UploadFile, "data.rest.invsee"));
 
             TShock.RestApi.Register(new SecureRestCommand("/data/qq/bind", QQBind.BindQQ, "data.rest.invsee"));
             TShock.RestApi.Register(new SecureRestCommand("/data/qq/register", QQBind.RegisterAndBind, "data.rest.invsee"));
@@ -300,10 +302,12 @@ namespace TShockData
 				"/data/users/unverified/force-login",
 				"/data/users/unverified/kick",
 				"/data/users/unverified/ban",
-				"/data/files/read",
-				"/data/files/write",
-				"/data/files/list",
-				"/data/files/tree",
+                "/data/files/read",
+                "/data/files/write",
+                "/data/files/list",
+                "/data/files/tree",
+                "/data/files/delete",
+                "/data/files/upload",
 				"/data/qq/bind",
                 "/data/qq/register",
                 "/data/qq/reset-password",
