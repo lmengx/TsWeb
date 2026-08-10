@@ -6,7 +6,12 @@ import audit from '../services/auditLogger.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
-const configDir = path.join(__dirname, '../config/反作弊')
+const configDir = path.join(__dirname, '../data/anticheat')
+
+// 确保反作弊配置目录存在（写入时依赖）
+if (!fs.existsSync(configDir)) {
+  fs.mkdirSync(configDir, { recursive: true })
+}
 
 // 许可文件
 const LICENSE_PATH = path.join(__dirname, '../../frontend/public/.coffee_license')

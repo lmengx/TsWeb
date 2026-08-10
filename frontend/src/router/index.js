@@ -188,12 +188,6 @@ const routes = [
             name: 'GradientText',
             component: () => import('../views/console/tools/GradientText.vue'),
             meta: { requiresAuth: true, requiresManager: true }
-          },
-          {
-            path: 'resources',
-            name: 'ResourceDownload',
-            component: () => import('../views/console/tools/ResourceDownload.vue'),
-            meta: { requiresAuth: true, requiresManager: true }
           }
         ]
       },

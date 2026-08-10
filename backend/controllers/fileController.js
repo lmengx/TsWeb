@@ -1,7 +1,9 @@
 import crypto from 'crypto'
+import fs from 'fs'
+import path from 'path'
 import { getCurrentServerId } from '../services/tshockService.js'
 import tshockService from '../services/tshockService.js'
-import { requestFile, registerDownloadSession } from '../services/sseConnection.js'
+import { requestFile, registerDownloadSession, saveFileToBackend, getTransferRoot } from '../services/sseConnection.js'
 
 // 文件管理（仅 admin）：完全管理 TShock 程序目录下所有文件
 // 安全边界由插件端保证（防路径穿越 / 符号链接）；后端仅做路径合法性兜底。
@@ -188,4 +190,90 @@ export async function downloadFile(req, res) {
     return endStream()
   }
   // 正常路径：等待 file.begin/chunk/end 事件驱动转发与结束
+}
+
+// ═══════════════ 保存到后端（data/transfer/{serverId}/） ═══════════════
+
+// POST /api/files/save { path } — 经 SSE 拉取并保存到后端转存目录
+// 链路：插件 /tsweb/file（SSE）→ 后端落盘 sse-files → 移动至 data/transfer
+// 需要先建立到插件的常驻 SSE 连接（sseConnection），否则返回 SSE 未连接
+export async function saveFile(req, res) {
+  try {
+    const relativePath = req.body?.path
+    if (!relativePath) {
+      return res.status(400).json({ error: 'path is required' })
+    }
+    const normalized = normalizePath(relativePath)
+    if (!normalized) return res.status(403).json({ error: 'invalid path' })
+
+    const serverId = getCurrentServerId()
+    if (!serverId) return res.status(400).json({ error: 'server context missing' })
+
+    const result = await saveFileToBackend(serverId, normalized, { root: 'app' })
+    if (!result.success) {
+      return res.status(502).json({ error: result.error || result.message || '保存失败' })
+    }
+    res.json({ success: true, name: result.name, size: result.size })
+  } catch (error) {
+    res.status(500).json({ error: error.message })
+  }
+}
+
+// GET /api/files/saved — 列出已保存到后端的文件
+export async function listSavedFiles(req, res) {
+  try {
+    const serverId = getCurrentServerId()
+    if (!serverId) return res.status(400).json({ error: 'server context missing' })
+    const dir = path.join(getTransferRoot(), String(serverId))
+    let files = []
+    if (fs.existsSync(dir)) {
+      files = fs.readdirSync(dir)
+        .filter(f => fs.statSync(path.join(dir, f)).isFile())
+        .map(f => {
+          const st = fs.statSync(path.join(dir, f))
+          return { name: f, size: st.size, mtime: st.mtimeMs }
+        })
+        .sort((a, b) => b.mtime - a.mtime)
+    }
+    res.json({ files })
+  } catch (error) {
+    res.status(500).json({ error: error.message })
+  }
+}
+
+// GET /api/files/saved/download?name= — 下载已保存文件
+export async function downloadSavedFile(req, res) {
+  try {
+    const serverId = getCurrentServerId()
+    if (!serverId) return res.status(400).json({ error: 'server context missing' })
+    const name = String(req.query.name || '')
+    if (!name) return res.status(400).json({ error: 'name is required' })
+    const safeName = path.basename(name).replace(/[\\/:*?"<>|]/g, '_')
+    const full = path.join(getTransferRoot(), String(serverId), safeName)
+    if (!fs.existsSync(full) || !fs.statSync(full).isFile()) {
+      return res.status(404).json({ error: '文件不存在' })
+    }
+    res.download(full, safeName)
+  } catch (error) {
+    res.status(500).json({ error: error.message })
+  }
+}
+
+// POST /api/files/saved/delete { name } — 删除已保存文件
+export async function deleteSavedFile(req, res) {
+  try {
+    const serverId = getCurrentServerId()
+    if (!serverId) return res.status(400).json({ error: 'server context missing' })
+    const name = req.body?.name
+    if (!name) return res.status(400).json({ error: 'name is required' })
+    const safeName = path.basename(String(name)).replace(/[\\/:*?"<>|]/g, '_')
+    const full = path.join(getTransferRoot(), String(serverId), safeName)
+    if (!fs.existsSync(full)) {
+      return res.status(404).json({ error: '文件不存在' })
+    }
+    fs.unlinkSync(full)
+    res.json({ success: true })
+  } catch (error) {
+    res.status(500).json({ error: error.message })
+  }
 }

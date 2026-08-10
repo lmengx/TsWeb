@@ -84,8 +84,7 @@ const serverSection = [
     id: 'tools', name: '工具', path: '/console/tools', managerOnly: true,
     children: [
       { id: 'item-search', name: '物品查询', path: '/console/tools/item-search' },
-      { id: 'gradient-text', name: '彩色文字', path: '/console/tools/gradient-text' },
-      { id: 'resources', name: '资源下载', path: '/console/tools/resources' }
+      { id: 'gradient-text', name: '彩色文字', path: '/console/tools/gradient-text' }
     ]
   }
 ]

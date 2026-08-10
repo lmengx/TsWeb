@@ -10,7 +10,6 @@ import tshockRoutes from './routes/tshockRoutes.js'
 import configRoutes from './routes/configRoutes.js'
 import setupRoutes from './routes/setupRoutes.js'
 import antiCheatRoutes from './routes/antiCheatRoutes.js'
-import resourceRoutes from './routes/resourceRoutes.js'
 import onlineRoutes from './routes/onlineRoutes.js'
 import unverifiedRoutes from './routes/unverifiedRoutes.js'
 import fileRoutes from './routes/fileRoutes.js'
@@ -19,7 +18,6 @@ import userRoutes from './routes/userRoutes.js'
 import serverRoutes from './routes/serverRoutes.js'
 import auditRoutes from './routes/auditRoutes.js'
 import hookRoutes from './routes/hookRoutes.js'
-import { loadRules as loadFileAccessRules } from './services/fileAccessService.js'
 import tshockService, { registerServer, runWithServer, getServicesStatus } from './services/tshockService.js'
 import { connectAll as connectAllSse } from './services/sseConnection.js'
 import audit from './services/auditLogger.js'
@@ -106,7 +104,6 @@ app.use('/api/auth', authRoutes)
 app.use('/api/tshock', tshockRoutes)
 app.use('/api/config', configRoutes)
 app.use('/api/anticheat', antiCheatRoutes)
-app.use('/api/resources', resourceRoutes)
 app.use('/api/online', onlineRoutes)
 app.use('/api/unverified', unverifiedRoutes)
 app.use('/api/files', fileRoutes)
@@ -168,18 +165,6 @@ app.get('/api/ip-lookup', async (req, res) => {
 app.get(/^\/.*$/, (req, res) => {
   res.sendFile(path.join(frontendDistPath, 'index.html'))
 })
-
-// =====================================================
-// 加载文件访问白名单（提前加载，避免在 listen 回调中做异步操作）
-// =====================================================
-async function loadFileRules() {
-  try {
-    await loadFileAccessRules()
-    console.log('[FileAccess] 文件访问白名单已加载')
-  } catch (err) {
-    console.warn('[FileAccess] 白名单加载失败:', err.message)
-  }
-}
 
 // =====================================================
 // 带端口容错的 listen 辅助函数
@@ -257,9 +242,7 @@ async function startServer() {
     console.log('  请打开浏览器访问下方地址，设置管理员密码：')
     console.log('')
 
-    // 首次启动不阻塞，先加载白名单再 listen
-    loadFileRules()
-
+    // 首次启动不阻塞，先 listen
     listenWithFallback(app, port, '0.0.0.0', (actualPort) => {
       _serverPort = actualPort
       console.log('  请访问:')
@@ -286,10 +269,7 @@ async function startServer() {
   console.log('  http://localhost:' + port + '/backend?token=' + token)
   console.log('')
 
-  // 提前加载白名单（不阻塞 listen）
-  loadFileRules()
-
-  // 启动 HTTP 服务 — 使用带端口容错的 listen
+  // 提前 listen（不阻塞）
   listenWithFallback(app, port, host, async (actualPort) => {
     const displayHost = host === '0.0.0.0' ? 'localhost' : host
     _serverPort = actualPort

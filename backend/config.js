@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
-const CONFIG_PATH = path.join(__dirname, 'config', 'config.json')
+const CONFIG_PATH = path.join(__dirname, 'data', 'config.json')
 
 let config = null
 const configUpdateListeners = new Set()

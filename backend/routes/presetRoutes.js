@@ -6,7 +6,7 @@ import { verifyToken, requireManager } from '../middlewares/authMiddleware.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
-const presetDir = path.join(__dirname, '../res/导出数据')
+const presetDir = path.join(__dirname, '../data/resource/导出数据')
 
 // 确保目录存在
 if (!fs.existsSync(presetDir)) {

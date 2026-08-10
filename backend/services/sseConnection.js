@@ -185,7 +185,24 @@ function forwardToDownloadSession(tag, event, parsed) {
 
 // ═══════════════ 文件接收组装 ═══════════════
 
-const SaveRoot = path.join(__dirname, '..', 'res', '导出数据', 'sse-files')
+const SaveRoot = path.join(__dirname, '..', 'data', 'resource', '导出数据', 'sse-files')
+const TransferRoot = path.join(__dirname, '..', 'data', 'transfer')
+
+// 转存 waiter：`${serverId}:${safeName}` -> { resolve, reject }
+// 文件管理页「保存到后端」：finishFile 落盘完成后通知，再移动至 transfer 目录
+const saveWaiters = new Map()
+
+/** 转存根目录（文件管理页「保存到后端」的落盘目录） */
+export const getTransferRoot = () => TransferRoot
+
+function resolveSaveWaiter(conn, safeName, err) {
+  const key = `${conn.server.id}:${safeName}`
+  const w = saveWaiters.get(key)
+  if (!w) return
+  saveWaiters.delete(key)
+  if (err) w.reject(err)
+  else w.resolve()
+}
 
 function handleFileEvent(conn, event, parsed) {
   const id = parsed.id
@@ -217,10 +234,12 @@ function handleFileEvent(conn, event, parsed) {
 function finishFile(conn, id, t, sha256) {
   if (t.saved) return
   const buf = Buffer.concat(t.received.map(b => b || Buffer.alloc(0)))
+  const safeName = path.basename(String(t.name || 'file')).replace(/[\\/:*?"<>|]/g, '_')
   if (sha256) {
     const hash = crypto.createHash('sha256').update(buf).digest('hex')
     if (hash.toLowerCase() !== String(sha256).toLowerCase()) {
       console.warn(`[SSE] ${conn.server.name} 文件校验失败: ${t.name}`)
+      resolveSaveWaiter(conn, safeName, new Error('文件校验失败 (sha256)'))
       conn.transfers.delete(id)
       return
     }
@@ -228,13 +247,14 @@ function finishFile(conn, id, t, sha256) {
   try {
     const dir = path.join(SaveRoot, String(conn.server.id))
     fs.mkdirSync(dir, { recursive: true })
-    const safeName = path.basename(String(t.name || 'file')).replace(/[\\/:*?"<>|]/g, '_')
     const full = path.join(dir, safeName)
     fs.writeFileSync(full, buf)
     console.log(`[SSE] ${conn.server.name} 文件已保存: ${safeName} (${buf.length} bytes)`)
   } catch (e) {
     console.error(`[SSE] 文件保存失败: ${e.message}`)
+    resolveSaveWaiter(conn, safeName, e)
   }
+  resolveSaveWaiter(conn, safeName)
   t.saved = true
   conn.transfers.delete(id)
 }
@@ -272,6 +292,58 @@ export async function requestFile(serverId, filePath, options = {}) {
     const json = await res.json().catch(() => ({}))
     return { success: res.ok, ...json }
   } catch (e) {
+    return { success: false, message: e.message }
+  }
+}
+
+/**
+ * 保存文件到后端转存目录（data/transfer/{serverId}/）
+ * 链路：插件 /tsweb/file（SSE）→ 后端落盘 sse-files → 完成后移动至 transfer
+ * @param {string} serverId
+ * @param {string} filePath 插件端相对路径（root='app' 时相对 TShock 程序目录）
+ * @param {{ root?: 'app'|'tshock' }} [options]
+ */
+export async function saveFileToBackend(serverId, filePath, options = {}) {
+  const conn = _conns.get(serverId)
+  if (!conn || !conn.connected || !conn.clientId) {
+    return { success: false, message: 'SSE 未连接' }
+  }
+  const safeName = path.basename(String(filePath).replace(/\\/g, '/')).replace(/[\\/:*?"<>|]/g, '_')
+  const key = `${serverId}:${safeName}`
+  const destDir = path.join(TransferRoot, String(serverId))
+  const destFull = path.join(destDir, safeName)
+
+  // 预删残留旧文件，避免移动/大小误判
+  try { if (fs.existsSync(destFull)) fs.unlinkSync(destFull) } catch { /* ignore */ }
+
+  // 注册 waiter（必须在触发推送之前，避免 finishFile 先于等待注册）
+  const waiter = new Promise((resolve, reject) => {
+    saveWaiters.set(key, { resolve, reject })
+  })
+
+  const result = await requestFile(serverId, filePath, { root: options.root })
+  if (!result.success) {
+    saveWaiters.delete(key)
+    return { success: false, message: result.message }
+  }
+  if (String(result.status || '200') !== '200') {
+    saveWaiters.delete(key)
+    return { success: false, error: result.error || `HTTP ${result.status}` }
+  }
+
+  // 等待 finishFile 落盘完成（60s 超时兜底）
+  const timeout = setTimeout(() => { saveWaiters.delete(key) }, 60000)
+  try {
+    await waiter
+    clearTimeout(timeout)
+    // 从 sse-files 移至 transfer（同盘瞬时）
+    const srcFull = path.join(SaveRoot, String(serverId), safeName)
+    fs.mkdirSync(destDir, { recursive: true })
+    if (fs.existsSync(srcFull)) fs.renameSync(srcFull, destFull)
+    const size = fs.existsSync(destFull) ? fs.statSync(destFull).size : 0
+    return { success: true, name: safeName, size, path: destFull }
+  } catch (e) {
+    clearTimeout(timeout)
     return { success: false, message: e.message }
   }
 }

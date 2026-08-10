@@ -10,7 +10,7 @@ import { requestFile } from '../services/sseConnection.js'
 import { pushWebhookLog, getSseClients, addSseClient, removeSseClient, sseClientCount } from '../services/logBroadcast.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const SseFilesRoot = path.join(__dirname, '..', 'res', '导出数据', 'sse-files')
+const SseFilesRoot = path.join(__dirname, '..', 'data', 'resource', '导出数据', 'sse-files')
 
 // ═══ 说明：日志主通道已改为后端→插件 SSE 常驻长连接（sseConnection.js），
 // 前端日志流由后端内存队列 + 广播提供，不再需要随前端连接状态注册/注销插件 webhook ═══

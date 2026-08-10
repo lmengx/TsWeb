@@ -220,6 +220,62 @@ export function saveBlob(blob, name) {
   setTimeout(() => URL.revokeObjectURL(url), 4000)
 }
 
+// ── 保存到后端（data/transfer） ──
+
+/** 经 SSE 拉取文件并保存到后端转存目录 */
+export async function saveToBackend(filePath) {
+  const res = await ensureOk(await apiRequest(`${BASE}/save`, {
+    method: 'POST',
+    body: JSON.stringify({ path: filePath })
+  }))
+  const json = await res.json()
+  if (json.error) throw new Error(json.error)
+  return json
+}
+
+/** 列出已保存到后端的文件 */
+export async function listSavedFiles() {
+  const res = await ensureOk(await apiRequest(`${BASE}/saved`, { method: 'GET' }))
+  const json = await res.json()
+  return json.files || []
+}
+
+/** 下载已保存到后端的文件（普通 HTTP，非 SSE） */
+export async function downloadSavedFile(name) {
+  const user = localStorage.getItem('user')
+  let token = null
+  if (user) {
+    try { token = JSON.parse(user).token } catch { /* ignore */ }
+  }
+  const serverId = getCurrentServerId()
+  const headers = {}
+  if (token) headers['Authorization'] = `Bearer ${token}`
+  if (serverId) headers['x-server-id'] = serverId
+
+  const res = await fetch(`${BASE}/saved/download?name=${encodeURIComponent(name)}`, { headers })
+  if (!res.ok) {
+    let msg = `HTTP ${res.status}`
+    try {
+      const j = await res.json()
+      if (j?.error) msg = j.error
+    } catch { /* ignore */ }
+    throw new Error(msg)
+  }
+  const blob = await res.blob()
+  saveBlob(blob, name)
+}
+
+/** 删除已保存到后端的文件 */
+export async function deleteSavedFile(name) {
+  const res = await ensureOk(await apiRequest(`${BASE}/saved/delete`, {
+    method: 'POST',
+    body: JSON.stringify({ name })
+  }))
+  const json = await res.json()
+  if (json.error) throw new Error(json.error)
+  return json
+}
+
 /** 格式化文件大小 */
 export function formatSize(bytes) {
   if (bytes == null) return '-'

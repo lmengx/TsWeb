@@ -5,9 +5,14 @@
       <span class="path-badge">根目录: TShock 程序目录</span>
     </div>
 
-    <!-- ═══ 工具栏 + 面包屑 ═══ -->
+    <!-- ═══ 工具栏 + 视图切换 + 面包屑 ═══ -->
     <div class="toolbar glass">
-      <nav class="breadcrumb">
+      <div class="view-tabs">
+        <button class="view-tab" :class="{ active: viewMode === 'browse' }" @click="switchView('browse')">浏览文件</button>
+        <button class="view-tab" :class="{ active: viewMode === 'saved' }" @click="switchView('saved')">已保存 💾</button>
+      </div>
+
+      <nav v-if="viewMode === 'browse'" class="breadcrumb">
         <span class="crumb-link" :class="{ active: currentPath === '' }" @click="goTo('')">/</span>
         <template v-for="(seg, i) in pathSegments" :key="i">
           <span class="crumb-sep">/</span>
@@ -15,18 +20,20 @@
             @click="goTo(pathSegments.slice(0, i + 1).join('/'))">{{ seg }}</span>
         </template>
       </nav>
+      <span v-else class="breadcrumb saved-hint">已保存到后端服务器的文件（data/transfer）</span>
+
       <div class="toolbar-actions">
-        <button class="btn btn-upload" @click="triggerUpload" :disabled="uploadingCount > 0">
-          ⬆ 上传
-        </button>
-        <button class="btn btn-ghost" @click="loadDir" :disabled="loading">
+        <template v-if="viewMode === 'browse'">
+          <button class="btn btn-upload" @click="triggerUpload" :disabled="uploadingCount > 0">⬆ 上传</button>
+        </template>
+        <button class="btn btn-ghost" @click="viewMode === 'browse' ? loadDir() : loadSaved()" :disabled="loading">
           <span class="spin" :class="{ spinning: loading }">🔄</span> 刷新
         </button>
       </div>
     </div>
 
-    <!-- ═══ 文件列表 ═══ -->
-    <div class="file-list glass">
+    <!-- ═══ 浏览视图：文件列表 ═══ -->
+    <div v-if="viewMode === 'browse'" class="file-list glass">
       <div class="file-row file-row-header">
         <span class="col-name">名称</span>
         <span class="col-size">大小</span>
@@ -48,7 +55,8 @@
           <template v-if="e.type === 'file'">
             <button class="act-btn" title="预览/编辑" :disabled="!isTextFile(e.name)"
               @click.stop="previewFile(e)">👁</button>
-            <button class="act-btn" title="下载" @click.stop="startDownload(e)">⬇</button>
+            <button class="act-btn" title="直接下载到本地" @click.stop="startDownload(e)">⬇</button>
+            <button class="act-btn save" title="保存到后端服务器" @click.stop="startSave(e)">💾</button>
             <button class="act-btn danger" title="删除" @click.stop="confirmDelete(e)">🗑</button>
           </template>
           <span v-else class="act-hint">进入</span>
@@ -56,20 +64,51 @@
       </div>
     </div>
 
-    <!-- ═══ 传输任务（上传/下载进度） ═══ -->
+    <!-- ═══ 已保存视图 ═══ -->
+    <div v-else class="file-list glass">
+      <div class="file-row file-row-header">
+        <span class="col-name">名称</span>
+        <span class="col-size">大小</span>
+        <span class="col-size">保存时间</span>
+        <span class="col-actions">操作</span>
+      </div>
+
+      <div v-if="loading" class="list-status">加载中...</div>
+      <div v-else-if="savedFiles.length === 0" class="list-status">暂无已保存的文件</div>
+
+      <div v-for="f in savedFiles" :key="f.name" class="file-row">
+        <span class="col-name">
+          <span class="file-icon">📄</span>
+          <span class="file-name" :title="f.name">{{ f.name }}</span>
+        </span>
+        <span class="col-size">{{ formatSize(f.size) }}</span>
+        <span class="col-size">{{ formatTime(f.mtime) }}</span>
+        <span class="col-actions">
+          <button class="act-btn" title="下载" @click.stop="downloadSaved(f)">⬇</button>
+          <button class="act-btn danger" title="删除" @click.stop="confirmDeleteSaved(f)">🗑</button>
+        </span>
+      </div>
+    </div>
+
+    <!-- ═══ 传输任务（上传/下载/保存进度） ═══ -->
     <div v-if="activeTransfers.length > 0" class="transfer-panel glass">
       <div class="transfer-title">传输任务</div>
       <div v-for="t in activeTransfers" :key="t.id" class="transfer-item">
         <div class="transfer-info">
-          <span class="transfer-icon">{{ t.dir === 'up' ? '⬆' : '⬇' }}</span>
+          <span class="transfer-icon">{{ t.dir === 'up' ? '⬆' : t.dir === 'save' ? '💾' : '⬇' }}</span>
           <span class="transfer-name" :title="t.name">{{ t.name }}</span>
           <span class="transfer-status" :class="t.status">{{ statusText(t) }}</span>
         </div>
         <div class="progress-track">
-          <div class="progress-fill" :style="{ width: t.percent + '%' }"></div>
+          <div class="progress-fill" :class="{ indeterminate: t.dir === 'save' && t.status === 'running' }"
+            :style="{ width: t.percent + '%' }"></div>
         </div>
         <div class="transfer-sub" v-if="t.status === 'running'">
-          {{ formatSize(t.received) }} / {{ formatSize(t.total) }} ({{ t.percent }}%)
+          <template v-if="t.dir === 'save'">保存到后端中（SSE 拉取 → 落盘）...</template>
+          <template v-else>{{ formatSize(t.received) }} / {{ formatSize(t.total) }} ({{ t.percent }}%)</template>
+        </div>
+        <div class="transfer-sub done-sub" v-else-if="t.status === 'done'">
+          ✓ {{ t.dir === 'save' ? '已保存到后端' : '完成' }}（{{ formatSize(t.size) }}）
         </div>
         <div class="transfer-sub" v-else-if="t.status === 'error'">{{ t.error }}</div>
       </div>
@@ -87,8 +126,7 @@
           <div class="preview-body">
             <div v-if="preview.loading" class="preview-status">加载中...</div>
             <div v-else-if="preview.error" class="preview-status error">{{ preview.error }}</div>
-            <textarea v-else ref="editorRef" v-model="preview.content" spellcheck="false"
-              class="preview-editor"></textarea>
+            <textarea v-else v-model="preview.content" spellcheck="false" class="preview-editor"></textarea>
           </div>
           <div class="preview-footer" v-if="!preview.loading && !preview.error">
             <span class="preview-save-msg" :class="preview.saveStatus">{{ preview.saveMsg }}</span>
@@ -105,8 +143,22 @@
 </template>
 
 <script setup>
-import { ref, computed, nextTick, onMounted } from 'vue'
-import { listDir, readFile, writeFile, deleteFile, uploadFile, downloadFile, saveBlob, isTextFile, formatSize } from '../../utils/fileApi.js'
+import { ref, computed, onMounted } from 'vue'
+import {
+  listDir, readFile, writeFile, deleteFile,
+  uploadFile, downloadFile, saveBlob, saveToBackend,
+  listSavedFiles, downloadSavedFile, deleteSavedFile,
+  isTextFile, formatSize
+} from '../../utils/fileApi.js'
+
+// ═══ 视图切换 ═══
+const viewMode = ref('browse')
+const switchView = (mode) => {
+  viewMode.value = mode
+  loading.value = false
+  if (mode === 'saved') loadSaved()
+  else loadDir()
+}
 
 // ═══ 目录导航 ═══
 const entries = ref([])
@@ -133,9 +185,7 @@ const loadDir = async () => {
 }
 
 const enterDir = (name) => {
-  currentPath.value = currentPath.value
-    ? `${currentPath.value}/${name}`
-    : name
+  currentPath.value = currentPath.value ? `${currentPath.value}/${name}` : name
   loadDir()
 }
 
@@ -153,7 +203,8 @@ const uploadingCount = computed(() => uploads.value.filter(t => t.status === 'ru
 const activeTransfers = computed(() => {
   const up = uploads.value.map(t => ({ ...t, dir: 'up' }))
   const down = downloads.value.map(t => ({ ...t, dir: 'down' }))
-  return [...up, ...down].filter(t => t.status !== 'done' || t.justDone)
+  const saves = saveTasks.value.map(t => ({ ...t, dir: 'save' }))
+  return [...up, ...down, ...saves].filter(t => t.status !== 'done' || t.justDone)
 })
 
 const triggerUpload = () => fileInput.value?.click()
@@ -187,12 +238,10 @@ const runUpload = async (task, file) => {
     })
     task.status = 'done'
     task.percent = 100
-    // 完成后短暂停留展示结果，随后从列表移除
     setTimeout(() => {
       const i = uploads.value.indexOf(task)
       if (i >= 0) uploads.value.splice(i, 1)
     }, 3000)
-    // 上传完成后刷新列表
     loadDir()
   } catch (err) {
     task.status = 'error'
@@ -200,7 +249,7 @@ const runUpload = async (task, file) => {
   }
 }
 
-// ═══ 下载 ═══
+// ═══ 直接下载（SSE 实时） ═══
 const downloads = ref([])
 
 const startDownload = async (e) => {
@@ -225,7 +274,6 @@ const startDownload = async (e) => {
     saveBlob(blob, name)
     task.status = 'done'
     task.percent = 100
-    // 完成后短暂停留展示结果，随后从列表移除
     setTimeout(() => {
       const i = downloads.value.indexOf(task)
       if (i >= 0) downloads.value.splice(i, 1)
@@ -236,7 +284,69 @@ const startDownload = async (e) => {
   }
 }
 
-// ═══ 删除 ═══
+// ═══ 保存到后端 ═══
+const saveTasks = ref([])
+
+const startSave = async (e) => {
+  const task = {
+    id: `sv-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    name: e.name,
+    path: join(e.name),
+    size: e.size || 0,
+    received: 0,
+    percent: 30,
+    status: 'running',
+    justDone: true
+  }
+  saveTasks.value.push(task)
+  try {
+    const result = await saveToBackend(task.path)
+    task.status = 'done'
+    task.percent = 100
+    task.size = result.size || task.size
+    setTimeout(() => {
+      const i = saveTasks.value.indexOf(task)
+      if (i >= 0) saveTasks.value.splice(i, 1)
+    }, 3000)
+  } catch (err) {
+    task.status = 'error'
+    task.error = err.message
+  }
+}
+
+// ═══ 已保存文件管理 ═══
+const savedFiles = ref([])
+
+const loadSaved = async () => {
+  loading.value = true
+  try {
+    savedFiles.value = await listSavedFiles()
+  } catch (e) {
+    alert('加载已保存文件失败: ' + e.message)
+  } finally {
+    loading.value = false
+  }
+}
+
+const downloadSaved = async (f) => {
+  try {
+    await downloadSavedFile(f.name)
+  } catch (err) {
+    alert('下载失败: ' + err.message)
+  }
+}
+
+const confirmDeleteSaved = async (f) => {
+  if (!confirm(`确定要删除已保存的文件「${f.name}」吗？`)) return
+  try {
+    await deleteSavedFile(f.name)
+    loadSaved()
+  } catch (err) {
+    alert('删除失败: ' + err.message)
+  }
+}
+
+// ═══ 删除（浏览视图） ═══
 const confirmDelete = async (e) => {
   const msg = `确定要删除文件「${e.name}」吗？\n此操作不可恢复！`
   if (!confirm(msg)) return
@@ -293,7 +403,6 @@ const previewFile = async (e) => {
     preview.value.error = err.message
   } finally {
     preview.value.loading = false
-    nextTick(() => {})
   }
 }
 
@@ -322,6 +431,13 @@ const statusText = (t) => {
   if (t.status === 'done') return '完成'
   if (t.status === 'error') return '失败'
   return '传输中'
+}
+
+const formatTime = (ms) => {
+  if (!ms) return '-'
+  const d = new Date(ms)
+  const p = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
 }
 
 onMounted(loadDir)
@@ -366,13 +482,40 @@ onMounted(loadDir)
 .toolbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  gap: 14px;
   padding: 10px 14px;
   border-radius: var(--radius-lg, 12px);
   border: 1px solid var(--border-light);
   background: var(--bg-card);
   flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.view-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  background: var(--bg-tertiary);
+  border-radius: 10px;
+  flex-shrink: 0;
+}
+
+.view-tab {
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.view-tab.active {
+  background: var(--bg-card);
+  color: var(--accent-primary);
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.15);
 }
 
 .breadcrumb {
@@ -382,6 +525,7 @@ onMounted(loadDir)
   flex-wrap: wrap;
   font-size: 0.9rem;
   min-width: 0;
+  flex: 1;
 }
 
 .crumb-link {
@@ -396,6 +540,8 @@ onMounted(loadDir)
 .crumb-link:hover { background: var(--bg-hover); }
 .crumb-link.active { color: var(--text-primary); font-weight: 600; cursor: default; }
 .crumb-sep { color: var(--text-muted); }
+
+.saved-hint { color: var(--text-muted); font-size: 0.85rem; }
 
 .toolbar-actions { display: flex; gap: 8px; flex-shrink: 0; }
 
@@ -467,8 +613,8 @@ onMounted(loadDir)
 }
 
 .col-name { flex: 1; display: flex; align-items: center; gap: 8px; min-width: 0; }
-.col-size { width: 90px; flex-shrink: 0; font-size: 0.8rem; color: var(--text-muted); }
-.col-actions { width: 120px; flex-shrink: 0; display: flex; gap: 4px; justify-content: flex-end; }
+.col-size { width: 110px; flex-shrink: 0; font-size: 0.8rem; color: var(--text-muted); }
+.col-actions { width: 150px; flex-shrink: 0; display: flex; gap: 4px; justify-content: flex-end; }
 
 .file-icon { font-size: 1rem; flex-shrink: 0; }
 .file-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -488,6 +634,7 @@ onMounted(loadDir)
 }
 
 .act-btn:hover:not(:disabled) { background: var(--bg-hover); border-color: var(--accent-primary); }
+.act-btn.save:hover:not(:disabled) { border-color: #10b981; background: rgba(16, 185, 129, 0.12); }
 .act-btn.danger:hover:not(:disabled) { border-color: #ef4444; background: rgba(239, 68, 68, 0.12); }
 .act-btn:disabled { opacity: 0.35; cursor: not-allowed; }
 
@@ -539,7 +686,18 @@ onMounted(loadDir)
   transition: width 0.2s;
 }
 
+.progress-fill.indeterminate {
+  width: 40% !important;
+  animation: slide 1.2s ease-in-out infinite;
+}
+
+@keyframes slide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(250%); }
+}
+
 .transfer-sub { font-size: 0.72rem; color: var(--text-muted); }
+.transfer-sub.done-sub { color: #22c55e; }
 
 /* ── 预览弹层 ── */
 .preview-overlay {
