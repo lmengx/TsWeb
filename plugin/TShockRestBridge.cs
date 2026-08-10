@@ -195,7 +195,7 @@ namespace TShockData
             var iface = m.DeclaringType;
 
             // ── IParameter ──
-            if (iface == typeof(IParameter))
+            if (typeof(IParameter).IsAssignableTo(iface))
             {
                 var kv = (KeyValuePair<string, string>)proxy.Payload!;
                 if (name == "get_Name") return kv.Key;
@@ -204,7 +204,7 @@ namespace TShockData
             }
 
             // ── IParameterCollection ──
-            if (iface == typeof(IParameterCollection))
+            if (typeof(IParameterCollection).IsAssignableTo(iface))
             {
                 var bag = (QueryBag)proxy.Payload!;
                 if (name == "get_Item")
