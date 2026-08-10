@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using Terraria;
 using TerrariaApi.Server;
@@ -10,9 +9,19 @@ namespace TShockData
 {
 	/// <summary>
 	/// ping 命令：测量玩家到服务器的网络延迟。
-	/// 原理：向客户端发送 RemoveItemOwner(39) 包，客户端收到后会回发相同内容的包，
-	/// 服务端通过发送与接收之间的时间差计算往返延迟（RTT）。
-	/// 参考实现：TShockPlugin-master/Economics.Core 的 Ping 机制。
+	///
+	/// 原理（Terraria 1.4.5 官方 Ping 协议）：
+	///   - 包 154（PacketTypes.Ping）是空包（0 字节负载），用于延迟探测与心跳。
+	///   - 客户端会周期性（约每 10 秒）主动向服务器发送 Ping(154)，
+	///     服务器收到后回 Ping(154)，客户端据此计算并显示自己的延迟。
+	///   - 本模块向目标客户端发送 Ping(154) 探测包：若客户端回显 Ping(154)，
+	///     则按"发送-接收"时间差计算往返延迟（RTT）；若客户端不回显，
+	///     则退化为被动心跳监测，报告客户端最近心跳间隔作为连接参考。
+	///
+	/// 注意：旧的"发 RemoveItemOwner(39) 等 ItemOwner(22) 回包"机制
+	///       在 Terraria 1.4.5 已失效（1.4.5 客户端不再对 39 号包回发 22 号包），
+	///       抓包实测客户端仅周期性发送 Ping(154)，故旧机制整体移除。
+	///
 	/// 用法：
 	///   /ping          —— 测量自己到服务器的延迟（默认 5 次）
 	///   /ping 玩家名    —— 管理员（tshock.admin）测量指定玩家的延迟
@@ -28,8 +37,12 @@ namespace TShockData
 		/// <summary>单次测量超时（毫秒），超过则认为该次无响应</summary>
 		private const double TimeoutMs = 3000;
 
+		/// <summary>Terraria 1.4.5 Ping 包号（PacketTypes.Ping，空包）</summary>
+		private const int PingPacketId = 154;
+
 		private static readonly object SyncLock = new object();
 		private static readonly Dictionary<TSPlayer, PingSession> Sessions = new Dictionary<TSPlayer, PingSession>();
+		private static readonly Dictionary<TSPlayer, List<DateTime>> Heartbeats = new Dictionary<TSPlayer, List<DateTime>>();
 		private static long _tick;
 
 		/// <summary>一次完整的延迟测量会话</summary>
@@ -40,7 +53,6 @@ namespace TShockData
 			public int Total;                           // 计划测量总次数
 			public int Remaining;                       // 剩余测量次数
 			public List<double> Results = new List<double>(); // 每次测量的延迟结果(ms)
-			public int LastSlot;                        // 最近一次使用的物品槽位
 			public DateTime SendTime;                   // 最近一次发包时间
 			public long NextSendTick;                   // 计划发送下一包的时间点(tick)，0 表示正在等待回复
 		}
@@ -49,7 +61,7 @@ namespace TShockData
 		{
 			ServerApi.Hooks.NetGetData.Register(plugin, OnGetData, int.MaxValue);
 			ServerApi.Hooks.GameUpdate.Register(plugin, OnGameUpdate);
-			TShock.Log.ConsoleInfo("[TSWeb] Ping 模块已初始化");
+			TShock.Log.ConsoleInfo("[TSWeb] Ping 模块已初始化（Ping 协议 154）");
 		}
 
 		public static void Dispose(TerrariaPlugin plugin)
@@ -57,6 +69,7 @@ namespace TShockData
 			lock (SyncLock)
 			{
 				Sessions.Clear();
+				Heartbeats.Clear();
 			}
 			ServerApi.Hooks.NetGetData.Deregister(plugin, OnGetData);
 			ServerApi.Hooks.GameUpdate.Deregister(plugin, OnGameUpdate);
@@ -132,7 +145,7 @@ namespace TShockData
 		}
 
 		/// <summary>
-		/// 向目标玩家发送一个 RemoveItemOwner 包用于测量延迟。
+		/// 向目标玩家发送一个 Ping(154) 空包用于测量延迟。
 		/// </summary>
 		private static void SendNext(TSPlayer target)
 		{
@@ -143,34 +156,40 @@ namespace TShockData
 					return;
 			}
 
-			int slot = FindFreeSlot();
-			if (slot < 0)
-			{
-				lock (SyncLock) Sessions.Remove(target);
-				s.Requester.SendErrorMessage("服务器当前没有空闲物品槽，无法测量延迟。");
-				return;
-			}
-
-			s.LastSlot = slot;
 			s.SendTime = DateTime.Now;
-			// number2=byte.MaxValue(255) 是关键：客户端仅在收到 owner==255 时才回发 ItemOwner 包
-			NetMessage.TrySendData(39, target.Index, -1, null, slot, byte.MaxValue);
+			NetMessage.TrySendData(PingPacketId, target.Index, -1, null, 0);
 		}
 
 		/// <summary>
-		/// 接收客户端回发的 RemoveItemOwner 包，完成一次延迟测量。
+		/// 接收客户端发来的 Ping(154) 包：
+		/// 1) 记录心跳（被动连接监测，用于兜底参考）
+		/// 2) 若存在等待回包的探测会话，则完成一次 RTT 测量
+		/// 注意：不放行 Handled，游戏引擎仍会正常响应客户端心跳。
 		/// </summary>
 		private static void OnGetData(GetDataEventArgs args)
 		{
 			if (args.Handled)
 				return;
-			// 发送与回发均为 RemoveItemOwner(39)/ItemOwner；兼容不同版本枚举映射，同时按原始包号判断
-			if (args.MsgID != PacketTypes.ItemOwner && (byte)args.MsgID != 39)
+			// 1.4.5 Ping 包：PacketTypes.Ping；按原始包号判断以兼容不同版本枚举映射
+			if ((byte)args.MsgID != PingPacketId)
 				return;
 
 			var player = TShock.Players[args.Msg.whoAmI];
 			if (player == null || !player.Active)
 				return;
+
+			// 记录心跳（仅保留最近 3 次用于计算间隔）
+			lock (SyncLock)
+			{
+				if (!Heartbeats.TryGetValue(player, out var list))
+				{
+					list = new List<DateTime>();
+					Heartbeats[player] = list;
+				}
+				list.Add(DateTime.Now);
+				if (list.Count > 3)
+					list.RemoveAt(0);
+			}
 
 			PingSession s;
 			lock (SyncLock)
@@ -181,23 +200,7 @@ namespace TShockData
 					return;
 			}
 
-			// 校验回包内容：short 槽位 + byte 255（无主）
-			try
-			{
-				using (var reader = new BinaryReader(new MemoryStream(args.Msg.readBuffer, args.Index, Math.Max(args.Length - 1, 0))))
-				{
-					short itemIndex = reader.ReadInt16();
-					byte owner = reader.ReadByte();
-					if (owner != byte.MaxValue || itemIndex != s.LastSlot)
-						return;
-				}
-			}
-			catch (Exception ex)
-			{
-				TShock.Log.ConsoleError($"[Ping] 回包解析异常: {ex.Message}");
-				return;
-			}
-
+			// 收到客户端回显 → 完成一次测量
 			double ms = (DateTime.Now - s.SendTime).TotalMilliseconds;
 			s.Results.Add(ms);
 			s.Remaining--;
@@ -289,7 +292,18 @@ namespace TShockData
 
 			if (s.Results.Count == 0)
 			{
-				req.SendErrorMessage($"测量玩家 {s.Target.Name} 的延迟失败：未收到任何响应。");
+				// 主动探测无回包：1.4.5 vanilla 客户端可能不回显 Ping(154)，
+				// 改用被动心跳间隔作为连接参考
+				var hb = GetHeartbeatInfo(s.Target);
+				if (hb.HasValue)
+				{
+					req.SendErrorMessage($"测量玩家 {s.Target.Name} 的延迟失败：客户端未回显 Ping 包。");
+					req.SendInfoMessage($"  参考（心跳监测）：最近一次 Ping 心跳 {hb.Value.LastAgo:F0}s 前，平均间隔约 {hb.Value.AvgInterval:F0}s");
+				}
+				else
+				{
+					req.SendErrorMessage($"测量玩家 {s.Target.Name} 的延迟失败：未收到任何 Ping 包响应，且无历史心跳记录。");
+				}
 				return;
 			}
 
@@ -303,20 +317,23 @@ namespace TShockData
 		}
 
 		/// <summary>
-		/// 查找一个空闲的世界物品槽位（inactive）作为测量用槽位。
-		/// 排除 400：TShock 使用该槽 + 所有者 255 作为 SSC 哨兵包，避免误判。
+		/// 基于被动心跳计算参考连接信息。
+		/// 返回 null 表示该玩家没有足够的心跳记录。
 		/// </summary>
-		private static int FindFreeSlot()
+		private static (double LastAgo, double AvgInterval)? GetHeartbeatInfo(TSPlayer player)
 		{
-			for (int i = 0; i < Main.item.Length; i++)
+			lock (SyncLock)
 			{
-				if (i == 400)
-					continue;
-				var item = Main.item[i];
-				if (item == null || !item.active)
-					return i;
+				if (!Heartbeats.TryGetValue(player, out var list) || list.Count < 2)
+					return null;
+
+				var now = DateTime.Now;
+				var lastAgo = (now - list[list.Count - 1]).TotalSeconds;
+				double total = 0;
+				for (int i = 1; i < list.Count; i++)
+					total += (list[i] - list[i - 1]).TotalSeconds;
+				return (lastAgo, total / (list.Count - 1));
 			}
-			return -1;
 		}
 	}
 }
