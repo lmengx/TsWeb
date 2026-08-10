@@ -94,13 +94,10 @@ namespace TShockData
             {
                 var report = ScanAllPlayers();
 
+                // 无违规时静默，不输出任何日志
                 if (report.ViolationCount > 0)
                 {
                     TShock.Log.ConsoleInfo($"[ItemDetection] 自动扫描完成，扫描 {report.ScannedPlayers} 名在线玩家，耗时 {report.DurationMs}ms，共检测到 {report.ViolationCount} 条违规");
-                }
-                else
-                {
-                    TShock.Log.ConsoleInfo($"[ItemDetection] 自动扫描完成，扫描 {report.ScannedPlayers} 名在线玩家，耗时 {report.DurationMs}ms，无违规");
                 }
             }
             catch (Exception ex)
