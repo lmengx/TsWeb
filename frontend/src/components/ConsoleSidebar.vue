@@ -67,8 +67,7 @@ const serverSection = [
   { id: 'progress', name: '世界进度', path: '/console/progress', managerOnly: true },
   { id: 'players', name: '玩家管理', path: '/console/players', managerOnly: true, icon: '👥' },
   { id: 'groups', name: '组管理', path: '/console/groups', managerOnly: true },
-  { id: 'houses', name: '房屋管理', path: '/console/houses', managerOnly: true, icon: '🏠' },
-  { id: 'buildings', name: '建筑存档', path: '/console/buildings', managerOnly: true, icon: '📦' },
+  { id: 'houses', name: '房屋与建筑', path: '/console/houses', managerOnly: true, icon: '🏠' },
   { id: 'tasks', name: '自动任务', path: '/console/tasks', managerOnly: true, icon: '⏰' },
   {
     id: 'anticheat', name: '反作弊', path: '/console/anticheat', managerOnly: true,

@@ -336,6 +336,11 @@ namespace TShockData
                 "/data/house/list",
                 "/data/buildings/list",
                 "/data/buildings/info",
+                "/data/buildings/export",
+                "/data/buildings/import",
+                "/data/buildings/upload",
+                "/data/buildings/delete-local",
+                "/data/buildings/online-players",
 			};
 
 			try

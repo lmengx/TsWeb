@@ -31,24 +31,38 @@ public static class HouseExporter
 
     public static bool Export(TSPlayer op, House house)
     {
+        var filePath = ExportToFile(house, op.Name, out var error);
+        if (filePath == null)
+        {
+            op.SendErrorMessage($"导出房屋建筑失败: {error}");
+            return false;
+        }
+        TShock.Log.ConsoleInfo($"[HouseRegion] {op.Name} 导出了房屋 {house.Name} 的建筑 -> {filePath}");
+        op.SendSuccessMessage($"房屋 [{house.Name}] 建筑已导出 ({house.HouseArea.Width}x{house.HouseArea.Height}): {filePath}");
+        return true;
+    }
+
+    /// <summary>无玩家上下文导出（Web API）：写本地 TSWeb/Buildings/，返回文件绝对路径；失败返回 null 并输出 error。</summary>
+    public static string? ExportToFile(House house, string author, out string error)
+    {
+        error = "";
         try
         {
             Directory.CreateDirectory(ExportDir);
 
-            var doc = TsbBuilder.Build(house.HouseArea, op, house.Name);
+            var doc = TsbBuilder.Build(house.HouseArea, author, house.Name);
             var fileName = $"{SanitizeFileName(house.Name)}_{DateTime.Now:yyyyMMdd_HHmmss}.tsb";
             var filePath = Path.Combine(ExportDir, fileName);
 
             File.WriteAllText(filePath, JsonConvert.SerializeObject(doc, JsonSettings), Encoding.UTF8);
-            TShock.Log.ConsoleInfo($"[HouseRegion] {op.Name} 导出了房屋 {house.Name} 的建筑 -> {filePath}");
-            op.SendSuccessMessage($"房屋 [{house.Name}] 建筑已导出 ({doc.Size.Width}x{doc.Size.Height}): {filePath}");
-            return true;
+            TShock.Log.ConsoleInfo($"[HouseRegion] 导出了房屋 {house.Name} 的建筑 -> {filePath}");
+            return filePath;
         }
         catch (Exception ex)
         {
             TShock.Log.Error("[HouseRegion] 导出房屋建筑失败: " + ex);
-            op.SendErrorMessage($"导出房屋建筑失败: {ex.Message}");
-            return false;
+            error = ex.Message;
+            return null;
         }
     }
 
@@ -72,7 +86,7 @@ public static class TsbBuilder
     private const ushort S_WIRE1 = 0x0080, S_WIRE2 = 0x0100, S_WIRE3 = 0x0200;
     private const byte B_WIRE4 = 0x80;                 // bTileHeader bit7
 
-    public static TsbDocument Build(Rectangle area, TSPlayer op, string name)
+    public static TsbDocument Build(Rectangle area, string author, string name)
     {
         var width = area.Width;
         var height = area.Height;
@@ -140,7 +154,7 @@ public static class TsbBuilder
             Meta = new TsbMeta
             {
                 Name = name,
-                Author = op.Name,
+                Author = author,
                 CreatedAt = DateTime.Now.ToString("O"),
                 Source = new TsbSource
                 {

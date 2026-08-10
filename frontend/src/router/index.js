@@ -206,13 +206,7 @@ const routes = [
       {
         path: 'houses',
         name: 'Houses',
-        component: () => import('../views/console/HousesView.vue'),
-        meta: { requiresAuth: true, requiresManager: true }
-      },
-      {
-        path: 'buildings',
-        name: 'Buildings',
-        component: () => import('../views/console/BuildingsView.vue'),
+        component: () => import('../views/console/HouseManagementView.vue'),
         meta: { requiresAuth: true, requiresManager: true }
       },
       {

@@ -30,23 +30,40 @@ public static class HouseImporter
 
     private static readonly string[] ChatMarkers = { "[c/", "[i:", "[n:", "[a:" };
 
+    /// <summary>游戏内命令入口（/h import）：以执行玩家为锚点，建筑底部中心对齐玩家脚部（保持原行为）</summary>
     public static bool Import(TSPlayer op, string fileName)
     {
+        var outcome = ImportAt(fileName, "coords", "", "", $"{op.TileX},{op.TileY}", "bottom", op);
+        if (!outcome.Success && !string.IsNullOrEmpty(outcome.Error))
+            op.SendErrorMessage(outcome.Error);
+        return outcome.Success;
+    }
+
+    /// <summary>Web API 导入入口：指定锚点与对齐点，支持领地范围校验。</summary>
+    /// <param name="anchorKind">"player"=在线玩家 / "coords"=指定坐标 / "house"=现有领地</param>
+    /// <param name="anchorPlayer">anchorKind=player 时的玩家名</param>
+    /// <param name="anchorHouse">anchorKind=house 时的房屋名</param>
+    /// <param name="coords">anchorKind=coords 时的 "x,y" 目标点（方块坐标）</param>
+    /// <param name="align">对齐点：topLeft/top/topRight/middleLeft/center/middleRight/bottomLeft/bottom/bottomRight</param>
+    /// <param name="notify">可选消息通道（游戏内命令传入玩家；Web 场景传 null）</param>
+    public static ImportOutcome ImportAt(string fileName, string anchorKind, string anchorPlayer, string anchorHouse, string coords, string align, TSPlayer? notify = null)
+    {
+        var outcome = new ImportOutcome { Success = false, FileName = Path.GetFileName(fileName) };
         try
         {
             // ── 1. 读文件（防路径穿越：仅取文件名 + 强制 .tsb 扩展名）──
             var safeName = Path.GetFileName(fileName);
             if (!safeName.EndsWith(".tsb", StringComparison.OrdinalIgnoreCase))
             {
-                op.SendErrorMessage("仅支持 .tsb 文件。用法: /h import <文件名>");
-                return false;
+                outcome.Error = "仅支持 .tsb 文件。";
+                return outcome;
             }
 
             var filePath = Path.Combine(ImportDir, safeName);
             if (!File.Exists(filePath))
             {
-                op.SendErrorMessage($"未找到建筑文件: {safeName}（目录: {ImportDir}）");
-                return false;
+                outcome.Error = $"未找到建筑文件: {safeName}（目录: {ImportDir}）";
+                return outcome;
             }
 
             var json = File.ReadAllText(filePath, Encoding.UTF8);
@@ -57,33 +74,149 @@ public static class HouseImporter
             }
             catch (Exception ex)
             {
-                op.SendErrorMessage($"建筑文件解析失败: {ex.Message}");
-                return false;
+                outcome.Error = $"建筑文件解析失败: {ex.Message}";
+                return outcome;
             }
             if (doc == null)
             {
-                op.SendErrorMessage("建筑文件内容为空。");
-                return false;
+                outcome.Error = "建筑文件内容为空。";
+                return outcome;
             }
 
             // ── 2. 校验（L0-L3，硬性拒绝）──
-            var raw = Validate(op, doc);
-            if (raw == null) return false;
+            var raw = Validate(notify, doc, out var validateError);
+            if (raw == null)
+            {
+                outcome.Error = string.IsNullOrEmpty(validateError) ? "建筑校验失败。" : validateError;
+                return outcome;
+            }
 
-            // ── 3. 粘贴位置：玩家为中心 ──
-            var startX = op.TileX - doc.Size.Width / 2;
-            var startY = op.TileY - doc.Size.Height;
+            outcome.Width = doc.Size.Width;
+            outcome.Height = doc.Size.Height;
+            var w = doc.Size.Width;
+            var h = doc.Size.Height;
 
-            // ── 4. 写入世界 ──
-            Paste(op, doc, raw, startX, startY);
-            return true;
+            // ── 3. 解析目标点 + 范围校验边界 ──
+            int tx, ty;
+            Rectangle? bounds = null;   // anchor=house 时的领地矩形
+            var anchorKindNorm = (anchorKind ?? "player").Trim().ToLowerInvariant();
+
+            if (anchorKindNorm == "coords")
+            {
+                if (!TryParseCoords(coords, out tx, out ty))
+                {
+                    outcome.Error = "坐标格式错误，应为 x,y（方块坐标）。";
+                    return outcome;
+                }
+            }
+            else if (anchorKindNorm == "house")
+            {
+                var house = HouseCore.Houses.FirstOrDefault(x => x != null
+                    && x.Name.Equals(anchorHouse ?? "", StringComparison.OrdinalIgnoreCase));
+                if (house == null)
+                {
+                    outcome.Error = $"未找到领地: {anchorHouse}";
+                    return outcome;
+                }
+                bounds = house.HouseArea;
+                // 目标点 = 领地上与 align 同名的点（建筑同一点对齐领地同一点）
+                tx = bounds.Value.X + ColPos(bounds.Value.Width, align);
+                ty = bounds.Value.Y + RowPos(bounds.Value.Height, align);
+            }
+            else // player（默认）
+            {
+                var target = FindOnlinePlayer(anchorPlayer ?? "");
+                if (target == null)
+                {
+                    outcome.Error = $"未找到在线玩家: {anchorPlayer}";
+                    return outcome;
+                }
+                tx = target.TileX;
+                ty = target.TileY;
+            }
+
+            // ── 4. 计算起始坐标（建筑对齐点 → 目标点）──
+            var startX = tx - ColPos(w, align);
+            var startY = ty - RowPos(h, align);
+            outcome.StartX = startX;
+            outcome.StartY = startY;
+
+            // ── 5. 领地范围校验（anchor=house 时强制：建筑必须完整落在领地内）──
+            if (bounds.HasValue)
+            {
+                var b = bounds.Value;
+                var over = new List<string>();
+                if (startX < b.X) over.Add($"向左越界 {b.X - startX} 格");
+                if (startX + w > b.X + b.Width) over.Add($"向右越界 {startX + w - (b.X + b.Width)} 格");
+                if (startY < b.Y) over.Add($"向上越界 {b.Y - startY} 格");
+                if (startY + h > b.Y + b.Height) over.Add($"向下越界 {startY + h - (b.Y + b.Height)} 格");
+                if (over.Count > 0)
+                {
+                    outcome.Error = "建筑超出领地范围: " + string.Join("，", over)
+                        + $"（领地 {b.Width}x{b.Height}，建筑 {w}x{h}，请换对齐点或更大领地）";
+                    return outcome;
+                }
+            }
+
+            // ── 6. 写入世界 ──
+            Paste(notify, doc, raw, startX, startY);
+            outcome.Success = true;
+            return outcome;
         }
         catch (Exception ex)
         {
             TShock.Log.Error("[HouseRegion] 导入房屋建筑失败: " + ex);
-            op.SendErrorMessage($"导入房屋建筑失败: {ex.Message}\n{ex.StackTrace}");
-            return false;
+            outcome.Error = $"导入房屋建筑失败: {ex.Message}";
+            return outcome;
         }
+    }
+
+    // ══════════════════════════════════════════════════════════
+    //  对齐计算辅助
+    // ══════════════════════════════════════════════════════════
+
+    public class ImportOutcome
+    {
+        public bool Success;
+        public string Error = "";
+        public int StartX, StartY, Width, Height;
+        public string FileName = "";
+    }
+
+    /// <summary>align → 列偏移（0=left, (w-1)/2=middle, w-1=right）</summary>
+    private static int ColPos(int width, string align)
+    {
+        var a = (align ?? "center").Trim().ToLowerInvariant();
+        if (a is "left" or "middleleft" or "bottomleft" or "topleft") return 0;
+        if (a is "right" or "middleright" or "bottomright" or "topright") return width - 1;
+        return (width - 1) / 2; // center / top / bottom / middle
+    }
+
+    /// <summary>align → 行偏移（0=top, (h-1)/2=middle, h-1=bottom）</summary>
+    private static int RowPos(int height, string align)
+    {
+        var a = (align ?? "center").Trim().ToLowerInvariant();
+        if (a is "top" or "topleft" or "topcenter" or "topright") return 0;
+        if (a is "bottom" or "bottomleft" or "bottomcenter" or "bottomright") return height - 1;
+        return (height - 1) / 2; // middle* / center
+    }
+
+    /// <summary>解析 "x,y"（方块坐标）</summary>
+    private static bool TryParseCoords(string s, out int x, out int y)
+    {
+        x = y = 0;
+        if (string.IsNullOrWhiteSpace(s)) return false;
+        var parts = s.Split(new[] { ',', '，', ' ' }, StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 2) return false;
+        return int.TryParse(parts[0].Trim(), out x) && int.TryParse(parts[1].Trim(), out y);
+    }
+
+    /// <summary>按玩家名查找在线玩家</summary>
+    private static TSPlayer? FindOnlinePlayer(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return null;
+        return TShock.Players.FirstOrDefault(p => p != null && p.Active
+            && p.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>列出可用 .tsb 文件</summary>
@@ -99,8 +232,9 @@ public static class HouseImporter
     //  通过则返回解压后的 raw14 字节流，否则返回 null
     // ══════════════════════════════════════════════════════════
 
-    private static byte[]? Validate(TSPlayer op, TsbDocument doc)
+    private static byte[]? Validate(TSPlayer? op, TsbDocument doc, out string error)
     {
+        error = "";
         var errors = new List<string>();
         var w = doc.Size.Width;
         var h = doc.Size.Height;
@@ -234,7 +368,8 @@ public static class HouseImporter
         if (errors.Count > 0)
         {
             var msg = string.Join("\n", errors.Take(10));
-            op.SendErrorMessage($"建筑校验失败:\n{msg}" + (errors.Count > 10 ? $"\n...共 {errors.Count} 条" : ""));
+            error = msg + (errors.Count > 10 ? $"\n...共 {errors.Count} 条" : "");
+            op?.SendErrorMessage($"建筑校验失败:\n{error}");
             return null;
         }
 
@@ -322,7 +457,7 @@ public static class HouseImporter
     //  写入世界（KillAll -> tile -> FixAll -> Restore）
     // ══════════════════════════════════════════════════════════
 
-    private static void Paste(TSPlayer op, TsbDocument doc, byte[] raw, int startX, int startY)
+    private static void Paste(TSPlayer? op, TsbDocument doc, byte[] raw, int startX, int startY)
     {
         var w = doc.Size.Width;
         var h = doc.Size.Height;
@@ -380,8 +515,9 @@ public static class HouseImporter
             }
         }
         InformPlayers();
-        TShock.Log.ConsoleInfo($"[HouseRegion] {op.Name} 导入建筑 {doc.Meta?.Name ?? doc.Tile.ExpectedCount.ToString()} ({w}x{h}) -> ({startX},{startY})");
-        op.SendSuccessMessage($"建筑已导入 ({w}x{h})，起始位置 ({startX}, {startY})");
+        var actor = op != null ? op.Name : "web";
+        TShock.Log.ConsoleInfo($"[HouseRegion] {actor} 导入建筑 {doc.Meta?.Name ?? doc.Tile.ExpectedCount.ToString()} ({w}x{h}) -> ({startX},{startY})");
+        op?.SendSuccessMessage($"建筑已导入 ({w}x{h})，起始位置 ({startX}, {startY})");
     }
 
     private static void KillAll(int startX, int startY, int w, int h)

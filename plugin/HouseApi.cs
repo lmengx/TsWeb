@@ -19,6 +19,11 @@ public static class HouseApi
         TShock.RestApi.Register(new SecureRestCommand("/data/house/list", HandleHouseList, "data.rest.invsee"));
         TShock.RestApi.Register(new SecureRestCommand("/data/buildings/list", HandleBuildingsList, "data.rest.invsee"));
         TShock.RestApi.Register(new SecureRestCommand("/data/buildings/info", HandleBuildingInfo, "data.rest.invsee"));
+        TShock.RestApi.Register(new SecureRestCommand("/data/buildings/export", HandleBuildingsExport, "data.rest.invsee"));
+        TShock.RestApi.Register(new SecureRestCommand("/data/buildings/import", HandleBuildingsImport, "data.rest.invsee"));
+        TShock.RestApi.Register(new SecureRestCommand("/data/buildings/upload", HandleBuildingsUpload, "data.rest.invsee"));
+        TShock.RestApi.Register(new SecureRestCommand("/data/buildings/delete-local", HandleBuildingsDeleteLocal, "data.rest.invsee"));
+        TShock.RestApi.Register(new SecureRestCommand("/data/buildings/online-players", HandleBuildingsOnlinePlayers, "data.rest.invsee"));
     }
 
     // ══════════════════════════════════════════════════════════
@@ -196,6 +201,149 @@ public static class HouseApi
         {
             return new RestObject("500") { { "error", ex.Message } };
         }
+    }
+
+    // ══════════════════════════════════════════════════════════
+    //  /data/buildings/export — 房屋 → 本地 .tsb（Web API）
+    // ══════════════════════════════════════════════════════════
+
+    private static object HandleBuildingsExport(RestRequestArgs args)
+    {
+        var houseName = args.Parameters["house"] ?? "";
+        if (string.IsNullOrEmpty(houseName))
+            return new RestObject("400") { { "error", "house is required" } };
+
+        var house = HouseCore.Houses.FirstOrDefault(x => x != null
+            && x.Name.Equals(houseName, StringComparison.OrdinalIgnoreCase));
+        if (house == null)
+            return new RestObject("404") { { "error", "房屋不存在: " + houseName } };
+
+        var filePath = HouseExporter.ExportToFile(house, "web", out var error);
+        if (filePath == null)
+            return new RestObject("500") { { "error", error } };
+
+        var fi = new FileInfo(filePath);
+        return new RestObject()
+        {
+            { "success", true },
+            { "file", fi.Name },
+            { "width", house.HouseArea.Width },
+            { "height", house.HouseArea.Height },
+            { "path", filePath }
+        };
+    }
+
+    // ══════════════════════════════════════════════════════════
+    //  /data/buildings/import — .tsb → 世界（锚点 + 对齐 + 领地范围校验）
+    // ══════════════════════════════════════════════════════════
+
+    private static object HandleBuildingsImport(RestRequestArgs args)
+    {
+        var file = args.Parameters["file"] ?? "";
+        if (string.IsNullOrEmpty(file))
+            return new RestObject("400") { { "error", "file is required" } };
+
+        var anchor = args.Parameters["anchor"] ?? "player";
+        var anchorPlayer = args.Parameters["anchorPlayer"] ?? "";
+        var anchorHouse = args.Parameters["anchorHouse"] ?? "";
+        var coords = args.Parameters["coords"] ?? "";
+        var align = args.Parameters["align"] ?? "center";
+
+        var outcome = HouseImporter.ImportAt(file, anchor, anchorPlayer, anchorHouse, coords, align);
+        if (!outcome.Success)
+        {
+            return new RestObject("400")
+            {
+                { "error", outcome.Error },
+                { "startX", outcome.StartX }, { "startY", outcome.StartY },
+                { "width", outcome.Width }, { "height", outcome.Height }
+            };
+        }
+        return new RestObject()
+        {
+            { "success", true },
+            { "startX", outcome.StartX }, { "startY", outcome.StartY },
+            { "width", outcome.Width }, { "height", outcome.Height }
+        };
+    }
+
+    // ══════════════════════════════════════════════════════════
+    //  /data/buildings/upload — 后端 → 插件 TSWeb/Buildings/（分片）
+    // ══════════════════════════════════════════════════════════
+
+    private static object HandleBuildingsUpload(RestRequestArgs args)
+    {
+        var file = args.Parameters["file"] ?? "";
+        var data = args.Parameters["data"] ?? "";
+        if (string.IsNullOrEmpty(file) || string.IsNullOrEmpty(data))
+            return new RestObject("400") { { "error", "file and data are required" } };
+
+        var safeName = Path.GetFileName(file);
+        if (!safeName.EndsWith(".tsb", StringComparison.OrdinalIgnoreCase))
+            return new RestObject("400") { { "error", "仅支持 .tsb 文件" } };
+
+        var append = args.Parameters["append"] == "1";
+        try
+        {
+            Directory.CreateDirectory(BuildingDir);
+            var full = Path.Combine(BuildingDir, safeName);
+            var bytes = Convert.FromBase64String(data);
+            using (var fs = new FileStream(full, append ? FileMode.Append : FileMode.Create, FileAccess.Write, FileShare.Read))
+                fs.Write(bytes, 0, bytes.Length);
+            return new RestObject("200") { { "message", "写入成功" }, { "received", bytes.Length } };
+        }
+        catch (Exception ex)
+        {
+            return new RestObject("500") { { "error", ex.Message } };
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════
+    //  /data/buildings/delete-local — 删除插件本地 .tsb
+    // ══════════════════════════════════════════════════════════
+
+    private static object HandleBuildingsDeleteLocal(RestRequestArgs args)
+    {
+        var file = args.Parameters["file"] ?? "";
+        if (string.IsNullOrEmpty(file))
+            return new RestObject("400") { { "error", "file is required" } };
+
+        var safeName = Path.GetFileName(file);
+        if (!safeName.EndsWith(".tsb", StringComparison.OrdinalIgnoreCase))
+            return new RestObject("400") { { "error", "仅支持 .tsb 文件" } };
+
+        var full = Path.Combine(BuildingDir, safeName);
+        if (!File.Exists(full))
+            return new RestObject("404") { { "error", "文件不存在" } };
+        try
+        {
+            File.Delete(full);
+            return new RestObject("200") { { "message", "删除成功" } };
+        }
+        catch (Exception ex)
+        {
+            return new RestObject("500") { { "error", ex.Message } };
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════
+    //  /data/buildings/online-players — 在线玩家坐标列表
+    // ══════════════════════════════════════════════════════════
+
+    private static object HandleBuildingsOnlinePlayers(RestRequestArgs args)
+    {
+        var list = new List<object>();
+        foreach (var p in TShock.Players)
+        {
+            if (p == null || !p.Active) continue;
+            list.Add(new Dictionary<string, object>
+            {
+                { "name", p.Name },
+                { "tileX", p.TileX },
+                { "tileY", p.TileY }
+            });
+        }
+        return new RestObject() { { "players", list } };
     }
 
     // ══════════════════════════════════════════════════════════

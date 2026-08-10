@@ -14,6 +14,7 @@ import onlineRoutes from './routes/onlineRoutes.js'
 import unverifiedRoutes from './routes/unverifiedRoutes.js'
 import fileRoutes from './routes/fileRoutes.js'
 import presetRoutes from './routes/presetRoutes.js'
+import buildingRoutes from './routes/buildingRoutes.js'
 import userRoutes from './routes/userRoutes.js'
 import serverRoutes from './routes/serverRoutes.js'
 import auditRoutes from './routes/auditRoutes.js'
@@ -108,6 +109,7 @@ app.use('/api/online', onlineRoutes)
 app.use('/api/unverified', unverifiedRoutes)
 app.use('/api/files', fileRoutes)
 app.use('/api/presets', presetRoutes)
+app.use('/api/buildings', buildingRoutes)
 app.use('/api/user', userRoutes)
 app.use('/api/servers', serverRoutes)
 app.use('/api/audit', auditRoutes)

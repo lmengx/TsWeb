@@ -187,6 +187,7 @@ function forwardToDownloadSession(tag, event, parsed) {
 
 const SaveRoot = path.join(__dirname, '..', 'data', 'resource', '导出数据', 'sse-files')
 const TransferRoot = path.join(__dirname, '..', 'data', 'transfer')
+const BuildingRoot = path.join(__dirname, '..', 'data', 'transfer', 'building')
 
 // 转存 waiter：`${serverId}:${safeName}` -> { resolve, reject }
 // 文件管理页「保存到后端」：finishFile 落盘完成后通知，再移动至 transfer 目录
@@ -194,6 +195,22 @@ const saveWaiters = new Map()
 
 /** 转存根目录（文件管理页「保存到后端」的落盘目录） */
 export const getTransferRoot = () => TransferRoot
+
+/** 建筑存档目录（data/transfer/building/，平铺） */
+export const getBuildingRoot = () => BuildingRoot
+
+/** 目标目录下生成不冲突文件名：已存在则追加 _N 后缀（如 xxx_1.tsb） */
+function uniqueName(dir, name) {
+  const ext = path.extname(name)
+  const base = path.basename(name, ext)
+  let candidate = name
+  let i = 1
+  while (fs.existsSync(path.join(dir, candidate))) {
+    candidate = `${base}_${i}${ext}`
+    i++
+  }
+  return candidate
+}
 
 function resolveSaveWaiter(conn, safeName, err) {
   const key = `${conn.server.id}:${safeName}`
@@ -297,11 +314,12 @@ export async function requestFile(serverId, filePath, options = {}) {
 }
 
 /**
- * 保存文件到后端转存目录（data/transfer/{serverId}/）
- * 链路：插件 /tsweb/file（SSE）→ 后端落盘 sse-files → 完成后移动至 transfer
+ * 保存文件到后端目录（默认 data/transfer/{serverId}/，可经 options.destDir 覆盖为平铺目录如 data/transfer/building）
+ * 链路：插件 /tsweb/file（SSE）→ 后端落盘 sse-files → 完成后移动至目标目录
  * @param {string} serverId
  * @param {string} filePath 插件端相对路径（root='app' 时相对 TShock 程序目录）
- * @param {{ root?: 'app'|'tshock' }} [options]
+ * @param {{ root?: 'app'|'tshock', destDir?: string }} [options]
+ *   destDir: 指定目标目录（平铺，同名自动加后缀）；缺省按 serverId 分目录（同名覆盖，文件管理页语义）
  */
 export async function saveFileToBackend(serverId, filePath, options = {}) {
   const conn = _conns.get(serverId)
@@ -310,11 +328,15 @@ export async function saveFileToBackend(serverId, filePath, options = {}) {
   }
   const safeName = path.basename(String(filePath).replace(/\\/g, '/')).replace(/[\\/:*?"<>|]/g, '_')
   const key = `${serverId}:${safeName}`
-  const destDir = path.join(TransferRoot, String(serverId))
-  const destFull = path.join(destDir, safeName)
+  // 目标目录：destDir（平铺 rename）或默认 transfer/{serverId}（覆盖语义）
+  const destDir = options.destDir ? path.resolve(options.destDir) : path.join(TransferRoot, String(serverId))
+  const destName = options.destDir ? uniqueName(destDir, safeName) : safeName
+  const destFull = path.join(destDir, destName)
 
-  // 预删残留旧文件，避免移动/大小误判
-  try { if (fs.existsSync(destFull)) fs.unlinkSync(destFull) } catch { /* ignore */ }
+  // 预删残留旧文件（仅默认按服务器分目录模式；平铺模式保留历史文件）
+  if (!options.destDir) {
+    try { if (fs.existsSync(destFull)) fs.unlinkSync(destFull) } catch { /* ignore */ }
+  }
 
   // 注册 waiter（必须在触发推送之前，避免 finishFile 先于等待注册）
   const waiter = new Promise((resolve, reject) => {
@@ -336,12 +358,12 @@ export async function saveFileToBackend(serverId, filePath, options = {}) {
   try {
     await waiter
     clearTimeout(timeout)
-    // 从 sse-files 移至 transfer（同盘瞬时）
+    // 从 sse-files 移至目标目录（同盘瞬时）
     const srcFull = path.join(SaveRoot, String(serverId), safeName)
     fs.mkdirSync(destDir, { recursive: true })
     if (fs.existsSync(srcFull)) fs.renameSync(srcFull, destFull)
     const size = fs.existsSync(destFull) ? fs.statSync(destFull).size : 0
-    return { success: true, name: safeName, size, path: destFull }
+    return { success: true, name: destName, size, path: destFull }
   } catch (e) {
     clearTimeout(timeout)
     return { success: false, message: e.message }

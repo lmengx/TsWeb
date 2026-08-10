@@ -1569,6 +1569,50 @@ export class TShockService {
     }
   }
 
+  /**
+   * 建筑存档上传：后端 .tsb → 插件 TSWeb/Buildings/（限定目录，分片）
+   */
+  async buildingsUpload(fileName, dataBase64, append = false) {
+    if (!this.baseUrl) await this.init()
+    const url = `${this.baseUrl}/data/buildings/upload${this.apiKey ? `?token=${encodeURIComponent(this.apiKey)}` : ''}`
+    const body = new URLSearchParams({
+      file: fileName,
+      data: dataBase64,
+      append: append ? '1' : '0'
+    })
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: body.toString()
+      })
+      const text = await response.text()
+      try { return JSON.parse(text) } catch { return { error: 'Invalid JSON', rawResponse: text } }
+    } catch (error) {
+      this.isConnected = false
+      return { error: error.message }
+    }
+  }
+
+  /**
+   * 删除插件本地建筑存档（TSWeb/Buildings/）
+   */
+  async buildingsDeleteLocal(fileName) {
+    if (!this.baseUrl) await this.init()
+    const url = `${this.baseUrl}/data/buildings/delete-local?file=${encodeURIComponent(fileName)}${this.apiKey ? `&token=${encodeURIComponent(this.apiKey)}` : ''}`
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Accept': 'application/json' }
+      })
+      const text = await response.text()
+      try { return JSON.parse(text) } catch { return { error: 'Invalid JSON', rawResponse: text } }
+    } catch (error) {
+      this.isConnected = false
+      return { error: error.message }
+    }
+  }
+
   // ===== 权限提升配置 =====
 
   async getPromotionConfig() {
