@@ -432,8 +432,8 @@ public static class GetDataHandlers
     private static bool HandleRequestTileEntityInteraction(GetDataHandlerArgs args)
     {
         var id = args.Data.ReadInt32();
-        var te = TileEntity.ByID[id];
-        if (te == null) return false;
+        if (!TileEntity.ByID.TryGetValue(id, out var te) || te == null)
+            return false;
         int x = te.Position.X, y = te.Position.Y;
         var house = Utils.InAreaHouse(x, y);
         if (house == null) return false;
@@ -455,8 +455,8 @@ public static class GetDataHandlers
     private static bool HandleTileEntityHatRackItemSync(GetDataHandlerArgs args)
     {
         var id = args.Data.ReadInt32();
-        var te = TileEntity.ByID[id];
-        if (te == null) return false;
+        if (!TileEntity.ByID.TryGetValue(id, out var te) || te == null)
+            return false;
         var house = Utils.InAreaHouse(te.Position.X, te.Position.Y);
         if (house == null) return false;
         if (IsHouseAuthorized(args.Player, house)) return false;
