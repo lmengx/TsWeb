@@ -3,8 +3,8 @@ import { ref, computed, onMounted } from 'vue'
 import { apiRequest, post, del } from '../utils/api.js'
 
 const systemSettings = ref({ server: { port: 3000, host: '0.0.0.0' } })
-const webhookCfg = ref({ enabled: false, publicUrl: '' })
 const accounts = ref([])
+const settingsTab = ref('listen')   // 'listen' 监听设置 | 'accounts' 账户管理
 const showAddAccount = ref(false)
 const accountForm = ref({ username: '', password: '', role: 'subadmin' })
 const resetResult = ref(null)
@@ -39,10 +39,6 @@ const load = async () => {
     }
   } catch { /* 静默 */ }
   try {
-    const res = await apiRequest('/api/config/log-webhook', { method: 'GET' })
-    if (res.ok) webhookCfg.value = await res.json()
-  } catch { /* 静默 */ }
-  try {
     const res = await apiRequest('/api/auth/accounts', { method: 'GET' })
     if (res.ok) {
       accounts.value = (await res.json()).accounts || []
@@ -51,14 +47,6 @@ const load = async () => {
       if (accountPage.value > maxPage) accountPage.value = maxPage
     }
   } catch { /* 静默 */ }
-}
-
-const saveWebhookCfg = async () => {
-  try {
-    const res = await post('/api/config/log-webhook', webhookCfg.value)
-    if (res.ok) flash('Webhook 配置已保存')
-    else flash('保存失败', 'error')
-  } catch (e) { flash(e.message, 'error') }
 }
 
 const saveListenCfg = async () => {
@@ -133,8 +121,14 @@ onMounted(load)
     <div v-if="success" class="flash success">{{ success }}</div>
     <div v-if="error" class="flash error">{{ error }}</div>
 
-    <div class="sys-grid">
-      <!-- 后端监听设置 -->
+    <!-- ═══ 分页：监听设置 / 账户管理 ═══ -->
+    <div class="settings-tabs">
+      <button class="settings-tab" :class="{ active: settingsTab === 'listen' }" @click="settingsTab = 'listen'">🖥 监听设置</button>
+      <button class="settings-tab" :class="{ active: settingsTab === 'accounts' }" @click="settingsTab = 'accounts'">🔑 账户管理</button>
+    </div>
+
+    <!-- Tab1 监听设置 -->
+    <div v-if="settingsTab === 'listen'" class="sys-grid">
       <div class="sys-card">
         <h3>后端监听设置</h3>
         <div class="form-row">
@@ -145,28 +139,13 @@ onMounted(load)
           <label>监听地址</label>
           <input v-model="systemSettings.server.host" placeholder="0.0.0.0" />
         </div>
+        <p class="hint">监听端口/地址修改后需重启后端生效。服务器日志已由插件 SSE 常连实时回传，无需额外配置。</p>
         <button class="save-btn" @click="saveListenCfg">保存（重启生效）</button>
       </div>
+    </div>
 
-      <!-- Webhook 回传 -->
-      <div class="sys-card">
-        <h3>Webhook 日志回传</h3>
-        <div class="form-row">
-          <label>启用</label>
-          <select v-model="webhookCfg.enabled">
-            <option :value="true">启用</option>
-            <option :value="false">停用</option>
-          </select>
-        </div>
-        <div class="form-row">
-          <label>回传地址</label>
-          <input v-model="webhookCfg.publicUrl" placeholder="http://127.0.0.1:3000/hook/log" />
-        </div>
-        <p class="hint">插件端通过此地址推送日志；切换服务器后自动重注册。仅 /hook/ 端点，不与其他 API 混用。</p>
-        <button class="save-btn" @click="saveWebhookCfg">保存</button>
-      </div>
-
-      <!-- 后端账户管理 -->
+    <!-- Tab2 账户管理 -->
+    <div v-else class="sys-grid">
       <div class="sys-card">
         <h3>后端账户管理</h3>
         <button class="add-btn small" @click="showAddAccount = true">＋ 添加子管理员</button>
@@ -243,6 +222,12 @@ onMounted(load)
 .flash.error { background: rgba(239,68,68,.12); color: #ef4444; }
 
 .sys-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
+.settings-tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+.settings-tab {
+  padding: 8px 18px; border-radius: 9px; border: 1px solid var(--border-color);
+  background: var(--bg-card); color: var(--text-secondary); cursor: pointer; font-size: .88rem; font-weight: 600;
+}
+.settings-tab.active { background: linear-gradient(135deg, var(--accent-primary), #4f46e5); color: #fff; border-color: transparent; }
 .sys-card { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 14px; padding: 20px; box-shadow: var(--shadow-sm); }
 .sys-card h3 { margin: 0 0 14px; color: var(--text-primary); font-size: 1rem; }
 .form-row { display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px; }
