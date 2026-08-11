@@ -95,8 +95,8 @@ router.post('/init', setupOrAdmin, async (req, res) => {
       return res.json({ success: false, error: result.error })
     }
     const server = await addServer({ name, host, port, apiKey, note })
-    const { registerServer } = await import('../services/tshockService.js')
-    registerServer(server)
+    const { activateServer } = await import('../services/serverActivation.js')
+    activateServer(server)
     audit.record('setup.init', {
       serverName: server.name,
       actor: req.user?.username || 'setup'
@@ -286,8 +286,8 @@ router.post('/auto-verify', setupOrAdmin, async (req, res) => {
       return res.json({ success: false, error: connected.error })
     }
     const server = await addServer({ host, port, apiKey })
-    const { registerServer } = await import('../services/tshockService.js')
-    registerServer(server)
+    const { activateServer } = await import('../services/serverActivation.js')
+    activateServer(server)
     audit.record('server.add', {
       name: server.name,
       host: server.host,

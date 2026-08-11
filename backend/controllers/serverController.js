@@ -3,7 +3,8 @@ import {
   getServers, getServerById, addServer, updateServer, deleteServer,
   rotateServerPushSecret
 } from '../config.js'
-import { registerServer, unregisterServer, getServerInstance, testConnectionWith } from '../services/tshockService.js'
+import { getServerInstance, testConnectionWith } from '../services/tshockService.js'
+import { activateServer, deactivateServer } from '../services/serverActivation.js'
 
 /** 脱敏：apiKey / pushSecret 只返回是否已设置，不返回明文；同时附上实时在线状态 */
 function sanitize(server) {
@@ -47,8 +48,8 @@ export const create = async (req, res) => {
       return res.status(400).json({ error: 'host、port、apiKey 均为必填' })
     }
     const server = await addServer({ name, host, port, apiKey, note })
-    // 注册到 tshockService 实例注册表
-    registerServer(server)
+    // 激活：注册 REST 实例 + 建立 SSE 常连（日志/文件推送主通道）+ 注册 webhook 推流
+    activateServer(server)
     audit.record('server.add', {
       name: server.name,
       host: server.host,
@@ -71,8 +72,8 @@ export const update = async (req, res) => {
     const server = await updateServer(id, req.body)
     if (!server) return res.status(404).json({ error: '服务器不存在' })
 
-    // 同步更新实例
-    registerServer(server)
+    // 激活：同步 REST 实例 + 重建 SSE 常连（host/port/apiKey/enabled 可能变化）+ 重新注册 webhook
+    activateServer(server)
     audit.record('server.update', {
       id: server.id,
       name: server.name,
@@ -93,7 +94,8 @@ export const remove = async (req, res) => {
     const before = await getServerById(id)
     if (!before) return res.status(404).json({ error: '服务器不存在' })
     await deleteServer(id)
-    unregisterServer(id)
+    // 停用：注销 REST 实例 + 释放 SSE 常连 + 注销 webhook
+    deactivateServer(id)
     audit.record('server.delete', {
       id: before.id,
       name: before.name,
@@ -143,6 +145,8 @@ export const rotateSecret = async (req, res) => {
   try {
     const server = await rotateServerPushSecret(req.params.id)
     if (!server) return res.status(404).json({ error: '服务器不存在' })
+    // pushSecret 已轮换：重新激活（重建 SSE 常连 + 重新注册 webhook，让插件端握手获取新密钥）
+    activateServer(server)
     audit.record('server.update', {
       id: server.id,
       name: server.name,
