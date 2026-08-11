@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { apiRequest, post, del } from '../utils/api.js'
 
 const systemSettings = ref({ server: { port: 3000, host: '0.0.0.0' } })
@@ -8,6 +8,18 @@ const accounts = ref([])
 const showAddAccount = ref(false)
 const accountForm = ref({ username: '', password: '', role: 'subadmin' })
 const resetResult = ref(null)
+
+// ═══ 账户列表分页（全局唯一 admin 不展示，仅管理子管理员）═══
+const PAGE_SIZE = 10
+const accountPage = ref(1)
+const filteredAccounts = computed(() => accounts.value.filter(a => a.role !== 'admin'))
+const accountTotalPages = computed(() => Math.max(1, Math.ceil(filteredAccounts.value.length / PAGE_SIZE)))
+const pagedAccounts = computed(() => {
+  const start = (accountPage.value - 1) * PAGE_SIZE
+  return filteredAccounts.value.slice(start, start + PAGE_SIZE)
+})
+const accountPrev = () => { if (accountPage.value > 1) accountPage.value-- }
+const accountNext = () => { if (accountPage.value < accountTotalPages.value) accountPage.value++ }
 
 const error = ref('')
 const success = ref('')
@@ -32,7 +44,12 @@ const load = async () => {
   } catch { /* 静默 */ }
   try {
     const res = await apiRequest('/api/auth/accounts', { method: 'GET' })
-    if (res.ok) accounts.value = (await res.json()).accounts || []
+    if (res.ok) {
+      accounts.value = (await res.json()).accounts || []
+      // 删除/变更后可能超出有效页，回退到最后一页
+      const maxPage = Math.max(1, Math.ceil(filteredAccounts.value.length / PAGE_SIZE))
+      if (accountPage.value > maxPage) accountPage.value = maxPage
+    }
   } catch { /* 静默 */ }
 }
 
@@ -158,7 +175,10 @@ onMounted(load)
             <tr><th>用户名</th><th>角色</th><th>操作</th></tr>
           </thead>
           <tbody>
-            <tr v-for="a in accounts" :key="a.username">
+            <tr v-if="filteredAccounts.length === 0">
+              <td colspan="3" class="account-empty">暂无子管理员账户（全局唯一 admin 不在此展示）</td>
+            </tr>
+            <tr v-for="a in pagedAccounts" :key="a.username">
               <td>{{ a.username }}</td>
               <td>
                 <select :value="a.role" :disabled="a.role === 'admin'" @change="changeRole(a, $event.target.value)">
@@ -173,6 +193,12 @@ onMounted(load)
             </tr>
           </tbody>
         </table>
+        <!-- 分页 -->
+        <div v-if="filteredAccounts.length > 0" class="account-pagination">
+          <button @click="accountPrev" :disabled="accountPage <= 1">← 上一页</button>
+          <span class="account-page-info">第 {{ accountPage }} / {{ accountTotalPages }} 页（共 {{ filteredAccounts.length }} 个账户）</span>
+          <button @click="accountNext" :disabled="accountPage >= accountTotalPages">下一页 →</button>
+        </div>
       </div>
     </div>
 
@@ -240,6 +266,14 @@ onMounted(load)
 .account-table th, .account-table td { text-align: left; padding: 7px 6px; border-bottom: 1px solid var(--border-color); }
 .account-table th { color: var(--text-muted); font-weight: 600; }
 .account-table select { background: var(--bg-tertiary); border: 1px solid var(--border-color); color: var(--text-primary); padding: 4px 8px; border-radius: 6px; }
+.account-empty { text-align: center; color: var(--text-muted); padding: 14px 0; }
+.account-pagination { display: flex; align-items: center; justify-content: center; gap: 12px; margin-top: 14px; }
+.account-pagination button {
+  background: var(--accent-primary); color: #fff; border: none;
+  padding: 6px 12px; border-radius: 7px; cursor: pointer; font-size: .8rem;
+}
+.account-pagination button:disabled { opacity: .5; cursor: not-allowed; }
+.account-page-info { color: var(--text-muted); font-size: .8rem; }
 .op-cell { display: flex; gap: 6px; }
 .mini-btn {
   border: 1px solid var(--border-color); background: var(--bg-tertiary); color: var(--text-primary);

@@ -36,6 +36,11 @@ const goServerManage = () => {
 let statusTimer = null
 const refreshServerStatus = () => { loadServers() }
 
+// 切换当前服务器：直接读取最新选中服务器更新徽标，避免全量重拉列表造成闪烁
+const onServerChanged = () => {
+  currentServer.value = getCurrentServer()
+}
+
 // ── 移动端检测 ──
 onMounted(() => {
   loadServers()
@@ -46,13 +51,13 @@ onMounted(() => {
 
   // 定时刷新服务器在线状态（与后端心跳 15s 同频），保持状态点颜色同步
   statusTimer = setInterval(refreshServerStatus, 15000)
-  // 切换服务器后立即刷新当前服务器信息
-  window.addEventListener('server-changed', refreshServerStatus)
+  // 切换服务器后只更新当前服务器徽标（不重拉列表）
+  window.addEventListener('server-changed', onServerChanged)
 })
 
 onUnmounted(() => {
   if (statusTimer) clearInterval(statusTimer)
-  window.removeEventListener('server-changed', refreshServerStatus)
+  window.removeEventListener('server-changed', onServerChanged)
   if (mql) mql.removeEventListener('change', onMediaChange)
 })
 

@@ -25,8 +25,9 @@ const flash = (msg, type = 'success') => {
 }
 
 // ═══════════════ 服务器列表 ═══════════════
-const loadServers = async () => {
-  loading.value = true
+const loadServers = async (silent = false) => {
+  // 仅首次加载（列表为空）显示骨架屏；定时/事件刷新静默进行，避免切换时生硬闪烁
+  if (!silent && servers.value.length === 0) loading.value = true
   try {
     const res = await apiRequest('/api/servers', { method: 'GET' })
     if (res.ok) {
@@ -44,10 +45,13 @@ const currentServerName = computed(() => {
 })
 const onlineCount = computed(() => servers.value.filter(s => s.connected).length)
 
-const switchCurrent = async (id) => {
+const switchCurrent = (id) => {
+  if (id === getCurrentServerId()) return
+  // 纯本地切换：selectServer 已更新响应式状态（徽标/统计联动），无需重拉服务器列表。
+  // 不弹顶部 flash 提示——v-if 插入/移除元素会推动整个页面上下跳动，造成顿挫；
+  // 徽标/统计条/侧边栏的即时联动本身就是足够的切换反馈。
   selectServer(id)
-  await fetchServers() // 同步侧边栏
-  flash('已切换当前服务器')
+  // 通知侧边栏等全局组件同步「当前服务器」徽标
   window.dispatchEvent(new CustomEvent('server-changed', { detail: { serverId: id } }))
 }
 
@@ -118,19 +122,17 @@ const handleAdded = async () => {
   await loadServers()
 }
 
-// 定时刷新 + 切换事件监听：保持卡片在线状态实时同步
+// 定时刷新（静默）：保持卡片在线状态实时同步；切换服务器为纯本地操作，无需重拉列表
 let statusTimer = null
-const refreshServers = () => { loadServers() }
+const refreshServers = () => { loadServers(true) }
 
 onMounted(() => {
   loadServers()
   statusTimer = setInterval(refreshServers, 15000)
-  window.addEventListener('server-changed', refreshServers)
 })
 
 onUnmounted(() => {
   if (statusTimer) clearInterval(statusTimer)
-  window.removeEventListener('server-changed', refreshServers)
 })
 </script>
 

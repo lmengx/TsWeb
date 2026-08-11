@@ -605,9 +605,10 @@ onMounted(() => { fetchHouses() })
 
 /* 房屋卡片 */
 .house-list { display: flex; flex-direction: column; gap: 12px; }
-.house-card { border: 1px solid var(--border-light); border-radius: var(--radius-lg); background: var(--bg-tertiary); overflow: hidden; transition: border-color 0.2s; }
+/* 注意：不能在此处 overflow: hidden，否则「导出」下拉菜单向下展开会被裁剪遮挡 */
+.house-card { border: 1px solid var(--border-light); border-radius: var(--radius-lg); background: var(--bg-tertiary); transition: border-color 0.2s; }
 .house-card.expanded { border-color: var(--accent-primary); }
-.house-head { display: flex; align-items: center; gap: 12px; padding: 14px 16px; cursor: pointer; }
+.house-head { display: flex; align-items: center; gap: 12px; padding: 14px 16px; cursor: pointer; border-radius: var(--radius-lg) var(--radius-lg) 0 0; }
 .house-head:hover { background: var(--bg-hover); }
 .house-title { display: flex; flex-direction: column; gap: 2px; flex: 1; }
 .house-name { color: var(--text-primary); font-weight: 700; font-size: 1.05rem; }
@@ -623,7 +624,7 @@ onMounted(() => { fetchHouses() })
 }
 .export-btn:disabled { opacity: 0.6; cursor: not-allowed; }
 .export-menu {
-  position: absolute; right: 0; top: calc(100% + 6px); z-index: 50;
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 9999;
   background: var(--bg-primary); border: 1px solid var(--border-light); border-radius: 10px;
   box-shadow: var(--shadow-lg); padding: 6px; min-width: 150px; display: flex; flex-direction: column; gap: 2px;
 }
