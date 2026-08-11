@@ -291,8 +291,14 @@ namespace TShockData
             public IPEndPoint? RemoteEndPoint;
         }
 
-        /// <summary>非泛型 IEnumerator（HttpServer 库 IParameterCollection 继承 IEnumerable）</summary>
-        internal sealed class BagEnumerator : IEnumerator
+        /// <summary>
+        /// 参数集合枚举器：同时实现泛型 IEnumerator<IParameter> 与非泛型 IEnumerator。
+        /// HttpServer 库的 IParameterCollection 继承泛型 IEnumerable<IParameter>，TShock 的
+        /// EscapedParameterCollection 用泛型 foreach 遍历参数集合（如 PlayerFilter），
+        /// 仅实现非泛型 IEnumerator 时 DispatchProxy 在返回强转 IEnumerator<IParameter> 会抛
+        /// InvalidCastException（如 /v2/server/status?players=true 报 500）。
+        /// </summary>
+        internal sealed class BagEnumerator : IEnumerator<IParameter>, IEnumerator, IDisposable
         {
             private readonly QueryBag _bag;
             private readonly IEnumerator<KeyValuePair<string, string>> _inner;
@@ -300,6 +306,8 @@ namespace TShockData
             public bool MoveNext() => _inner.MoveNext();
             public void Reset() { /* Dictionary.Enumerator.Reset 不支持，空实现 */ }
             public object Current => MakeParameter(_inner.Current.Key, _inner.Current.Value);
+            IParameter IEnumerator<IParameter>.Current => (IParameter)Current;
+            void IDisposable.Dispose() { }
         }
     }
 }
