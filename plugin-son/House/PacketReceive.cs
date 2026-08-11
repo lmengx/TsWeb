@@ -103,7 +103,6 @@ public static class GetDataHandlers
     private static bool Deny(GetDataHandlerArgs args, House house, string msg)
     {
         args.Player.SendErrorMessage(msg);
-        args.Player.SetBuff(BuffID.Webbed, 200, true);
 
         if (house.NotifyBreakPlace == 1)
             NotifyOwner(house, args.Player.Name + " " + msg);
