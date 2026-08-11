@@ -33,6 +33,7 @@ namespace TShockData
 
             LoginFix.Initialize(plugin);
             ChestFix.Initialize(plugin);
+            MinionLimit.Initialize(plugin);
 
             _isInitialized = true;
             TShock.Log.ConsoleInfo("[TSWeb] BugFixes 已加载");
@@ -45,6 +46,7 @@ namespace TShockData
 
             LoginFix.Dispose(plugin);
             ChestFix.Dispose(plugin);
+            MinionLimit.Dispose(plugin);
 
             _isInitialized = false;
         }
@@ -178,7 +180,7 @@ namespace TShockData
         // ==========================================================================
         public static class ChestFix
         {
-            private const string Ver = "1.0.2";
+            private const string Ver = "1.0.3";
             private static int _blockedCount;
 
             public static void Initialize(TerrariaPlugin plugin)
@@ -199,42 +201,42 @@ namespace TShockData
             {
                 if (e.ID < 0 || e.ID >= Main.chest.Length)
                 {
-                    TallyAndAct(e.Player, "ChestItem", "越界宝箱ID", $"id={e.ID}", "");
+                    AuditAndKick(e.Player, "ChestItem", "越界宝箱ID", $"id={e.ID}", "");
                     e.Handled = true;
                     return;
                 }
 
                 if (Main.chest[e.ID] == null)
                 {
-                    TallyAndAct(e.Player, "ChestItem", "空宝箱引用", $"id={e.ID}", "");
+                    AuditAndKick(e.Player, "ChestItem", "空宝箱引用", $"id={e.ID}", "");
                     e.Handled = true;
                     return;
                 }
 
                 if (e.Slot < 0 || e.Slot >= Main.chest[e.ID].maxItems)
                 {
-                    TallyAndAct(e.Player, "ChestItem", "越界槽位", $"slot={e.Slot}/max={Main.chest[e.ID].maxItems}", "");
+                    AuditAndKick(e.Player, "ChestItem", "越界槽位", $"slot={e.Slot}/max={Main.chest[e.ID].maxItems}", "");
                     e.Handled = true;
                     return;
                 }
 
                 if (e.Type < 0 || e.Type >= ItemID.Count)
                 {
-                    TallyAndAct(e.Player, "ChestItem", "无效物品ID", $"type={e.Type}", "");
+                    AuditAndKick(e.Player, "ChestItem", "无效物品ID", $"type={e.Type}", "");
                     e.Handled = true;
                     return;
                 }
 
                 if (e.Prefix < 0)
                 {
-                    TallyAndAct(e.Player, "ChestItem", "无效词缀", $"prefix={e.Prefix}", "");
+                    AuditAndKick(e.Player, "ChestItem", "无效词缀", $"prefix={e.Prefix}", "");
                     e.Handled = true;
                     return;
                 }
 
                 if (e.Stacks < 0)
                 {
-                    TallyAndAct(e.Player, "ChestItem", "负堆叠", $"stacks={e.Stacks}", "");
+                    AuditAndKick(e.Player, "ChestItem", "负堆叠", $"stacks={e.Stacks}", "");
                     e.Handled = true;
                     return;
                 }
@@ -257,6 +259,9 @@ namespace TShockData
                     case (PacketTypes)155:              // SyncChestSize：原版客户端从不主动上行 → 确定性恶意面
                         HandleSyncChestSizePacket(e);
                         break;
+                    case (PacketTypes)153:              // NPCDebuffDamage：上行=加血无敌/秒杀 → 确定性恶意面
+                        HandleNpcDebuffDamagePacket(e);
+                        break;
                 }
             }
 
@@ -273,7 +278,7 @@ namespace TShockData
                     // 最短合法载荷：chestId(2) + x(2) + y(2) + nameLen(1) = 7 字节
                     if (ms.Length < 7)
                     {
-                        TallyAndAct(plr, "ChestOpen", "畸形包", $"长度不足 len={ms.Length}", raw);
+                        AuditAndKick(plr, "ChestOpen", "畸形包", $"长度不足 len={ms.Length}", raw);
                         e.Handled = true;
                         return;
                     }
@@ -290,14 +295,14 @@ namespace TShockData
                     // 负 ID 携带名称 → 核心 case 33 访问 Main.chest[player.chest](默认-1) → 越界崩服
                     if (id < 0)
                     {
-                        TallyAndAct(plr, "ChestOpen", "负ID携带名称", $"id={id} nameLen={nameLen}", raw);
+                        AuditAndKick(plr, "ChestOpen", "负ID携带名称", $"id={id} nameLen={nameLen}", raw);
                         e.Handled = true;
                         return;
                     }
 
                     if (id >= Main.chest.Length || Main.chest[id] == null)
                     {
-                        TallyAndAct(plr, "ChestOpen", "无效宝箱ID", $"id={id}", raw);
+                        AuditAndKick(plr, "ChestOpen", "无效宝箱ID", $"id={id}", raw);
                         e.Handled = true;
                         plr.SendData(PacketTypes.ChestOpen, "", -1);
                         return;
@@ -305,7 +310,7 @@ namespace TShockData
                 }
                 catch (Exception ex)
                 {
-                    TallyAndAct(plr, "ChestOpen", "解析异常", ex.Message, raw);
+                    AuditAndKick(plr, "ChestOpen", "解析异常", ex.Message, raw);
                     e.Handled = true;
                 }
             }
@@ -322,7 +327,7 @@ namespace TShockData
                 {
                     if (ms.Length < 4)  // x(2) + y(2)
                     {
-                        TallyAndAct(plr, "ChestGetContents", "畸形包", $"长度不足 len={ms.Length}", raw);
+                        AuditAndKick(plr, "ChestGetContents", "畸形包", $"长度不足 len={ms.Length}", raw);
                         e.Handled = true;
                         return;
                     }
@@ -333,21 +338,21 @@ namespace TShockData
                     var chestId = Chest.FindChest(x, y);
                     if (chestId < 0 || chestId >= Main.chest.Length)
                     {
-                        TallyAndAct(plr, "ChestGetContents", "无效坐标", $"({x},{y})", raw);
+                        AuditAndKick(plr, "ChestGetContents", "无效坐标", $"({x},{y})", raw);
                         e.Handled = true;
                         return;
                     }
 
                     if (Main.chest[chestId] == null)
                     {
-                        TallyAndAct(plr, "ChestGetContents", "空宝箱", $"({x},{y})", raw);
+                        AuditAndKick(plr, "ChestGetContents", "空宝箱", $"({x},{y})", raw);
                         e.Handled = true;
                         return;
                     }
                 }
                 catch (Exception ex)
                 {
-                    TallyAndAct(plr, "ChestGetContents", "解析异常", ex.Message, raw);
+                    AuditAndKick(plr, "ChestGetContents", "解析异常", ex.Message, raw);
                     e.Handled = true;
                 }
             }
@@ -369,7 +374,7 @@ namespace TShockData
                 {
                     if (ms.Length < 4)  // chestId(2) + newSize(2)
                     {
-                        TallyAndAct(plr, "SyncChestSize", "畸形包", $"长度不足 len={ms.Length}", raw);
+                        AuditAndKick(plr, "SyncChestSize", "畸形包", $"长度不足 len={ms.Length}", raw);
                         e.Handled = true;
                         return;
                     }
@@ -388,21 +393,69 @@ namespace TShockData
                     else
                         verdict = "异常上行";
 
-                    TallyAndAct(plr, "SyncChestSize", verdict, $"chest={chestId} newSize={newSize}", raw);
+                    AuditAndKick(plr, "SyncChestSize", verdict, $"chest={chestId} newSize={newSize}", raw);
                 }
                 catch (Exception ex)
                 {
-                    TallyAndAct(plr, "SyncChestSize", "解析异常", ex.Message, raw);
+                    AuditAndKick(plr, "SyncChestSize", "解析异常", ex.Message, raw);
                     e.Handled = true;
                 }
             }
 
-            /// <summary>按攻击面审计 + 一次即踢（不计数，杜绝批量试探窗口）</summary>
-            private static void TallyAndAct(TSPlayer plr, string packet, string verdict, string detail, string raw)
+            /// <summary>
+            /// NPCDebuffDamage(153) 上行监测。
+            /// 原版核心中 153 仅由服务端广播减益伤害（case 153 / GetHurtByDebuff 内广播），客户端从不主动上行；
+            /// TerraAngel 用它做两种攻击：
+            ///   1. NPCDebuffDamageExploit — 负伤害给全图 NPC 加血至 int.MaxValue（Make All NPC Invincible）
+            ///   2. Butcher — 正伤害 32767 连发秒杀 NPC
+            /// 任何上行 153 = 确定性恶意。
+            /// </summary>
+            private static void HandleNpcDebuffDamagePacket(GetDataEventArgs e)
+            {
+                var plr = TShock.Players[e.Msg.whoAmI];
+                if (plr == null || !plr.Active)
+                    return;
+
+                using var ms = new MemoryStream(e.Msg.readBuffer, e.Index, Math.Max(e.Length - 1, 0));
+                var raw = HexOf(e);
+                try
+                {
+                    if (ms.Length < 3)  // npcIndex(1) + damage(2)
+                    {
+                        AuditAndKick(plr, "NPCDebuffDamage", "畸形包", $"长度不足 len={ms.Length}", raw);
+                        e.Handled = true;
+                        return;
+                    }
+
+                    var npcIndex = ms.ReadByte();
+                    var damage = ms.ReadInt16();
+
+                    // 上行 153 确定恶意 → 一律拦截，阻止服务端 GetHurtByDebuff（加血无敌/秒杀）
+                    e.Handled = true;
+
+                    string verdict;
+                    if (damage < 0)
+                        verdict = "负伤害加血";   // Make All NPC Invincible 攻击
+                    else if (npcIndex >= Main.npc.Length)
+                        verdict = "越界索引";     // byte 索引超出 Main.npc 数组
+                    else
+                        verdict = "正伤害秒杀";   // Butcher 攻击
+
+                    AuditAndKick(plr, "NPCDebuffDamage", verdict, $"npc={npcIndex} damage={damage}", raw);
+                }
+                catch (Exception ex)
+                {
+                    AuditAndKick(plr, "NPCDebuffDamage", "解析异常", ex.Message, raw);
+                    e.Handled = true;
+                }
+            }
+
+            /// <summary>审计本次违规并立即踢出玩家（一次违规即踢，不计数）</summary>
+            private static void AuditAndKick(TSPlayer plr, string packet, string verdict, string detail, string raw)
             {
                 Interlocked.Increment(ref _blockedCount);
                 LogAudit(plr, packet, verdict, detail, raw);
-                KickPlayer(plr, $"发送异常宝箱数据: {packet} {detail}");
+                KickPlayer(plr, $"发送异常数据包: {packet} {detail}");
             }
 
             /// <summary>结构化审计日志：玩家/账号/IP/包/判定/详情/原始字节</summary>
@@ -598,12 +651,94 @@ namespace TShockData
             {
                 try
                 {
-                    player.Kick($"发送恶意宝箱数据: {reason}", true);
+                    player.Kick($"发送恶意数据包: {reason}", true);
                 }
                 catch (Exception ex)
                 {
                     TShock.Log.ConsoleError($"[ChestFix] 踢出玩家失败: {ex.Message}");
                 }
+            }
+        }
+
+        // ==========================================================================
+        // 子模块3: MinionLimit — 召唤物数量上限（异常数据限制）
+        // 检测依据：玩家名下的活跃召唤物弹幕（Projectile.minion && !sentry），
+        // 哨兵/宠物/坐骑不计。超过上限即审计并踢出（一次即踢）。
+        // ==========================================================================
+        public static class MinionLimit
+        {
+            /// <summary>召唤物数量上限：超过即拦截创建并踢出</summary>
+            private const int MaxMinions = 20;
+            /// <summary>弹幕类型 → 是否为召唤物（0=未知, 1=召唤物, 2=非召唤物）</summary>
+            private static readonly int[] _typeCache = new int[ProjectileID.Count];
+
+            public static void Initialize(TerrariaPlugin plugin)
+            {
+                GetDataHandlers.NewProjectile.Register(OnNewProjectile);
+                TShock.Log.ConsoleInfo($"[TSWeb] MinionLimit 已加载 (召唤物上限 {MaxMinions})");
+            }
+
+            public static void Dispose(TerrariaPlugin plugin)
+            {
+                GetDataHandlers.NewProjectile.UnRegister(OnNewProjectile);
+            }
+
+            private static void OnNewProjectile(object? sender, GetDataHandlers.NewProjectileEventArgs e)
+            {
+                if (e.Handled)
+                    return;
+
+                // 只有召唤物弹幕才计数（哨兵/宠物/坐骑不计）
+                if (!IsMinionType(e.Type))
+                    return;
+
+                var plr = TShock.Players[e.Owner];
+                if (plr == null || !plr.Active || !plr.IsLoggedIn)
+                    return;
+
+                var count = CountMinions(e.Owner);
+                if (count < MaxMinions)
+                    return;
+
+                // 已满 → 拦截本次召唤 + 审计 + 踢出（一次即踢）
+                e.Handled = true;
+                var account = plr.Account?.Name ?? "未登录";
+                TShock.Log.ConsoleInfo($"[MinionLimit][审计] 玩家={plr.Name} 账号={account} IP={plr.IP} 召唤物={count} 上限={MaxMinions} 弹幕类型={e.Type}");
+                try
+                {
+                    plr.Kick($"召唤物数量异常 ({count}/{MaxMinions})", true);
+                }
+                catch (Exception ex)
+                {
+                    TShock.Log.ConsoleError($"[MinionLimit] 踢出玩家失败: {ex.Message}");
+                }
+            }
+
+            /// <summary>判断弹幕类型是否为召唤物（minion 且非哨兵），结果按类型缓存避免重复 SetDefaults</summary>
+            private static bool IsMinionType(int type)
+            {
+                if (type < 0 || type >= _typeCache.Length)
+                    return false;
+                if (_typeCache[type] != 0)
+                    return _typeCache[type] == 1;
+
+                var p = new Projectile();
+                p.SetDefaults(type);
+                _typeCache[type] = (p.minion && !p.sentry) ? 1 : 2;
+                return _typeCache[type] == 1;
+            }
+
+            /// <summary>统计玩家当前活跃的召唤物（minion 且非哨兵）数量</summary>
+            private static int CountMinions(int whoAmI)
+            {
+                var count = 0;
+                for (var i = 0; i < Main.projectile.Length; i++)
+                {
+                    var p = Main.projectile[i];
+                    if (p.active && p.owner == whoAmI && p.minion && !p.sentry)
+                        count++;
+                }
+                return count;
             }
         }
 
