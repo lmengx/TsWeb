@@ -366,14 +366,13 @@ namespace TShockData
 
         private static async Task PushToBackendAsync(string zipPath)
         {
-            // 后端已连接信号：优先取 SSE 常连下发的 hookBase（后端无条件建立常连，不依赖 logWebhook 开关）；
-            // 旧链路回退：由已注册的 /hook/log webhook 地址推导
+            // 后端已连接信号：取 SSE 常连下发的 hookBase（后端无条件建立常连）
             const string suffix = "/hook/log";
             string backupUrl;
             var hookBase = SSELogger.GetHookBase();
             if (!string.IsNullOrEmpty(hookBase))
             {
-                // 防御：hookBase 可能携带 /hook/log 后缀（后端 publicUrl 配置了完整 webhook 地址时），剥离后拼接
+                // 防御：hookBase 可能携带 /hook/log 后缀，剥离后拼接
                 hookBase = hookBase.TrimEnd('/');
                 if (hookBase.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
                     hookBase = hookBase.Substring(0, hookBase.Length - suffix.Length);
@@ -381,19 +380,8 @@ namespace TShockData
             }
             else
             {
-                var webhookUrl = SSELogger.GetWebhookUrl();
-                if (string.IsNullOrEmpty(webhookUrl))
-                {
-                    TShock.Log.ConsoleWarn("[TSWeb] 自动备份: 后端未连接（无 SSE hookBase / webhook），跳过推送（本地备份已保留）");
-                    return;
-                }
-                if (webhookUrl.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
-                    backupUrl = webhookUrl.Substring(0, webhookUrl.Length - suffix.Length) + "/hook/backup";
-                else
-                {
-                    TShock.Log.ConsoleWarn($"[TSWeb] 自动备份: webhook 地址格式异常，跳过推送: {webhookUrl}");
-                    return;
-                }
+                TShock.Log.ConsoleWarn("[TSWeb] 自动备份: 后端未连接（无 SSE hookBase），跳过推送（本地备份已保留）");
+                return;
             }
 
             var secret = SSELogger.GetWebhookSecret();

@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { logWebhookReceiver, backupReceiver } from '../controllers/hookController.js'
+import { backupReceiver } from '../controllers/hookController.js'
 
 const router = Router()
 
@@ -9,10 +9,8 @@ const router = Router()
 // 不使用 JWT（无用户上下文），改用 HMAC-SHA256 签名 + X-Server-Id 鉴权
 // ═══════════════════════════════════════════════════════════
 
-// 日志回传：POST /hook/log
-router.post('/log', logWebhookReceiver)
-
 // 自动备份通知：POST /hook/backup（插件备份完成 → 验签 → SSE 拉取到 data/backup/{serverId}/）
+// 注：日志回传 webhook（/hook/log）已废弃移除，SSE 常连为唯一日志通道
 router.post('/backup', backupReceiver)
 
 // 文件回传（预留）：POST /hook/files/upload

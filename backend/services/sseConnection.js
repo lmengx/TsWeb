@@ -66,12 +66,15 @@ export function disconnect(serverId) {
 async function runLoop(conn) {
   while (!conn.closed) {
     const base = `${conn.server.host.startsWith('http') ? conn.server.host : `http://${conn.server.host}`}:${conn.server.port}`
-    // 附带 serverId/pushSecret/hookBase：插件端 SSE 握手时存储（自动备份推送链路，
-    // 不依赖 logWebhook 开关——SSE 常连是后端无条件建立的连接）
+    // 附带 serverId/pushSecret/hookBase：插件端 SSE 握手时存储（自动备份推送 /hook/backup 链路，
+    // SSE 常连是后端无条件建立的连接）
     const cfg = await getConfig().catch(() => null)
-    let hookBase = cfg?.logWebhook?.publicUrl || `http://127.0.0.1:${cfg?.server?.port || 3000}`
-    // publicUrl 可能是完整 webhook 地址（带 /hook/log 后缀），规范化为后端基础地址
-    hookBase = String(hookBase).replace(/\/hook\/log\/?$/i, '').replace(/\/$/, '')
+    // 后端基础地址（备份推送 /hook/backup 用）：由监听配置推导；
+    // 0.0.0.0/:: 通配监听映射为 127.0.0.1（本地可达），具体网卡地址可显式配置 server.host
+    const listenPort = cfg?.server?.port || 3000
+    const listenHost = cfg?.server?.host || '0.0.0.0'
+    const displayHost = (listenHost === '0.0.0.0' || listenHost === '::') ? '127.0.0.1' : listenHost
+    const hookBase = `http://${displayHost}:${listenPort}`
     const url = `${base}/tsweb/stream?token=${encodeURIComponent(conn.server.apiKey)}` +
       `&serverId=${encodeURIComponent(conn.server.id)}` +
       `&secret=${encodeURIComponent(conn.server.pushSecret || '')}` +

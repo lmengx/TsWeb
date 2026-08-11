@@ -2,7 +2,6 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import audit from '../services/auditLogger.js'
 import { verifyWebhookSignature } from '../services/hookAuth.js'
-import { pushWebhookLog } from '../services/logBroadcast.js'
 import { saveFileToBackend } from '../services/sseConnection.js'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -21,46 +20,12 @@ function parseJsonBody(req) {
 }
 
 /**
- * Webhook 日志接收端点：POST /hook/log
- * 插件端通过 HMAC 签名推送日志行（X-Server-Id / X-Timestamp / X-Nonce / X-Signature）
- * Body: { lines: ["[{\"t\":\"text\",\"c\":\"Red\"}]"] }
- * 先验签，再入队广播
- */
-export const logWebhookReceiver = async (req, res) => {
-  try {
-    const rawBody = req.rawBody || JSON.stringify(req.body || {})
-    const auth = await verifyWebhookSignature(req, rawBody)
-    if (!auth.ok) {
-      audit.record('auth.token_invalid', {
-        actor: req.headers['x-server-id'] || 'unknown',
-        reason: `webhook 签名校验失败: ${auth.error}`,
-        ip: req.ip
-      })
-      return res.status(auth.status).json({ error: auth.error })
-    }
-
-    const { lines } = parseJsonBody(req)
-    if (!Array.isArray(lines) || lines.length === 0) {
-      return res.status(400).json({ error: 'Missing or invalid lines array' })
-    }
-
-    // 多服：日志按来源服务器分组入队，避免跨服务器混流
-    const serverId = auth.server ? auth.server.id : ''
-    for (const line of lines) {
-      pushWebhookLog(line, serverId)
-    }
-    res.json({ status: 'ok', received: lines.length })
-  } catch (err) {
-    console.error('[Hook] 日志接收失败:', err.message)
-    res.status(500).json({ error: err.message })
-  }
-}
-
-/**
  * 备份接收端点：POST /hook/backup
  * 插件端自动备份完成后，HMAC 签名通知（Body: { path: 'TSWeb/Backup/xxx.zip' }，相对 TShock.SavePath），
  * 后端验签后经 SSE 定向拉取（root=tshock）到 data/backup/{serverId}/ 专门目录。
  * 失败仅记录，插件本地 zip 保留（插件不重试）。
+ *
+ * 注：日志回传 webhook（/hook/log）已废弃移除，当前仅保留此备份端点。
  */
 export const backupReceiver = async (req, res) => {
   try {

@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { getHourlyOnline, getRanking, getPlayerCalendar, getRankingStats, streamLogs, execCommand, logWebhookReceiver, pullFile, listReceivedFiles, downloadReceivedFile } from '../controllers/onlineController.js'
+import { getHourlyOnline, getRanking, getPlayerCalendar, getRankingStats, streamLogs, execCommand, pullFile, listReceivedFiles, downloadReceivedFile } from '../controllers/onlineController.js'
 import { verifyToken, requireManager } from '../middlewares/authMiddleware.js'
 
 const router = Router()
@@ -15,7 +15,5 @@ router.post('/log/command', verifyToken, requireManager, execCommand)
 router.post('/file/pull', verifyToken, requireManager, pullFile)
 router.get('/file/list', verifyToken, requireManager, listReceivedFiles)
 router.get('/file/download', verifyToken, requireManager, downloadReceivedFile)
-// Webhook 接收端点 — 插件内部调用，不验证 JWT（由插件侧验证来源）
-router.post('/log-webhook', logWebhookReceiver)
 
 export default router

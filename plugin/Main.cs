@@ -153,11 +153,6 @@ namespace TShockData
             TShock.RestApi.Register(new SecureRestCommand("/data/tasks/log", TaskScheduler.ListLogsApi, "data.rest.invsee"));
             TShock.RestApi.Register(new SecureRestCommand("/data/tasks/log/detail", TaskScheduler.LogDetailApi, "data.rest.invsee"));
 
-            // ═══ Webhook 日志推流注册 API ═══
-            TShock.RestApi.Register(new SecureRestCommand("/data/config/log-webhook/register", SSELogger.RegisterWebhookApi, "tshock.admin"));
-            TShock.RestApi.Register(new SecureRestCommand("/data/config/log-webhook/unregister", SSELogger.UnregisterWebhookApi, "tshock.admin"));
-            TShock.RestApi.Register(new SecureRestCommand("/data/config/log-webhook/status", SSELogger.GetWebhookStatusApi, "tshock.admin"));
-
             TShock.RestApi.Register(new SecureRestCommand("/data/users/unverified/list", UnverifiedManager.GetUnverifiedList, "data.rest.invsee"));
             TShock.RestApi.Register(new SecureRestCommand("/data/users/unverified/detail", UnverifiedManager.GetDetail, "data.rest.invsee"));
             TShock.RestApi.Register(new SecureRestCommand("/data/users/unverified/register", UnverifiedManager.RegisterAndLogin, "data.rest.invsee"));
@@ -331,13 +326,9 @@ namespace TShockData
                 "/data/qq/register",
                 "/data/qq/reset-password",
 				"/data/qq/query-player",
-				"/data/promotion/config",
+                "/data/promotion/config",
                 "/data/promotion/config/set",
-                "/data/config/log-webhook/register",
-                "/data/config/log-webhook/unregister",
-                "/data/config/log-webhook/status",
-                "/data/online/log/command",
-				"/data/tasks/list",
+                "/data/tasks/list",
                 "/data/tasks/get",
                 "/data/tasks/save",
                 "/data/tasks/delete",

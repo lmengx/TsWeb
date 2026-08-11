@@ -59,10 +59,6 @@ export async function saveNewConfig() {
       jwtSecret: generateSecret(),
       tokenExpire: '24h',
       challengeExpire: 120000
-    },
-    logWebhook: {
-      enabled: false,
-      publicUrl: 'http://127.0.0.1:3000/hook/log'
     }
   }
 
@@ -126,7 +122,7 @@ export async function addServer(data) {
     host: (data.host || '').trim(),
     port: parseInt(data.port) || 7878,
     apiKey: (data.apiKey || '').trim(),
-    // 每台服务器独立的 webhook 推送签名密钥（插件→后端 HMAC 鉴权）
+    // 每台服务器独立的推送签名密钥（插件→后端 /hook/backup 备份推送 HMAC 鉴权）
     pushSecret: crypto.randomBytes(32).toString('base64url'),
     enabled: data.enabled !== false,
     note: (data.note || '').trim()
@@ -180,32 +176,6 @@ async function persistConfig(cfg) {
   config = cfg
   await fs.writeFile(CONFIG_PATH, JSON.stringify(cfg, null, 2), 'utf8')
   notifyConfigUpdate()
-}
-
-// ═══════════════════════════════════════════════════════════
-// Webhook 回传配置（全局：插件 → 后端 /hook/ 端点）
-// ═══════════════════════════════════════════════════════════
-
-export async function getLogWebhookConfig() {
-  const cfg = await loadConfig()
-  if (!cfg) return { enabled: false, publicUrl: 'http://127.0.0.1:3000/hook/log' }
-  return {
-    enabled: cfg.logWebhook?.enabled ?? false,
-    publicUrl: cfg.logWebhook?.publicUrl || `http://127.0.0.1:${cfg.server?.port || 3000}/hook/log`
-  }
-}
-
-export async function saveLogWebhookConfig(data) {
-  const cfg = await loadConfig()
-  if (!cfg.logWebhook) cfg.logWebhook = {}
-  if (data.enabled !== undefined) cfg.logWebhook.enabled = !!data.enabled
-  if (data.publicUrl !== undefined && String(data.publicUrl).trim()) {
-    cfg.logWebhook.publicUrl = String(data.publicUrl).trim()
-  }
-  config = cfg
-  await fs.writeFile(CONFIG_PATH, JSON.stringify(cfg, null, 2), 'utf8')
-  notifyConfigUpdate()
-  return cfg.logWebhook
 }
 
 export default loadConfig

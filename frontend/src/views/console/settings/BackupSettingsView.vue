@@ -120,7 +120,7 @@ onMounted(fetchConfig)
           <h3>推送后端</h3>
           <p class="section-desc">
             备份完成后推送到后端的
-            <code>data/backup/{服务器}/</code> 专门目录（需后端已连接并注册 webhook）。
+            <code>data/backup/{服务器}/</code> 专门目录（需后端已建立 SSE 常连）。
             推送失败仅记录日志，本地备份包始终保留。
           </p>
 

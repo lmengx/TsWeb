@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Net.Http;
 using System.Text;
 using Newtonsoft.Json;
 using Rests;
@@ -201,12 +200,10 @@ namespace TShockData
         private static TextWriter? _originalOut;
         private static bool _initialized = false;
 
-        // ═══ Webhook 推流 ═══
-        private static string? _webhookUrl;
-        private static string? _webhookSecret; // pushSecret（HMAC 签名用，由后端注册时下发）
-        private static string? _serverId;       // 后端注册表中的服务器 id（/hook 签名 X-Server-Id）
-        private static string? _hookBase;       // 后端 /hook 基础地址（SSE 常连下发，自动备份推送用）
-        private static readonly HttpClient _http = new();
+        // ═══ 推送凭据（SSE 常连握手时由后端下发，自动备份推送 /hook/backup 用）═══
+        private static string? _webhookSecret; // pushSecret（HMAC 签名用）
+        private static string? _serverId;       // 后端注册表中的服务器 id（X-Server-Id 头）
+        private static string? _hookBase;       // 后端 /hook 基础地址（自动备份推送用）
         private static readonly object _webhookLock = new();
 
         /// <summary>
@@ -223,19 +220,7 @@ namespace TShockData
         }
 
         /// <summary>
-        /// 后端通过 REST API 注册 webhook 推流地址
-        /// </summary>
-        public static void RegisterWebhook(string url)
-        {
-            lock (_webhookLock)
-            {
-                _webhookUrl = url;
-            }
-            TShock.Log.ConsoleInfo($"[TSWeb] 日志 Webhook 已注册: {url}");
-        }
-
-        /// <summary>
-        /// 后端注册时下发的 pushSecret（用于 /hook/* 推送的 HMAC 签名）
+        /// SSE 常连握手时下发的 pushSecret（用于 /hook/* 推送的 HMAC 签名）
         /// </summary>
         public static void RegisterWebhookSecret(string secret)
         {
@@ -293,17 +278,6 @@ namespace TShockData
         }
 
         /// <summary>
-        /// 获取当前 webhook URL（供 REST API 查询）
-        /// </summary>
-        public static string? GetWebhookUrl()
-        {
-            lock (_webhookLock)
-            {
-                return _webhookUrl;
-            }
-        }
-
-        /// <summary>
         /// 添加一行日志到环形缓冲区并推送
         /// 包装为 { id, time, segments }，segments 为带原始颜色的片段（不做级别推断）
         /// </summary>
@@ -332,112 +306,9 @@ namespace TShockData
                     _logHistory.RemoveRange(0, _logHistory.Count - MaxLogLines);
             }
 
-            // SSE 实时推送（现代监听服务）
+            // SSE 实时推送（唯一日志回传通道）
             try { WebRestServer.Broadcast("log", json); }
             catch { }
-
-            // 异步推送到 webhook（fire-and-forget，兼容旧链路）
-            string? url;
-            lock (_webhookLock)
-            {
-                url = _webhookUrl;
-            }
-            if (!string.IsNullOrEmpty(url))
-            {
-                var lineCopy = json; // 捕获局部变量
-                _ = PostToWebhookAsync(url, lineCopy);
-            }
-        }
-
-        /// <summary>
-        /// 异步发送日志行到 webhook 端点
-        /// </summary>
-        private static async System.Threading.Tasks.Task PostToWebhookAsync(string url, string line)
-        {
-            try
-            {
-                var payload = JsonConvert.SerializeObject(new { lines = new[] { line } });
-                var content = new StringContent(payload, Encoding.UTF8, "application/json");
-                // 超时 2 秒，防火墙耗时阻塞插件线程
-                using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(2));
-                var response = await _http.PostAsync(url, content, cts.Token);
-                response.Dispose();
-            }
-            catch (HttpRequestException)
-            {
-                // Webhook 不可达时静默忽略（可能是后端未启动/正在重启）
-            }
-            catch (TaskCanceledException)
-            {
-                // 超时忽略
-            }
-            catch (Exception ex)
-            {
-                TShock.Log.ConsoleError($"[TSWeb] Webhook 推送失败: {ex.Message}");
-            }
-        }
-
-        /// <summary>
-        /// 清空 webhook（注销推流）
-        /// </summary>
-        public static void UnregisterWebhook()
-        {
-            lock (_webhookLock)
-            {
-                _webhookUrl = null;
-            }
-            TShock.Log.ConsoleInfo("[TSWeb] 日志 Webhook 已注销");
-        }
-
-        /// <summary>
-        /// REST API: 注册/更新 webhook 地址
-        /// GET /data/config/log-webhook/register?url=http://...
-        /// url 为空时等同于注销
-        /// </summary>
-        public static object RegisterWebhookApi(RestRequestArgs args)
-        {
-            var url = args.Parameters["url"];
-            if (string.IsNullOrEmpty(url))
-            {
-                UnregisterWebhook();
-                return new { status = "200", message = "Webhook 已注销" };
-            }
-            RegisterWebhook(url);
-
-            // 后端注册时随 secret/serverId 一起下发（HMAC 签名用）
-            var secret = args.Parameters["secret"];
-            if (!string.IsNullOrEmpty(secret))
-                RegisterWebhookSecret(secret);
-            var serverId = args.Parameters["serverId"];
-            if (!string.IsNullOrEmpty(serverId))
-                RegisterServerId(serverId);
-
-            return new { status = "200", message = "Webhook 已注册" };
-        }
-
-        /// <summary>
-        /// REST API: 注销 webhook（清空推流地址）
-        /// GET /data/config/log-webhook/unregister
-        /// </summary>
-        public static object UnregisterWebhookApi(RestRequestArgs args)
-        {
-            UnregisterWebhook();
-            return new { status = "200", message = "Webhook 已注销" };
-        }
-
-        /// <summary>
-        /// REST API: 获取当前 webhook 状态
-        /// GET /data/config/log-webhook/status
-        /// </summary>
-        public static object GetWebhookStatusApi(RestRequestArgs args)
-        {
-            var url = GetWebhookUrl();
-            return new
-            {
-                status = "200",
-                registered = !string.IsNullOrEmpty(url),
-                url = url ?? ""
-            };
         }
 
         /// <summary>

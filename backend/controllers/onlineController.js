@@ -7,13 +7,13 @@ import { getConfig, getServers } from '../config.js'
 import audit from '../services/auditLogger.js'
 import { getCurrentServerId } from '../services/tshockService.js'
 import { requestFile } from '../services/sseConnection.js'
-import { pushWebhookLog, getSseClients, addSseClient, removeSseClient, sseClientCount } from '../services/logBroadcast.js'
+import { getSseClients, addSseClient, removeSseClient, sseClientCount } from '../services/logBroadcast.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const SseFilesRoot = path.join(__dirname, '..', 'data', 'resource', '导出数据', 'sse-files')
 
-// ═══ 说明：日志主通道已改为后端→插件 SSE 常驻长连接（sseConnection.js），
-// 前端日志流由后端内存队列 + 广播提供，不再需要随前端连接状态注册/注销插件 webhook ═══
+// ═══ 说明：日志主通道为后端→插件 SSE 常驻长连接（sseConnection.js），
+// 前端日志流由后端内存队列 + 广播提供；历史 webhook 日志回传（/api/online/log-webhook）已废弃移除 ═══
 
 export const getHourlyOnline = async (req, res) => {
   const { date } = req.query
@@ -49,28 +49,8 @@ export const getRankingStats = async (req, res) => {
 }
 
 /**
- * Webhook 接收端点 — 兼容旧端点（无签名，仅供向后兼容；新端点走 /hook/log 带 HMAC 签名）
- * POST /api/online/log-webhook
- * Body: { lines: ["[{\"t\":\"text\",\"c\":\"Red\"}]"] }
- */
-export const logWebhookReceiver = (req, res) => {
-  const { lines } = req.body || {}
-  if (!Array.isArray(lines) || lines.length === 0) {
-    return res.status(400).json({ error: 'Missing or invalid lines array' })
-  }
-
-  // 多服：从 X-Server-Id 头取来源服务器，按服务器分组入队
-  const serverId = req.headers['x-server-id'] || ''
-  for (const line of lines) {
-    pushWebhookLog(line, serverId)
-  }
-
-  res.json({ status: 'ok', received: lines.length })
-}
-
-/**
- * SSE 日志流 — 通过 Webhook 接收插件日志后转发给前端
- * GET /api/online/log/stream?token=xxx
+ * SSE 日志流 — 通过 SSE 常连接收插件日志后转发给前端
+ * GET /api/online/log/stream?token=xxx&serverId=xxx
  * EventSource 无法设置 Authorization 头，从 query 取 token
  */
 export const streamLogs = async (req, res) => {

@@ -1,7 +1,6 @@
 /**
  * 日志广播共享模块：按服务器分组的内存队列 + SSE 客户端广播
- * 被 onlineController（/api/online/log-webhook，兼容旧端点）与
- * hookController（/hook/log，新签名端点）共用。
+ * 供 sseConnection（插件 SSE 常连的 log 事件）与前端日志流共用。
  *
  * 多服架构：日志必须按 serverId 隔离 ——
  *  - 内存队列：serverId -> 数组（上限 MaxQueueLines）

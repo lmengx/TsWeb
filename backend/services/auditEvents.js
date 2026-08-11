@@ -87,10 +87,6 @@ export const AUDIT_EVENTS = {
     level: 'warn', category: 'config', title: '修改后端配置',
     fields: ['changedKeys', 'actor'], ip: false, sensitive: []
   },
-  'config.webhook.update': {
-    level: 'warn', category: 'config', title: '修改 Webhook 回传配置',
-    fields: ['enabled', 'publicUrl', 'actor'], ip: false, sensitive: []
-  },
   'config.tsweb.set': {
     level: 'info', category: 'config', title: '修改 TSWeb 插件配置',
     fields: ['changedKeys', 'serverId', 'actor'], ip: false, sensitive: []

@@ -1,17 +1,6 @@
 import { Router } from 'express'
-import { getConfigFile, saveConfigFile, getTsWebConfig, setTsWebConfig, getBossConfig, setBossConfig, getBackupConfig, setBackupConfig, getLicenseCheck, postLicenseClose, getBossLimitStatus, getPromotionConfig, setPromotionConfig, getLogWebhookConfig, setLogWebhookConfig, getListenConfig, saveListenConfig } from '../controllers/configController.js'
+import { getConfigFile, saveConfigFile, getTsWebConfig, setTsWebConfig, getBossConfig, setBossConfig, getBackupConfig, setBackupConfig, getLicenseCheck, postLicenseClose, getBossLimitStatus, getPromotionConfig, setPromotionConfig, getListenConfig, saveListenConfig } from '../controllers/configController.js'
 import { verifyToken, requireRole, requireAdmin, requireManager } from '../middlewares/authMiddleware.js'
-import { validateSetupToken } from '../setupToken.js'
-
-// 允许通过 Setup Token（URL 上的 ?token=xxx）绕过 JWT 认证
-const allowSetupToken = (req, res, next) => {
-  const setupToken = req.query.token
-  if (setupToken && validateSetupToken(setupToken)) {
-    req.user = { username: 'setup', usergroup: 'admin' }
-    return next()
-  }
-  verifyToken(req, res, next)
-}
 
 const router = Router()
 
@@ -33,8 +22,5 @@ router.get('/license-check', getLicenseCheck)
 router.post('/license-close', verifyToken, requireAdmin, postLicenseClose)
 router.get('/promotion', verifyToken, requireManager, getPromotionConfig)
 router.post('/promotion', verifyToken, requireManager, setPromotionConfig)
-// Webhook 回传配置：仅 admin
-router.get('/log-webhook', allowSetupToken, requireAdmin, getLogWebhookConfig)
-router.post('/log-webhook', allowSetupToken, requireAdmin, setLogWebhookConfig)
 
 export default router

@@ -175,8 +175,8 @@ namespace TShockData
                 return;
             }
 
-            // 后端 SSE 常连建立时下发 serverId/pushSecret/hookBase（自动备份推送链路，
-            // 不依赖 logWebhook 开关——SSE 常连是后端无条件建立的连接）。
+            // 后端 SSE 常连建立时下发 serverId/pushSecret/hookBase（自动备份推送 /hook/backup 链路，
+            // SSE 常连是后端无条件建立的连接）。
             // 注意：ParseQuery 仅解码 key 不解码 value，这里对 value 单独 Unescape。
             var sseQuery = ParseQuery(rawQuery);
             if (sseQuery.TryGetValue("serverId", out var sid) && !string.IsNullOrEmpty(sid))
