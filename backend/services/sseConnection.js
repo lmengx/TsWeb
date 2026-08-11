@@ -13,7 +13,7 @@ import fs from 'fs'
 import path from 'path'
 import crypto from 'crypto'
 import { fileURLToPath } from 'url'
-import { getServers } from '../config.js'
+import { getServers, getConfig } from '../config.js'
 import { pushWebhookLog } from './logBroadcast.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -66,7 +66,16 @@ export function disconnect(serverId) {
 async function runLoop(conn) {
   while (!conn.closed) {
     const base = `${conn.server.host.startsWith('http') ? conn.server.host : `http://${conn.server.host}`}:${conn.server.port}`
-    const url = `${base}/tsweb/stream?token=${encodeURIComponent(conn.server.apiKey)}`
+    // 附带 serverId/pushSecret/hookBase：插件端 SSE 握手时存储（自动备份推送链路，
+    // 不依赖 logWebhook 开关——SSE 常连是后端无条件建立的连接）
+    const cfg = await getConfig().catch(() => null)
+    let hookBase = cfg?.logWebhook?.publicUrl || `http://127.0.0.1:${cfg?.server?.port || 3000}`
+    // publicUrl 可能是完整 webhook 地址（带 /hook/log 后缀），规范化为后端基础地址
+    hookBase = String(hookBase).replace(/\/hook\/log\/?$/i, '').replace(/\/$/, '')
+    const url = `${base}/tsweb/stream?token=${encodeURIComponent(conn.server.apiKey)}` +
+      `&serverId=${encodeURIComponent(conn.server.id)}` +
+      `&secret=${encodeURIComponent(conn.server.pushSecret || '')}` +
+      `&hookBase=${encodeURIComponent(hookBase)}`
     // 仅连接阶段 15s 超时；连接建立后移除，避免定时器切断长连接（靠心跳/读流异常检测断线）
     const ac = new AbortController()
     const connectTimer = setTimeout(() => ac.abort(), 15000)
@@ -135,8 +144,8 @@ function handleFrame(conn, frame) {
     case 'ping':
       break
     case 'log':
-      // data 即插件端包装好的日志 JSON 字符串，原样入队广播给前端
-      pushWebhookLog(data)
+      // data 即插件端包装好的日志 JSON 字符串，按来源服务器入队广播给前端
+      pushWebhookLog(data, conn.server.id)
       break
     default:
       if (event.startsWith('file.')) {

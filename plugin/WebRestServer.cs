@@ -175,6 +175,17 @@ namespace TShockData
                 return;
             }
 
+            // 后端 SSE 常连建立时下发 serverId/pushSecret/hookBase（自动备份推送链路，
+            // 不依赖 logWebhook 开关——SSE 常连是后端无条件建立的连接）。
+            // 注意：ParseQuery 仅解码 key 不解码 value，这里对 value 单独 Unescape。
+            var sseQuery = ParseQuery(rawQuery);
+            if (sseQuery.TryGetValue("serverId", out var sid) && !string.IsNullOrEmpty(sid))
+                SSELogger.RegisterServerId(Uri.UnescapeDataString(sid));
+            if (sseQuery.TryGetValue("secret", out var sec) && !string.IsNullOrEmpty(sec))
+                SSELogger.RegisterWebhookSecret(Uri.UnescapeDataString(sec));
+            if (sseQuery.TryGetValue("hookBase", out var hb) && !string.IsNullOrEmpty(hb))
+                SSELogger.RegisterHookBase(Uri.UnescapeDataString(hb));
+
             var handshake = "HTTP/1.1 200 OK\r\n"
                           + "Content-Type: text/event-stream\r\n"
                           + "Cache-Control: no-cache\r\n"

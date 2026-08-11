@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { getConfigFile, saveConfigFile, getTsWebConfig, setTsWebConfig, getBossConfig, setBossConfig, getLicenseCheck, postLicenseClose, getBossLimitStatus, getPromotionConfig, setPromotionConfig, getLogWebhookConfig, setLogWebhookConfig, getListenConfig, saveListenConfig } from '../controllers/configController.js'
+import { getConfigFile, saveConfigFile, getTsWebConfig, setTsWebConfig, getBossConfig, setBossConfig, getBackupConfig, setBackupConfig, getLicenseCheck, postLicenseClose, getBossLimitStatus, getPromotionConfig, setPromotionConfig, getLogWebhookConfig, setLogWebhookConfig, getListenConfig, saveListenConfig } from '../controllers/configController.js'
 import { verifyToken, requireRole, requireAdmin, requireManager } from '../middlewares/authMiddleware.js'
 import { validateSetupToken } from '../setupToken.js'
 
@@ -26,6 +26,8 @@ router.get('/tsweb', verifyToken, requireManager, getTsWebConfig)
 router.post('/tsweb', verifyToken, requireManager, setTsWebConfig)
 router.get('/boss', verifyToken, requireManager, getBossConfig)
 router.post('/boss', verifyToken, requireManager, setBossConfig)
+router.get('/backup', verifyToken, requireManager, getBackupConfig)
+router.post('/backup', verifyToken, requireManager, setBackupConfig)
 router.get('/bosslimit/status', verifyToken, requireManager, getBossLimitStatus)
 router.get('/license-check', getLicenseCheck)
 router.post('/license-close', verifyToken, requireAdmin, postLicenseClose)

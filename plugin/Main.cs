@@ -91,6 +91,9 @@ namespace TShockData
             TShock.RestApi.Register(new SecureRestCommand("/data/config/boss", BossConfigManager.GetConfigJson, ""));
             TShock.RestApi.Register(new SecureRestCommand("/data/config/boss/set", BossConfigManager.SetConfigJson, "data.rest.invsee"));
 
+            TShock.RestApi.Register(new SecureRestCommand("/data/config/backup", AutoBackup.GetConfigJson, ""));
+            TShock.RestApi.Register(new SecureRestCommand("/data/config/backup/set", AutoBackup.SetConfigJson, "data.rest.invsee"));
+
             TShockAPI.Commands.ChatCommands.Add(new Command("tools.planoff", PlannedOff.PlanOff, "planoff"));
             PlannedOff.Initialize(this);
 
@@ -138,6 +141,10 @@ namespace TShockData
 
             // ═══ 自动任务系统 ═══
             TaskScheduler.Initialize();
+
+            // ═══ 自动备份系统（地图 + sqlite 压缩包，可选推送后端）═══
+            AutoBackup.Initialize();
+
             TShock.RestApi.Register(new SecureRestCommand("/data/tasks/list", TaskScheduler.ListTasksApi, "data.rest.invsee"));
             TShock.RestApi.Register(new SecureRestCommand("/data/tasks/get", TaskScheduler.GetTaskApi, "data.rest.invsee"));
             TShock.RestApi.Register(new SecureRestCommand("/data/tasks/save", TaskScheduler.SaveTaskApi, "data.rest.invsee"));
@@ -195,6 +202,7 @@ namespace TShockData
             ItemDetection.StartAutoScan();
             PromotionManager.LoadConfig();
             TaskScheduler.Reload();
+            AutoBackup.LoadConfig();
 
             TShock.Log.ConsoleInfo("[TSWeb] 反作弊配置已重新加载");
         }
@@ -212,6 +220,7 @@ namespace TShockData
 				OnlineData.Dispose();
 				SSELogger.Dispose();
                 TaskScheduler.Dispose();
+                AutoBackup.Dispose();
 				RuntimeHooks.Dispose();
 				BossLimit.Dispose();
 				ItemDetection.StopAutoScan();
@@ -299,6 +308,8 @@ namespace TShockData
                 "/data/bosslimit/status",
 				"/data/config/tsweb",
 				"/data/config/tsweb/set",
+				"/data/config/backup",
+				"/data/config/backup/set",
 				"/data/online/hourly",
 				"/data/online/ranking",
                 "/data/online/player",

@@ -98,6 +98,12 @@ const routes = [
             meta: { requiresAuth: true, requiresAdmin: true }
           },
           {
+            path: 'backup',
+            name: 'BackupSettings',
+            component: () => import('../views/console/settings/BackupSettingsView.vue'),
+            meta: { requiresAuth: true, requiresAdmin: true }
+          },
+          {
             path: 'promotion',
             name: 'PromotionConfig',
             component: () => import('../views/console/PromotionConfigView.vue'),

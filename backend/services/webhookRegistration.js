@@ -23,8 +23,8 @@ export async function updatePluginWebhook(serverId, url) {
     const apiKey = server.apiKey
 
     if (url) {
-      // 注册：把本后端 /hook/ 端点 + pushSecret 一起下发给插件
-      const regUrl = `${tshockBase}/data/config/log-webhook/register?url=${encodeURIComponent(url)}&token=${encodeURIComponent(apiKey)}&secret=${encodeURIComponent(server.pushSecret || '')}`
+      // 注册：把本后端 /hook/ 端点 + pushSecret + serverId 一起下发给插件
+      const regUrl = `${tshockBase}/data/config/log-webhook/register?url=${encodeURIComponent(url)}&token=${encodeURIComponent(apiKey)}&secret=${encodeURIComponent(server.pushSecret || '')}&serverId=${encodeURIComponent(server.id)}`
       const res = await fetch(regUrl, { signal: AbortSignal.timeout(5000) })
       if (res.ok) {
         _registered.set(serverId, url)

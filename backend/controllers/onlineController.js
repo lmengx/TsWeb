@@ -3,7 +3,7 @@ import jwt from 'jsonwebtoken'
 import path from 'path'
 import fs from 'fs'
 import { fileURLToPath } from 'url'
-import { getConfig } from '../config.js'
+import { getConfig, getServers } from '../config.js'
 import audit from '../services/auditLogger.js'
 import { getCurrentServerId } from '../services/tshockService.js'
 import { requestFile } from '../services/sseConnection.js'
@@ -59,8 +59,10 @@ export const logWebhookReceiver = (req, res) => {
     return res.status(400).json({ error: 'Missing or invalid lines array' })
   }
 
+  // 多服：从 X-Server-Id 头取来源服务器，按服务器分组入队
+  const serverId = req.headers['x-server-id'] || ''
   for (const line of lines) {
-    pushWebhookLog(line)
+    pushWebhookLog(line, serverId)
   }
 
   res.json({ status: 'ok', received: lines.length })
@@ -76,6 +78,18 @@ export const streamLogs = async (req, res) => {
     const token = req.query.token
     if (!token) {
       return res.status(401).json({ error: 'Missing token' })
+    }
+
+    // 多服：SSE 流必须绑定目标服务器（EventSource 无法携带 header，经 query 传入）
+    const serverId = req.query.serverId
+    if (!serverId) {
+      return res.status(400).json({ error: 'Missing serverId parameter' })
+    }
+
+    // 校验 serverId 是已配置的服务器，防止任意订阅导致跨服务器日志泄漏
+    const servers = await getServers()
+    if (!servers.some(s => String(s.id) === String(serverId))) {
+      return res.status(400).json({ error: 'Unknown serverId' })
     }
 
     // 验证 JWT
@@ -112,8 +126,8 @@ export const streamLogs = async (req, res) => {
     // 发送连接成功事件
     res.write(`data: ${JSON.stringify({ connected: true, transport: 'webhook' })}\n\n`)
 
-    // 注册到 SSE 客户端集合
-    addSseClient(res)
+    // 注册到该服务器的 SSE 客户端分组（多服：只接收该服务器的日志广播）
+    addSseClient(serverId, res)
 
     // 定时心跳 + 僵尸检测
     const keepAlive = setInterval(() => {
@@ -125,20 +139,20 @@ export const streamLogs = async (req, res) => {
         res.write(': heartbeat\n\n')
       } catch {
         clearInterval(keepAlive)
-        removeSseClient(res)
+        removeSseClient(serverId, res)
       }
     }, 30000)
 
     // 额外监听 socket 级别断开（比 req.close 更可靠）
     res.socket?.once('close', () => {
       clearInterval(keepAlive)
-      removeSseClient(res)
+      removeSseClient(serverId, res)
     })
 
     // 客户端断开
     req.on('close', () => {
       clearInterval(keepAlive)
-      removeSseClient(res)
+      removeSseClient(serverId, res)
       console.log('[SSE] 客户端断开')
     })
 

@@ -43,21 +43,45 @@ function getToken() {
 
 onMounted(() => {
   connectSSE()
+  // 多服：切换目标服务器时重建 SSE 连接并清空旧日志
+  window.addEventListener('server-changed', onServerChanged)
 })
 
 onUnmounted(() => {
-  if (reconnectTimer) clearTimeout(reconnectTimer)
+  window.removeEventListener('server-changed', onServerChanged)
+  closeSSE()
+})
+
+function closeSSE() {
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer)
+    reconnectTimer = null
+  }
   if (eventSource) {
     eventSource.close()
     eventSource = null
   }
-})
+}
+
+function onServerChanged() {
+  closeSSE()
+  logs.value = []
+  reconnectAttempts = 0
+  connectSSE()
+}
 
 function connectSSE() {
   const token = getToken()
   if (!token) return
 
-  eventSource = new EventSource(`/api/online/log/stream?token=${encodeURIComponent(token)}`)
+  // 多服：SSE 连接必须绑定当前目标服务器（EventSource 无法携带 header，经 query 传入）
+  const serverId = getCurrentServerId() || ''
+  if (!serverId) {
+    // 未选择服务器时不发起连接，避免后端 400 触发无意义的重连循环
+    connected.value = false
+    return
+  }
+  eventSource = new EventSource(`/api/online/log/stream?token=${encodeURIComponent(token)}&serverId=${encodeURIComponent(serverId)}`)
 
   eventSource.onopen = () => {
     connected.value = true
@@ -113,10 +137,7 @@ function connectSSE() {
 
   eventSource.onerror = () => {
     connected.value = false
-    if (eventSource) {
-      eventSource.close()
-      eventSource = null
-    }
+    closeSSE()
     reconnectAttempts++
     if (reconnectAttempts <= MAX_RECONNECT) {
       const delay = Math.min(2000 * Math.pow(1.5, reconnectAttempts - 1), 60000)

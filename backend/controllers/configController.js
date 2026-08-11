@@ -151,6 +151,24 @@ export const setBossConfig = async (req, res) => {
   }
 }
 
+export const getBackupConfig = async (req, res) => {
+  try {
+    const result = await tshockService.getBackupConfig()
+    res.json(result)
+  } catch (error) {
+    res.status(500).json({ status: '500', error: error.message })
+  }
+}
+
+export const setBackupConfig = async (req, res) => {
+  try {
+    const result = await tshockService.setBackupConfig(req.body)
+    res.json(result)
+  } catch (error) {
+    res.status(500).json({ status: '500', error: error.message })
+  }
+}
+
 export const getBossLimitStatus = async (req, res) => {
   try {
     const result = await tshockService.getBossLimitStatus()

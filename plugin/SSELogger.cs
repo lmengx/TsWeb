@@ -203,6 +203,9 @@ namespace TShockData
 
         // ═══ Webhook 推流 ═══
         private static string? _webhookUrl;
+        private static string? _webhookSecret; // pushSecret（HMAC 签名用，由后端注册时下发）
+        private static string? _serverId;       // 后端注册表中的服务器 id（/hook 签名 X-Server-Id）
+        private static string? _hookBase;       // 后端 /hook 基础地址（SSE 常连下发，自动备份推送用）
         private static readonly HttpClient _http = new();
         private static readonly object _webhookLock = new();
 
@@ -232,6 +235,64 @@ namespace TShockData
         }
 
         /// <summary>
+        /// 后端注册时下发的 pushSecret（用于 /hook/* 推送的 HMAC 签名）
+        /// </summary>
+        public static void RegisterWebhookSecret(string secret)
+        {
+            lock (_webhookLock)
+            {
+                _webhookSecret = secret;
+            }
+        }
+
+        /// <summary>
+        /// 后端注册时下发的服务器 id（用于 /hook/* 推送的 X-Server-Id 头）
+        /// </summary>
+        public static void RegisterServerId(string serverId)
+        {
+            lock (_webhookLock)
+            {
+                _serverId = serverId;
+            }
+        }
+
+        /// <summary>SSE 常连下发后端 /hook 基础地址（如 http://127.0.0.1:3000），自动备份推送用</summary>
+        public static void RegisterHookBase(string hookBase)
+        {
+            lock (_webhookLock)
+            {
+                _hookBase = hookBase;
+            }
+        }
+
+        /// <summary>获取后端 /hook 基础地址（SSE 常连下发，非空即表示后端已连接）</summary>
+        public static string? GetHookBase()
+        {
+            lock (_webhookLock)
+            {
+                return _hookBase;
+            }
+        }
+
+        /// <summary>获取当前 webhook 签名密钥（供自动备份等模块推送 /hook/* 使用）</summary>
+        public static string? GetWebhookSecret()
+        {
+            lock (_webhookLock)
+            {
+                return _webhookSecret;
+            }
+        }
+
+        /// <summary>获取当前注册的服务器 id（供自动备份等模块推送 /hook/* 使用）</summary>
+        public static string? GetServerId()
+        {
+            lock (_webhookLock)
+            {
+                return _serverId;
+            }
+        }
+
+        /// <summary>
         /// 获取当前 webhook URL（供 REST API 查询）
         /// </summary>
         public static string? GetWebhookUrl()
@@ -248,6 +309,13 @@ namespace TShockData
         /// </summary>
         public static void AddLogLine(List<LogSegment> segments)
         {
+            // 多服：日志带来源服务器 id（后端按 serverId 分组广播，前端按服务器订阅）
+            string serverId;
+            lock (_webhookLock)
+            {
+                serverId = _serverId ?? "";
+            }
+
             string json;
             lock (_logLock)
             {
@@ -255,7 +323,8 @@ namespace TShockData
                 {
                     id = _nextId++,
                     time = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                    segments
+                    segments,
+                    serverId
                 };
                 json = JsonConvert.SerializeObject(wrapped);
                 _logHistory.Add(json);
@@ -334,6 +403,15 @@ namespace TShockData
                 return new { status = "200", message = "Webhook 已注销" };
             }
             RegisterWebhook(url);
+
+            // 后端注册时随 secret/serverId 一起下发（HMAC 签名用）
+            var secret = args.Parameters["secret"];
+            if (!string.IsNullOrEmpty(secret))
+                RegisterWebhookSecret(secret);
+            var serverId = args.Parameters["serverId"];
+            if (!string.IsNullOrEmpty(serverId))
+                RegisterServerId(serverId);
+
             return new { status = "200", message = "Webhook 已注册" };
         }
 

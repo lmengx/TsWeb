@@ -107,6 +107,20 @@ export const AUDIT_EVENTS = {
     level: 'info', category: 'config', title: '修改权限提升配置',
     fields: ['serverId', 'actor'], ip: false, sensitive: []
   },
+  'config.backup.set': {
+    level: 'info', category: 'config', title: '修改自动备份配置',
+    fields: ['serverId', 'actor'], ip: false, sensitive: []
+  },
+
+  // ═══ backup 类 — 自动备份 ═══
+  'backup.received': {
+    level: 'info', category: 'backup', title: '接收自动备份',
+    fields: ['serverId', 'name', 'size'], ip: false, sensitive: []
+  },
+  'backup.failed': {
+    level: 'error', category: 'backup', title: '自动备份推送失败',
+    fields: ['serverId', 'error'], ip: false, sensitive: []
+  },
 
   // ═══ setup 类 — 初始化 ═══
   'setup.create_admin': {
