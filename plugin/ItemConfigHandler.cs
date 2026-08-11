@@ -150,7 +150,7 @@ namespace TShockData
                     return new { status = 400, error = "缺少有效的 itemId 参数" };
                 }
 
-                // 只扫描在线玩家，命中违禁规则自动执行违规处理
+                // 只查询在线玩家中持有该物品的玩家（纯查询，不判定违禁、不执行违规处理）
                 var report = ItemDetection.ScanOnlinePlayersByItem(itemId);
 
                 var players = new System.Collections.Generic.List<object>();

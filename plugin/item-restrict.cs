@@ -348,7 +348,8 @@ namespace TShockData
         }
 
         /// <summary>
-        /// 按物品 ID 扫描所有在线玩家（仅在线）：命中违禁规则则执行违规处理，只返回该物品的违规结果。
+        /// 按物品 ID 查询所有持有该物品的在线玩家（仅在线）：纯查询，不判定违禁、不执行违规处理。
+        /// 每个玩家聚合为一条结果，FoundStack 为该玩家背包中该物品的总数量。
         /// </summary>
         public static ScanReport ScanOnlinePlayersByItem(int itemId)
         {
@@ -366,35 +367,28 @@ namespace TShockData
                 if (inventory == null)
                     continue;
 
-                // 背包中不含该物品则跳过
-                if (!inventory.Any(i => i.netID == itemId))
-                    continue;
-
+                // 统计该玩家背包中该物品的总持有数量
+                int totalStack = 0;
                 foreach (var item in inventory)
                 {
-                    if (item.netID != itemId)
-                        continue;
+                    if (item.netID == itemId)
+                        totalStack += item.stack;
+                }
 
-                    var matchedItems = CheckItem(player, item.netID, item.stack);
-                    foreach (var matchedItem in matchedItems)
+                if (totalStack > 0)
+                {
+                    allResults.Add(new CheatResult
                     {
-                        TShock.Log.ConsoleError($"[ItemDetection] 检测到违禁物品! 玩家: {player.Name}, 物品ID: {item.netID}, 数量: {item.stack}, 限制: {matchedItem.Stack}, 处理方式: {matchedItem.Method}");
-
-                        allResults.Add(new CheatResult
-                        {
-                            PlayerName = player.Name,
-                            PlayerID = player.Account?.ID ?? 0,
-                            ItemID = item.netID,
-                            ItemName = AntiCheat.GetItemName(item.netID),
-                            FoundStack = item.stack,
-                            AllowedStack = matchedItem.Stack,
-                            Progress = "当前进度",
-                            Method = matchedItem.Method,
-                            Slot = item.slot
-                        });
-
-                        ViolationExecutor.ExecuteViolation(player, matchedItem.Method, itemId: item.netID, itemName: AntiCheat.GetItemName(item.netID));
-                    }
+                        PlayerName = player.Name,
+                        PlayerID = player.Account?.ID ?? 0,
+                        ItemID = itemId,
+                        ItemName = AntiCheat.GetItemName(itemId),
+                        FoundStack = totalStack,
+                        AllowedStack = 0,
+                        Progress = "当前进度",
+                        Method = "query",
+                        Slot = 0
+                    });
                 }
             }
 

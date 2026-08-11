@@ -212,6 +212,7 @@ watch(() => props.show, (val) => {
               <div v-if="scanResults.players && scanResults.players.length > 0" class="scan-player-list">
                 <div v-for="player in scanResults.players" :key="player.name" class="scan-player-row">
                   <span class="scan-player-name">{{ player.name }}</span>
+                  <span v-if="player.stack" class="scan-player-stack">持有 x{{ player.stack }}</span>
                 </div>
                 <div v-if="scanResults.count > 10" class="scan-player-more">
                   还有 {{ scanResults.count - 10 }} 名玩家
@@ -460,11 +461,20 @@ watch(() => props.show, (val) => {
   background: var(--bg-primary);
   border: 1px solid var(--border-light);
   border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .scan-player-name {
   color: var(--text-primary);
   font-weight: 500;
+}
+
+.scan-player-stack {
+  color: var(--text-muted);
+  font-size: 0.85rem;
 }
 
 .scan-player-more {
