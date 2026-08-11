@@ -1,0 +1,222 @@
+import fs from 'fs/promises'
+import path from 'path'
+import crypto from 'crypto'
+import { fileURLToPath } from 'url'
+import { getServers } from '../config.js'
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const ACCOUNTS_PATH = path.join(__dirname, '..', 'data', 'qq_accounts.json')
+
+// ═══════════════════════════════════════════════════════════
+// QQ 账号台账（后端权威）
+//   records: { 用户名: { qq, passwordHash, uuidList[], updatedAt } }
+// 由绑定/注册/改密维护；向启用 syncQQAccounts 的服务器推送完整台账，
+// 登录新设备 UUID 通过 addUuid 追加后推单条（启用 syncUUID 的服务器）。
+// ═══════════════════════════════════════════════════════════
+
+let _loaded = false
+let _accounts = null // { records: {...} }
+
+async function load() {
+  if (_loaded) return _accounts
+  try {
+    const content = await fs.readFile(ACCOUNTS_PATH, 'utf8')
+    _accounts = JSON.parse(content)
+  } catch {
+    _accounts = { records: {} }
+  }
+  if (!_accounts || typeof _accounts !== 'object') _accounts = { records: {} }
+  if (!_accounts.records || typeof _accounts.records !== 'object') _accounts.records = {}
+  _loaded = true
+  return _accounts
+}
+
+async function persist() {
+  try {
+    await fs.mkdir(path.dirname(ACCOUNTS_PATH), { recursive: true })
+    await fs.writeFile(ACCOUNTS_PATH, JSON.stringify(_accounts, null, 2), 'utf8')
+  } catch (err) {
+    console.error('[QQ台账] 保存失败:', err.message)
+  }
+}
+
+/** 全部台账记录（{username: record}） */
+export async function getAccounts() {
+  return (await load()).records
+}
+
+export async function getAccountByUsername(username) {
+  const records = await getAccounts()
+  return records[username] || null
+}
+
+export async function getAccountByQq(qq) {
+  if (!qq) return null
+  const records = await getAccounts()
+  for (const [name, rec] of Object.entries(records)) {
+    if (String(rec.qq) === String(qq)) return { username: name, ...rec }
+  }
+  return null
+}
+
+function uniqueList(arr) {
+  return [...new Set((arr || []).map(x => String(x)).filter(Boolean))]
+}
+
+/**
+ * upsert 一条台账记录（注册/绑定/改密共用）
+ * @returns {{ changed: boolean, existed: boolean }}
+ */
+export async function upsertAccount({ username, qq = '', passwordHash = '', uuidList = [], updatedAt }) {
+  const records = await getAccounts()
+  const existing = records[username]
+  const newUuids = uniqueList(uuidList)
+  const existed = !!existing
+  const changed = !existing
+    || String(existing.qq || '') !== String(qq || '')
+    || String(existing.passwordHash || '') !== String(passwordHash || '')
+    || JSON.stringify(uniqueList(existing.uuidList)) !== JSON.stringify(newUuids)
+
+  records[username] = {
+    qq: String(qq || ''),
+    passwordHash: String(passwordHash || ''),
+    uuidList: newUuids,
+    updatedAt: updatedAt || new Date().toISOString()
+  }
+  await persist()
+  return { changed, existed }
+}
+
+/** 追加一个已登录设备 UUID 到台账（登录成功上报），返回是否真正新增 */
+export async function addUuid(username, uuid) {
+  const records = await getAccounts()
+  const rec = records[username]
+  if (!rec) return { ok: false, error: '账号不在台账' }
+  if (!Array.isArray(rec.uuidList)) rec.uuidList = []
+  if (rec.uuidList.includes(uuid)) return { ok: true, added: false }
+  rec.uuidList.push(uuid)
+  rec.updatedAt = new Date().toISOString()
+  await persist()
+  return { ok: true, added: true }
+}
+
+/** 移除台账记录（暂未接入删号同步，预留） */
+export async function removeAccount(username) {
+  const records = await getAccounts()
+  if (!records[username]) return false
+  delete records[username]
+  await persist()
+  return true
+}
+
+// ═══════════════════════════════════════════════════════════
+// 后端 → 插件 推送（POST /tsweb/qqsync，HMAC 签名，与 /hook 协议一致）
+// ═══════════════════════════════════════════════════════════
+
+function buildBaseUrl(server) {
+  const host = server?.host || 'localhost'
+  const h = host.startsWith('http://') || host.startsWith('https://') ? host : `http://${host}`
+  return `${h}:${server?.port || 7878}`
+}
+
+function signPayload(secret, body) {
+  const ts = Date.now().toString()
+  const nonce = crypto.randomBytes(16).toString('hex')
+  const bodyHash = crypto.createHash('sha256').update(body).digest('hex')
+  const signature = crypto
+    .createHmac('sha256', secret)
+    .update(`${ts}.${nonce}.${bodyHash}`)
+    .digest('hex')
+  return { ts, nonce, signature }
+}
+
+/**
+ * 向单台服务器 POST 同步 payload（{type:'full'|'uuid', ...}）
+ */
+export async function postToServer(server, payloadObj) {
+  if (!server?.pushSecret) return { ok: false, error: 'no pushSecret' }
+  const body = JSON.stringify(payloadObj)
+  const { ts, nonce, signature } = signPayload(server.pushSecret, body)
+  const url = `${buildBaseUrl(server)}/tsweb/qqsync`
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Server-Id': String(server.id),
+        'X-Timestamp': ts,
+        'X-Nonce': nonce,
+        'X-Signature': signature
+      },
+      body,
+      signal: AbortSignal.timeout(15000)
+    })
+    const text = await res.text()
+    if (!res.ok) {
+      console.warn(`[QQ台账] 推送失败 ${server.name}: HTTP ${res.status} ${text.slice(0, 200)}`)
+      return { ok: false, status: res.status, error: text }
+    }
+    return { ok: true, status: res.status }
+  } catch (e) {
+    console.warn(`[QQ台账] 推送失败 ${server.name}: ${e.message}`)
+    return { ok: false, error: e.message }
+  }
+}
+
+/** 单台服务器是否启用账号同步（接收完整台账并创建账号） */
+export function shouldSyncAccounts(server) {
+  return server?.enabled !== false && server?.syncQQAccounts === true
+}
+
+/** 单台服务器是否接收完整台账（账号同步或 UUID 同步任一启用都推 full，UUID 缓存需要初始化） */
+export function shouldReceiveFull(server) {
+  return server?.enabled !== false && (server?.syncQQAccounts === true || server?.syncUUID === true)
+}
+
+/** 单台服务器是否启用 UUID 同步 */
+export function shouldSyncUuid(server) {
+  return server?.enabled !== false && server?.syncUUID === true
+}
+
+/** 完整台账 payload */
+export async function buildFullPayload() {
+  const records = await getAccounts()
+  return { type: 'full', records }
+}
+
+/** 向所有启用账号/UUID 同步的服务器推送完整台账 */
+export async function broadcastFullAll() {
+  const servers = await getServers()
+  const targets = servers.filter(shouldReceiveFull)
+  const payload = await buildFullPayload()
+  const results = await Promise.allSettled(targets.map(s => postToServer(s, payload)))
+  const okCount = results.filter(r => r.status === 'fulfilled' && r.value.ok).length
+  if (okCount !== targets.length) {
+    console.warn(`[QQ台账] 全量推送完成: ${okCount}/${targets.length}`)
+  } else {
+    console.log(`[QQ台账] 全量推送完成: ${okCount}/${targets.length}`)
+  }
+  return { ok: okCount, total: targets.length }
+}
+
+/** 向所有启用 syncUUID 的服务器推送单条 UUID 更新 */
+export async function broadcastUuid(username, uuid) {
+  const servers = await getServers()
+  const targets = servers.filter(shouldSyncUuid)
+  const payload = { type: 'uuid', username, uuid }
+  const results = await Promise.allSettled(targets.map(s => postToServer(s, payload)))
+  const okCount = results.filter(r => r.status === 'fulfilled' && r.value.ok).length
+  if (okCount !== targets.length) {
+    console.warn(`[QQ台账] UUID 推送完成: ${okCount}/${targets.length} (${username} +${uuid})`)
+  }
+  return { ok: okCount, total: targets.length }
+}
+
+/** SSE 连接建立后由 sseConnection 调用：向该服务器推送全量（若启用账号/UUID 同步） */
+export async function pushFullIfEnabled(server) {
+  if (!shouldReceiveFull(server)) return { ok: false, skipped: true }
+  const payload = await buildFullPayload()
+  return postToServer(server, payload)
+}
+
+export default { getAccounts, upsertAccount, addUuid, removeAccount, broadcastFullAll, broadcastUuid, pushFullIfEnabled }

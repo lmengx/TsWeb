@@ -1,6 +1,6 @@
 import { Context, Session, h } from 'koishi'
 import type { Config } from '../utils/config'
-import { safeHttpGet } from '../utils/config'
+import { safeHttpGet, safeHttpPost } from '../utils/config'
 import { renderHtml, playerInfoCard, bossProgressCard, onlineListCard } from '../utils/render'
 
 export const name = 'tshock-group'
@@ -9,31 +9,88 @@ export function apply(ctx: Context, config: Config) {
   const groupSet = new Set(config.生效群列表)
   ctx.logger.info('[tshock-group] 群聊处理器已加载，生效群数:', groupSet.size)
 
+  // 后端未配置时的提示（绑定/注册/服务器列表依赖后端）
+  const backendReady = () => !!(config.后端地址 && config.机器人密钥)
+
   ctx.on('message', async (session: Session) => {
     if (!groupSet.has(Number(session.guildId))) return
 
     const content = session.content.trim()
     const senderQQ = session.userId
 
-    // — 绑定 —
+    // — 服务器列表（后端配置的服务器） —
+    if (content === '服务器列表') {
+      if (!backendReady()) {
+        await session.send('机器人后端地址未配置，请联系管理员')
+        return
+      }
+      const res = await safeHttpGet(ctx, `http://${config.后端地址}/api/bot/servers`, {
+        token: config.机器人密钥
+      })
+      if (!res.ok) {
+        await session.send(h('at', { id: senderQQ }) + ' ' + res.msg)
+        return
+      }
+      const list = (res.data.servers || []).map((s: any) => `· ${s.name}${s.enabled ? '' : '（停用）'}${s.note ? ' — ' + s.note : ''}`)
+      await session.send(`━━━ 服务器列表 ━━━\n${list.join('\n') || '（暂无服务器）'}`)
+      return
+    }
+
+    // — 绑定（走后端，支持「绑定 服名 角色名」） —
     if (content.startsWith('绑定 ')) {
-      const playerName = content.replace('绑定 ', '').trim()
-      const res = await safeHttpGet(ctx, `http://${config.服务器地址}/data/qq/bind`, {
-        token: config.接口密钥, player: playerName, qq: senderQQ
+      if (!backendReady()) {
+        await session.send('机器人后端地址未配置，请联系管理员')
+        return
+      }
+      const rest = content.replace('绑定 ', '').trim()
+      const parts = rest.split(/\s+/)
+      let playerName = rest
+      let serverName = ''
+      if (parts.length >= 2) {
+        serverName = parts[0]
+        playerName = parts.slice(1).join(' ')
+      }
+
+      let serverId = ''
+      if (serverName) {
+        const listRes = await safeHttpGet(ctx, `http://${config.后端地址}/api/bot/servers`, {
+          token: config.机器人密钥
+        })
+        const hit = listRes.ok
+          ? (listRes.data.servers || []).find((s: any) =>
+              s.name.includes(serverName) || serverName.includes(s.name))
+          : null
+        if (!hit) {
+          await session.send(h('at', { id: senderQQ }) + ` 未找到服务器「${serverName}」，发送「服务器列表」查看`)
+          return
+        }
+        serverId = hit.id
+      }
+
+      const res = await safeHttpPost(ctx, `http://${config.后端地址}/api/bot/bind`, {
+        token: config.机器人密钥
+      }, {
+        qq: senderQQ, player: playerName, serverId
       })
       if (res.ok) {
-        await session.send('✅绑定成功✅\n请愉快地游玩吧 ')
+        await session.send(`✅绑定成功✅\n角色名：${res.data.player || playerName}\n可在所有服务器使用该角色登录`)
       } else {
         await session.send(h('at', { id: senderQQ }) + res.msg)
       }
       return
     }
 
-    // — 注册 —
+    // — 注册（走后端，随机密码 + 提示改密） —
     if (content.startsWith('注册 ')) {
+      if (!backendReady()) {
+        await session.send('机器人后端地址未配置，请联系管理员')
+        return
+      }
       const playerName = content.replace('注册 ', '').trim()
-      const res = await safeHttpGet(ctx, `http://${config.服务器地址}/data/qq/register`, {
-        token: config.接口密钥, player: playerName, qq: senderQQ
+      const res = await safeHttpPost(ctx, `http://${config.后端地址}/api/bot/register`, {
+        token: config.机器人密钥
+      }, {
+        qq: senderQQ, player: playerName
       })
       if (res.ok) {
         await session.send(`✅注册成功✅\n角色名：${playerName}\n发送「改密码 密码」设密码`)

@@ -166,6 +166,24 @@ export const AUDIT_EVENTS = {
     fields: ['nickname', 'serverId', 'actor'], ip: false, sensitive: []
   },
 
+  // ═══ qq_account 类 — QQ 账号台账同步 ═══
+  'qq_account.register': {
+    level: 'info', category: 'qq_account', title: 'QQ 注册角色',
+    fields: ['username', 'qq'], ip: false, sensitive: []
+  },
+  'qq_account.bind': {
+    level: 'info', category: 'qq_account', title: 'QQ 绑定角色',
+    fields: ['username', 'qq', 'serverId'], ip: false, sensitive: []
+  },
+  'qq_account.bound': {
+    level: 'info', category: 'qq_account', title: '服务器上报绑定',
+    fields: ['username', 'qq', 'serverId'], ip: false, sensitive: []
+  },
+  'qq_account.change_password': {
+    level: 'warn', category: 'qq_account', title: 'QQ 修改密码',
+    fields: ['username', 'qq'], ip: false, sensitive: ['password']
+  },
+
   // ═══ system 类 ═══
   'system.start': {
     level: 'info', category: 'system', title: '后端启动',

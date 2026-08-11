@@ -17,7 +17,10 @@ function sanitize(server) {
     note: server.note,
     hasApiKey: !!(server.apiKey && server.apiKey.length > 0),
     hasPushSecret: !!(server.pushSecret && server.pushSecret.length > 0),
-    connected: !!getServerInstance(server.id)?.isConnected
+    connected: !!getServerInstance(server.id)?.isConnected,
+    // QQ 台账同步开关（前端编辑弹窗回显依赖，必须随列表返回）
+    syncQQAccounts: server.syncQQAccounts === true,
+    syncUUID: server.syncUUID === true
   }
 }
 

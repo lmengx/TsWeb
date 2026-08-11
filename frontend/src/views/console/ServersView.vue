@@ -15,7 +15,7 @@ const showAddModal = ref(false)
 
 // 编辑弹窗
 const showEditModal = ref(false)
-const editForm = ref({ id: '', name: '', host: '', port: 7878, apiKey: '', note: '', enabled: true })
+const editForm = ref({ id: '', name: '', host: '', port: 7878, apiKey: '', note: '', enabled: true, syncQQAccounts: false, syncUUID: false })
 const editSaving = ref(false)
 
 const flash = (msg, type = 'success') => {
@@ -84,7 +84,8 @@ const removeServer = async (s) => {
 const openEdit = (s) => {
   editForm.value = {
     id: s.id, name: s.name, host: s.host, port: s.port,
-    apiKey: '', note: s.note || '', enabled: s.enabled !== false
+    apiKey: '', note: s.note || '', enabled: s.enabled !== false,
+    syncQQAccounts: s.syncQQAccounts === true, syncUUID: s.syncUUID === true
   }
   showEditModal.value = true
 }
@@ -100,7 +101,9 @@ const saveEdit = async () => {
       host: editForm.value.host,
       port: editForm.value.port,
       note: editForm.value.note,
-      enabled: editForm.value.enabled
+      enabled: editForm.value.enabled,
+      syncQQAccounts: editForm.value.syncQQAccounts,
+      syncUUID: editForm.value.syncUUID
     }
     if (editForm.value.apiKey) body.apiKey = editForm.value.apiKey
     const res = await put(`/api/servers/${editForm.value.id}`, body)
@@ -240,6 +243,17 @@ onUnmounted(() => {
             <option :value="false">停用</option>
           </select>
         </div>
+        <div class="form-row">
+          <label>QQ 数据同步</label>
+          <label class="checkbox-row">
+            <input type="checkbox" v-model="editForm.syncQQAccounts" />
+            <span>接收 QQ 绑定数据并创建账号（台账账号/密码哈希推送到本服）</span>
+          </label>
+          <label class="checkbox-row">
+            <input type="checkbox" v-model="editForm.syncUUID" />
+            <span>同步设备 UUID（登录过的新设备在本服免密登录）</span>
+          </label>
+        </div>
         <div class="modal-actions">
           <button class="mini-btn" @click="showEditModal = false">取消</button>
           <button class="save-btn" :disabled="editSaving" @click="saveEdit">{{ editSaving ? '保存中...' : '保存' }}</button>
@@ -344,6 +358,12 @@ onUnmounted(() => {
   padding: 8px 10px; border-radius: 8px; font-size: .9rem;
 }
 .form-row input:focus, .form-row select:focus { outline: none; border-color: var(--accent-primary); }
+.checkbox-row {
+  display: flex; align-items: flex-start; gap: 8px;
+  font-size: .85rem; color: var(--text-primary); cursor: pointer;
+  padding: 4px 0; line-height: 1.5;
+}
+.checkbox-row input { width: 15px; height: 15px; margin-top: 2px; accent-color: var(--accent-primary); }
 .save-btn {
   background: var(--accent-primary); color: #fff; border: none;
   padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: .88rem; font-weight: 600;

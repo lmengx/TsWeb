@@ -21,6 +21,7 @@ namespace TShockData
     ///  - 普通请求 → 透传 TShockRestBridge 到原 REST 处理
     ///  - /tsweb/stream → SSE 长连接（日志 / ping / 定向文件推送）
     ///  - /tsweb/file    → 请求定向文件推送（通过 SSE 长连接下发 file.* 事件）
+    ///  - /tsweb/qqsync  → 接收后端 QQ 账号台账同步推送（HMAC 签名）
     /// 使用 TcpListener + 手写 HTTP/1.1，避免 HttpListener 的 urlacl 权限依赖，
     /// 并完全掌控 SSE 长连接的保活与断连检测。
     /// </summary>
@@ -28,6 +29,7 @@ namespace TShockData
     {
         public const string SsePath = "/tsweb/stream";
         public const string FilePushPath = "/tsweb/file";
+        public const string QqSyncPath = "/tsweb/qqsync";
         private const int FileChunkSize = 32768; // 每段字节数（base64 后 ~44KB）
         private const long MaxFileBytes = 200L * 1024 * 1024; // 200MB 上限
 
@@ -128,7 +130,7 @@ namespace TShockData
                     body = await ReadBodyAsync(stream, len, ct);
                 }
 
-                // ── 路由：SSE / 文件推送 / 透传 ──
+                // ── 路由：SSE / 文件推送 / QQ 台账同步 / 透传 ──
                 var route = path.TrimEnd('/');
                 if (route.Equals(SsePath, StringComparison.OrdinalIgnoreCase))
                 {
@@ -137,6 +139,10 @@ namespace TShockData
                 else if (route.Equals(FilePushPath, StringComparison.OrdinalIgnoreCase))
                 {
                     await HandleFilePushAsync(stream, rawQuery, ct);
+                }
+                else if (route.Equals(QqSyncPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    await HandleQqSyncAsync(stream, method, headers, body, ct);
                 }
                 else
                 {
@@ -185,6 +191,10 @@ namespace TShockData
                 SSELogger.RegisterWebhookSecret(Uri.UnescapeDataString(sec));
             if (sseQuery.TryGetValue("hookBase", out var hb) && !string.IsNullOrEmpty(hb))
                 SSELogger.RegisterHookBase(Uri.UnescapeDataString(hb));
+            // 同步开关（后端 config servers[i].syncQQAccounts / syncUUID）
+            var syncAccounts = sseQuery.TryGetValue("syncQQAccounts", out var sa) && sa == "1";
+            var syncUuid = sseQuery.TryGetValue("syncUUID", out var su) && su == "1";
+            AccountSync.SetFlags(syncAccounts, syncUuid);
 
             var handshake = "HTTP/1.1 200 OK\r\n"
                           + "Content-Type: text/event-stream\r\n"
@@ -225,6 +235,25 @@ namespace TShockData
         }
 
         // ═══════════════ 文件定向推送 ═══════════════
+
+        // ═══════════════ QQ 台账同步 ═══════════════
+
+        /// <summary>
+        /// POST /tsweb/qqsync（后端推送，HMAC-SHA256 签名，与 /hook 协议一致）
+        /// Body: { type: "full", records: {...} } 或 { type: "uuid", username, uuid }
+        /// </summary>
+        private static async Task HandleQqSyncAsync(NetworkStream stream, string method,
+            Dictionary<string, string> headers, string body, CancellationToken ct)
+        {
+            if (!method.Equals("POST", StringComparison.OrdinalIgnoreCase))
+            {
+                await WriteErrorJson(stream, 405, "Method not allowed", ct);
+                return;
+            }
+            var resp = AccountSync.HandleQqSync(body ?? "", headers);
+            var bytes = Encoding.UTF8.GetBytes(resp);
+            await WriteResponseAsync(stream, 200, "OK", "application/json; charset=utf-8", bytes, ct);
+        }
 
         /// <summary>
         /// GET /tsweb/file?token=&clientId=&path=

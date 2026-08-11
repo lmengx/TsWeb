@@ -48,6 +48,10 @@ export async function saveNewConfig() {
       jwtSecret: generateSecret(),
       tokenExpire: '24h',
       challengeExpire: 120000
+    },
+    // QQ 账号台账同步：机器人/前端管理入口的鉴权 token
+    bot: {
+      token: generateSecret()
     }
   }
 
@@ -113,7 +117,10 @@ export async function addServer(data) {
     // 每台服务器独立的推送签名密钥（插件→后端 /hook/backup 备份推送 HMAC 鉴权）
     pushSecret: crypto.randomBytes(32).toString('base64url'),
     enabled: data.enabled !== false,
-    note: (data.note || '').trim()
+    note: (data.note || '').trim(),
+    // QQ 账号台账同步开关（后端→插件 /tsweb/qqsync 推送）
+    syncQQAccounts: data.syncQQAccounts === true,
+    syncUUID: data.syncUUID === true
   }
   cfg.servers.push(server)
   await persistConfig(cfg)
@@ -127,11 +134,11 @@ export async function updateServer(id, patch) {
   if (idx === -1) return null
 
   const s = cfg.servers[idx]
-  const allowed = ['name', 'host', 'port', 'apiKey', 'enabled', 'note']
+  const allowed = ['name', 'host', 'port', 'apiKey', 'enabled', 'note', 'syncQQAccounts', 'syncUUID']
   for (const key of allowed) {
     if (patch[key] !== undefined) {
       if (key === 'port') s[key] = parseInt(patch[key]) || s[key]
-      else if (key === 'enabled') s[key] = !!patch[key]
+      else if (key === 'enabled' || key === 'syncQQAccounts' || key === 'syncUUID') s[key] = !!patch[key]
       else s[key] = String(patch[key]).trim()
     }
   }

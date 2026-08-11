@@ -450,6 +450,44 @@ namespace TShockData
         }
 
         /// <summary>
+        /// REST API: 绑定流程查询账号（后端 /api/bot/bind 广播调用）
+        /// 返回本地是否存在该角色名、是否可绑定（canBind）、密码哈希与已授权设备 UUID 列表
+        /// 入参: name (角色名)
+        /// </summary>
+        public static object FindAccount(RestRequestArgs args)
+        {
+            string name = null;
+            try { name = args.Parameters["name"]; } catch { }
+
+            if (string.IsNullOrEmpty(name))
+            {
+                return new RestObject("400") { { "error", "缺少参数: name" } };
+            }
+
+            try
+            {
+                var account = TShock.UserAccounts.GetUserAccountByName(name);
+                if (account == null)
+                {
+                    return new RestObject() { { "found", false } };
+                }
+
+                return new RestObject()
+                {
+                    { "found", true },
+                    { "canBind", AccountSync.GetCanBind(name) },
+                    { "passwordHash", account.Password },
+                    { "uuidList", AccountSync.GetUuidList(name) },
+                    { "group", account.Group }
+                };
+            }
+            catch (Exception ex)
+            {
+                return new RestObject("500") { { "error", ex.Message } };
+            }
+        }
+
+        /// <summary>
         /// 将数据库中的注册时间字符串转为服务器本地时间
         /// 兼容格式: ISO8601 (2026-06-23T11:49:11) 和 TShock 默认格式 (2026-06-23 11:49:11)
         /// </summary>

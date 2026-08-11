@@ -15,6 +15,7 @@ import crypto from 'crypto'
 import { fileURLToPath } from 'url'
 import { getServers, getConfig } from '../config.js'
 import { pushWebhookLog } from './logBroadcast.js'
+import { pushFullIfEnabled } from './qqAccountService.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -78,7 +79,9 @@ async function runLoop(conn) {
     const url = `${base}/tsweb/stream?token=${encodeURIComponent(conn.server.apiKey)}` +
       `&serverId=${encodeURIComponent(conn.server.id)}` +
       `&secret=${encodeURIComponent(conn.server.pushSecret || '')}` +
-      `&hookBase=${encodeURIComponent(hookBase)}`
+      `&hookBase=${encodeURIComponent(hookBase)}` +
+      `&syncQQAccounts=${conn.server.syncQQAccounts ? '1' : '0'}` +
+      `&syncUUID=${conn.server.syncUUID ? '1' : '0'}`
     // 仅连接阶段 15s 超时；连接建立后移除，避免定时器切断长连接（靠心跳/读流异常检测断线）
     const ac = new AbortController()
     const connectTimer = setTimeout(() => ac.abort(), 15000)
@@ -95,6 +98,12 @@ async function runLoop(conn) {
       conn.retry = 0
       conn.connected = true
       console.log(`[SSE] 已连接插件 ${conn.server.name} (${conn.server.host}:${conn.server.port})`)
+      // SSE 常连建立 = 后端连接上服务器 → 推送完整 QQ 台账（若该服启用 syncQQAccounts）
+      pushFullIfEnabled(conn.server).then(r => {
+        if (r && !r.skipped && !r.ok) {
+          console.warn(`[SSE] ${conn.server.name} QQ 台账全量推送失败: ${r.error || r.status}`)
+        }
+      })
       try {
         const reader = res.body.getReader()
         const decoder = new TextDecoder()

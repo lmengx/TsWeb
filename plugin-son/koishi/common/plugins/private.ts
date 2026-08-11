@@ -1,6 +1,6 @@
 import { Context, Session, h } from 'koishi'
 import type { Config } from '../utils/config'
-import { safeHttpGet } from '../utils/config'
+import { safeHttpPost } from '../utils/config'
 
 export const name = 'tshock-private'
 
@@ -17,13 +17,16 @@ export function apply(ctx: Context, config: Config) {
       return
     }
 
-    const res = await safeHttpGet(ctx, `http://${config.服务器地址}/data/qq/reset-password`, {
-      token: config.接口密钥, qq: session.userId, password: newPassword
+    // 走后端：更新台账哈希 → 广播到所有启用服覆盖本地密码
+    const res = await safeHttpPost(ctx, `http://${config.后端地址}/api/bot/change-password`, {
+      token: config.机器人密钥
+    }, {
+      qq: session.userId, password: newPassword
     })
 
     if (res.ok) {
       ctx.logger.info('[改密码]QQ', session.userId, '密码已修改')
-      await tryReply(ctx, session, config, '✅密码修改成功✅\n请使用新密码登录游戏')
+      await tryReply(ctx, session, config, '✅密码修改成功✅\n已同步到所有服务器，请使用新密码登录游戏')
     } else {
       ctx.logger.error('[改密码]QQ', session.userId, '失败：', res.msg)
       await tryReply(ctx, session, config, res.msg)

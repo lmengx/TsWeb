@@ -37,6 +37,9 @@ namespace TShockData
             QQBind.Initialize();
             PromotionManager.LoadConfig();
 
+            // ═══ QQ 账号台账同步（后端推送：账号/UUID 全量、登录新设备免密、canBind 绑定资格）═══
+            AccountSync.Initialize(this);
+
             // ═══ House 房屋系统（原 plugin-son/House 并入）═══
             HouseCore.Instance.Initialize(this);
             HouseApi.Register();
@@ -171,6 +174,7 @@ namespace TShockData
             TShock.RestApi.Register(new SecureRestCommand("/data/qq/register", QQBind.RegisterAndBind, "data.rest.invsee"));
             TShock.RestApi.Register(new SecureRestCommand("/data/qq/reset-password", QQBind.ResetPasswordByQQ, "data.rest.invsee"));
             TShock.RestApi.Register(new SecureRestCommand("/data/qq/query-player", QQBind.QueryPlayerByQQ, "data.rest.invsee"));
+            TShock.RestApi.Register(new SecureRestCommand("/data/qq/find-account", QQBind.FindAccount, "data.rest.invsee"));
 
             // 权限提升配置
             TShock.RestApi.Register(new SecureRestCommand("/data/promotion/config", PromotionManager.GetConfigJson, "data.rest.invsee"));
@@ -220,6 +224,7 @@ namespace TShockData
 				BossLimit.Dispose();
 				ItemDetection.StopAutoScan();
                 ParticleGuard.Dispose();
+                AccountSync.Dispose(this);
 				BypassHelper.UnregisterPermissionHook();
 				PvPLockManager.Dispose();
 				TeamLockManager.Dispose();
@@ -326,6 +331,7 @@ namespace TShockData
                 "/data/qq/register",
                 "/data/qq/reset-password",
 				"/data/qq/query-player",
+                "/data/qq/find-account",
                 "/data/promotion/config",
                 "/data/promotion/config/set",
                 "/data/tasks/list",

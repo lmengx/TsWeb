@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System;
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System;
 using System.IO;
 using System.Security.Cryptography;
 using System.Threading;
@@ -204,6 +204,8 @@ namespace TShockData
             {
                 args.Player.Account.CreateBCryptHash(newPassword);
                 TShock.DB.Query("UPDATE Users SET Password=@0 WHERE ID=@1", args.Player.Account.Password, args.Player.Account.ID);
+                // 玩家主动改密 → 绑定资格置 1（auto 随机密码账号经此确认归属）
+                try { AccountSync.SetCanBind(args.Player.Name, true); } catch { }
                 args.Player.SendSuccessMessage("密码修改成功");
                 TShock.Log.ConsoleInfo($"玩家 {args.Player.Name} 修改了自己的密码");
             }
@@ -261,6 +263,8 @@ namespace TShockData
             {
                 targetAccount.CreateBCryptHash(newPassword);
                 TShock.DB.Query("UPDATE Users SET Password=@0 WHERE ID=@1", targetAccount.Password, targetAccount.ID);
+                // 管理员代改密 → 该账号视为已确认归属，可绑定
+                try { AccountSync.SetCanBind(targetAccount.Name, true); } catch { }
                 args.Player.SendSuccessMessage($"已成功修改玩家 {targetAccount.Name} 的密码");
                 TShock.Log.ConsoleInfo($"管理员 {args.Player.Name} 修改了玩家 {targetAccount.Name} 的密码");
 
