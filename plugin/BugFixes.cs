@@ -178,7 +178,7 @@ namespace TShockData
         // ==========================================================================
         public static class ChestFix
         {
-            private const string Ver = "1.0.0";
+            private const string Ver = "1.0.2";
             private static int _blockedCount;
 
             public static void Initialize(TerrariaPlugin plugin)
@@ -199,42 +199,42 @@ namespace TShockData
             {
                 if (e.ID < 0 || e.ID >= Main.chest.Length)
                 {
-                    Block($"越界宝箱ID {e.ID}", e.Player);
+                    TallyAndAct(e.Player, "ChestItem", "越界宝箱ID", $"id={e.ID}", "");
                     e.Handled = true;
                     return;
                 }
 
                 if (Main.chest[e.ID] == null)
                 {
-                    Block($"空宝箱引用 ID={e.ID}", e.Player);
+                    TallyAndAct(e.Player, "ChestItem", "空宝箱引用", $"id={e.ID}", "");
                     e.Handled = true;
                     return;
                 }
 
                 if (e.Slot < 0 || e.Slot >= Main.chest[e.ID].maxItems)
                 {
-                    Block($"越界槽位 slot={e.Slot}/max={Main.chest[e.ID].maxItems}", e.Player);
+                    TallyAndAct(e.Player, "ChestItem", "越界槽位", $"slot={e.Slot}/max={Main.chest[e.ID].maxItems}", "");
                     e.Handled = true;
                     return;
                 }
 
                 if (e.Type < 0 || e.Type >= ItemID.Count)
                 {
-                    Block($"无效物品ID type={e.Type}", e.Player);
+                    TallyAndAct(e.Player, "ChestItem", "无效物品ID", $"type={e.Type}", "");
                     e.Handled = true;
                     return;
                 }
 
                 if (e.Prefix < 0)
                 {
-                    Block($"无效词缀 prefix={e.Prefix}", e.Player);
+                    TallyAndAct(e.Player, "ChestItem", "无效词缀", $"prefix={e.Prefix}", "");
                     e.Handled = true;
                     return;
                 }
 
                 if (e.Stacks < 0)
                 {
-                    Block($"负堆叠 stacks={e.Stacks}", e.Player);
+                    TallyAndAct(e.Player, "ChestItem", "负堆叠", $"stacks={e.Stacks}", "");
                     e.Handled = true;
                     return;
                 }
@@ -242,10 +242,22 @@ namespace TShockData
 
             private static void OnNetGetData(GetDataEventArgs e)
             {
-                if (e.MsgID == PacketTypes.ChestOpen)
-                    HandleChestOpenPacket(e);
-                else if (e.MsgID == PacketTypes.ChestGetContents)
-                    HandleChestGetContentsPacket(e);
+                // 已被 TShock/Bouncer/其他插件判定并处理 → 不重复判定（避免二次误罚）
+                if (e.Handled)
+                    return;
+
+                switch (e.MsgID)
+                {
+                    case PacketTypes.ChestOpen:          // 33：负ID+nameLen 越界攻击面
+                        HandleChestOpenPacket(e);
+                        break;
+                    case PacketTypes.ChestGetContents:  // 31：越界坐标
+                        HandleChestGetContentsPacket(e);
+                        break;
+                    case (PacketTypes)155:              // SyncChestSize：原版客户端从不主动上行 → 确定性恶意面
+                        HandleSyncChestSizePacket(e);
+                        break;
+                }
             }
 
             private static void HandleChestOpenPacket(GetDataEventArgs e)
@@ -255,28 +267,47 @@ namespace TShockData
                     return;
 
                 using var ms = new MemoryStream(e.Msg.readBuffer, e.Index, Math.Max(e.Length - 1, 0));
+                var raw = HexOf(e);
                 try
                 {
-                    var id = ms.ReadInt16();
-
-                    if (id == -1)
-                        return;
-
-                    if (id < 0 && id >= -5)
-                        return;
-
-                    ms.ReadInt16();
-                    ms.ReadInt16();
-
-                    if (id < 0 || id >= Main.chest.Length || Main.chest[id] == null)
+                    // 最短合法载荷：chestId(2) + x(2) + y(2) + nameLen(1) = 7 字节
+                    if (ms.Length < 7)
                     {
-                        Block($"ChestOpen 无效宝箱ID={id}", plr);
+                        TallyAndAct(plr, "ChestOpen", "畸形包", $"长度不足 len={ms.Length}", raw);
+                        e.Handled = true;
+                        return;
+                    }
+
+                    var id = ms.ReadInt16();
+                    ms.ReadInt16();  // x
+                    ms.ReadInt16();  // y
+                    var nameLen = ms.ReadByte();
+
+                    // 关闭箱子(-1) 与随行容器(-5..-2)：仅在不携带名称时合法
+                    if ((id == -1 || (id < 0 && id >= -5)) && nameLen == 0)
+                        return;
+
+                    // 负 ID 携带名称 → 核心 case 33 访问 Main.chest[player.chest](默认-1) → 越界崩服
+                    if (id < 0)
+                    {
+                        TallyAndAct(plr, "ChestOpen", "负ID携带名称", $"id={id} nameLen={nameLen}", raw);
+                        e.Handled = true;
+                        return;
+                    }
+
+                    if (id >= Main.chest.Length || Main.chest[id] == null)
+                    {
+                        TallyAndAct(plr, "ChestOpen", "无效宝箱ID", $"id={id}", raw);
                         e.Handled = true;
                         plr.SendData(PacketTypes.ChestOpen, "", -1);
                         return;
                     }
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    TallyAndAct(plr, "ChestOpen", "解析异常", ex.Message, raw);
+                    e.Handled = true;
+                }
             }
 
             private static void HandleChestGetContentsPacket(GetDataEventArgs e)
@@ -286,27 +317,109 @@ namespace TShockData
                     return;
 
                 using var ms = new MemoryStream(e.Msg.readBuffer, e.Index, Math.Max(e.Length - 1, 0));
+                var raw = HexOf(e);
                 try
                 {
+                    if (ms.Length < 4)  // x(2) + y(2)
+                    {
+                        TallyAndAct(plr, "ChestGetContents", "畸形包", $"长度不足 len={ms.Length}", raw);
+                        e.Handled = true;
+                        return;
+                    }
+
                     var x = ms.ReadInt16();
                     var y = ms.ReadInt16();
 
                     var chestId = Chest.FindChest(x, y);
                     if (chestId < 0 || chestId >= Main.chest.Length)
                     {
-                        Block($"ChestGetContents 无效坐标 ({x},{y})", plr);
+                        TallyAndAct(plr, "ChestGetContents", "无效坐标", $"({x},{y})", raw);
                         e.Handled = true;
                         return;
                     }
 
                     if (Main.chest[chestId] == null)
                     {
-                        Block($"ChestGetContents 空宝箱 ({x},{y})", plr);
+                        TallyAndAct(plr, "ChestGetContents", "空宝箱", $"({x},{y})", raw);
                         e.Handled = true;
                         return;
                     }
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    TallyAndAct(plr, "ChestGetContents", "解析异常", ex.Message, raw);
+                    e.Handled = true;
+                }
+            }
+
+            /// <summary>
+            /// SyncChestSize(155) 上行监测。
+            /// 原版核心中 155 仅由服务端经 SendChestContentsTo 下行下发，客户端从不主动上行；
+            /// 任何上行 155 = TerraAngel SyncChestSizeExploit 式攻击（Resize(32767) OOM / NRE）。
+            /// </summary>
+            private static void HandleSyncChestSizePacket(GetDataEventArgs e)
+            {
+                var plr = TShock.Players[e.Msg.whoAmI];
+                if (plr == null || !plr.Active)
+                    return;
+
+                using var ms = new MemoryStream(e.Msg.readBuffer, e.Index, Math.Max(e.Length - 1, 0));
+                var raw = HexOf(e);
+                try
+                {
+                    if (ms.Length < 4)  // chestId(2) + newSize(2)
+                    {
+                        TallyAndAct(plr, "SyncChestSize", "畸形包", $"长度不足 len={ms.Length}", raw);
+                        e.Handled = true;
+                        return;
+                    }
+
+                    var chestId = ms.ReadInt16();
+                    var newSize = ms.ReadInt16();
+
+                    // 上行 155 确定恶意 → 一律拦截，阻止 Resize 内存放大/NRE
+                    e.Handled = true;
+
+                    string verdict;
+                    if (newSize > Chest.DefaultMaxItems)  // >40：扩容攻击（32767 是 TerraAngel 默认载荷）
+                        verdict = "恶意扩容";
+                    else if (chestId < 0 || chestId >= Main.chest.Length || Main.chest[chestId] == null)
+                        verdict = "非法索引";
+                    else
+                        verdict = "异常上行";
+
+                    TallyAndAct(plr, "SyncChestSize", verdict, $"chest={chestId} newSize={newSize}", raw);
+                }
+                catch (Exception ex)
+                {
+                    TallyAndAct(plr, "SyncChestSize", "解析异常", ex.Message, raw);
+                    e.Handled = true;
+                }
+            }
+
+            /// <summary>按攻击面审计 + 一次即踢（不计数，杜绝批量试探窗口）</summary>
+            private static void TallyAndAct(TSPlayer plr, string packet, string verdict, string detail, string raw)
+            {
+                Interlocked.Increment(ref _blockedCount);
+                LogAudit(plr, packet, verdict, detail, raw);
+                KickPlayer(plr, $"发送异常宝箱数据: {packet} {detail}");
+            }
+
+            /// <summary>结构化审计日志：玩家/账号/IP/包/判定/详情/原始字节</summary>
+            private static void LogAudit(TSPlayer plr, string packet, string verdict, string detail, string raw)
+            {
+                var account = plr.Account?.Name ?? "未登录";
+                TShock.Log.ConsoleInfo($"[ChestFix][审计] 玩家={plr.Name} 账号={account} IP={plr.IP} 包={packet} 判定={verdict} 详情={detail} hex={raw}");
+            }
+
+            /// <summary>取包原始字节（前 64 字节）便于回溯取证</summary>
+            private static string HexOf(GetDataEventArgs e)
+            {
+                var len = Math.Min(Math.Max(e.Length - 1, 0), 64);
+                var sb = new StringBuilder();
+                for (var i = 0; i < len; i++)
+                    sb.Append(e.Msg.readBuffer[e.Index + i].ToString("X2"));
+                return sb.ToString();
             }
 
             private static void ChestFixCommand(CommandArgs args)
@@ -481,27 +594,15 @@ namespace TShockData
                     || type == TileID.Dressers;
             }
 
-            private static void Block(string reason, TSPlayer? player)
-            {
-                Interlocked.Increment(ref _blockedCount);
-                if (player != null && player.Active && player.IsLoggedIn)
-                {
-                    BanPlayer(player, reason);
-                }
-                TShock.Log.ConsoleInfo($"[ChestFix] 拦截: {reason} | 玩家={player?.Name ?? "?"} [已封禁]");
-            }
-
-            private static void BanPlayer(TSPlayer player, string reason)
+            private static void KickPlayer(TSPlayer player, string reason)
             {
                 try
                 {
-                    var name = player.Name;
-                    Commands.HandleCommand(TSPlayer.Server, $"/ban add \"acc:{name}\" \"发送恶意宝箱数据: {reason}\" -e");
-                    Commands.HandleCommand(TSPlayer.Server, $"/kick \"{name}\" 发送恶意宝箱数据");
+                    player.Kick($"发送恶意宝箱数据: {reason}", true);
                 }
                 catch (Exception ex)
                 {
-                    TShock.Log.ConsoleError($"[ChestFix] 封禁玩家失败: {ex.Message}");
+                    TShock.Log.ConsoleError($"[ChestFix] 踢出玩家失败: {ex.Message}");
                 }
             }
         }
