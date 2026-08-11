@@ -234,6 +234,7 @@ public static class GetDataHandlers
             {
                 if (house.AllowPlant == 1)
                     return false;
+                args.Player.SendTileSquareCentered(x, y);
                 return Deny(args, house, "无权采集被房子保护的植物。");
             }
 
@@ -242,6 +243,7 @@ public static class GetDataHandlers
             {
                 if (house.AllowGrave == 1)
                     return false;
+                args.Player.SendTileSquareCentered(x, y);
                 return Deny(args, house, "无权挖掘被房子保护的墓碑。");
             }
 
@@ -250,18 +252,21 @@ public static class GetDataHandlers
             {
                 if (house.AllowFragile == 1)
                     return false;
+                args.Player.SendTileSquareCentered(x, y);
                 return Deny(args, house, "无权破坏被房子保护的物品。");
             }
 
             // 普通破坏
             if (house.AllowBreak == 1)
                 return false;
+            args.Player.SendTileSquareCentered(x, y);
             return Deny(args, house, "你没有权力损坏被房子保护的地区。");
         }
 
         // 放置
         if (house.AllowPlace == 1)
             return false;
+        args.Player.SendTileSquareCentered(x, y);
         return Deny(args, house, "你没有权力修改被房子保护的地区。");
     }
 
@@ -344,6 +349,7 @@ public static class GetDataHandlers
         if (house == null) return false;
         if (IsHouseAuthorized(args.Player, house)) return false;
         if (house.AllowLiquid == 1) return false;
+        args.Player.SendTileSquareCentered(x, y);
         return Deny(args, house, "无权修改被房子保护的地区的液体。");
     }
 
