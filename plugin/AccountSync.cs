@@ -34,8 +34,6 @@ namespace TShockData
     ///       返回 UUID 字段改为该设备 uuid 的账号副本 → TShock 原生免密判断自然命中
     ///   - 登录成功（PlayerPostLogin）→ 新设备 UUID 上报后端 /hook/qq-uuid（HMAC）
     ///   - 免密判定本地缓存 miss → 查后端 /hook/uuid-check
-    ///   - 绑定资格（canBind）：auto 自动注册=0（防抢绑盗号），/pwd 改密成功=1；
-    ///       绑定/注册 REST 查询用；find-account 返回
     /// </summary>
     public static class AccountSync
     {
@@ -64,10 +62,8 @@ namespace TShockData
         private static readonly TimeSpan _httpTimeout = TimeSpan.FromSeconds(8);
 
         // ════════════════════════════════════════════
-        //  canBind 标记表（本地 SQLite，TShock.DB）
+        //  HMAC 签名 nonce 去重缓存
         // ════════════════════════════════════════════
-        private static bool _canBindTableChecked;
-        private static readonly object _canBindLock = new();
         private static readonly HashSet<string> _nonceCache = new();
         private static readonly object _nonceLock = new();
 
@@ -79,8 +75,6 @@ namespace TShockData
         {
             if (_initialized) return;
             _initialized = true;
-
-            EnsureCanBindTable();
 
             // 拦截 ClientUUID 包（CaiBot 同款：底层网络层，TShock 任何处理之前）
             try
@@ -236,7 +230,6 @@ namespace TShockData
                         TShock.UserAccounts.AddUserAccount(newAcc);
                     }
                     catch (UserAccountExistsException) { /* 并发已存在 */ }
-                    SetCanBind(username, true);
                     TShock.Log.ConsoleInfo($"[AccountSync] 已同步创建账号: {username}");
                 }
                 else
@@ -247,7 +240,6 @@ namespace TShockData
                         TShock.DB.Query("UPDATE Users SET Password=@0 WHERE Username=@1", hash, username);
                         TShock.Log.ConsoleInfo($"[AccountSync] 已同步覆盖密码: {username}");
                     }
-                    SetCanBind(username, true);
                 }
             }
             catch (Exception ex)
@@ -448,60 +440,6 @@ namespace TShockData
                     }
                 }
             }
-        }
-
-        // ════════════════════════════════════════════
-        //  canBind 绑定资格
-        // ════════════════════════════════════════════
-
-        private static void EnsureCanBindTable()
-        {
-            if (_canBindTableChecked) return;
-            try
-            {
-                TShock.DB.Query(
-                    "CREATE TABLE IF NOT EXISTS tsweb_can_bind (" +
-                    "Username TEXT PRIMARY KEY, " +
-                    "CanBind INTEGER NOT NULL DEFAULT 1" +
-                    ")");
-                _canBindTableChecked = true;
-            }
-            catch (Exception ex)
-            {
-                TShock.Log.ConsoleError($"[AccountSync] 创建 can_bind 表失败: {ex.Message}");
-            }
-        }
-
-        public static void SetCanBind(string username, bool canBind)
-        {
-            if (string.IsNullOrEmpty(username)) return;
-            try
-            {
-                if (!_canBindTableChecked) EnsureCanBindTable();
-                TShock.DB.Query(
-                    "INSERT INTO tsweb_can_bind (Username, CanBind) VALUES (@0, @1) " +
-                    "ON CONFLICT(Username) DO UPDATE SET CanBind=@1",
-                    username, canBind ? 1 : 0);
-            }
-            catch (Exception ex)
-            {
-                TShock.Log.ConsoleError($"[AccountSync] canBind 写入失败: {ex.Message}");
-            }
-        }
-
-        /// <summary>默认 true（老账号/手动注册可绑）；auto 自动注册显式置 0</summary>
-        public static bool GetCanBind(string username)
-        {
-            if (string.IsNullOrEmpty(username)) return false;
-            try
-            {
-                if (!_canBindTableChecked) EnsureCanBindTable();
-                using var res = TShock.DB.QueryReader("SELECT CanBind FROM tsweb_can_bind WHERE Username=@0", username);
-                if (res.Read())
-                    return res.Get<int>("CanBind") != 0;
-            }
-            catch { }
-            return true;
         }
 
         // ════════════════════════════════════════════

@@ -451,7 +451,7 @@ namespace TShockData
 
         /// <summary>
         /// REST API: 绑定流程查询账号（后端 /api/bot/bind 广播调用）
-        /// 返回本地是否存在该角色名、是否可绑定（canBind）、密码哈希与已授权设备 UUID 列表
+        /// 返回本地是否存在该角色名、密码哈希与已授权设备 UUID 列表
         /// 入参: name (角色名)
         /// </summary>
         public static object FindAccount(RestRequestArgs args)
@@ -475,7 +475,6 @@ namespace TShockData
                 return new RestObject()
                 {
                     { "found", true },
-                    { "canBind", AccountSync.GetCanBind(name) },
                     { "passwordHash", account.Password },
                     { "uuidList", AccountSync.GetUuidList(name) },
                     { "group", account.Group }

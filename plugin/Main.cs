@@ -37,7 +37,7 @@ namespace TShockData
             QQBind.Initialize();
             PromotionManager.LoadConfig();
 
-            // ═══ QQ 账号台账同步（后端推送：账号/UUID 全量、登录新设备免密、canBind 绑定资格）═══
+            // ═══ QQ 账号台账同步（后端推送：账号/UUID 全量、登录新设备免密）═══
             AccountSync.Initialize(this);
 
             // ═══ House 房屋系统（原 plugin-son/House 并入）═══

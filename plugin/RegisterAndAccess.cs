@@ -222,8 +222,6 @@ namespace TShockData
             var newAccount = CreateAccount(player);
             if (newAccount != null)
             {
-                // auto 自动注册 = 随机密码，绑定资格置 0（防抢绑盗号；/pwd 改密后置 1）
-                try { AccountSync.SetCanBind(player.Name, false); } catch { }
                 TryAutoLogin(player, newAccount);
 
                 // 欢迎新玩家广播

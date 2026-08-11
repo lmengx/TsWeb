@@ -163,11 +163,6 @@ export const bind = async (req, res) => {
     }
 
     const { server: hitServer, data } = results[0]
-    if (!data.canBind) {
-      return res.status(403).json({
-        error: `该账号尚未设置密码，请先在服务器「${hitServer.name}」内发送 /pwd 设置密码后再绑定`
-      })
-    }
     if (!data.passwordHash) {
       return res.status(500).json({ error: `服务器「${hitServer.name}」未返回密码哈希` })
     }
