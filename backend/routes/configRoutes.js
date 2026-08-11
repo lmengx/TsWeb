@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { getConfigFile, saveConfigFile, getTsWebConfig, setTsWebConfig, getBossConfig, setBossConfig, getBackupConfig, setBackupConfig, getLicenseCheck, postLicenseClose, getBossLimitStatus, getPromotionConfig, setPromotionConfig, getListenConfig, saveListenConfig } from '../controllers/configController.js'
+import { getConfigFile, saveConfigFile, getTsWebConfig, setTsWebConfig, getBossConfig, setBossConfig, getBackupConfig, setBackupConfig, postLicenseClose, getBossLimitStatus, getPromotionConfig, setPromotionConfig, getListenConfig, saveListenConfig } from '../controllers/configController.js'
 import { verifyToken, requireRole, requireAdmin, requireManager } from '../middlewares/authMiddleware.js'
 
 const router = Router()
@@ -18,7 +18,6 @@ router.post('/boss', verifyToken, requireManager, setBossConfig)
 router.get('/backup', verifyToken, requireManager, getBackupConfig)
 router.post('/backup', verifyToken, requireManager, setBackupConfig)
 router.get('/bosslimit/status', verifyToken, requireManager, getBossLimitStatus)
-router.get('/license-check', getLicenseCheck)
 router.post('/license-close', verifyToken, requireAdmin, postLicenseClose)
 router.get('/promotion', verifyToken, requireManager, getPromotionConfig)
 router.post('/promotion', verifyToken, requireManager, setPromotionConfig)

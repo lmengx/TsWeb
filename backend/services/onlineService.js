@@ -25,10 +25,6 @@ class OnlineService {
     return tshockFetch(`/data/online/hourly?date=${encodeURIComponent(date)}`)
   }
 
-  async getRanking(mode = 'today') {
-    return tshockFetch(`/data/online/ranking?mode=${encodeURIComponent(mode)}`)
-  }
-
   async getPlayerCalendar(name, year) {
     return tshockFetch(`/data/online/player?name=${encodeURIComponent(name)}&year=${year}`)
   }

@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import jwt from 'jsonwebtoken'
 import { getConfig, getServers, addServer } from '../config.js'
-import { validateSetupToken, generateSetupToken } from '../setupToken.js'
+import { validateSetupToken } from '../setupToken.js'
 import tshockService from '../services/tshockService.js'
 import { exec } from 'child_process'
 import { promisify } from 'util'
@@ -401,25 +401,4 @@ function generateRandomToken(length) {
   // 使用密码学安全随机数生成器（CSPRNG）生成 REST API token
   return crypto.randomBytes(length).toString('base64url').slice(0, length)
 }
-
-// 在本地浏览器打开管理页面
-router.get('/open', async (req, res) => {
-  try {
-    const config = await getConfig()
-    const port = config.server?.port || 3000
-    const host = config.server?.host || '0.0.0.0'
-    const token = generateSetupToken()
-    const url = `http://localhost:${port}/backend?token=${token}`
-    exec(`start ${url}`, (err) => {
-      if (err) {
-        console.log(`[Setup] 打开浏览器失败: ${err.message}`)
-        console.log(`[Setup] 请手动访问: ${url}`)
-      }
-    })
-    res.json({ success: true, url })
-  } catch (err) {
-    res.status(500).json({ error: err.message })
-  }
-})
-
 export default router

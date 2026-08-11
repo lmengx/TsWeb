@@ -63,11 +63,6 @@ export function pushWebhookLog(line, serverId) {
   }
 }
 
-/** 获取某服务器的内存日志队列（缺省返回兜底组；无则空数组） */
-export function getLogQueue(serverId) {
-  return _logQueues.get(normalizeKey(serverId)) || []
-}
-
 /** 获取某服务器的 SSE 客户端集合（缺省返回兜底组） */
 export function getSseClients(serverId) {
   return _sseClientGroups.get(normalizeKey(serverId)) || new Set()

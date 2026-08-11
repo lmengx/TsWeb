@@ -13,9 +13,6 @@ let closeTimer = null
 
 const user = ref(null)
 const serverConnected = ref(false)
-const userOnline = ref(false)
-const qqBound = ref(false)
-const qqNumber = ref('')
 let statusTimer = null
 
 const isLoggedIn = computed(() => user.value !== null)
@@ -42,15 +39,9 @@ const loadUser = () => {
 const fetchStatus = async () => {
   if (user.value?.username) {
     try {
-      const res = await get('/api/user/selfinfo')
+      await get('/api/user/selfinfo')
       serverConnected.value = true
-      const data = await res.json()
-      if (data.username) {
-        userOnline.value = data.isOnline || false
-        qqNumber.value = data.qq || ''
-        qqBound.value = !!qqNumber.value
-      }
-    } catch { serverConnected.value = false; userOnline.value = false; qqBound.value = false }
+    } catch { serverConnected.value = false }
   }
 }
 
@@ -137,14 +128,6 @@ onUnmounted(() => {
                   <span class="meta-item">
                     <span class="meta-label">权限组</span>
                     <span class="meta-value tag">{{ displayGroup }}</span>
-                  </span>
-                  <span class="meta-item">
-                    <span class="meta-label">游戏状态</span>
-                    <span class="meta-value" :class="userOnline ? 'online' : 'offline'">{{ userOnline ? '游戏中' : '离线' }}</span>
-                  </span>
-                  <span class="meta-item">
-                    <span class="meta-label">QQ 绑定</span>
-                    <span class="meta-value qq-glow" :class="qqBound ? 'bound' : 'unbound'">{{ qqBound ? qqNumber : '未绑定' }}</span>
                   </span>
                 </div>
               </div>
@@ -286,10 +269,6 @@ onUnmounted(() => {
   border-radius: 10px;
   font-size: 0.78rem;
 }
-.meta-value.online { color: #22c55e; }
-.meta-value.offline { color: #6b7280; }
-.meta-value.bound { color: #22c55e; }
-.meta-value.unbound { color: #6b7280; }
 
 .dropdown-divider { height: 1px; background: var(--border-light); margin: 0 20px; }
 .dropdown-actions { padding: 16px 20px; }
@@ -308,20 +287,4 @@ onUnmounted(() => {
 }
 
 .logout-btn:hover { background: rgba(239, 68, 68, 0.1); border-color: var(--accent-error); color: var(--accent-error); }
-
-.meta-value.qq-glow.bound {
-  font-weight: 800;
-  color: #22c55e;
-  background: linear-gradient(90deg, #22c55e, #4ade80, #22c55e);
-  background-size: 200% 100%;
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  animation: qq-shimmer 2.5s ease-in-out infinite;
-}
-
-@keyframes qq-shimmer {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
-}
 </style>

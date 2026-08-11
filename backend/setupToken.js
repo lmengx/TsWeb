@@ -7,14 +7,6 @@ export function generateSetupToken() {
   return currentToken
 }
 
-export function getSetupToken() {
-  return currentToken
-}
-
 export function validateSetupToken(token) {
   return currentToken && token === currentToken
-}
-
-export function clearSetupToken() {
-  currentToken = null
 }

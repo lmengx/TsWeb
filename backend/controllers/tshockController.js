@@ -27,17 +27,6 @@ export const executeCommand = async (req, res) => {
   res.json(result)
 }
 
-export const testCommand = async (req, res) => {
-  const { cmd } = req.query
-  
-  if (!cmd) {
-    return res.status(400).json({ error: 'cmd parameter is required' })
-  }
-
-  const result = await tshockService.executeCommand(cmd)
-  res.json(result)
-}
-
 export const getUsers = async (req, res) => {
   const result = await tshockService.getUsers()
   res.json(result)
@@ -114,15 +103,6 @@ export const batchEdit = async (req, res) => {
 
 export const getGroups = async (req, res) => {
   const result = await tshockService.getGroups()
-  res.json(result)
-}
-
-export const getGroup = async (req, res) => {
-  const { groupName } = req.query
-  if (!groupName) {
-    return res.status(400).json({ error: 'groupName parameter is required' })
-  }
-  const result = await tshockService.getGroup(groupName)
   res.json(result)
 }
 
@@ -222,35 +202,6 @@ export const getBossProgress = async (req, res) => {
 export const getBanList = async (req, res) => {
   const result = await tshockService.getBanList()
   res.json(result)
-}
-
-export const getSelfInfo = async (req, res) => {
-  const { username } = req.user
-  
-  if (!username) {
-    return res.status(400).json({ error: 'username not found in token' })
-  }
-  
-  const [userResult, invResult] = await Promise.all([
-    tshockService.getUserData(username),
-    tshockService.getInventory(username),
-  ])
-  
-  const userInfo = userResult.status === '200' && userResult.users && userResult.users.length > 0 
-    ? userResult.users[0] 
-    : null
-    
-  const inventory = invResult.error ? null : invResult
-  
-  const isOnline = userInfo ? !!userInfo.IsOnline : false
-  
-  res.json({
-    username,
-    userInfo,
-    inventory: inventory ? { status: '200', inventory } : { status: 'error', error: invResult.error },
-    isOnline,
-    success: !!userInfo
-  })
 }
 
 export const clearCharacter = async (req, res) => {

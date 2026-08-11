@@ -4,7 +4,7 @@ import { getConfig } from '../config.js'
 import audit from '../services/auditLogger.js'
 import {
   verifyAccount, createAccount, listAccounts, deleteAccount,
-  changePassword as serviceChangePassword, resetPassword, updateRole, hasAnyAccount, hasAdmin,
+  changePassword as serviceChangePassword, resetPassword, updateRole, hasAnyAccount,
   ADMIN_USERNAME
 } from '../services/accountService.js'
 
@@ -191,13 +191,6 @@ export const changePassword = async (req, res) => {
   }
 }
 
-export const getUserInfo = (req, res) => {
-  res.json({
-    username: req.user.username,
-    usergroup: req.user.usergroup
-  })
-}
-
 // ═══════════════════════════════════════════════════════════
 // 账户管理（仅 admin）
 // ═══════════════════════════════════════════════════════════
@@ -283,14 +276,3 @@ export const changeAccountRole = async (req, res) => {
   }
 }
 
-/** 供初始化流程查询：是否需要创建初始管理员 */
-export const getInitStatus = async (req, res) => {
-  try {
-    res.json({
-      hasAccounts: await hasAnyAccount(),
-      hasAdmin: await hasAdmin()
-    })
-  } catch (err) {
-    res.status(500).json({ error: err.message })
-  }
-}

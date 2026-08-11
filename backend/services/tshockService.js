@@ -575,43 +575,6 @@ export class TShockService {
     }
   }
 
-  async getGroup(groupName) {
-    if (!this.baseUrl) {
-      await this.init()
-    }
-
-    const headers = {
-      'Accept': 'application/json'
-    }
-
-    let url = `${this.baseUrl}/data/groups/get?groupName=${encodeURIComponent(groupName)}`
-    if (this.apiKey) {
-      url += `&token=${encodeURIComponent(this.apiKey)}`
-    }
-
-    console.log(`[OUTGOING] GET ${url}`)
-
-    try {
-      const response = await fetch(url, {
-        method: 'GET',
-        headers
-      })
-
-      console.log(`[RESPONSE] Status: ${response.status}`)
-      const text = await response.text()
-      console.log(`[RESPONSE] Body: ${text}`)
-
-      try {
-        return JSON.parse(text)
-      } catch {
-        return { error: 'Invalid JSON', rawResponse: text }
-      }
-    } catch (error) {
-      this.isConnected = false
-      return { error: error.message }
-    }
-  }
-
   async createGroup(groupName, parent, commands, chatColor, prefix, suffix) {
     if (!this.baseUrl) {
       await this.init()

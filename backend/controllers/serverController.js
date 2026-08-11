@@ -1,7 +1,6 @@
 import audit from '../services/auditLogger.js'
 import {
-  getServers, getServerById, addServer, updateServer, deleteServer,
-  rotateServerPushSecret
+  getServers, getServerById, addServer, updateServer, deleteServer
 } from '../config.js'
 import { getServerInstance, testConnectionWith } from '../services/tshockService.js'
 import { activateServer, deactivateServer } from '../services/serverActivation.js'
@@ -135,25 +134,6 @@ export const testConnection = async (req, res) => {
       actor: req.user?.username
     })
     res.json(result)
-  } catch (err) {
-    res.status(500).json({ error: err.message })
-  }
-}
-
-/** 重新生成 webhook 推送密钥（轮换） */
-export const rotateSecret = async (req, res) => {
-  try {
-    const server = await rotateServerPushSecret(req.params.id)
-    if (!server) return res.status(404).json({ error: '服务器不存在' })
-    // pushSecret 已轮换：重新激活（重建 SSE 常连 + 重新注册 webhook，让插件端握手获取新密钥）
-    activateServer(server)
-    audit.record('server.update', {
-      id: server.id,
-      name: server.name,
-      changedKeys: ['pushSecret'],
-      actor: req.user?.username
-    })
-    res.json({ success: true, server: sanitize(server) })
   } catch (err) {
     res.status(500).json({ error: err.message })
   }

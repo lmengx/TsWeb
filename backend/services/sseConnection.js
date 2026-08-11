@@ -175,11 +175,6 @@ export function registerDownloadSession(tag, handler) {
   return () => downloadSessions.delete(tag)
 }
 
-/** 取消注册下载会话 */
-export function unregisterDownloadSession(tag) {
-  downloadSessions.delete(tag)
-}
-
 function forwardToDownloadSession(tag, event, parsed) {
   const session = downloadSessions.get(tag)
   if (!session) return
@@ -380,22 +375,4 @@ export async function saveFileToBackend(serverId, filePath, options = {}) {
     clearTimeout(timeout)
     return { success: false, message: e.message }
   }
-}
-
-/**
- * 获取所有连接的实时状态
- */
-export function getSseStatus() {
-  const list = []
-  for (const [id, conn] of _conns) {
-    list.push({ id, name: conn.server.name, connected: conn.connected, clientId: conn.clientId })
-  }
-  return list
-}
-
-/**
- * 停止所有连接
- */
-export function disconnectAll() {
-  for (const id of [..._conns.keys()]) disconnect(id)
 }

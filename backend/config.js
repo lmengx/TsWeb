@@ -8,7 +8,6 @@ const __dirname = path.dirname(__filename)
 const CONFIG_PATH = path.join(__dirname, 'data', 'config.json')
 
 let config = null
-const configUpdateListeners = new Set()
 
 // ═══════════════════════════════════════════════════════════
 // 基础读写
@@ -30,20 +29,10 @@ export async function getConfig() {
   return await loadConfig()
 }
 
-export function onConfigUpdate(callback) {
-  configUpdateListeners.add(callback)
-  return () => configUpdateListeners.delete(callback)
-}
-
-function notifyConfigUpdate() {
-  configUpdateListeners.forEach(callback => callback(config))
-}
-
 export async function saveConfig(newConfig) {
   const content = await fs.readFile(CONFIG_PATH, 'utf8')
   config = { ...JSON.parse(content), ...newConfig }
   await fs.writeFile(CONFIG_PATH, JSON.stringify(config, null, 2), 'utf8')
-  notifyConfigUpdate()
   return config
 }
 
@@ -69,7 +58,6 @@ export async function saveNewConfig() {
     throw new Error('无法写入配置文件: ' + err.message)
   }
 
-  notifyConfigUpdate()
   return config
 }
 
@@ -161,21 +149,9 @@ export async function deleteServer(id) {
   return true
 }
 
-/** 重新生成指定服务器的 pushSecret（webhook 密钥轮换） */
-export async function rotateServerPushSecret(id) {
-  const cfg = await loadConfig()
-  if (!cfg || !Array.isArray(cfg.servers)) return null
-  const idx = cfg.servers.findIndex(s => s.id === id)
-  if (idx === -1) return null
-  cfg.servers[idx].pushSecret = crypto.randomBytes(32).toString('base64url')
-  await persistConfig(cfg)
-  return cfg.servers[idx]
-}
-
 async function persistConfig(cfg) {
   config = cfg
   await fs.writeFile(CONFIG_PATH, JSON.stringify(cfg, null, 2), 'utf8')
-  notifyConfigUpdate()
 }
 
 export default loadConfig

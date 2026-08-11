@@ -1,13 +1,10 @@
 import { Router } from 'express'
-import { getSelfInfo, getSelfInventory } from '../controllers/userController.js'
+import { getSelfInfo } from '../controllers/userController.js'
 import { verifyToken } from '../middlewares/authMiddleware.js'
 
 const router = Router()
 
-// 当前用户个人信息（不含敏感字段）
+// 当前登录用户（后端账号）基本信息：仅后端账号自身信息，独立于 TShock
 router.get('/selfinfo', verifyToken, getSelfInfo)
-
-// 当前用户背包（展平结构）
-router.get('/selfinventory', verifyToken, getSelfInventory)
 
 export default router

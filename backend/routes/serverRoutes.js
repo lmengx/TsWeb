@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import { verifyToken, requireAdmin } from '../middlewares/authMiddleware.js'
 import {
-  list, getOne, create, update, remove, testConnection, rotateSecret, testOnly
+  list, getOne, create, update, remove, testConnection, testOnly
 } from '../controllers/serverController.js'
 
 const router = Router()
@@ -16,6 +16,5 @@ router.post('/', create)
 router.put('/:id', update)
 router.delete('/:id', remove)
 router.post('/:id/test', testConnection)
-router.post('/:id/rotate-secret', rotateSecret)
 
 export default router

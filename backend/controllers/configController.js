@@ -16,20 +16,6 @@ if (!fs.existsSync(configDir)) {
 // 许可文件
 const LICENSE_PATH = path.join(__dirname, '../../frontend/public/.coffee_license')
 
-export const getLicenseCheck = (req, res) => {
-  try {
-    if (fs.existsSync(LICENSE_PATH)) {
-      const content = fs.readFileSync(LICENSE_PATH, 'utf8').trim()
-      if (content === 'coffeed') {
-        return res.json({ hidden: true })
-      }
-    }
-    res.json({ hidden: false })
-  } catch {
-    res.json({ hidden: false })
-  }
-}
-
 export const postLicenseClose = (req, res) => {
   try {
     const dir = path.dirname(LICENSE_PATH)

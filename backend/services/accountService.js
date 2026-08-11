@@ -11,7 +11,6 @@ const ACCOUNTS_PATH = path.join(__dirname, '..', 'data', 'accounts.json')
 // 角色常量
 export const ROLE_ADMIN = 'admin'
 export const ROLE_SUBADMIN = 'subadmin'
-export const ALL_ROLES = [ROLE_ADMIN, ROLE_SUBADMIN]
 
 // 全局唯一 admin 用户名
 export const ADMIN_USERNAME = 'admin'

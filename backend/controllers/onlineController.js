@@ -1,16 +1,9 @@
 import onlineService from '../services/onlineService.js'
 import jwt from 'jsonwebtoken'
-import path from 'path'
-import fs from 'fs'
-import { fileURLToPath } from 'url'
 import { getConfig, getServers } from '../config.js'
 import audit from '../services/auditLogger.js'
 import { getCurrentServerId } from '../services/tshockService.js'
-import { requestFile } from '../services/sseConnection.js'
-import { getSseClients, addSseClient, removeSseClient, sseClientCount } from '../services/logBroadcast.js'
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const SseFilesRoot = path.join(__dirname, '..', 'data', 'resource', '导出数据', 'sse-files')
+import { addSseClient, removeSseClient } from '../services/logBroadcast.js'
 
 // ═══ 说明：日志主通道为后端→插件 SSE 常驻长连接（sseConnection.js），
 // 前端日志流由后端内存队列 + 广播提供；历史 webhook 日志回传（/api/online/log-webhook）已废弃移除 ═══
@@ -21,12 +14,6 @@ export const getHourlyOnline = async (req, res) => {
     return res.status(400).json({ error: 'date parameter is required (yyyy-MM-dd)' })
   }
   const result = await onlineService.getHourlyOnline(date)
-  res.json(result)
-}
-
-export const getRanking = async (req, res) => {
-  const mode = req.query.mode || 'today'
-  const result = await onlineService.getRanking(mode)
   res.json(result)
 }
 
@@ -142,60 +129,6 @@ export const streamLogs = async (req, res) => {
       res.status(502).json({ error: error.message })
     }
   }
-}
-
-/**
- * 请求插件定向推送一个文件（TShock.SavePath 相对路径）到本后端 SSE 连接并保存
- * POST /api/online/file/pull  body: { path: "tshock.json" }
- */
-export const pullFile = async (req, res) => {
-  const { path: filePath } = req.body || {}
-  if (!filePath) {
-    return res.status(400).json({ error: 'Missing path' })
-  }
-  const serverId = getCurrentServerId()
-  const result = await requestFile(serverId, String(filePath))
-  res.json(result)
-}
-
-/**
- * 列出已通过 SSE 接收保存的文件
- * GET /api/online/file/list
- */
-export const listReceivedFiles = (req, res) => {
-  const serverId = getCurrentServerId()
-  const dir = path.join(SseFilesRoot, String(serverId))
-  let files = []
-  try {
-    if (fs.existsSync(dir)) {
-      files = fs.readdirSync(dir)
-        .filter(f => fs.statSync(path.join(dir, f)).isFile())
-        .map(f => {
-          const st = fs.statSync(path.join(dir, f))
-          return { name: f, size: st.size, mtime: st.mtimeMs }
-        })
-        .sort((a, b) => b.mtime - a.mtime)
-    }
-  } catch (e) {
-    return res.status(500).json({ error: e.message })
-  }
-  res.json({ files })
-}
-
-/**
- * 下载已接收的文件
- * GET /api/online/file/download?name=xxx
- */
-export const downloadReceivedFile = (req, res) => {
-  const serverId = getCurrentServerId()
-  const name = String(req.query.name || '')
-  if (!name) return res.status(400).json({ error: 'Missing name' })
-  const safeName = path.basename(name).replace(/[\\/:*?"<>|]/g, '_')
-  const full = path.join(SseFilesRoot, String(serverId), safeName)
-  if (!fs.existsSync(full)) {
-    return res.status(404).json({ error: 'File not found' })
-  }
-  res.download(full, safeName)
 }
 
 export const execCommand = async (req, res) => {
