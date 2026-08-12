@@ -242,28 +242,37 @@ namespace TShockData
                 }
             }
 
-            private static void OnNetGetData(GetDataEventArgs e)
-            {
-                // 已被 TShock/Bouncer/其他插件判定并处理 → 不重复判定（避免二次误罚）
-                if (e.Handled)
-                    return;
+			private static void OnNetGetData(GetDataEventArgs e)
+			{
+				// 已被 TShock/Bouncer/其他插件判定并处理 → 不重复判定（避免二次误罚）
+				if (e.Handled)
+					return;
 
-                switch (e.MsgID)
-                {
-                    case PacketTypes.ChestOpen:          // 33：负ID+nameLen 越界攻击面
-                        HandleChestOpenPacket(e);
-                        break;
-                    case PacketTypes.ChestGetContents:  // 31：越界坐标
-                        HandleChestGetContentsPacket(e);
-                        break;
-                    case (PacketTypes)155:              // SyncChestSize：原版客户端从不主动上行 → 确定性恶意面
-                        HandleSyncChestSizePacket(e);
-                        break;
-                    case (PacketTypes)153:              // NPCDebuffDamage：上行=加血无敌/秒杀 → 确定性恶意面
-                        HandleNpcDebuffDamagePacket(e);
-                        break;
-                }
-            }
+				// ═══ 跨服桥接玩家豁免 ═══
+				// ① A 服（源服）侧：桥接玩家开箱子的包已被 CrossTransfer 转发目标服，
+				//    这里用本地箱子数组审查必然误判 → 直接跳过（其交互不属于本服攻击面）。
+				if (CrossTransfer.IsBridging(e.Msg.whoAmI))
+					return;
+				// ② B 服（目标服）侧：跨服玩家客户端世界状态可能未完全同步，同样豁免。
+				if (TransferProtocol.PreTransfers.ContainsKey(e.Msg.whoAmI))
+					return;
+
+				switch (e.MsgID)
+				{
+					case PacketTypes.ChestOpen:          // 33：负ID+nameLen 越界攻击面
+						HandleChestOpenPacket(e);
+						break;
+					case PacketTypes.ChestGetContents:  // 31：越界坐标
+						HandleChestGetContentsPacket(e);
+						break;
+					case (PacketTypes)155:              // SyncChestSize：原版客户端从不主动上行 → 确定性恶意面
+						HandleSyncChestSizePacket(e);
+						break;
+					case (PacketTypes)153:              // NPCDebuffDamage：上行=加血无敌/秒杀 → 确定性恶意面
+						HandleNpcDebuffDamagePacket(e);
+						break;
+				}
+			}
 
             private static void HandleChestOpenPacket(GetDataEventArgs e)
             {

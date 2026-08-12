@@ -43,6 +43,9 @@ namespace TShockData
             // ═══ 跨服聊天（本地聊天取消名字转义 + 跨服转发接收）═══
             CrossChat.Initialize(this);
 
+            // ═══ 跨服传送（纯插件：Unused15 自定义包通道 + Auth 密钥鉴权 + 前置握手）═══
+            CrossTransfer.Initialize(this);
+
             // ═══ House 房屋系统（原 plugin-son/House 并入）═══
             HouseCore.Instance.Initialize(this);
             HouseApi.Register();
@@ -233,6 +236,7 @@ namespace TShockData
                 ParticleGuard.Dispose();
                 AccountSync.Dispose(this);
                 CrossChat.Dispose();
+                CrossTransfer.Dispose();
                 BypassHelper.UnregisterPermissionHook();
 				PvPLockManager.Dispose();
 				TeamLockManager.Dispose();
