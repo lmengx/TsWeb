@@ -73,7 +73,7 @@ export const register = async (req, res) => {
     const password = genRandomPassword()
     const passwordHash = await bcrypt.hash(password, 12)
 
-    await upsertAccount({ username: player, qq, passwordHash, uuidList: [] })
+    await upsertAccount({ username: player, qq, passwordHash })
     const result = await broadcastFullAll()
     audit.record('qq_account.register', { username: player, qq })
     console.log(`[QQ台账] 注册: ${player} (QQ:${qq}), 广播 ${result.ok}/${result.total}`)
@@ -109,8 +109,7 @@ export const changePassword = async (req, res) => {
     await upsertAccount({
       username: account.username,
       qq,
-      passwordHash,
-      uuidList: account.uuidList || []
+      passwordHash
     })
     const result = await broadcastFullAll()
     audit.record('qq_account.change_password', { username: account.username, qq })
@@ -126,7 +125,7 @@ export const changePassword = async (req, res) => {
 /**
  * 绑定已有账号：POST /api/bot/bind  { qq, player, serverId? }
  * 指定 serverId → 只查该服；否则广播所有启用服 find-account。
- * 唯一命中 → 该服返回哈希/uuidList → 建台账 → 广播全量
+ * 唯一命中 → 该服返回哈希 → 建台账 → 广播全量
  */
 export const bind = async (req, res) => {
   try {
@@ -170,8 +169,7 @@ export const bind = async (req, res) => {
     await upsertAccount({
       username: player,
       qq,
-      passwordHash: data.passwordHash,
-      uuidList: Array.isArray(data.uuidList) ? data.uuidList : []
+      passwordHash: data.passwordHash
     })
     const result = await broadcastFullAll()
     audit.record('qq_account.bind', { serverId: hitServer.id, username: player, qq })

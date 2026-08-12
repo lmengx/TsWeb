@@ -3,7 +3,7 @@ import { fileURLToPath } from 'url'
 import audit from '../services/auditLogger.js'
 import { verifyWebhookSignature } from '../services/hookAuth.js'
 import { saveFileToBackend } from '../services/sseConnection.js'
-import { upsertAccount, addUuid, broadcastFullAll, broadcastUuid, getAccountByUsername } from '../services/qqAccountService.js'
+import { upsertAccount, broadcastFullAll } from '../services/qqAccountService.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -75,9 +75,9 @@ export const backupReceiver = async (req, res) => {
 
 /**
  * 绑定上报端点：POST /hook/identity
- * 插件侧玩家绑定时上报 { username, qq, passwordHash, uuidList }
- * （哈希与已登录设备 UUID 由账号所在服务器提供）→ 更新台账 → 广播完整台账到所有启用服。
- * 注意：绑定流程的哈希/uuidList 属于敏感数据，仅经 /hook（HMAC）内部通道传输，不落日志。
+ * 插件侧玩家绑定时上报 { username, qq, passwordHash }
+ * （密码哈希由账号所在服务器提供）→ 更新台账 → 广播完整台账到所有启用服。
+ * 注意：绑定流程的哈希属于敏感数据，仅经 /hook（HMAC）内部通道传输，不落日志。
  */
 export const identityReceiver = async (req, res) => {
   try {
@@ -98,8 +98,7 @@ export const identityReceiver = async (req, res) => {
     const { changed } = await upsertAccount({
       username,
       qq,
-      passwordHash,
-      uuidList: Array.isArray(body.uuidList) ? body.uuidList : []
+      passwordHash
     })
     if (changed) {
       // 广播完整台账（绑定 = 台账变更）
@@ -114,74 +113,6 @@ export const identityReceiver = async (req, res) => {
     res.json({ status: 'ok' })
   } catch (err) {
     console.error('[QQ台账] 绑定上报失败:', err.message)
-    res.status(500).json({ error: err.message })
-  }
-}
-
-/**
- * 登录新设备 UUID 上报端点：POST /hook/qq-uuid
- * 插件侧玩家登录成功且当前设备 UUID 不在本地集合时上报 { username, uuid }
- * → 台账追加 → 向所有启用 syncUUID 的服务器推单条（只推该用户）。
- */
-export const qqUuidReceiver = async (req, res) => {
-  try {
-    const rawBody = req.rawBody || JSON.stringify(req.body || {})
-    const auth = await verifyWebhookSignature(req, rawBody)
-    if (!auth.ok) {
-      return res.status(auth.status).json({ error: auth.error })
-    }
-
-    const body = parseJsonBody(req)
-    const username = String(body.username || '').trim()
-    const uuid = String(body.uuid || '').trim()
-    if (!username || !uuid) {
-      return res.status(400).json({ error: 'Missing username/uuid' })
-    }
-
-    const result = await addUuid(username, uuid)
-    if (!result.ok) {
-      // 账号不在台账：正常现象（本地独有账号登录），不广播
-      return res.json({ status: 'ok', skipped: true })
-    }
-    if (result.added) {
-      broadcastUuid(username, uuid).catch(e => console.error('[QQ台账] UUID 广播失败:', e.message))
-      console.log(`[QQ台账] 新设备: ${username} +${uuid} (来自 ${auth.server.name})`)
-    }
-    res.json({ status: 'ok', added: result.added })
-  } catch (err) {
-    console.error('[QQ台账] UUID 上报失败:', err.message)
-    res.status(500).json({ error: err.message })
-  }
-}
-
-/**
- * UUID 免密判定查询：POST /hook/uuid-check  { username, uuid }
- * 插件连接期 ClientUUID 拦截后，本地内存缓存 miss 时调此接口确认该设备是否已授权
- * → { inList: true/false, uuidList?: [...] }（inList=true 时免密登录）
- */
-export const uuidCheckReceiver = async (req, res) => {
-  try {
-    const rawBody = req.rawBody || JSON.stringify(req.body || {})
-    const auth = await verifyWebhookSignature(req, rawBody)
-    if (!auth.ok) {
-      return res.status(auth.status).json({ error: auth.error })
-    }
-
-    const body = parseJsonBody(req)
-    const username = String(body.username || '').trim()
-    const uuid = String(body.uuid || '').trim()
-    if (!username || !uuid) {
-      return res.status(400).json({ error: 'Missing username/uuid' })
-    }
-
-    const account = await getAccountByUsername(username)
-    if (!account) {
-      return res.json({ inList: false, inLedger: false })
-    }
-    const uuidList = Array.isArray(account.uuidList) ? account.uuidList : []
-    res.json({ inList: uuidList.includes(uuid), inLedger: true, uuidList })
-  } catch (err) {
-    console.error('[QQ台账] UUID 查询失败:', err.message)
     res.status(500).json({ error: err.message })
   }
 }

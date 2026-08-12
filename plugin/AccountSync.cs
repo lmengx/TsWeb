@@ -1,17 +1,10 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
-using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
-using System.Threading;
-using System.Threading.Tasks;
-using MonoMod.RuntimeDetour;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
-using Terraria;
-using Terraria.ID;
 using TerrariaApi.Server;
 using TShockAPI;
 using TShockAPI.DB;
@@ -22,18 +15,15 @@ namespace TShockData
     /// <summary>
     /// QQ 账号台账同步（AccountSync）：
     ///
-    /// 架构（后端为中心台账，本插件为消费端）：
+    /// 架构（后端为中心台账，本插件为消费端；UUID 只转发不落后端）：
     ///   - 后端 /tsweb/qqsync POST 推送（HMAC-SHA256 签名，与 /hook 协议一致）：
-    ///       type=full → 完整台账 { records: { 用户名: { qq, passwordHash, uuidList } } }
-    ///                     对比本地 Users：缺失 → 注册（直插密码哈希，不重新哈希）；
-    ///                     密码不同 → 覆盖（台账权威）；uuidList → 更新内存缓存
-    ///       type=uuid → 单条 { username, uuid }（登录新设备）→ 追加内存缓存
-    ///   - 多设备免密登录（syncUUID 开关，SSE 握手时由后端下发）：
-    ///       拦截 MessageBuffer.GetData 的 ClientUUID 包拿 (name, uuid) →
-    ///       hook GetUserAccountByName：该 uuid 命中账号的已授权设备集合 →
-    ///       返回 UUID 字段改为该设备 uuid 的账号副本 → TShock 原生免密判断自然命中
-    ///   - 登录成功（PlayerPostLogin）→ 新设备 UUID 上报后端 /hook/qq-uuid（HMAC）
-    ///   - 免密判定本地缓存 miss → 查后端 /hook/uuid-check
+    ///       type=full → 完整台账 { records: { 用户名: { qq, passwordHash } } }
+    ///                     对比本地 Users：缺失 → 注册（直插密码哈希，不重新哈希）；密码不同 → 覆盖
+    ///       type=uuid → 单条 { username, uuid }（登录设备同步）→ 直接 UPDATE Users.SET UUID 落盘
+    ///   - 登录上报（PlayerPostLogin）：本服玩家每次登录成功 → 经 SSE 推送 {username, uuid} 给后端，
+    ///       后端只转发给所有启用 syncUUID 的服务器 → 各服落盘覆盖该账号 UUID 字段。
+    ///   - 免密逻辑完全交给 TShock 原生：各服数据库该账号 UUID = 最新登录设备，
+    ///       TShock 免密判断 account.UUID == player.UUID 自然命中。无多设备集合/内存缓存/hook 副本。
     /// </summary>
     public static class AccountSync
     {
@@ -41,35 +31,14 @@ namespace TShockData
         //  开关（SSE 握手 query 由后端下发）
         // ════════════════════════════════════════════
         private static bool _syncAccounts; // 接收 QQ 台账并创建/覆盖本地账号
-        private static bool _syncUuid;     // 多设备 UUID 免密
+        private static bool _syncUuid;     // 接收 UUID 转发并落盘覆盖
         private static bool _initialized;
-
-        // ════════════════════════════════════════════
-        //  UUID 内存缓存：username → 已授权设备 UUID 集合
-        // ════════════════════════════════════════════
-        private static readonly Dictionary<string, HashSet<string>> _uuidCache = new();
-        private static readonly object _cacheLock = new();
-
-        // 连接期 name → 客户端UUID（ClientUUID 包拦截写入，免密判定用）
-        private static readonly Dictionary<string, string> _connectingUuid = new();
-        private static readonly object _connectingLock = new();
-
-        // MonoMod hooks
-        private static Hook? _hookGetData;
-        private static Hook? _hookGetUserByName;
 
         // ════════════════════════════════════════════
         //  HMAC 签名 nonce 去重缓存
         // ════════════════════════════════════════════
         private static readonly HashSet<string> _nonceCache = new();
         private static readonly object _nonceLock = new();
-
-        // ════════════════════════════════════════════
-        //  uuid-check 等待队列：requestId → 结果（SSE 发请求，/tsweb/qqsync 回传）
-        // ════════════════════════════════════════════
-        private static readonly Dictionary<string, TaskCompletionSource<JObject?>> _uuidCheckWaiters = new();
-        private static readonly object _uuidCheckLock = new();
-        private static int _uuidCheckSeq;
 
         // ════════════════════════════════════════════
         //  生命周期
@@ -80,35 +49,7 @@ namespace TShockData
             if (_initialized) return;
             _initialized = true;
 
-            // 拦截 ClientUUID 包（CaiBot 同款：底层网络层，TShock 任何处理之前）
-            try
-            {
-                var getData = typeof(MessageBuffer).GetMethod("GetData",
-                    System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance,
-                    null, new[] { typeof(int), typeof(int), typeof(int).MakeByRefType() }, null);
-                if (getData != null)
-                    _hookGetData = new Hook(getData, OnMessageBufferGetData);
-            }
-            catch (Exception ex)
-            {
-                TShock.Log.ConsoleError($"[AccountSync] MessageBuffer.GetData hook 失败: {ex.Message}");
-            }
-
-            // 免密判定：GetUserAccountByName 拦截（连接时 TShock 用它取账号）
-            try
-            {
-                var m = typeof(UserAccountManager).GetMethod("GetUserAccountByName",
-                    System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
-                if (m != null)
-                    _hookGetUserByName = new Hook(m, OnGetUserAccountByName);
-            }
-            catch (Exception ex)
-            {
-                TShock.Log.ConsoleError($"[AccountSync] GetUserAccountByName hook 失败: {ex.Message}");
-            }
-
             PlayerHooks.PlayerPostLogin += OnPlayerPostLogin;
-            ServerApi.Hooks.ServerLeave.Register(plugin, OnServerLeave);
 
             TShock.Log.ConsoleInfo($"[AccountSync] QQ 台账同步已初始化 (syncAccounts={_syncAccounts}, syncUUID={_syncUuid})");
         }
@@ -118,18 +59,8 @@ namespace TShockData
             if (!_initialized) return;
             _initialized = false;
 
-            try { _hookGetData?.Dispose(); } catch { }
-            try { _hookGetUserByName?.Dispose(); } catch { }
-            _hookGetData = null;
-            _hookGetUserByName = null;
-
             PlayerHooks.PlayerPostLogin -= OnPlayerPostLogin;
-            ServerApi.Hooks.ServerLeave.Deregister(plugin, OnServerLeave);
-
-            lock (_cacheLock) _uuidCache.Clear();
-            lock (_connectingLock) _connectingUuid.Clear();
             lock (_nonceLock) _nonceCache.Clear();
-            lock (_uuidCheckLock) _uuidCheckWaiters.Clear();
         }
 
         /// <summary>SSE 握手时由后端下发开关（WebRestServer.HandleSseAsync 调用）</summary>
@@ -142,15 +73,15 @@ namespace TShockData
         public static bool IsSyncAccounts => _syncAccounts;
         public static bool IsSyncUuid => _syncUuid;
 
-        /// <summary>获取账号已授权设备 UUID 列表（绑定 find-account 用，来源为台账同步缓存）</summary>
-        public static List<string> GetUuidList(string username)
+        /// <summary>获取账号当前数据库 UUID 字段（绑定 find-account 用，来源为本地 Users 真值）</summary>
+        public static string GetUuid(string username)
         {
-            lock (_cacheLock)
+            try
             {
-                if (_uuidCache.TryGetValue(username, out var set))
-                    return set.ToList();
+                var account = TShock.UserAccounts.GetUserAccountByName(username);
+                return account?.UUID ?? "";
             }
-            return new List<string>();
+            catch { return ""; }
         }
 
         // ════════════════════════════════════════════
@@ -174,9 +105,6 @@ namespace TShockData
                         break;
                     case "uuid":
                         ApplyUuid(payload);
-                        break;
-                    case "uuid-check-result":
-                        CompleteUuidCheck(payload);
                         break;
                     default:
                         return "{\"status\":\"400\",\"error\":\"Unknown type\"}";
@@ -203,16 +131,6 @@ namespace TShockData
                 if (rec == null) continue;
 
                 var hash = rec["passwordHash"]?.ToString() ?? "";
-                var uuids = (rec["uuidList"] as JArray)?
-                    .Select(x => x.ToString())
-                    .Where(IsValidUuid)
-                    .ToList() ?? new List<string>();
-
-                // UUID 缓存无条件更新（full 推给 syncAccounts 或 syncUUID 的服）
-                lock (_cacheLock)
-                {
-                    _uuidCache[username] = new HashSet<string>(uuids);
-                }
 
                 // 账号创建/覆盖仅在启用账号同步时执行
                 if (!_syncAccounts) continue;
@@ -256,6 +174,10 @@ namespace TShockData
             }
         }
 
+        /// <summary>
+        /// 收到后端转发的登录设备 UUID → 直接覆盖本地 Users.UUID 落盘。
+        /// TShock 原生免密判断 account.UUID == player.UUID 由此命中。
+        /// </summary>
         private static void ApplyUuid(JObject payload)
         {
             var username = payload["username"]?.ToString();
@@ -266,200 +188,45 @@ namespace TShockData
                 TShock.Log.ConsoleWarn($"[AccountSync] 忽略非法 UUID: {uuid}");
                 return;
             }
-            lock (_cacheLock)
-            {
-                if (!_uuidCache.TryGetValue(username, out var set))
-                    _uuidCache[username] = set = new HashSet<string>();
-                set.Add(uuid);
-            }
-            TShock.Log.ConsoleInfo($"[AccountSync] 已更新设备: {username} +{uuid}");
-        }
-
-        /// <summary>处理后端回传的 uuid-check-result，唤醒等待中的免密查询</summary>
-        private static void CompleteUuidCheck(JObject payload)
-        {
-            var requestId = payload?["requestId"]?.ToString();
-            if (string.IsNullOrEmpty(requestId)) return;
-            TaskCompletionSource<JObject?>? tcs;
-            lock (_uuidCheckLock)
-            {
-                _uuidCheckWaiters.TryGetValue(requestId, out tcs);
-                _uuidCheckWaiters.Remove(requestId);
-            }
-            tcs?.TrySetResult(payload);
-        }
-
-        // ════════════════════════════════════════════
-        //  多设备免密登录
-        // ════════════════════════════════════════════
-
-        private delegate void OrigMessageBufferGetData(MessageBuffer self, int start, int length, out int messageType);
-
-        private static void OnMessageBufferGetData(OrigMessageBufferGetData orig, MessageBuffer self, int start, int length, out int messageType)
-        {
-            try
-            {
-                if (_syncUuid && self != null && self.readerStream != null &&
-                    start >= 0 && start + 1 <= self.readerStream.Length)
-                {
-                    long pos = self.readerStream.Position;
-                    self.readerStream.Position = start;
-                    int type = self.readerStream.ReadByte();
-                    self.readerStream.Position = pos;
-
-                    if (type == (int)PacketTypes.ClientUUID)
-                    {
-                        long p2 = self.readerStream.Position;
-                        self.readerStream.Position = start + 1; // 跳过包类型字节
-                        var br = new BinaryReader(self.readerStream, Encoding.UTF8, true);
-                        string uuid = br.ReadString();
-                        self.readerStream.Position = p2;
-
-                        if (self.whoAmI >= 0 && self.whoAmI < TShock.Players.Length)
-                        {
-                            var player = TShock.Players[self.whoAmI];
-                            if (player != null && !string.IsNullOrEmpty(player.Name) && IsValidUuid(uuid))
-                            {
-                                lock (_connectingLock)
-                                {
-                                    _connectingUuid[player.Name] = uuid;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            catch { /* 解析失败不阻断原始流程 */ }
-
-            orig(self, start, length, out messageType);
-        }
-
-        private delegate UserAccount OrigGetUserAccountByName(UserAccountManager self, string name);
-
-        private static UserAccount OnGetUserAccountByName(OrigGetUserAccountByName orig, UserAccountManager self, string name)
-        {
-            var account = orig(self, name);
-            if (account == null || !_syncUuid) return account;
-
-            string clientUuid;
-            lock (_connectingLock)
-            {
-                _connectingUuid.TryGetValue(name ?? "", out clientUuid);
-            }
-            if (string.IsNullOrEmpty(clientUuid) || !IsValidUuid(clientUuid)) return account;
-
-            if (IsAuthorizedDevice(name, clientUuid))
-            {
-                // 命中：返回 UUID 改为当前设备 uuid 的副本 → TShock 免密判断 account.UUID == player.UUID 命中
-                return new UserAccount(name, account.Password, clientUuid, account.Group,
-                    account.Registered, account.LastAccessed, account.KnownIps) { ID = account.ID };
-            }
-            return account;
-        }
-
-        private static bool IsAuthorizedDevice(string name, string uuid)
-        {
-            lock (_cacheLock)
-            {
-                if (_uuidCache.TryGetValue(name, out var set) && set.Contains(uuid))
-                    return true;
-            }
-            // miss → 查后端（不可达/不在台账 → 走密码，不阻塞登录）
-            var res = QueryBackendUuid(name, uuid);
-            return res == true;
-        }
-
-        /// <summary>免密判定 miss 时经 SSE 向后端确认设备授权；返回 null 表示无法判定（超时/无连接）</summary>
-        private static bool? QueryBackendUuid(string username, string uuid)
-        {
-            var requestId = "uc-" + Guid.NewGuid().ToString("N").Substring(0, 8) + "-" + Interlocked.Increment(ref _uuidCheckSeq);
-            var tcs = new TaskCompletionSource<JObject?>(TaskCreationOptions.RunContinuationsAsynchronously);
-            lock (_uuidCheckLock)
-            {
-                _uuidCheckWaiters[requestId] = tcs;
-            }
+            if (!_syncUuid) return;
 
             try
             {
-                var body = JsonConvert.SerializeObject(new { requestId, username, uuid });
-                WebRestServer.Broadcast("uuid-check", body);
-                // 等待回传（SSE 发请求 → 后端查台账 → /tsweb/qqsync 回传 uuid-check-result）
-                if (!tcs.Task.Wait(TimeSpan.FromSeconds(5)))
-                    return null; // 超时 → 走密码
-                var res = tcs.Task.Result;
-                if (res?["inList"] != null)
-                {
-                    // 顺带把后端集合写回本地缓存
-                    if (res["uuidList"] is JArray arr)
-                    {
-                        var list = arr.Select(x => x.ToString()).Where(IsValidUuid).ToList();
-                        lock (_cacheLock)
-                        {
-                            _uuidCache[username] = new HashSet<string>(list);
-                        }
-                    }
-                    return (bool)res["inList"];
-                }
+                TShock.DB.Query("UPDATE Users SET UUID=@0 WHERE Username=@1", uuid, username);
+                TShock.Log.ConsoleInfo($"[AccountSync] 已同步设备UUID(落盘): {username} = {uuid}");
             }
-            catch { }
-            return null;
+            catch (Exception ex)
+            {
+                TShock.Log.ConsoleError($"[AccountSync] UUID 落盘失败 {username}: {ex.Message}");
+            }
         }
 
-        /// <summary>登录成功：新设备 UUID 追加本地缓存并上报后端</summary>
+        /// <summary>
+        /// 登录成功：本服玩家每次登录 → 经 SSE 推送 {username, uuid} 给后端。
+        /// 后端只转发给其他启用 syncUUID 的服务器落盘覆盖。本服不依赖上报。
+        /// </summary>
         private static void OnPlayerPostLogin(PlayerPostLoginEventArgs e)
         {
             var p = e.Player;
             if (p == null || string.IsNullOrEmpty(p.Name) || string.IsNullOrEmpty(p.UUID)) return;
             if (!IsValidUuid(p.UUID)) return;
 
-            bool isNew;
-            lock (_cacheLock)
+            var name = p.Name;
+            var uuid = p.UUID;
+            try
             {
-                if (!_uuidCache.TryGetValue(p.Name, out var set))
-                    _uuidCache[p.Name] = set = new HashSet<string>();
-                isNew = set.Add(p.UUID);
+                // 通过已建立的 SSE 连接推送给后端（复用日志通道，插件无需知道后端地址）
+                var body = JsonConvert.SerializeObject(new { username = name, uuid });
+                WebRestServer.Broadcast("qq-uuid", body);
             }
-            lock (_connectingLock)
+            catch (Exception ex)
             {
-                _connectingUuid.Remove(p.Name);
-            }
-
-            // 无论本服 syncUUID 开关如何都上报：本服是采集点，其他启用服消费
-            if (isNew)
-            {
-                var name = p.Name;
-                var uuid = p.UUID;
-                try
-                {
-                    // 通过已建立的 SSE 连接推送给后端（复用日志通道，插件无需知道后端地址）
-                    var body = JsonConvert.SerializeObject(new { username = name, uuid });
-                    WebRestServer.Broadcast("qq-uuid", body);
-                    TShock.Log.ConsoleInfo($"[AccountSync] 已上报新设备: {name} +{uuid}");
-                }
-                catch (Exception ex)
-                {
-                    TShock.Log.ConsoleWarn($"[AccountSync] 上报新设备失败 {name}: {ex.Message}");
-                }
-            }
-        }
-
-        private static void OnServerLeave(LeaveEventArgs e)
-        {
-            if (e.Who >= 0 && e.Who < TShock.Players.Length)
-            {
-                var p = TShock.Players[e.Who];
-                if (p != null)
-                {
-                    lock (_connectingLock)
-                    {
-                        _connectingUuid.Remove(p.Name ?? "");
-                    }
-                }
+                TShock.Log.ConsoleWarn($"[AccountSync] 上报登录设备失败 {name}: {ex.Message}");
             }
         }
 
         // ════════════════════════════════════════════
-        //  HMAC 签名校验 / 签名请求
+        //  HMAC 签名校验
         // ════════════════════════════════════════════
 
         private static bool VerifySignature(Dictionary<string, string> headers, string body)

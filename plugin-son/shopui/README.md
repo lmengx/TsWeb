@@ -88,3 +88,6 @@ dotnet build -c Release
 - v1.4.3：药水价格体系重做——基础 1 金；洞穴探险/狩猎/危险感知/耐力/隐身 3 金；生命力 5 金（仅肉山后售卖）；战斗/镇静 10 金；生物群落观测/黑曜石皮 20 金。补全药水：挖矿(2322)/心跳(2323)/鳍皮(2327)/危险感知 Trapsight(2329)/生物群落观测(5211)。钓鱼/宝匣/声呐/三种幸运药水暂不卖；顺序**便宜在前**（肉山后 34 种，无溢出）
 - v1.4.4：暴怒 Rage/怒气 Wrath/狱火 Inferno 改为 **10 金且仅肉山后售卖**；铁皮/敏捷/再生 改 **30 银**（3000 铜）
 - v1.4.5：修复严重 bug——虚拟旅商死亡后 NPC 槽被复用导致"传送错误 NPC/怪物"。根因：`_active` 存的 NPC 槽索引可被 `NPC.NewNPC` 复用，旅商死后槽里变成其他实体，再次挥动走 PullBack 拉错实体、SendBytes 过滤把它对其他玩家隐藏、RemoveMerchant 误杀。修复：新增每帧 `ValidateMerchants()` 校验槽内是否仍是活跃 368，否则仅清理状态（不碰被复用实体）；`PullBack` 遇错实体改为重新召唤；`RemoveMerchant` 只删真正的 368 旅商
+- v1.4.6：修复手机端刷雕像——购买雕像瞬间把雕像丢出可绕过 PlayerSlot 回滚刷出雕像。修复：新增 `GetDataHandlers.ItemDrop` 拦截，与虚拟旅商对话（商店打开）期间禁止丢弃雕像类物品（Handled=true 阻止服务器生成地上掉落），并回滚背包残留雕像槽位
+- v1.4.7：禁止卖出雕像——卖出无专门包（客户端本地 `Player.SellItem` + `PlayerSlot` 同步）。修复：`OnPlayerSlot` 拦截任何雕像槽更新时回滚货币槽（铜/银/金/铂金币 71/72/73/74）为服务器权威值，防卖出雕像本地加钱被同步刷钱；并用 `args.Stack` 区分购买(stack>0 才切商店)/卖出(stack=0 仅禁止)
+- v1.4.8：雕像 buyOnce=true（只能买一个，买后槽清空，由购买动作触发刷新）；修复刷新未停止 bug——`OnPlayerSlot` 原用 `_refreshing[who]=false` 停止，但 `OnGameUpdate` 遍历 `_refreshing.Keys` 只认键存在不认值 → 购买雕像后键残留仍每 0.2s 发包。改为 `_refreshing.Remove(who)` 彻底移除，并在 `OnGameUpdate` 加值检查（值为 false 仅移除刷新状态、不误删旅商）

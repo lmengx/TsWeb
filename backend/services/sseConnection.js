@@ -15,7 +15,7 @@ import crypto from 'crypto'
 import { fileURLToPath } from 'url'
 import { getServers, getConfig } from '../config.js'
 import { pushWebhookLog } from './logBroadcast.js'
-import { pushFullIfEnabled, addUuid, broadcastUuid, getAccountByUsername, postToServer } from './qqAccountService.js'
+import { pushFullIfEnabled, broadcastUuid } from './qqAccountService.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -160,12 +160,8 @@ function handleFrame(conn, frame) {
       pushWebhookLog(data, conn.server.id)
       break
     case 'qq-uuid':
-      // 插件登录新设备上报（复用 SSE 通道，像日志一样）→ 更新台账 + 广播单条到其他启用 syncUUID 的服
+      // 插件登录设备上报（复用 SSE 通道）→ 后端不落库，仅转发到其他启用 syncUUID 的服落盘覆盖
       handleQqUuidEvent(conn, parsed)
-      break
-    case 'uuid-check':
-      // 插件免密判定缓存 miss 时的设备授权查询（走 SSE）→ 查台账 → 经 /tsweb/qqsync 回传结果
-      handleUuidCheckEvent(conn, parsed)
       break
     default:
       if (event.startsWith('file.')) {
@@ -179,47 +175,14 @@ function handleFrame(conn, frame) {
   }
 }
 
-/** 插件经 SSE 上报新设备 uuid：更新台账，新增则广播单条到其他启用 syncUUID 的服务器 */
+/** 插件经 SSE 上报登录设备 uuid：后端不落库，仅转发到其他启用 syncUUID 的服务器落盘覆盖 */
 function handleQqUuidEvent(conn, parsed) {
   const username = String(parsed?.username || '').trim()
   const uuid = String(parsed?.uuid || '').trim()
   if (!username || !uuid) return
 
-  addUuid(username, uuid).then(r => {
-    if (r && r.ok && r.added) {
-      console.log(`[QQ台账] SSE 收到新设备: ${username} +${uuid} (来自 ${conn.server.name})`)
-      broadcastUuid(username, uuid).then(br => {
-        if (br.ok !== br.total) {
-          console.warn(`[QQ台账] UUID 广播完成: ${br.ok}/${br.total} (${username} +${uuid})`)
-        }
-      })
-    } else if (r && r.error) {
-      console.warn(`[QQ台账] SSE uuid 处理失败: ${r.error}`)
-    }
-  }).catch(e => {
-    console.warn(`[QQ台账] SSE uuid 处理异常: ${e.message}`)
-  })
-}
-
-/** 插件免密判定缓存 miss 时经 SSE 查询设备授权：查台账 → 经 /tsweb/qqsync 回传 {type:'uuid-check-result', requestId, inList, uuidList} */
-function handleUuidCheckEvent(conn, parsed) {
-  const requestId = String(parsed?.requestId || '').trim()
-  const username = String(parsed?.username || '').trim()
-  const uuid = String(parsed?.uuid || '').trim()
-  if (!requestId || !username || !uuid) return
-
-  getAccountByUsername(username).then(account => {
-    const uuidList = Array.isArray(account?.uuidList) ? account.uuidList : []
-    const inList = uuidList.includes(uuid)
-    const payload = { type: 'uuid-check-result', requestId, username, uuid, inList, uuidList }
-    postToServer(conn.server, payload).then(r => {
-      if (!r || !r.ok) {
-        console.warn(`[QQ台账] uuid-check 回传失败: ${r?.error || r?.status || 'no response'}`)
-      }
-    })
-  }).catch(e => {
-    console.warn(`[QQ台账] uuid-check 处理异常: ${e.message}`)
-  })
+  console.log(`[QQ台账] SSE 收到登录设备: ${username} +${uuid} (来自 ${conn.server.name})，转发同步`)
+  broadcastUuid(username, uuid)
 }
 
 // ═══════════════ 下载会话（实时转发，不落盘） ═══════════════

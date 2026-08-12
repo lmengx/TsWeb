@@ -9,9 +9,10 @@ const ACCOUNTS_PATH = path.join(__dirname, '..', 'data', 'qq_accounts.json')
 
 // ═══════════════════════════════════════════════════════════
 // QQ 账号台账（后端权威）
-//   records: { 用户名: { qq, passwordHash, uuidList[], updatedAt } }
-// 由绑定/注册/改密维护；向启用 syncQQAccounts 的服务器推送完整台账，
-// 登录新设备 UUID 通过 addUuid 追加后推单条（启用 syncUUID 的服务器）。
+//   records: { 用户名: { qq, passwordHash, updatedAt } }
+//   仅存 QQ号 + 密码哈希（注册/绑定/改密维护）。
+//   UUID 不再存储于台账：账号登录设备由「登录上报 → 后端转发 → 各服落盘」实时同步，
+//   各服数据库 Users.UUID 字段即真值，TShock 原生免密直接命中。
 // ═══════════════════════════════════════════════════════════
 
 let _loaded = false
@@ -59,45 +60,25 @@ export async function getAccountByQq(qq) {
   return null
 }
 
-function uniqueList(arr) {
-  return [...new Set((arr || []).map(x => String(x)).filter(Boolean))]
-}
-
 /**
  * upsert 一条台账记录（注册/绑定/改密共用）
  * @returns {{ changed: boolean, existed: boolean }}
  */
-export async function upsertAccount({ username, qq = '', passwordHash = '', uuidList = [], updatedAt }) {
+export async function upsertAccount({ username, qq = '', passwordHash = '', updatedAt }) {
   const records = await getAccounts()
   const existing = records[username]
-  const newUuids = uniqueList(uuidList)
   const existed = !!existing
   const changed = !existing
     || String(existing.qq || '') !== String(qq || '')
     || String(existing.passwordHash || '') !== String(passwordHash || '')
-    || JSON.stringify(uniqueList(existing.uuidList)) !== JSON.stringify(newUuids)
 
   records[username] = {
     qq: String(qq || ''),
     passwordHash: String(passwordHash || ''),
-    uuidList: newUuids,
     updatedAt: updatedAt || new Date().toISOString()
   }
   await persist()
   return { changed, existed }
-}
-
-/** 追加一个已登录设备 UUID 到台账（登录成功上报），返回是否真正新增 */
-export async function addUuid(username, uuid) {
-  const records = await getAccounts()
-  const rec = records[username]
-  if (!rec) return { ok: false, error: '账号不在台账' }
-  if (!Array.isArray(rec.uuidList)) rec.uuidList = []
-  if (rec.uuidList.includes(uuid)) return { ok: true, added: false }
-  rec.uuidList.push(uuid)
-  rec.updatedAt = new Date().toISOString()
-  await persist()
-  return { ok: true, added: true }
 }
 
 /** 移除台账记录（暂未接入删号同步，预留） */
@@ -168,17 +149,17 @@ export function shouldSyncAccounts(server) {
   return server?.enabled !== false && server?.syncQQAccounts === true
 }
 
-/** 单台服务器是否接收完整台账（账号同步或 UUID 同步任一启用都推 full，UUID 缓存需要初始化） */
+/** 单台服务器是否接收完整台账（账号同步或 UUID 同步任一启用都推 full） */
 export function shouldReceiveFull(server) {
   return server?.enabled !== false && (server?.syncQQAccounts === true || server?.syncUUID === true)
 }
 
-/** 单台服务器是否启用 UUID 同步 */
+/** 单台服务器是否启用 UUID 转发（登录设备落盘） */
 export function shouldSyncUuid(server) {
   return server?.enabled !== false && server?.syncUUID === true
 }
 
-/** 完整台账 payload */
+/** 完整台账 payload（不含 uuid，账号密码权威） */
 export async function buildFullPayload() {
   const records = await getAccounts()
   return { type: 'full', records }
@@ -199,7 +180,7 @@ export async function broadcastFullAll() {
   return { ok: okCount, total: targets.length }
 }
 
-/** 向所有启用 syncUUID 的服务器推送单条 UUID 更新 */
+/** 向所有启用 syncUUID 的服务器转发单条 UUID（登录设备同步，不落台账） */
 export async function broadcastUuid(username, uuid) {
   const servers = await getServers()
   const targets = servers.filter(shouldSyncUuid)
@@ -207,7 +188,9 @@ export async function broadcastUuid(username, uuid) {
   const results = await Promise.allSettled(targets.map(s => postToServer(s, payload)))
   const okCount = results.filter(r => r.status === 'fulfilled' && r.value.ok).length
   if (okCount !== targets.length) {
-    console.warn(`[QQ台账] UUID 推送完成: ${okCount}/${targets.length} (${username} +${uuid})`)
+    console.warn(`[QQ台账] UUID 转发完成: ${okCount}/${targets.length} (${username} +${uuid})`)
+  } else {
+    console.log(`[QQ台账] UUID 转发完成: ${okCount}/${targets.length} (${username} +${uuid})`)
   }
   return { ok: okCount, total: targets.length }
 }
@@ -219,4 +202,4 @@ export async function pushFullIfEnabled(server) {
   return postToServer(server, payload)
 }
 
-export default { getAccounts, upsertAccount, addUuid, removeAccount, broadcastFullAll, broadcastUuid, pushFullIfEnabled }
+export default { getAccounts, upsertAccount, removeAccount, broadcastFullAll, broadcastUuid, pushFullIfEnabled }

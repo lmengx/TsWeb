@@ -228,6 +228,8 @@ namespace TShockData
 			OTAPI.Hooks.MessageBuffer.GetData += OnGetData;
 			// 4. 雕像购买检测（背包槽更新包）
 			GetDataHandlers.PlayerSlot += OnPlayerSlot;
+			// 4.5 丢弃拦截（防手机端购买雕像瞬间丢出刷雕像：对话期间禁丢雕像）
+			GetDataHandlers.ItemDrop += OnItemDrop;
 			// 5. 玩家下线兜底清理
 			ServerApi.Hooks.ServerLeave.Register(plugin, OnServerLeave);
 			// 6. 打开商店后的持续高频刷新（每 0.2s 重发 104，直到退出旅商/购买雕像）
@@ -243,6 +245,7 @@ namespace TShockData
 			OTAPI.Hooks.NetMessage.SendBytes -= OnSendBytes;
 			OTAPI.Hooks.MessageBuffer.GetData -= OnGetData;
 			GetDataHandlers.PlayerSlot -= OnPlayerSlot;
+			GetDataHandlers.ItemDrop -= OnItemDrop;
 			ServerApi.Hooks.ServerLeave.Deregister(_plugin, OnServerLeave);
 			ServerApi.Hooks.GameUpdate.Deregister(_plugin, OnGameUpdate);
 
@@ -344,16 +347,23 @@ namespace TShockData
 		{
 			ValidateMerchants(); // 旅商死亡/槽被复用 → 清理状态（每帧，不依赖其他事件）
 			if (_refreshing.Count == 0) return;
-			var stop = new List<int>();
+			var stop = new List<int>();            // 仅移除刷新状态（被标记停止）
+			var stopAndCleanup = new List<int>();  // 移除刷新状态 + RemoveMerchant 兜底（旅商移除/离线）
 			foreach (var who in _refreshing.Keys)
 			{
+				// 防御：键存在但值为 false（历史残留的置位停止）→ 只移除刷新状态，不触碰旅商
+				if (!_refreshing.TryGetValue(who, out var r) || !r)
+				{
+					stop.Add(who);
+					continue;
+				}
 				// 玩家已离线/断开（ServerLeave 可能未及时触发）→ 停止并兜底移除，避免持续向断开 socket 发包报错
 				bool offline = who < 0 || who >= Netplay.Clients.Length
 					|| Netplay.Clients[who]?.Socket == null
 					|| !Netplay.Clients[who]!.Socket.IsConnected();
 				if (!_active.ContainsKey(who) || offline)
 				{
-					stop.Add(who); // 旅商已移除/玩家离线 → 停止
+					stopAndCleanup.Add(who); // 旅商已移除/玩家离线 → 停止并兜底
 					continue;
 				}
 				double acc = _refreshAccum.TryGetValue(who, out var a) ? a : 0;
@@ -366,6 +376,11 @@ namespace TShockData
 				}
 			}
 			foreach (var who in stop)
+			{
+				_refreshing.Remove(who);
+				_refreshAccum.Remove(who);
+			}
+			foreach (var who in stopAndCleanup)
 			{
 				_refreshing.Remove(who);
 				_refreshAccum.Remove(who);
@@ -491,7 +506,8 @@ namespace TShockData
 			// 雕像控件 37-39（价格 0，点击即切商店）
 			for (int i = 0; i < StatueControls.Length; i++)
 			{
-				SendShopOverride(who, (byte)(StatueSlotBase + i), (short)StatueControls[i].itemId, 1, 0, 0, false);
+				// buyOnce=true：雕像只能买一个，买后该槽被客户端清空，靠持续 104 刷新（0.2s）重新出现 → 延缓刷钱速度
+				SendShopOverride(who, (byte)(StatueSlotBase + i), (short)StatueControls[i].itemId, 1, 0, 0, true);
 			}
 		}
 
@@ -536,6 +552,53 @@ namespace TShockData
 			}
 		}
 
+		// ═══════════════════ 丢弃拦截（防刷雕像） ═══════════════════
+
+		/// <summary>是否雕像控件类型</summary>
+		private static bool IsStatueItem(int type)
+		{
+			for (int i = 0; i < StatueControls.Length; i++)
+			{
+				if (StatueControls[i].itemId == type) return true;
+			}
+			return false;
+		}
+
+		/// <summary>
+		/// 丢弃拦截（21 号包 ItemDrop / 125 号包 UpdateItemDrop）：
+		/// 与虚拟旅商对话（商店打开）期间，禁止玩家丢弃雕像类物品。
+		/// 防手机端：购买雕像瞬间把雕像丢出 → 绕过 PlayerSlot 回滚 → 刷出雕像。
+		/// Handled=true 阻止服务器生成地上雕像掉落，并回滚背包残留槽位。
+		/// </summary>
+		private static void OnItemDrop(object sender, GetDataHandlers.ItemDropEventArgs args)
+		{
+			try
+			{
+				if (args.Type < 0) return;
+				if (!IsStatueItem(args.Type)) return;
+				int who = args.Player.Index;
+				if (who < 0 || who >= Main.maxPlayers) return;
+				if (!_active.ContainsKey(who)) return;
+				if (!_talkingWithMerchant.TryGetValue(who, out var t) || !t) return; // 仅对话（商店打开）时禁丢
+
+				args.Handled = true; // 阻止服务器生成雕像掉落
+
+				// 兜底：把背包里残留的雕像槽位回滚（服务器端无雕像 → 客户端恢复原状）
+				var inv = args.Player.TPlayer.inventory;
+				for (int s = 0; s < inv.Length; s++)
+				{
+					if (inv[s] != null && inv[s].type == args.Type)
+					{
+						args.Player.SendData(PacketTypes.PlayerSlot, "", args.Player.Index, s, inv[s].prefix);
+					}
+				}
+			}
+			catch (Exception ex)
+			{
+				TShock.Log.ConsoleError($"[ShopUI] ItemDrop 拦截异常: {ex.Message}");
+			}
+		}
+
 		// ═══════════════════ 雕像购买检测（切商店） ═══════════════════
 
 		private static void OnPlayerSlot(object sender, GetDataHandlers.PlayerSlotEventArgs args)
@@ -554,15 +617,37 @@ namespace TShockData
 			}
 			if (targetShop < 0) return;
 
-			// 拦截：雕像不进入服务器背包
+			// 拦截：雕像不进入服务器背包（购买/卖出/移动一律拒绝）
 			args.Handled = true;
 			// 回滚客户端该槽（服务器端槽无雕像 → 客户端恢复原状，雕像被"清空"）
 			args.Player.SendData(PacketTypes.PlayerSlot, "", args.Player.Index, args.Slot, args.Prefix);
+			// 回滚货币槽：卖出雕像会在本地加钱，服务器从未接受该雕像 → 把客户端货币恢复为服务器权威值（防刷钱）
+			RollbackCoins(args.Player);
+
+			// 仅"雕像进入背包"（购买，stack>0）才视为点击雕像切商店；卖出/移除（stack<=0）只被禁止，不切商店
+			if (args.Stack <= 0) return;
+
 			// 切换商店并刷新（72 快照 + 104 覆盖已打开的商店）；购买雕像 = 停止初始页持续高频刷新
 			_currentShop[who] = targetShop;
-			_refreshing[who] = false; // 停止持续刷新（已切到其他商店）
+			_refreshing.Remove(who); // 停止持续刷新：必须 Remove 键（若仅置 false，OnGameUpdate 遍历 Keys 只认键存在，会继续 0.2s 发包）
 			_refreshAccum.Remove(who);
 			RefreshShop(who);
+		}
+
+		/// <summary>把客户端货币槽（铜/银/金/铂金币物品）回滚为服务器权威值，防止卖出雕像本地加钱被同步刷钱</summary>
+		private static void RollbackCoins(TSPlayer plr)
+		{
+			var inv = plr.TPlayer.inventory;
+			for (int s = 0; s < inv.Length; s++)
+			{
+				var it = inv[s];
+				if (it == null) continue;
+				int t = it.type;
+				if (t == ItemID.CopperCoin || t == ItemID.SilverCoin || t == ItemID.GoldCoin || t == ItemID.PlatinumCoin)
+				{
+					plr.SendData(PacketTypes.PlayerSlot, "", plr.Index, s, it.prefix);
+				}
+			}
 		}
 
 		// ═══════════════════ 挥动检测 ═══════════════════
