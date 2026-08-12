@@ -29,6 +29,8 @@ namespace TShockData
 	public class CrossTransferConfig
 	{
 		[JsonProperty("本服ID")] public string SelfServerId { get; set; } = "server-a";
+		/// <summary>本服密钥：签名时用自己的密钥；其他服在各自配置的对端条目里填这把密钥用于验签</summary>
+		[JsonProperty("本服密钥")] public string SelfSecret { get; set; } = "";
 		[JsonProperty("目标服务器列表")] public System.Collections.Generic.List<TransferServerInfo> Servers { get; set; } = new();
 	}
 
@@ -175,6 +177,7 @@ namespace TShockData
 					Config = new CrossTransferConfig
 					{
 						SelfServerId = "server-a",
+						SelfSecret = "change-me",
 						Servers = new System.Collections.Generic.List<TransferServerInfo>
 						{
 							new TransferServerInfo

@@ -106,7 +106,7 @@ namespace TShockData
 				var nonce = Guid.NewGuid().ToString("N");
 				var signInput = TransferProtocol.BuildAuthSignInput(
 					CrossTransfer.Config.SelfServerId, ts, nonce, playerName, uuid, realIP);
-				var sig = WebhookAuth.HmacSha256Hex(server.Secret, signInput);
+				var sig = WebhookAuth.HmacSha256Hex(CrossTransfer.Config.SelfSecret, signInput);
 				await SendPacketAsync(stream, bw =>
 				{
 					bw.Write(TransferProtocol.CustomPacketId);
@@ -430,7 +430,7 @@ namespace TShockData
 							var nonce = Guid.NewGuid().ToString("N");
 							var signInput = TransferProtocol.BuildAuthSignInput(
 								CrossTransfer.Config.SelfServerId, ts, nonce, playerName, uuid, realIP);
-							var sig = WebhookAuth.HmacSha256Hex(server.Secret, signInput);
+							var sig = WebhookAuth.HmacSha256Hex(CrossTransfer.Config.SelfSecret, signInput);
 							await SendPacketAsync(stream, bw =>
 							{
 								bw.Write(TransferProtocol.CustomPacketId);

@@ -88,21 +88,22 @@ namespace TShockData
 			string player, string uuid, string ip)
 			=> $"{source}.{ts}.{nonce}.{player}.{uuid}.{ip}";
 
-		/// <summary>验签：时间窗 ±300s + nonce 去重 + constant-time 比对</summary>
-		public static bool VerifyAuth(TransferServerInfo server, long ts, string nonce,
-			string signInput, string sig)
+		/// <summary>
+		/// 验签（本服密钥）：时间窗 ±300s + nonce 去重 + constant-time 比对。
+		/// 【不校验来源服务器】—— 只要密钥对就给进（各服配置同一把本服密钥即可互通）。
+		/// </summary>
+		public static bool VerifyAuth(long ts, string nonce, string signInput, string sig)
 		{
-			if (string.IsNullOrEmpty(server?.Secret)) return false;
+			if (string.IsNullOrEmpty(CrossTransfer.Config.SelfSecret)) return false;
 			if (Math.Abs(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - ts) > 300_000) return false;
 
 			lock (_nonceLock)
 			{
-				var key = $"{server.Name}:{nonce}";
-				if (!_nonceCache.Add(key)) return false;
+				if (!_nonceCache.Add(nonce)) return false;
 				if (_nonceCache.Count > 10000) _nonceCache.Clear();
 			}
 
-			var expected = WebhookAuth.HmacSha256Hex(server.Secret, signInput);
+			var expected = WebhookAuth.HmacSha256Hex(CrossTransfer.Config.SelfSecret, signInput);
 			return string.Equals(expected, sig, StringComparison.OrdinalIgnoreCase);
 		}
 
@@ -151,17 +152,9 @@ namespace TShockData
 			var nonce = br.ReadString();
 			var sig = br.ReadString();
 
-			// 按来源 serverId 找本服配置中对端密钥
-			var server = CrossTransfer.Config.Servers.Find(
-				s => s.Name.Equals(source, StringComparison.OrdinalIgnoreCase));
-			if (server == null)
-			{
-				SendAuthAck(whoAmI, false, $"未配置来源服务器: {source}");
-				return;
-			}
-
+			// 不校验来源服务器是否在配置列表里 —— 密钥对就给进（各服本服密钥一致即可互通）
 			var signInput = BuildAuthSignInput(source, ts, nonce, playerName, uuid, realIP);
-			if (!VerifyAuth(server, ts, nonce, signInput, sig))
+			if (!VerifyAuth(ts, nonce, signInput, sig))
 			{
 				TShock.Log.ConsoleWarn($"[CrossTransfer] 鉴权失败: {playerName}@{source} (slot#{whoAmI})");
 				SendAuthAck(whoAmI, false, "鉴权失败");
