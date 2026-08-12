@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Reflection;
+using System.Text.RegularExpressions;
 using Microsoft.Xna.Framework;
 using MonoMod.RuntimeDetour;
 using Newtonsoft.Json;
@@ -9,6 +10,7 @@ using Newtonsoft.Json.Linq;
 using Terraria.GameContent.NetModules;
 using Terraria.Localization;
 using Terraria.Net;
+using TerrariaApi.Server;
 using TShockAPI;
 using TShockAPI.Hooks;
 
@@ -49,6 +51,10 @@ namespace TShockData
 
         // 消息长度上限（与跨服转发校验一致）
         private const int MaxChatLength = 300;
+
+        // [c/#RRGGBB:...] → [c/RRGGBB:...]：客户端 ColorTagHandler 用 NumberStyles.AllowHexSpecifier
+        // 解析（不接受 # 前缀），配置里手写带 # 的颜色码运行时统一清洗
+        private static readonly Regex ColorHashTagRegex = new(@"\[c/#([0-9a-fA-F]{3,8})", RegexOptions.Compiled);
 
         // ════════════════════════════════════════════
         //  MonoMod detour：本地聊天取消名字转义
@@ -107,7 +113,7 @@ namespace TShockData
         public static void SetConfig(bool enabled, string prefix, string colorHex, string serverId, string serverName)
         {
             _enabled = enabled;
-            _prefix = prefix ?? "";
+            _prefix = SanitizePrefix(prefix ?? "");
             _serverId = serverId ?? "";
             _serverName = serverName ?? "";
             ParseColor(colorHex, out _colorR, out _colorG, out _colorB);
@@ -205,7 +211,7 @@ namespace TShockData
                 if (payload == null)
                     return "{\"status\":\"400\",\"error\":\"Bad payload\"}";
 
-                var prefix = payload["prefix"]?.ToString() ?? "";
+                var prefix = SanitizePrefix(payload["prefix"]?.ToString() ?? "");
                 var player = payload["player"]?.ToString() ?? "";
                 var groupPrefix = payload["groupPrefix"]?.ToString() ?? "";
                 var groupSuffix = payload["groupSuffix"]?.ToString() ?? "";
@@ -249,6 +255,13 @@ namespace TShockData
             {
                 r = rr; g = gg; b = bb;
             }
+        }
+
+        /// <summary>把 [c/#RRGGBB:...] 清洗为 [c/RRGGBB:...]（客户端不接受 # 前缀）</summary>
+        private static string SanitizePrefix(string prefix)
+        {
+            if (string.IsNullOrEmpty(prefix)) return prefix;
+            return ColorHashTagRegex.Replace(prefix, "[c/$1");
         }
 
         private static byte ParseByte(JToken? token, byte fallback)

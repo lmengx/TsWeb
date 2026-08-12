@@ -16,7 +16,7 @@ const showAddModal = ref(false)
 // 编辑弹窗
 const showEditModal = ref(false)
 const editForm = ref({ id: '', name: '', host: '', port: 7878, apiKey: '', note: '', enabled: true,
-  crossChat: false, crossChatPrefix: '[c/#4DABF7:{serverName}]', crossChatColor: '#FFFFFF' })
+  crossChat: false, crossChatPrefix: '[c/4DABF7:{serverName}]', crossChatColor: '#FFFFFF' })
 const editSaving = ref(false)
 
 const flash = (msg, type = 'success') => {
@@ -110,7 +110,7 @@ const openEdit = (s) => {
     id: s.id, name: s.name, host: s.host, port: s.port,
     apiKey: '', note: s.note || '', enabled: s.enabled !== false,
     crossChat: s.crossChat === true,
-    crossChatPrefix: s.crossChatPrefix || '[c/#4DABF7:{serverName}]',
+    crossChatPrefix: s.crossChatPrefix || '[c/4DABF7:{serverName}]',
     crossChatColor: s.crossChatColor || '#FFFFFF'
   }
   showEditModal.value = true

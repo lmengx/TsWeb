@@ -277,7 +277,7 @@ router.post('/auto-read', setupOrAdmin, async (req, res) => {
 
 router.post('/auto-verify', setupOrAdmin, async (req, res) => {
   try {
-    const { host, port, apiKey } = req.body
+    const { host, port, apiKey, name } = req.body
     if (!host || !port || !apiKey) {
       return res.status(400).json({ error: 'host、port、apiKey 均为必填' })
     }
@@ -285,7 +285,7 @@ router.post('/auto-verify', setupOrAdmin, async (req, res) => {
     if (!connected.success) {
       return res.json({ success: false, error: connected.error })
     }
-    const server = await addServer({ host, port, apiKey })
+    const server = await addServer({ name, host, port, apiKey })
     const { activateServer } = await import('../services/serverActivation.js')
     activateServer(server)
     audit.record('server.add', {
@@ -294,7 +294,7 @@ router.post('/auto-verify', setupOrAdmin, async (req, res) => {
       port: server.port,
       actor: req.user?.username || 'setup'
     })
-    res.json({ success: true, serverId: server.id })
+    res.json({ success: true, serverId: server.id, name: server.name })
   } catch (err) {
     res.status(500).json({ error: err.message })
   }

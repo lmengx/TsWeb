@@ -106,6 +106,28 @@ function generateServerId() {
   return 'sv-' + crypto.randomBytes(6).toString('hex')
 }
 
+/**
+ * 生成随机鲜艳颜色 #RRGGBB（高饱和 + 高明度，避免暗色/灰暗的低区分度色）。
+ * HSV：H 随机 0-360，S ∈ [0.75, 1]，V ∈ [0.9, 1]，转 RGB 后大写 hex。
+ */
+function randomVividHex() {
+  const h = Math.floor(Math.random() * 360)
+  const s = 0.75 + Math.random() * 0.25
+  const v = 0.9 + Math.random() * 0.1
+  const c = v * s
+  const x = c * (1 - Math.abs((h / 60) % 2 - 1))
+  const m = v - c
+  let r = 0, g = 0, b = 0
+  if (h < 60) { r = c; g = x }
+  else if (h < 120) { r = x; g = c }
+  else if (h < 180) { g = c; b = x }
+  else if (h < 240) { g = x; b = c }
+  else if (h < 300) { r = x; b = c }
+  else { r = c; b = x }
+  const toHex = n => Math.round((n + m) * 255).toString(16).padStart(2, '0').toUpperCase()
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`
+}
+
 export async function getServers() {
   const cfg = await loadConfig()
   if (!cfg) return []
@@ -141,7 +163,8 @@ export async function addServer(data) {
     syncUUID: data.syncUUID === true,
     // 跨服聊天：开关 + 前缀模板（占位符 {serverName}/{id}，可含 [c/...] 转义）+ 消息最外层颜色
     crossChat: data.crossChat === true,
-    crossChatPrefix: (data.crossChatPrefix || '').trim() || '[c/#4DABF7:{serverName}]',
+    // 前缀初始颜色 = 随机鲜艳色（高饱和+高明度），后续可自定义
+    crossChatPrefix: (data.crossChatPrefix || '').trim() || `[c/${randomVividHex()}:{serverName}]`,
     crossChatColor: (data.crossChatColor || '').trim() || '#FFFFFF'
   }
   cfg.servers.push(server)
@@ -162,7 +185,7 @@ export async function updateServer(id, patch) {
     if (patch[key] !== undefined) {
       if (key === 'port') s[key] = parseInt(patch[key]) || s[key]
       else if (key === 'enabled' || key === 'syncQQAccounts' || key === 'syncUUID' || key === 'crossChat') s[key] = !!patch[key]
-      else if (key === 'crossChatPrefix') s[key] = String(patch[key]).trim() || '[c/#4DABF7:{serverName}]'
+      else if (key === 'crossChatPrefix') s[key] = String(patch[key]).trim() || '[c/4DABF7:{serverName}]'
       else if (key === 'crossChatColor') s[key] = String(patch[key]).trim() || '#FFFFFF'
       else s[key] = String(patch[key]).trim()
     }

@@ -82,6 +82,7 @@ const runAdd = async () => {
 
 // ═══════════════ 自动 · 本机（渐进式：扫描 → 配置 → 验证） ═══════════════
 const probePort = ref('7777')
+const localName = ref('')            // 服务器名称（留空自动生成）
 const scanning = ref(false)
 const probeResult = ref(null)      // { found, port, processes:[{pid,path}] }
 const editablePath = ref('')       // 进程路径可编辑
@@ -161,13 +162,14 @@ const startVerifyLoop = async () => {
 const attemptLocalVerify = async () => {
   try {
     const res = await post('/api/setup/auto-verify', {
+      name: localName.value.trim(),
       host: '127.0.0.1',
       port: autoReadResult.value.restPort,
       apiKey: autoReadResult.value.tokenKey
     })
     const data = await res.json()
     if (res.ok && data.success) {
-      await finishAdd({ id: data.serverId, name: '本机服务器' })
+      await finishAdd({ id: data.serverId, name: data.name || localName.value.trim() || '本机服务器' })
       return true
     }
     return false
@@ -186,6 +188,7 @@ const retryLocal = () => {
 
 // ═══════════════ 自动 · 远程（渐进式：解析 → 复制/下载 → 验证） ═══════════════
 const remoteConfigRaw = ref('')
+const remoteName = ref('')            // 服务器名称（留空自动生成）
 const remoteLoading = ref(false)
 const remoteResult = ref(null)
 const remoteHost = ref('')
@@ -242,13 +245,14 @@ const verifyRemoteConnection = async () => {
   try {
     const port = parseInt(remotePort.value) || remoteResult.value.restPort
     const res = await post('/api/setup/auto-verify', {
+      name: remoteName.value.trim(),
       host: remoteHost.value.trim(),
       port,
       apiKey: remoteResult.value.tokenKey
     })
     const data = await res.json()
     if (res.ok && data.success) {
-      await finishAdd({ id: data.serverId, name: remoteHost.value.trim() })
+      await finishAdd({ id: data.serverId, name: data.name || remoteName.value.trim() || remoteHost.value.trim() })
     } else {
       remoteError.value = data.error || '验证失败'
     }
@@ -279,6 +283,7 @@ const reset = () => {
   msg.value = null
   // 本机
   probePort.value = '7777'
+  localName.value = ''
   scanning.value = false
   probeResult.value = null
   editablePath.value = ''
@@ -288,6 +293,7 @@ const reset = () => {
   verifyAttempt.value = 0
   // 远程
   remoteConfigRaw.value = ''
+  remoteName.value = ''
   remoteLoading.value = false
   remoteResult.value = null
   remoteHost.value = ''
@@ -423,6 +429,10 @@ onBeforeUnmount(() => { cancelVerify.value = true })
                   <span class="step-dot">2</span>
                   <span class="step-title">一键配置</span>
                 </div>
+                <div class="form-row">
+                  <label>服务器名称（留空自动生成）</label>
+                  <input v-model="localName" placeholder="如：本机主服" />
+                </div>
                 <button class="btn primary" @click="startLocalOneClick">一键配置并添加</button>
               </div>
 
@@ -488,6 +498,10 @@ onBeforeUnmount(() => { cancelVerify.value = true })
                     <button class="btn ghost" @click="downloadRemoteConfig">下载 config.json</button>
                   </div>
                   <div class="tip">将修改后的配置文件覆盖到远程服务器，并重启 TShock 后再验证</div>
+                  <div class="form-row">
+                    <label>服务器名称（留空自动生成）</label>
+                    <input v-model="remoteName" type="text" placeholder="如：远程主服" />
+                  </div>
                   <div class="form-row">
                     <label>远程 IP / 域名 <span class="req">*</span></label>
                     <input v-model="remoteHost" type="text" placeholder="192.168.1.100" />

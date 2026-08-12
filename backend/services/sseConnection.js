@@ -197,7 +197,7 @@ function handleQqUuidEvent(conn, parsed) {
 
 /** 渲染跨服聊天前缀模板：替换 {serverName}/{id} 占位符（[c/HEX:...] 转义原样保留） */
 function renderCrossChatPrefix(server) {
-  const raw = server.crossChatPrefix || '[c/#4DABF7:{serverName}]'
+  const raw = server.crossChatPrefix || '[c/4DABF7:{serverName}]'
   return String(raw)
     .replaceAll('{serverName}', server.name || '')
     .replaceAll('{id}', server.id || '')

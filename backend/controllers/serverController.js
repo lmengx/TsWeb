@@ -23,7 +23,7 @@ function sanitize(server) {
     syncUUID: server.syncUUID === true,
     // 跨服聊天（前端编辑弹窗回显）
     crossChat: server.crossChat === true,
-    crossChatPrefix: server.crossChatPrefix || '[c/#4DABF7:{serverName}]',
+    crossChatPrefix: server.crossChatPrefix || '[c/4DABF7:{serverName}]',
     crossChatColor: server.crossChatColor || '#FFFFFF'
   }
 }
