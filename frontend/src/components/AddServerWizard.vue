@@ -81,10 +81,13 @@ const runAdd = async () => {
 }
 
 // ═══════════════ 自动 · 本机（渐进式：扫描 → 配置 → 验证） ═══════════════
+const scanMode = ref('name')          // name=按程序名 | port=按端口
+const probeName = ref('TShock.Server.exe')  // 程序名（默认）
 const probePort = ref('7777')
 const localName = ref('')            // 服务器名称（留空自动生成）
 const scanning = ref(false)
-const probeResult = ref(null)      // { found, port, processes:[{pid,path}] }
+const probeResult = ref(null)      // 名称模式: { mode:'name', instances:[{pid,path,ports}] } / 端口模式: { mode:'port', processes:[{pid,path}] }
+const selectedInstance = ref(null) // 名称模式下选中的实例
 const editablePath = ref('')       // 进程路径可编辑
 const autoReadResult = ref(null)
 const localPhase = ref('idle')     // idle | probing | found | reading | verifying | error
@@ -100,23 +103,44 @@ const startLocalScan = async () => {
   scanning.value = true
   localError.value = ''
   probeResult.value = null
+  selectedInstance.value = null
   editablePath.value = ''
   localPhase.value = 'probing'
   try {
-    const res = await get(`/api/setup/probe?port=${probePort.value.trim()}`)
+    const q = scanMode.value === 'name'
+      ? `name=${encodeURIComponent(probeName.value.trim() || 'TShock.Server.exe')}`
+      : `port=${encodeURIComponent(probePort.value.trim() || '7777')}`
+    const res = await get(`/api/setup/probe?${q}`)
     const data = await res.json()
-    if (data.found) {
-      probeResult.value = data
-      editablePath.value = data.processes[0]?.path || ''
-      localPhase.value = 'found'
+    if (data.mode === 'name') {
+      if (data.found && data.instances.length > 0) {
+        probeResult.value = data
+        localPhase.value = 'found'   // 等待用户点选实例
+      } else {
+        localPhase.value = 'error'
+        localError.value = data.error || `未找到进程 ${probeName.value.trim() || 'TShock.Server.exe'}`
+      }
     } else {
-      localPhase.value = 'error'
-      localError.value = data.error || `未在端口 ${probePort.value} 找到监听进程`
+      if (data.found) {
+        probeResult.value = data
+        editablePath.value = data.processes[0]?.path || ''
+        localPhase.value = 'found'
+      } else {
+        localPhase.value = 'error'
+        localError.value = data.error || `未在端口 ${probePort.value} 找到监听进程`
+      }
     }
   } catch (e) {
     localPhase.value = 'error'
     localError.value = e.message
   } finally { scanning.value = false }
+}
+
+/** 名称模式：选中一个服务器实例（路径填入，后续可编辑） */
+const selectLocalInstance = (inst) => {
+  selectedInstance.value = inst
+  editablePath.value = inst.path || ''
+  localError.value = ''
 }
 
 const startLocalOneClick = async () => {
@@ -282,10 +306,13 @@ const reset = () => {
   adding.value = false
   msg.value = null
   // 本机
+  scanMode.value = 'name'
+  probeName.value = 'TShock.Server.exe'
   probePort.value = '7777'
   localName.value = ''
   scanning.value = false
   probeResult.value = null
+  selectedInstance.value = null
   editablePath.value = ''
   autoReadResult.value = null
   localPhase.value = 'idle'
@@ -402,14 +429,60 @@ onBeforeUnmount(() => { cancelVerify.value = true })
                   <span class="step-dot" :class="{ done: localPhase === 'found' || localPhase === 'reading' || localPhase === 'verifying', active: localPhase === 'probing' }">1</span>
                   <span class="step-title">检测进程</span>
                 </div>
-                <div v-if="localPhase === 'idle' || localPhase === 'error'" class="probe-bar">
+
+                <!-- 扫描方式：按程序名（默认）/ 按端口（可选） -->
+                <div class="scan-tabs">
+                  <button class="scan-tab" :class="{ active: scanMode === 'name' }" @click="scanMode = 'name'">按程序名</button>
+                  <button class="scan-tab" :class="{ active: scanMode === 'port' }" @click="scanMode = 'port'">按端口</button>
+                </div>
+
+                <!-- 输入区：程序名 -->
+                <div v-if="scanMode === 'name'" class="probe-bar">
+                  <input v-model="probeName" class="form-input" placeholder="TShock.Server.exe" />
+                  <button class="btn primary" :disabled="scanning" @click="startLocalScan">
+                    {{ scanning ? '扫描中...' : '扫描' }}
+                  </button>
+                </div>
+                <!-- 输入区：端口 -->
+                <div v-else class="probe-bar">
                   <input v-model="probePort" class="form-input" placeholder="游戏端口" />
                   <button class="btn primary" :disabled="scanning" @click="startLocalScan">
                     {{ scanning ? '扫描中...' : '扫描' }}
                   </button>
                 </div>
-                <div v-if="localPhase === 'probing'" class="step-status">正在扫描端口 {{ probePort }} ...</div>
-                <div v-if="probeResult?.found && (localPhase === 'found' || localPhase === 'reading' || localPhase === 'verifying' || localPhase === 'error')" class="proc-card">
+                <div v-if="localPhase === 'probing'" class="step-status">
+                  {{ scanMode === 'name' ? `正在扫描进程 ${probeName || 'TShock.Server.exe'} ...` : `正在扫描端口 ${probePort} ...` }}
+                </div>
+
+                <!-- 程序名模式：实例列表（点击选择要接入的服务器） -->
+                <div v-if="scanMode === 'name' && probeResult?.instances?.length && (localPhase === 'found' || localPhase === 'reading' || localPhase === 'verifying' || localPhase === 'error')" class="inst-list">
+                  <div
+                    v-for="inst in probeResult.instances"
+                    :key="inst.pid"
+                    class="inst-card"
+                    :class="{ selected: selectedInstance?.pid === inst.pid }"
+                    @click="selectLocalInstance(inst)"
+                  >
+                    <div class="inst-row">
+                      <span class="inst-pid">PID {{ inst.pid }}</span>
+                      <span class="inst-ports">监听 {{ inst.ports.length ? inst.ports.join(' / ') : '无' }}</span>
+                    </div>
+                    <div class="inst-path">{{ inst.path }}</div>
+                  </div>
+                  <div class="proc-note">点击选择要接入的服务器实例（路径可在下一步修改）</div>
+                </div>
+
+                <!-- 名称模式：已选实例的路径可编辑 -->
+                <div v-if="scanMode === 'name' && selectedInstance" class="proc-card selected-path">
+                  <div class="proc-row">
+                    <span class="proc-label">已选路径</span>
+                    <input v-model="editablePath" class="path-input" :disabled="localPhase !== 'found'" />
+                  </div>
+                  <div class="proc-note">路径可修改</div>
+                </div>
+
+                <!-- 端口模式：进程卡片 -->
+                <div v-if="scanMode === 'port' && probeResult?.processes?.length && (localPhase === 'found' || localPhase === 'reading' || localPhase === 'verifying' || localPhase === 'error')" class="proc-card">
                   <div class="proc-row">
                     <span class="proc-label">PID</span>
                     <code class="proc-pid">{{ probeResult.processes[0].pid }}</code>
@@ -433,7 +506,11 @@ onBeforeUnmount(() => { cancelVerify.value = true })
                   <label>服务器名称（留空自动生成）</label>
                   <input v-model="localName" placeholder="如：本机主服" />
                 </div>
-                <button class="btn primary" @click="startLocalOneClick">一键配置并添加</button>
+                <button
+                  class="btn primary"
+                  :disabled="(scanMode === 'name' && !selectedInstance) || scanning"
+                  @click="startLocalOneClick"
+                >一键配置并添加</button>
               </div>
 
               <!-- 步骤 3：等待重启验证 -->
@@ -606,6 +683,34 @@ onBeforeUnmount(() => { cancelVerify.value = true })
 .step-status { font-size: .82rem; color: var(--text-muted); }
 
 /* 表单 */
+.scan-tabs { display: flex; gap: 4px; margin-bottom: 10px; background: var(--bg-tertiary); border-radius: 8px; padding: 3px; }
+.scan-tab {
+  flex: 1; border: none; background: transparent; color: var(--text-muted);
+  padding: 5px 0; border-radius: 6px; font-size: .8rem; cursor: pointer; transition: all .18s ease;
+}
+.scan-tab.active { background: var(--accent-primary); color: #fff; }
+
+/* 名称模式：实例列表 */
+.inst-list { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.inst-card {
+  border: 1.5px solid var(--border-color); border-radius: 10px;
+  padding: 10px 12px; background: var(--bg-tertiary); cursor: pointer;
+  transition: all .18s ease;
+}
+.inst-card:hover { border-color: var(--accent-primary); }
+.inst-card.selected {
+  border-color: var(--accent-primary); background: rgba(99,102,241,.08);
+  box-shadow: 0 0 0 2px rgba(99,102,241,.15);
+}
+.inst-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 5px; }
+.inst-pid {
+  font-size: .8rem; font-weight: 700; color: var(--accent-primary);
+  background: rgba(99,102,241,.12); padding: 1px 8px; border-radius: 6px;
+}
+.inst-ports { font-size: .76rem; color: #22c55e; }
+.inst-path { font-size: .78rem; color: var(--text-muted); font-family: monospace; word-break: break-all; }
+.selected-path { margin-top: 8px; }
+
 .form-row { display: flex; flex-direction: column; gap: 5px; margin-bottom: 11px; }
 .form-row label { font-size: .82rem; color: var(--text-muted); }
 .form-row input, .form-row select, .form-input {

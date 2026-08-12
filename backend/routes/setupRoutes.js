@@ -154,7 +154,62 @@ router.post('/create-admin', async (req, res) => {
 
 router.get('/probe', setupOrAdmin, async (req, res) => {
   try {
-    const port = req.query.port || '7777'
+    const portQ = req.query.port ? String(req.query.port).trim() : ''
+    const nameQ = req.query.name ? String(req.query.name).trim() : ''
+
+    // ═══ 方式 A：按进程名扫描（默认 TShock.Server.exe，列出全部实例 + 各自监听端口）═══
+    if (nameQ) {
+      let tasklistOut = ''
+      try {
+        const { stdout } = await execAsync(`chcp 65001>nul & tasklist /FI "IMAGENAME eq ${nameQ}" /FO CSV /NH`)
+        tasklistOut = stdout
+      } catch {
+        tasklistOut = ''
+      }
+      // CSV: "ImageName","PID","SessionName","Session#","MemUsage"
+      const pids = [...new Set(
+        tasklistOut.split('\n')
+          .map(l => l.trim())
+          .filter(l => l.includes('"'))
+          .map(l => l.split(',')[1]?.replace(/"/g, '').trim())
+          .filter(Boolean)
+      )]
+      if (pids.length === 0) {
+        return res.json({ found: false, mode: 'name', name: nameQ, instances: [] })
+      }
+
+      // netstat 全量一次，按 PID 分组监听端口（端口总是地址最后一段，IPv6 亦适用）
+      let netstatOut = ''
+      try {
+        const { stdout } = await execAsync(`chcp 65001>nul & netstat -ano | findstr LISTENING`)
+        netstatOut = stdout
+      } catch {
+        netstatOut = ''
+      }
+      const portsByPid = new Map()
+      for (const line of netstatOut.split('\n')) {
+        const parts = line.trim().split(/\s+/)
+        if (parts.length < 5) continue
+        const pid = parts[parts.length - 1]
+        const local = parts[1] || ''
+        const idx = local.lastIndexOf(':')
+        const p = idx >= 0 ? local.slice(idx + 1) : ''
+        if (/^\d+$/.test(p)) {
+          if (!portsByPid.has(pid)) portsByPid.set(pid, [])
+          if (!portsByPid.get(pid).includes(p)) portsByPid.get(pid).push(p)
+        }
+      }
+
+      const instances = []
+      for (const pid of pids) {
+        const path = await getProcessPath(pid)
+        instances.push({ pid: parseInt(pid), path, ports: portsByPid.get(pid) || [] })
+      }
+      return res.json({ found: instances.length > 0, mode: 'name', name: nameQ, instances })
+    }
+
+    // ═══ 方式 B：按端口扫描（原有逻辑，保留可选项）═══
+    const port = portQ || '7777'
     // findstr 无匹配时退出码非 0，需 catch 视为无结果
     let netstatOut = ''
     try {
@@ -165,41 +220,47 @@ router.get('/probe', setupOrAdmin, async (req, res) => {
     }
     const lines = netstatOut.trim().split('\n').filter(l => l.includes('LISTENING'))
     if (lines.length === 0) {
-      return res.json({ found: false, port: parseInt(port), processes: [] })
+      return res.json({ found: false, mode: 'port', port: parseInt(port), processes: [] })
     }
     const pids = [...new Set(lines.map(l => l.trim().split(/\s+/).pop()))]
     const processes = []
     for (const pid of pids) {
-      let path = '未知'
-      // 首选 CIM（wmic 已废弃，Win11 24H2+ 已移除）；强制 UTF-8 输出，解决中文路径乱码
-      try {
-        const { stdout } = await execAsync(
-          `powershell -NoProfile -Command "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; (Get-CimInstance Win32_Process -Filter 'ProcessId=${pid}').ExecutablePath"`
-        )
-        const p = (stdout || '').trim()
-        if (p) path = p
-      } catch {}
-      if (path === '未知') {
-        try {
-          const { stdout } = await execAsync(`powershell -NoProfile -Command "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; (Get-Process -Id ${pid}).Path"`)
-          const p = (stdout || '').trim().split('\r\n')[0].trim()
-          if (p) path = p
-        } catch {}
-      }
-      if (path === '未知') {
-        try {
-          const { stdout } = await execAsync(`chcp 65001>nul & tasklist /FI "PID eq ${pid}" /FO CSV /NH`)
-          const parts = (stdout || '').trim().split(',')
-          if (parts[0]) path = parts[0].replace(/"/g, '')
-        } catch {}
-      }
+      const path = await getProcessPath(pid)
       processes.push({ pid: parseInt(pid), path })
     }
-    res.json({ found: true, port: parseInt(port), processes })
+    res.json({ found: true, mode: 'port', port: parseInt(port), processes })
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
 })
+
+/** 获取 PID 的进程路径（首选 CIM，回退 Get-Process / tasklist；强制 UTF-8 输出防中文乱码） */
+async function getProcessPath(pid) {
+  let path = '未知'
+  // 首选 CIM（wmic 已废弃，Win11 24H2+ 已移除）；强制 UTF-8 输出，解决中文路径乱码
+  try {
+    const { stdout } = await execAsync(
+      `powershell -NoProfile -Command "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; (Get-CimInstance Win32_Process -Filter 'ProcessId=${pid}').ExecutablePath"`
+    )
+    const p = (stdout || '').trim()
+    if (p) path = p
+  } catch {}
+  if (path === '未知') {
+    try {
+      const { stdout } = await execAsync(`powershell -NoProfile -Command "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; (Get-Process -Id ${pid}).Path"`)
+      const p = (stdout || '').trim().split('\r\n')[0].trim()
+      if (p) path = p
+    } catch {}
+  }
+  if (path === '未知') {
+    try {
+      const { stdout } = await execAsync(`chcp 65001>nul & tasklist /FI "PID eq ${pid}" /FO CSV /NH`)
+      const parts = (stdout || '').trim().split(',')
+      if (parts[0]) path = parts[0].replace(/"/g, '')
+    } catch {}
+  }
+  return path
+}
 
 router.post('/auto-read', setupOrAdmin, async (req, res) => {
   try {
