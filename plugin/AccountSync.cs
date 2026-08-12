@@ -1,7 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.RegularExpressions;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -35,12 +33,6 @@ namespace TShockData
         private static bool _initialized;
 
         // ════════════════════════════════════════════
-        //  HMAC 签名 nonce 去重缓存
-        // ════════════════════════════════════════════
-        private static readonly HashSet<string> _nonceCache = new();
-        private static readonly object _nonceLock = new();
-
-        // ════════════════════════════════════════════
         //  生命周期
         // ════════════════════════════════════════════
 
@@ -60,7 +52,7 @@ namespace TShockData
             _initialized = false;
 
             PlayerHooks.PlayerPostLogin -= OnPlayerPostLogin;
-            lock (_nonceLock) _nonceCache.Clear();
+            WebhookAuth.ClearNonceCache();
         }
 
         /// <summary>SSE 握手时由后端下发开关（WebRestServer.HandleSseAsync 调用）</summary>
@@ -91,7 +83,7 @@ namespace TShockData
         /// <summary>处理后端同步请求，返回 JSON 响应体。headers 为大小写不敏感的请求头字典。</summary>
         public static string HandleQqSync(string body, Dictionary<string, string> headers)
         {
-            if (!VerifySignature(headers, body))
+            if (!WebhookAuth.VerifySignature(headers, body))
                 return "{\"status\":\"401\",\"error\":\"Invalid signature\"}";
 
             try
@@ -223,49 +215,6 @@ namespace TShockData
             {
                 TShock.Log.ConsoleWarn($"[AccountSync] 上报登录设备失败 {name}: {ex.Message}");
             }
-        }
-
-        // ════════════════════════════════════════════
-        //  HMAC 签名校验
-        // ════════════════════════════════════════════
-
-        private static bool VerifySignature(Dictionary<string, string> headers, string body)
-        {
-            var secret = SSELogger.GetWebhookSecret();
-            if (string.IsNullOrEmpty(secret)) return false;
-
-            if (!headers.TryGetValue("X-Server-Id", out var sid) ||
-                !headers.TryGetValue("X-Timestamp", out var tsRaw) ||
-                !headers.TryGetValue("X-Nonce", out var nonce) ||
-                !headers.TryGetValue("X-Signature", out var sig))
-                return false;
-
-            if (!long.TryParse(tsRaw, out var ts)) return false;
-            if (Math.Abs(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - ts) > 300_000) return false;
-
-            var key = $"{sid}:{nonce}";
-            lock (_nonceLock)
-            {
-                if (!_nonceCache.Add(key)) return false;
-                if (_nonceCache.Count > 10000) _nonceCache.Clear();
-            }
-
-            var bodyHash = Sha256Hex(body);
-            var expected = HmacSha256Hex(secret, $"{tsRaw}.{nonce}.{bodyHash}");
-            return string.Equals(sig, expected, StringComparison.OrdinalIgnoreCase);
-        }
-
-        private static string Sha256Hex(string input)
-        {
-            var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(input));
-            return Convert.ToHexStringLower(bytes);
-        }
-
-        private static string HmacSha256Hex(string key, string input)
-        {
-            using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(key));
-            var bytes = hmac.ComputeHash(Encoding.UTF8.GetBytes(input));
-            return Convert.ToHexStringLower(bytes);
         }
 
         /// <summary>客户端 UUID 清洗：仅允许 hex+连字符（不含分隔符/不可见字符），

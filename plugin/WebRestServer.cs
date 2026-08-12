@@ -30,6 +30,7 @@ namespace TShockData
         public const string SsePath = "/tsweb/stream";
         public const string FilePushPath = "/tsweb/file";
         public const string QqSyncPath = "/tsweb/qqsync";
+        public const string CrossChatPath = "/tsweb/crosschat";
         private const int FileChunkSize = 32768; // 每段字节数（base64 后 ~44KB）
         private const long MaxFileBytes = 200L * 1024 * 1024; // 200MB 上限
 
@@ -144,6 +145,10 @@ namespace TShockData
                 {
                     await HandleQqSyncAsync(stream, method, headers, body, ct);
                 }
+                else if (route.Equals(CrossChatPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    await HandleCrossChatAsync(stream, method, headers, body, ct);
+                }
                 else
                 {
                     var form = ParseForm(body);
@@ -195,6 +200,12 @@ namespace TShockData
             var syncAccounts = sseQuery.TryGetValue("syncQQAccounts", out var sa) && sa == "1";
             var syncUuid = sseQuery.TryGetValue("syncUUID", out var su) && su == "1";
             AccountSync.SetFlags(syncAccounts, syncUuid);
+            // 跨服聊天配置（后端 config servers[i].crossChat / crossChatPrefix / crossChatColor / name）
+            var crossChat = sseQuery.TryGetValue("crossChat", out var cc) && cc == "1";
+            var crossPrefix = sseQuery.TryGetValue("crossChatPrefix", out var cp) ? Uri.UnescapeDataString(cp) : "";
+            var crossColor = sseQuery.TryGetValue("crossChatColor", out var ccl) ? Uri.UnescapeDataString(ccl) : "#FFFFFF";
+            var srvName = sseQuery.TryGetValue("serverName", out var sn) ? Uri.UnescapeDataString(sn) : "";
+            CrossChat.SetConfig(crossChat, crossPrefix, crossColor, sid, srvName);
 
             var handshake = "HTTP/1.1 200 OK\r\n"
                           + "Content-Type: text/event-stream\r\n"
@@ -251,6 +262,23 @@ namespace TShockData
                 return;
             }
             var resp = AccountSync.HandleQqSync(body ?? "", headers);
+            var bytes = Encoding.UTF8.GetBytes(resp);
+            await WriteResponseAsync(stream, 200, "OK", "application/json; charset=utf-8", bytes, ct);
+        }
+
+        /// <summary>
+        /// POST /tsweb/crosschat（后端推送，HMAC-SHA256 签名，与 /tsweb/qqsync 协议一致）
+        /// Body: { prefix, serverId, serverName, player, groupPrefix, groupSuffix, text, r, g, b }
+        /// </summary>
+        private static async Task HandleCrossChatAsync(NetworkStream stream, string method,
+            Dictionary<string, string> headers, string body, CancellationToken ct)
+        {
+            if (!method.Equals("POST", StringComparison.OrdinalIgnoreCase))
+            {
+                await WriteErrorJson(stream, 405, "Method not allowed", ct);
+                return;
+            }
+            var resp = CrossChat.HandlePush(body ?? "", headers);
             var bytes = Encoding.UTF8.GetBytes(resp);
             await WriteResponseAsync(stream, 200, "OK", "application/json; charset=utf-8", bytes, ct);
         }

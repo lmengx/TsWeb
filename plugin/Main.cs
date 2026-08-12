@@ -40,6 +40,9 @@ namespace TShockData
             // ═══ QQ 账号台账同步（后端推送：账号/UUID 全量、登录新设备免密）═══
             AccountSync.Initialize(this);
 
+            // ═══ 跨服聊天（本地聊天取消名字转义 + 跨服转发接收）═══
+            CrossChat.Initialize(this);
+
             // ═══ House 房屋系统（原 plugin-son/House 并入）═══
             HouseCore.Instance.Initialize(this);
             HouseApi.Register();
@@ -229,7 +232,8 @@ namespace TShockData
 				ItemDetection.StopAutoScan();
                 ParticleGuard.Dispose();
                 AccountSync.Dispose(this);
-				BypassHelper.UnregisterPermissionHook();
+                CrossChat.Dispose();
+                BypassHelper.UnregisterPermissionHook();
 				PvPLockManager.Dispose();
 				TeamLockManager.Dispose();
 				HouseCore.Instance.Dispose();

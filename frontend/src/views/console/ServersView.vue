@@ -15,7 +15,8 @@ const showAddModal = ref(false)
 
 // 编辑弹窗
 const showEditModal = ref(false)
-const editForm = ref({ id: '', name: '', host: '', port: 7878, apiKey: '', note: '', enabled: true })
+const editForm = ref({ id: '', name: '', host: '', port: 7878, apiKey: '', note: '', enabled: true,
+  crossChat: false, crossChatPrefix: '[c/#4DABF7:{serverName}]', crossChatColor: '#FFFFFF' })
 const editSaving = ref(false)
 
 const flash = (msg, type = 'success') => {
@@ -88,7 +89,8 @@ const toggleSync = async (s, field, value) => {
   try {
     const res = await put(`/api/servers/${s.id}`, { [field]: value })
     if (res.ok) {
-      flash(`已${value ? '开启' : '关闭'}「${field === 'syncQQAccounts' ? '同步QQ注册' : '上传与接收uuid'}」`)
+      const labels = { syncQQAccounts: '同步QQ注册', syncUUID: '上传与接收uuid', crossChat: '跨服聊天' }
+      flash(`已${value ? '开启' : '关闭'}「${labels[field] || field}」`)
       await loadServers(true)
       await fetchServers()
     } else {
@@ -106,7 +108,10 @@ const toggleSync = async (s, field, value) => {
 const openEdit = (s) => {
   editForm.value = {
     id: s.id, name: s.name, host: s.host, port: s.port,
-    apiKey: '', note: s.note || '', enabled: s.enabled !== false
+    apiKey: '', note: s.note || '', enabled: s.enabled !== false,
+    crossChat: s.crossChat === true,
+    crossChatPrefix: s.crossChatPrefix || '[c/#4DABF7:{serverName}]',
+    crossChatColor: s.crossChatColor || '#FFFFFF'
   }
   showEditModal.value = true
 }
@@ -122,7 +127,10 @@ const saveEdit = async () => {
       host: editForm.value.host,
       port: editForm.value.port,
       note: editForm.value.note,
-      enabled: editForm.value.enabled
+      enabled: editForm.value.enabled,
+      crossChat: editForm.value.crossChat,
+      crossChatPrefix: editForm.value.crossChatPrefix,
+      crossChatColor: editForm.value.crossChatColor
     }
     if (editForm.value.apiKey) body.apiKey = editForm.value.apiKey
     const res = await put(`/api/servers/${editForm.value.id}`, body)
@@ -262,6 +270,21 @@ onUnmounted(() => {
             <option :value="true">启用</option>
             <option :value="false">停用</option>
           </select>
+        </div>
+        <div class="form-row">
+          <label>跨服聊天</label>
+          <select v-model="editForm.crossChat">
+            <option :value="true">开启</option>
+            <option :value="false">关闭</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label>跨服聊天前缀（可含 [c/#RRGGBB:文本] 转义，占位符 {serverName}）</label>
+          <input v-model="editForm.crossChatPrefix" />
+        </div>
+        <div class="form-row">
+          <label>跨服消息颜色 #RRGGBB（消息最外层颜色，默认白）</label>
+          <input v-model="editForm.crossChatColor" placeholder="#FFFFFF" />
         </div>
         <div class="modal-actions">
           <button class="mini-btn" @click="showEditModal = false">取消</button>

@@ -67,6 +67,16 @@ defineEmits(['switch-current', 'test', 'edit', 'remove', 'toggle-sync'])
         />
         <span class="sync-switch"></span>
       </label>
+      <label class="sync-item">
+        <span class="sync-label">跨服聊天</span>
+        <input
+          type="checkbox"
+          class="sync-check"
+          :checked="server.crossChat === true"
+          @change="$emit('toggle-sync', server, 'crossChat', $event.target.checked)"
+        />
+        <span class="sync-switch"></span>
+      </label>
     </div>
 
     <!-- 操作 -->

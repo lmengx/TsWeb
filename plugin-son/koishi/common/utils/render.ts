@@ -252,6 +252,11 @@ interface BossProgressData {
 
 /** 生成 Boss 进度 HTML 卡片 */
 export function bossProgressCard(data: BossProgressData): string {
+  // 服务器名（后端返回结构附带 server 字段，明确当前进度来自哪个服）
+  const serverName = (data as any).server?.name || ''
+  const serverTag = serverName
+    ? `<div class="server-head"><span class="server-name">${escapeHtml(serverName)}</span></div>`
+    : ''
   const bossCards = data.Bosses.map(b => {
     const imgFile = bossImageMap[b.Name] || ''
     const src = imgFile ? loadImageBase64(imgFile) : ''
@@ -291,6 +296,12 @@ body{
   min-height:100vh;padding:20px
 }
 .wrap{width:680px;margin:0 auto}
+.server-head{text-align:center;margin-bottom:10px}
+.server-name{
+  display:inline-block;font-size:14px;font-weight:700;color:#fff;
+  background:rgba(139,92,246,0.25);border:1px solid rgba(139,92,246,0.4);
+  padding:4px 18px;border-radius:20px;letter-spacing:1px
+}
 .section{margin-bottom:24px}
 .section-head{
   display:flex;justify-content:space-between;align-items:center;margin-bottom:10px
@@ -350,7 +361,7 @@ body{
 </style>
 </head>
 <body>
-<div class="wrap">
+<div class="wrap">${serverTag}
   <div class="section">
     <div class="section-head">
       <h3>Boss 击杀进度</h3>
@@ -403,7 +414,7 @@ export function onlineListCard(data: OnlineStatusData): string {
   const worldName = data.world || ''
 
   const rows = players.length
-    ? players.map(p => `<div class="row">${escapeHtml(p.nickname)}</div>`).join('\n')
+    ? players.map(p => `<span class="chip">${escapeHtml(p.nickname)}</span>`).join('')
     : `<div class="empty">🛋️ 当前无人在线</div>`
 
   return `<!DOCTYPE html>
@@ -440,13 +451,15 @@ body{
 .online-total{font-size:12px;color:rgba(255,255,255,0.5)}
 .occ-bar{height:6px;background:rgba(255,255,255,0.08);border-radius:3px;overflow:hidden;margin-bottom:20px}
 .occ-inner{height:100%;border-radius:3px;background:${pctColor};transition:width 0.5s}
-.list{display:flex;flex-direction:column;gap:8px}
-.row{
-  background:rgba(255,255,255,0.05);
-  border:1px solid rgba(255,255,255,0.07);
-  border-radius:10px;
-  padding:11px 14px;
-  font-size:15px;font-weight:600;color:rgba(255,255,255,0.9)
+.list{display:flex;flex-wrap:wrap;gap:6px}
+.chip{
+  background:rgba(255,255,255,0.07);
+  border:1px solid rgba(255,255,255,0.1);
+  border-radius:20px;
+  padding:4px 12px;
+  font-size:12px;font-weight:600;
+  color:rgba(255,255,255,0.9);
+  white-space:nowrap
 }
 .empty{
   text-align:center;color:rgba(255,255,255,0.5);
@@ -514,9 +527,10 @@ export function multiOnlineCard(data: MultiOnlineData): string {
     const names = s.players || []
     let rows = ''
     if (names.length) {
-      rows = names.map(n => `<div class="row">${escapeHtml(n)}</div>`).join('')
+      rows = names.map(n => `<span class="chip">${escapeHtml(n)}</span>`).join('')
     } else if (s.players === null) {
-      rows = `<div class="row muted">（仅显示人数）</div>`
+      // 仅显示人数：大数字徽章（不重复展示玩家名）
+      rows = `<div class="only-badge"><span class="ob-num">${online}</span><span class="ob-txt">人在线</span></div>`
     } else {
       rows = `<div class="row muted">🛋️ 当前无人在线</div>`
     }
@@ -555,15 +569,24 @@ body{
   border:1px solid rgba(255,255,255,0.12);
   padding:4px 10px;border-radius:14px
 }
-.sv-list{display:flex;flex-direction:column;gap:6px}
-.row{
-  background:rgba(255,255,255,0.05);
-  border:1px solid rgba(255,255,255,0.07);
-  border-radius:8px;
-  padding:8px 12px;
-  font-size:13px;font-weight:600;color:rgba(255,255,255,0.9)
+.sv-list{display:flex;flex-wrap:wrap;gap:6px}
+.chip{
+  background:rgba(255,255,255,0.07);
+  border:1px solid rgba(255,255,255,0.1);
+  border-radius:20px;
+  padding:4px 12px;
+  font-size:12px;font-weight:600;
+  color:rgba(255,255,255,0.9);
+  white-space:nowrap
 }
 .row.muted{color:rgba(255,255,255,0.4);font-weight:400}
+.only-badge{
+  width:100%;display:flex;align-items:baseline;justify-content:center;gap:6px;
+  background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.3);
+  border-radius:12px;padding:10px 0
+}
+.ob-num{font-size:24px;font-weight:800;color:#a5b4fc}
+.ob-txt{font-size:13px;color:rgba(255,255,255,0.7)}
 </style>
 </head>
 <body>

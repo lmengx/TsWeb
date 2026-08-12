@@ -20,7 +20,11 @@ function sanitize(server) {
     connected: !!getServerInstance(server.id)?.isConnected,
     // QQ 台账同步开关（前端编辑弹窗回显依赖，必须随列表返回）
     syncQQAccounts: server.syncQQAccounts === true,
-    syncUUID: server.syncUUID === true
+    syncUUID: server.syncUUID === true,
+    // 跨服聊天（前端编辑弹窗回显）
+    crossChat: server.crossChat === true,
+    crossChatPrefix: server.crossChatPrefix || '[c/#4DABF7:{serverName}]',
+    crossChatColor: server.crossChatColor || '#FFFFFF'
   }
 }
 

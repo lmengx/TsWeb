@@ -16,6 +16,7 @@ import { fileURLToPath } from 'url'
 import { getServers, getConfig } from '../config.js'
 import { pushWebhookLog } from './logBroadcast.js'
 import { pushFullIfEnabled, broadcastUuid } from './qqAccountService.js'
+import { broadcastCrossChat } from './crossChatService.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -81,7 +82,11 @@ async function runLoop(conn) {
       `&secret=${encodeURIComponent(conn.server.pushSecret || '')}` +
       `&hookBase=${encodeURIComponent(hookBase)}` +
       `&syncQQAccounts=${conn.server.syncQQAccounts ? '1' : '0'}` +
-      `&syncUUID=${conn.server.syncUUID ? '1' : '0'}`
+      `&syncUUID=${conn.server.syncUUID ? '1' : '0'}` +
+      `&crossChat=${conn.server.crossChat ? '1' : '0'}` +
+      `&crossChatPrefix=${encodeURIComponent(renderCrossChatPrefix(conn.server))}` +
+      `&crossChatColor=${encodeURIComponent(conn.server.crossChatColor || '#FFFFFF')}` +
+      `&serverName=${encodeURIComponent(conn.server.name || '')}`
     // 仅连接阶段 15s 超时；连接建立后移除，避免定时器切断长连接（靠心跳/读流异常检测断线）
     const ac = new AbortController()
     const connectTimer = setTimeout(() => ac.abort(), 15000)
@@ -163,6 +168,10 @@ function handleFrame(conn, frame) {
       // 插件登录设备上报（复用 SSE 通道）→ 后端不落库，仅转发到其他启用 syncUUID 的服落盘覆盖
       handleQqUuidEvent(conn, parsed)
       break
+    case 'cross-chat':
+      // 插件本地聊天上报 → 转发到其他启用跨服聊天的服务器
+      handleCrossChatEvent(conn, parsed)
+      break
     default:
       if (event.startsWith('file.')) {
         // 下载会话优先：tag 匹配时实时转发给前端（不落盘）；否则走资源拉取落盘逻辑
@@ -184,6 +193,40 @@ function handleQqUuidEvent(conn, parsed) {
   // uuid 同步与 QQ 台账无关：上报侧只显示「xxx 的 uuid 已上传」，不暴露具体 uuid 值
   console.log(`[SSE] ${username} 的 uuid 已上传`)
   broadcastUuid(username, uuid)
+}
+
+/** 渲染跨服聊天前缀模板：替换 {serverName}/{id} 占位符（[c/HEX:...] 转义原样保留） */
+function renderCrossChatPrefix(server) {
+  const raw = server.crossChatPrefix || '[c/#4DABF7:{serverName}]'
+  return String(raw)
+    .replaceAll('{serverName}', server.name || '')
+    .replaceAll('{id}', server.id || '')
+}
+
+/** 插件经 SSE 上报本地聊天 → 转发给其他启用跨服聊天的服务器（名字/内容标签不转义） */
+function handleCrossChatEvent(conn, parsed) {
+  const text = String(parsed?.text || '').trim()
+  if (!text || text.length > 300) return
+  const player = String(parsed?.player || '').slice(0, 64)
+  if (!player) return
+
+  const payload = {
+    serverId: conn.server.id,              // 后端注入来源（不信任插件自报）
+    serverName: conn.server.name || '',
+    prefix: String(parsed?.prefix || '').slice(0, 128),   // 已渲染前缀（含 [c/...]）
+    player,                                 // 玩家名字原样（含 [i:] 标签，不转义）
+    groupPrefix: String(parsed?.groupPrefix || '').slice(0, 64),
+    groupSuffix: String(parsed?.groupSuffix || '').slice(0, 64),
+    text,
+    r: clampByte(parsed?.r), g: clampByte(parsed?.g), b: clampByte(parsed?.b)
+  }
+  broadcastCrossChat(conn.server.id, payload)
+}
+
+function clampByte(v) {
+  const n = Number(v)
+  if (!Number.isFinite(n)) return 255
+  return Math.max(0, Math.min(255, Math.round(n)))
 }
 
 // ═══════════════ 下载会话（实时转发，不落盘） ═══════════════

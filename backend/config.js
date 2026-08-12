@@ -138,7 +138,11 @@ export async function addServer(data) {
     note: (data.note || '').trim(),
     // QQ 账号台账同步开关（后端→插件 /tsweb/qqsync 推送）
     syncQQAccounts: data.syncQQAccounts === true,
-    syncUUID: data.syncUUID === true
+    syncUUID: data.syncUUID === true,
+    // 跨服聊天：开关 + 前缀模板（占位符 {serverName}/{id}，可含 [c/...] 转义）+ 消息最外层颜色
+    crossChat: data.crossChat === true,
+    crossChatPrefix: (data.crossChatPrefix || '').trim() || '[c/#4DABF7:{serverName}]',
+    crossChatColor: (data.crossChatColor || '').trim() || '#FFFFFF'
   }
   cfg.servers.push(server)
   await persistConfig(cfg)
@@ -152,11 +156,14 @@ export async function updateServer(id, patch) {
   if (idx === -1) return null
 
   const s = cfg.servers[idx]
-  const allowed = ['name', 'host', 'port', 'apiKey', 'enabled', 'note', 'syncQQAccounts', 'syncUUID']
+  const allowed = ['name', 'host', 'port', 'apiKey', 'enabled', 'note', 'syncQQAccounts', 'syncUUID',
+    'crossChat', 'crossChatPrefix', 'crossChatColor']
   for (const key of allowed) {
     if (patch[key] !== undefined) {
       if (key === 'port') s[key] = parseInt(patch[key]) || s[key]
-      else if (key === 'enabled' || key === 'syncQQAccounts' || key === 'syncUUID') s[key] = !!patch[key]
+      else if (key === 'enabled' || key === 'syncQQAccounts' || key === 'syncUUID' || key === 'crossChat') s[key] = !!patch[key]
+      else if (key === 'crossChatPrefix') s[key] = String(patch[key]).trim() || '[c/#4DABF7:{serverName}]'
+      else if (key === 'crossChatColor') s[key] = String(patch[key]).trim() || '#FFFFFF'
       else s[key] = String(patch[key]).trim()
     }
   }
