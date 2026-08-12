@@ -22,6 +22,7 @@ import hookRoutes from './routes/hookRoutes.js'
 import botRoutes from './routes/botRoutes.js'
 import tshockService, { registerServer, runWithServer, getServicesStatus } from './services/tshockService.js'
 import { connectAll as connectAllSse } from './services/sseConnection.js'
+import { startAggregation } from './services/qqPlaytimeService.js'
 import audit from './services/auditLogger.js'
 import readline from 'readline'
 import iconv from 'iconv-lite'
@@ -295,6 +296,13 @@ async function startServer() {
       })
     } else {
       console.log('  暂无已配置服务器，跳过 SSE 长连接')
+    }
+
+    // ═══ 多服游玩时长聚合定时器（后端拉取各服全量累计 → 落盘本地）═══
+    if (servers.length > 0) {
+      startAggregation()
+    } else {
+      console.log('  暂无已配置服务器，跳过 QQ 时长聚合')
     }
   })
 }

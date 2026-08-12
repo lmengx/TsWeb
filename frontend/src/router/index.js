@@ -166,6 +166,12 @@ const routes = [
         meta: { requiresAuth: true, requiresAdmin: true }
       },
       {
+        path: 'qq',
+        name: 'QQConfig',
+        component: () => import('../views/console/QQConfigView.vue'),
+        meta: { requiresAuth: true, requiresAdmin: true }
+      },
+      {
         path: 'accounts',
         name: 'Accounts',
         component: () => import('../views/console/BackendSettingsView.vue'),

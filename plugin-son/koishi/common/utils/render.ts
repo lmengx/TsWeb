@@ -485,3 +485,89 @@ body{
 function escapeHtml(s: string): string {
   return s.replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>').replace(/"/g, '"')
 }
+
+// ══════════════════════════════════════════════════════════
+//  多服在线卡片（后端 /api/bot/online 返回结构）
+// ══════════════════════════════════════════════════════════
+
+interface MultiOnlineServer {
+  id: string
+  name: string
+  online: number | null
+  max: number | null
+  players: string[] | null
+}
+
+interface MultiOnlineData {
+  mode: string
+  mainServer?: { id: string; name: string } | null
+  servers?: MultiOnlineServer[]
+}
+
+/** 生成多服在线列表 HTML 卡片（每服一块；非主服在 main 模式下仅显示人数） */
+export function multiOnlineCard(data: MultiOnlineData): string {
+  const servers = data.servers || []
+  const blocks = servers.map(s => {
+    const online = s.online ?? '?'
+    const max = s.max ?? '?'
+    const mainTag = data.mainServer?.id === s.id ? ' · 主服' : ''
+    const names = s.players || []
+    let rows = ''
+    if (names.length) {
+      rows = names.map(n => `<div class="row">${escapeHtml(n)}</div>`).join('')
+    } else if (s.players === null) {
+      rows = `<div class="row muted">（仅显示人数）</div>`
+    } else {
+      rows = `<div class="row muted">🛋️ 当前无人在线</div>`
+    }
+    return `<div class="sv">
+      <div class="sv-head">
+        <div class="sv-name">${escapeHtml(s.name)}${mainTag}</div>
+        <div class="sv-count">${online} / ${max}</div>
+      </div>
+      <div class="sv-list">${rows}</div>
+    </div>`
+  }).join('\n')
+
+  return `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC",sans-serif;
+  background:linear-gradient(135deg,#0f0c29,#302b63,#24243e);
+  min-height:100vh;padding:20px
+}
+.wrap{width:520px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
+.sv{
+  background:rgba(255,255,255,0.06);
+  border:1px solid rgba(255,255,255,0.1);
+  border-radius:16px;
+  padding:16px 18px
+}
+.sv-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+.sv-name{font-size:16px;font-weight:700;color:#fff}
+.sv-count{
+  font-size:14px;font-weight:700;color:#fff;
+  background:rgba(255,255,255,0.08);
+  border:1px solid rgba(255,255,255,0.12);
+  padding:4px 10px;border-radius:14px
+}
+.sv-list{display:flex;flex-direction:column;gap:6px}
+.row{
+  background:rgba(255,255,255,0.05);
+  border:1px solid rgba(255,255,255,0.07);
+  border-radius:8px;
+  padding:8px 12px;
+  font-size:13px;font-weight:600;color:rgba(255,255,255,0.9)
+}
+.row.muted{color:rgba(255,255,255,0.4);font-weight:400}
+</style>
+</head>
+<body>
+<div class="wrap">${blocks}</div>
+</body>
+</html>`
+}

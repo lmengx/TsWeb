@@ -628,5 +628,42 @@ namespace TShockData
                 };
             }
         }
+
+        /// <summary>
+        /// GET /data/online/all-stat
+        /// 返回 player_daily_stat 全量累计时长 { stats: { 用户名: 分钟 } }
+        /// 供后端多服游玩时长聚合器定时拉取（历史全量累计，非逐时快照）
+        /// </summary>
+        public static object GetAllStat(RestRequestArgs args)
+        {
+            try
+            {
+                var stats = new Dictionary<string, long>();
+                using (var reader = TShock.DB.QueryReader(
+                    "SELECT uid, SUM(daily_min) AS total_min FROM player_daily_stat GROUP BY uid"))
+                {
+                    while (reader.Read())
+                    {
+                        string uid = reader.Get<string>("uid");
+                        if (string.IsNullOrEmpty(uid)) continue;
+                        long totalMin = 0;
+                        try { totalMin = Convert.ToInt64(reader.Get<long>("total_min")); } catch { }
+                        stats[uid] = totalMin;
+                    }
+                }
+
+                return new RestObject
+                {
+                    { "stats", stats }
+                };
+            }
+            catch (Exception ex)
+            {
+                return new RestObject("500")
+                {
+                    { "error", ex.Message }
+                };
+            }
+        }
     }
 }

@@ -95,6 +95,7 @@ const serverSection = [
 
 const backendSection = [
   { id: 'accounts', name: '账户管理', path: '/console/accounts', adminOnly: true, icon: '🔑' },
+  { id: 'qq', name: 'QQ 配置', path: '/console/qq', adminOnly: true },
   { id: 'audit', name: '系统日志', path: '/console/audit', adminOnly: true, icon: '📋' }
 ]
 

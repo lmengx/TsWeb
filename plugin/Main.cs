@@ -133,6 +133,9 @@ namespace TShockData
             // 日志轮询（替代 SSE，通过 RCON 推送）
             TShock.RestApi.Register(new SecureRestCommand("/data/online/log/poll", SSELogger.PollLogs, "data.rest.invsee"));
 
+            // 全量累计时长（后端多服游玩时长聚合器拉取）
+            TShock.RestApi.Register(new SecureRestCommand("/data/online/all-stat", OnlineData.GetAllStat, "data.rest.invsee"));
+
             SSELogger.Initialize(this);
 
             // ═══ 现代 REST 监听接管（替换旧 HttpServer.dll，支持 SSE 长连接/日志实时推送）═══
@@ -175,6 +178,7 @@ namespace TShockData
             TShock.RestApi.Register(new SecureRestCommand("/data/qq/reset-password", QQBind.ResetPasswordByQQ, "data.rest.invsee"));
             TShock.RestApi.Register(new SecureRestCommand("/data/qq/query-player", QQBind.QueryPlayerByQQ, "data.rest.invsee"));
             TShock.RestApi.Register(new SecureRestCommand("/data/qq/find-account", QQBind.FindAccount, "data.rest.invsee"));
+            TShock.RestApi.Register(new SecureRestCommand("/data/qq/player-data", QQBind.PlayerData, "data.rest.invsee"));
 
             // 权限提升配置
             TShock.RestApi.Register(new SecureRestCommand("/data/promotion/config", PromotionManager.GetConfigJson, "data.rest.invsee"));
@@ -315,6 +319,7 @@ namespace TShockData
                 "/data/online/player",
                 "/data/online/ranking/stats",
                 "/data/online/log/command",
+                "/data/online/all-stat",
 				"/data/users/unverified/list",
 				"/data/users/unverified/detail",
 				"/data/users/unverified/register",
@@ -332,6 +337,7 @@ namespace TShockData
                 "/data/qq/reset-password",
 				"/data/qq/query-player",
                 "/data/qq/find-account",
+                "/data/qq/player-data",
                 "/data/promotion/config",
                 "/data/promotion/config/set",
                 "/data/tasks/list",

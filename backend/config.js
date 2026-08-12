@@ -27,6 +27,10 @@ export async function loadConfig() {
   let migrated = false
   if (!config.bot || typeof config.bot !== 'object') { config.bot = {}; migrated = true }
   if (!config.bot.token) { config.bot.token = generateSecret(); migrated = true }
+  // 机器人设置默认值（主服/在线模式/时长聚合间隔）
+  if (config.bot.mainServerId === undefined) { config.bot.mainServerId = ''; migrated = true }
+  if (config.bot.onlineMode === undefined) { config.bot.onlineMode = 'all'; migrated = true }
+  if (config.bot.pollIntervalMinutes === undefined) { config.bot.pollIntervalMinutes = 10; migrated = true }
   if (migrated) {
     try { await fs.writeFile(CONFIG_PATH, JSON.stringify(config, null, 2), 'utf8') } catch { /* 忽略写失败 */ }
   }
@@ -59,7 +63,13 @@ export async function saveNewConfig() {
     },
     // QQ 账号台账同步：机器人/前端管理入口的鉴权 token
     bot: {
-      token: generateSecret()
+      token: generateSecret(),
+      // 主服务器 id（机器人「进度」默认服、「在线」方式2 的主服）
+      mainServerId: '',
+      // 在线查询方式：all = 同时显示所有服；main = 主服完整 + 其它服名指代
+      onlineMode: 'all',
+      // 多服游玩时长聚合间隔（分钟）
+      pollIntervalMinutes: 10
     }
   }
 
@@ -167,6 +177,27 @@ export async function deleteServer(id) {
 async function persistConfig(cfg) {
   config = cfg
   await fs.writeFile(CONFIG_PATH, JSON.stringify(cfg, null, 2), 'utf8')
+}
+
+/**
+ * 更新机器人设置（bot 段）：mainServerId / onlineMode / pollIntervalMinutes
+ * 仅允许这三个字段，其余忽略（token 不通过此接口修改）
+ */
+export async function updateBotSettings(patch) {
+  const cfg = await loadConfig()
+  if (!cfg) throw new Error('配置未初始化')
+  if (!cfg.bot || typeof cfg.bot !== 'object') cfg.bot = {}
+  const allowed = ['mainServerId', 'onlineMode', 'pollIntervalMinutes']
+  for (const key of allowed) {
+    if (patch[key] === undefined) continue
+    if (key === 'pollIntervalMinutes') {
+      cfg.bot[key] = Math.max(1, parseInt(patch[key]) || 10)
+    } else {
+      cfg.bot[key] = String(patch[key]).trim()
+    }
+  }
+  await persistConfig(cfg)
+  return cfg.bot
 }
 
 export default loadConfig

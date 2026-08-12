@@ -1,7 +1,7 @@
 import { Context, Session, h } from 'koishi'
 import type { Config } from '../utils/config'
 import { safeHttpGet, safeHttpPost } from '../utils/config'
-import { renderHtml, playerInfoCard, bossProgressCard, onlineListCard } from '../utils/render'
+import { renderHtml, playerInfoCard, bossProgressCard, onlineListCard, multiOnlineCard } from '../utils/render'
 
 export const name = 'tshock-group'
 
@@ -111,13 +111,18 @@ export function apply(ctx: Context, config: Config) {
       return
     }
 
-    // — 进度（Boss击杀图片渲染） —
-    if (content === '进度') {
+    // — 进度（Boss击杀图片渲染，走后端；默认主服，「进度 服名」查指定服） —
+    if (content === '进度' || content.startsWith('进度 ')) {
       ctx.logger.info('[进度] QQ:', senderQQ)
+      if (!backendReady()) {
+        await session.send('机器人后端地址未配置，请联系管理员')
+        return
+      }
+      const rest = content.replace('进度', '').trim()
+      const params: any = { token: config.机器人密钥 }
+      if (rest) params.server = rest
 
-      const res = await safeHttpGet(ctx, `http://${config.服务器地址}/data/boss/progress`, {
-        token: config.接口密钥
-      })
+      const res = await safeHttpGet(ctx, `http://${config.后端地址}/api/bot/boss-progress`, params)
 
       if (!res.ok) {
         await session.send(h('at', { id: senderQQ }) + ' ' + res.msg)
@@ -131,8 +136,10 @@ export function apply(ctx: Context, config: Config) {
       } catch (err: any) {
         ctx.logger.error('[进度] 截图失败:', err.message)
         const d = res.data
+        const tag = d.server ? `服务器：${d.server.name}\n` : ''
         await session.send(
           `━━━ Boss进度 ━━━\n` +
+          tag +
           `击杀: ${d.KilledCount}/${d.TotalBossCount} (${d.BossProgressPercent}%)\n` +
           `事件: ${d.CompletedEventCount}/${d.TotalEventCount} (${d.EventProgressPercent}%)`
         )
@@ -140,14 +147,18 @@ export function apply(ctx: Context, config: Config) {
       return
     }
 
-    // — 在线（在线列表图片渲染） —
-    if (content === '在线') {
+    // — 在线（走后端；「在线」按配置模式，「在线 服名」查指定服详情） —
+    if (content === '在线' || content.startsWith('在线 ')) {
       ctx.logger.info('[在线] QQ:', senderQQ)
+      if (!backendReady()) {
+        await session.send('机器人后端地址未配置，请联系管理员')
+        return
+      }
+      const rest = content.replace('在线', '').trim()
+      const params: any = { token: config.机器人密钥 }
+      if (rest) params.server = rest
 
-      const res = await safeHttpGet(ctx, `http://${config.服务器地址}/v2/server/status`, {
-        token: config.接口密钥,
-        players: true
-      })
+      const res = await safeHttpGet(ctx, `http://${config.后端地址}/api/bot/online`, params)
 
       if (!res.ok) {
         await session.send(h('at', { id: senderQQ }) + ' ' + res.msg)
@@ -155,28 +166,33 @@ export function apply(ctx: Context, config: Config) {
       }
 
       try {
-        const html = onlineListCard(res.data)
+        const html = res.data.mode === 'single'
+          ? onlineListCard(res.data.data)
+          : multiOnlineCard(res.data)
         const buf = await renderHtml(html, 2, '.wrap')
         await session.send(h('image', { url: `base64://${buf.toString('base64')}` }))
       } catch (err: any) {
         ctx.logger.error('[在线] 截图失败:', err.message)
-        const d = res.data
-        const names = (d.players || []).filter((p: any) => p && p.nickname).map((p: any) => p.nickname)
-        await session.send(
-          `━━━ 在线列表 ━━━\n` +
-          `在线: ${d.playercount} / ${d.maxplayers}\n` +
-          (names.length ? names.map((n: string) => `· ${n}`).join('\n') : '当前无人在线')
+        const servers = (res.data.servers || []).map((s: any) =>
+          s.players && s.players.length
+            ? `· ${s.name}: ${s.online}/${s.max} (${s.players.join('、')})`
+            : `· ${s.name}: ${s.online}/${s.max}`
         )
+        await session.send(`━━━ 在线列表 ━━━\n${servers.join('\n') || '当前无人在线'}`)
       }
       return
     }
 
-    // — 我的信息（图片渲染） —
+    // — 我的信息（图片渲染，走后端：多服时长 + 主服游戏数据） —
     if (content === '我的信息') {
       ctx.logger.info('[我的信息] QQ:', senderQQ)
+      if (!backendReady()) {
+        await session.send('机器人后端地址未配置，请联系管理员')
+        return
+      }
 
-      const res = await safeHttpGet(ctx, `http://${config.服务器地址}/data/qq/query-player`, {
-        token: config.接口密钥,
+      const res = await safeHttpGet(ctx, `http://${config.后端地址}/api/bot/player-info`, {
+        token: config.机器人密钥,
         qq: senderQQ
       })
 
@@ -186,22 +202,32 @@ export function apply(ctx: Context, config: Config) {
       }
 
       try {
-        const html = playerInfoCard(res.data)
+        const d = res.data
+        const html = playerInfoCard({
+          player: d.username,
+          qq: d.qq,
+          group: d.game?.group || '未知',
+          registered: d.game?.registered || '',
+          online_minutes: d.playtime?.total || 0,
+          deaths: d.game?.deaths ?? 0,
+          fishing_quests: d.game?.fishing_quests ?? 0
+        })
         const buf = await renderHtml(html, 2, '.card')
         await session.send(h('image', { url: `base64://${buf.toString('base64')}` }))
       } catch (err: any) {
         ctx.logger.error('[我的信息] 截图失败:', err.message)
         const d = res.data
-        const hours = Math.floor(d.online_minutes / 60)
-        const mins = d.online_minutes % 60
+        const total = d.playtime?.total || 0
+        const hours = Math.floor(total / 60)
+        const mins = total % 60
         await session.send(
           `━━━ 玩家信息 ━━━\n` +
-          `🎮 角色名：${d.player}\n` +
-          `👥 用户组：${d.group}\n` +
-          `⏱ 在线时长：${hours}小时${mins}分钟\n` +
-          `💀 死亡次数：${d.deaths}\n` +
-          `🎣 钓鱼任务：${d.fishing_quests}\n` +
-          `📅 注册时间：${d.registered}\n` +
+          `🎮 角色名：${d.username}\n` +
+          `👥 用户组：${d.game?.group || '未知'}\n` +
+          `⏱ 多服在线时长：${hours}小时${mins}分钟\n` +
+          `💀 死亡次数：${d.game?.deaths ?? 0}\n` +
+          `🎣 钓鱼任务：${d.game?.fishing_quests ?? 0}\n` +
+          `📅 注册时间：${d.game?.registered || ''}\n` +
           `━━━━━━━━━━━`
         )
       }

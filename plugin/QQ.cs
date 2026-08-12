@@ -487,6 +487,71 @@ namespace TShockData
         }
 
         /// <summary>
+        /// REST API: 按用户名查询玩家游戏数据（后端「我的信息」主服数据来源）
+        /// 返回: found, player, group, registered, deaths, fishing_quests
+        /// 入参: name (用户名)
+        /// </summary>
+        public static object PlayerData(RestRequestArgs args)
+        {
+            string name = null;
+            try { name = args.Parameters["name"]; } catch { }
+
+            if (string.IsNullOrEmpty(name))
+            {
+                return new RestObject("400") { { "error", "缺少参数: name" } };
+            }
+
+            try
+            {
+                var account = TShock.UserAccounts.GetUserAccountByName(name);
+                if (account == null)
+                {
+                    return new RestObject() { { "found", false } };
+                }
+
+                // 用户组 / 注册时间
+                string userGroup = "";
+                string registeredRaw = "";
+                using (var res = TShock.DB.QueryReader(
+                    "SELECT Username, Usergroup, Registered FROM Users WHERE ID = @0", account.ID))
+                {
+                    if (res.Read())
+                    {
+                        userGroup = res.Get<string>("Usergroup") ?? "";
+                        registeredRaw = res.Get<string>("Registered") ?? "";
+                    }
+                }
+
+                // 死亡次数 / 钓鱼任务
+                int deathsPVE = 0;
+                int questsCompleted = 0;
+                using (var res = TShock.DB.QueryReader(
+                    "SELECT deathsPVE, questsCompleted FROM tsCharacter WHERE Account = @0", account.ID))
+                {
+                    if (res.Read())
+                    {
+                        deathsPVE = res.Get<int>("deathsPVE");
+                        questsCompleted = res.Get<int>("questsCompleted");
+                    }
+                }
+
+                return new RestObject()
+                {
+                    { "found", true },
+                    { "player", account.Name },
+                    { "group", userGroup },
+                    { "registered", FormatLocalTime(registeredRaw) },
+                    { "deaths", deathsPVE },
+                    { "fishing_quests", questsCompleted }
+                };
+            }
+            catch (Exception ex)
+            {
+                return new RestObject("500") { { "error", ex.Message } };
+            }
+        }
+
+        /// <summary>
         /// 将数据库中的注册时间字符串转为服务器本地时间
         /// 兼容格式: ISO8601 (2026-06-23T11:49:11) 和 TShock 默认格式 (2026-06-23 11:49:11)
         /// </summary>

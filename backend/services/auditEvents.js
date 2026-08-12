@@ -183,6 +183,18 @@ export const AUDIT_EVENTS = {
     level: 'warn', category: 'qq_account', title: 'QQ 修改密码',
     fields: ['username', 'qq'], ip: false, sensitive: ['password']
   },
+  'qq_account.unbind': {
+    level: 'warn', category: 'qq_account', title: 'QQ 解绑角色',
+    fields: ['username', 'qq'], ip: false, sensitive: []
+  },
+  'qq_account.rebind': {
+    level: 'warn', category: 'qq_account', title: 'QQ 改绑角色',
+    fields: ['username', 'qq', 'from'], ip: false, sensitive: []
+  },
+  'config.bot.set': {
+    level: 'warn', category: 'config', title: '修改 QQ 机器人设置',
+    fields: ['changedKeys', 'actor'], ip: false, sensitive: []
+  },
 
   // ═══ system 类 ═══
   'system.start': {
