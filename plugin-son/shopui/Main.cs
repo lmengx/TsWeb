@@ -21,12 +21,14 @@ namespace TShockData
 	///      args.Result = Cancel 取消发送 → 其他玩家客户端无实体 → 天然不可见
 	///   3. 旅商存在时再次挥动锡斧 → 拉回身边（改 position + 定向广播 23）
 	///   4. 关闭对话（客户端上报 talkNPC=-1）或下线 → 自动移除（life=0 + active=false + 定向 23）
-	///   5. 商店系统（40 槽 10×4）：
-	///      - 槽 0-36：当前商店商品（宝藏袋 / 方块 / 药水，价格随机）
-	///      - 槽 37/38/39：雕像控件（箱子=宝藏袋、镐子=方块、药水=药水，价格 0）
+///   5. 商店系统（40 槽 10×4）：
+///      - 槽 0-35：当前商店商品（宝藏袋 / 天然方块 / 建筑方块 / 药水，固定价格）
+///      - 槽 36-39：雕像控件（箱子=宝藏袋、镐子=天然方块、锤子=建筑方块、药水=药水，价格 0）
 	///      - 点击雕像（购买触发）→ PlayerSlot 钩子拦截 → 回滚清空手持/背包雕像
 	///        → 切换对应商店 → 立即 104 刷新
-	///      - 每 5 秒 GameUpdate 按当前商店重新应用（104 号包 ShopOverride，socket 直发）
+	///      - 商店刷新机制：72 号包只能写物品 ID（无法定价/置空），104 号包能定价/置空
+	///        但只在客户端 Main.npcShop>0（商店已打开）时应用 → 72 全空快照（打开即空白页），
+	///        点开旅商对话后持续高频刷新（每 0.2s 重发 104）填充商品+雕像，退出旅商/购买雕像才停。
 	///
 	/// 已确认的限制：40 号包只同步 talkNPC 状态，不填充客户端对话文本（npcChatText 由
 	/// 客户端点击 NPC 时 GetChat() 生成）→ 服务端无法强制弹出对话面板，玩家需点击一次旅商。
@@ -38,7 +40,7 @@ namespace TShockData
 		public override string Author => "lmx12330";
 		public override string Description => "虚拟旅商商店（挥动锡斧召唤，仅自己可见）";
 		public override string Name => "ShopUI";
-		public override Version Version => new System.Version(1, 3, 0, 0);
+		public override Version Version => new System.Version(1, 4, 0, 0);
 
 		public ShopUIPlugin(Main game) : base(game) { }
 
@@ -67,15 +69,16 @@ namespace TShockData
 
 		// ═══════════ 商店配置 ═══════════
 
-		private const int GoodsSlots = 37;   // 槽 0-36：商品区
-		private const int StatueSlotBase = 37; // 槽 37/38/39：雕像控件
+		private const int GoodsSlots = 36;   // 槽 0-35：商品区
+		private const int StatueSlotBase = 36; // 槽 36/37/38/39：雕像控件
 
 		/// <summary>雕像控件 → 商店索引</summary>
 		private static readonly (int itemId, int shopIndex, string name)[] StatueControls =
 		{
-			(ItemID.ChestStatue,  0, "宝藏袋商店"),
-			(ItemID.PickaxeStatue, 1, "方块商店"),
-			(ItemID.PotionStatue, 2, "药水商店"),
+			(ItemID.ChestStatue,   0, "宝藏袋商店"),
+			(ItemID.PickaxeStatue, 1, "天然方块商店"),
+			(ItemID.HammerStatue,  2, "建筑方块商店"),
+			(ItemID.PotionStatue,  3, "药水商店"),
 		};
 
 		/// <summary>宝藏袋商店：按 Boss 击败进度解锁，固定价格（铜币）。肉山标志 = Main.hardMode</summary>
@@ -100,31 +103,55 @@ namespace TShockData
 			(5111, () => NPC.downedDeerclops,      "鹿角怪",     800000L),
 		};
 
-		/// <summary>方块商店：固定列表与价格（铜币）</summary>
+		/// <summary>方块商店：固定列表与价格（铜币）。1 银 = 100 铜。珍珠木仅困难模式（肉山前隐藏）</summary>
 		private static readonly (int itemId, long price)[] BlockItems =
 		{
-			// 1 银组
-			(ItemID.Wood, 10000L), (ItemID.BambooBlock, 10000L), (ItemID.DynastyWood, 10000L),
-			(ItemID.DirtBlock, 10000L), (ItemID.ClayBlock, 10000L), (ItemID.StoneBlock, 10000L),
-			(ItemID.SandBlock, 10000L), (ItemID.MudBlock, 10000L), (ItemID.SnowBlock, 10000L),
-			(ItemID.IceBlock, 10000L), (ItemID.MarbleBlock, 10000L), (ItemID.GraniteBlock, 10000L),
-			(ItemID.Cloud, 10000L), (ItemID.RainCloud, 10000L),
-			// 3 银组
-			(ItemID.RedBrick, 30000L), (ItemID.GrayBrick, 30000L), (ItemID.Glass, 30000L),
-			(ItemID.SnowBrick, 30000L), (ItemID.IceBrick, 30000L), (ItemID.SandstoneBrick, 30000L),
+			// 木材（珍珠木=肉山后）
+			(ItemID.Wood, 100L), (ItemID.RichMahogany, 100L), (ItemID.PalmWood, 100L), (ItemID.BorealWood, 100L),
+			(ItemID.Ebonwood, 100L), (ItemID.Shadewood, 100L), (ItemID.AshWood, 100L), (ItemID.BambooBlock, 100L),
+			(ItemID.DynastyWood, 100L), (ItemID.Pearlwood, 100L),
+			// 土石沙
+			(ItemID.DirtBlock, 100L), (ItemID.ClayBlock, 100L), (ItemID.StoneBlock, 100L), (ItemID.SandBlock, 100L),
+			(ItemID.EbonstoneBlock, 100L), (ItemID.CrimstoneBlock, 100L), (ItemID.EbonsandBlock, 100L),
+			(ItemID.CrimsandBlock, 100L), (ItemID.Sandstone, 100L), (ItemID.HardenedSand, 100L),
+			// 泥雪等
+			(ItemID.MudBlock, 100L), (ItemID.AshBlock, 100L), (ItemID.SiltBlock, 100L), (ItemID.SlushBlock, 100L),
+			(ItemID.SnowBlock, 100L), (ItemID.IceBlock, 100L), (ItemID.MarbleBlock, 100L), (ItemID.GraniteBlock, 100L),
+			(ItemID.Cloud, 100L), (ItemID.RainCloud, 100L),
 		};
 
-		/// <summary>药水商店：增益药水，每个 50 银（50000 铜币）</summary>
-		private static readonly int[] PotionItems =
+		/// <summary>建筑方块商店：固定列表与价格（铜币）。每个 3 银 = 300 铜</summary>
+		private static readonly (int itemId, long price)[] BuildingItems =
 		{
-			ItemID.IronskinPotion, ItemID.SwiftnessPotion, ItemID.RegenerationPotion, ItemID.ShinePotion,
-			ItemID.NightOwlPotion, ItemID.GillsPotion, ItemID.WaterWalkingPotion, ItemID.HunterPotion,
-			ItemID.ObsidianSkinPotion, ItemID.GravitationPotion, ItemID.ThornsPotion, ItemID.BattlePotion,
-			ItemID.ArcheryPotion, ItemID.AmmoReservationPotion, ItemID.EndurancePotion, ItemID.LifeforcePotion,
-			ItemID.RagePotion, ItemID.WrathPotion, ItemID.FishingPotion, ItemID.SonarPotion,
-			ItemID.CratePotion, ItemID.WarmthPotion, ItemID.CalmingPotion, ItemID.TitanPotion,
-			ItemID.BuilderPotion, ItemID.InfernoPotion, ItemID.SpelunkerPotion, ItemID.SummoningPotion,
-			ItemID.LuckPotion,
+			(ItemID.GrayBrick, 300L), (ItemID.RedBrick, 300L), (ItemID.SnowBrick, 300L), (ItemID.IceBrick, 300L),
+			(ItemID.SandstoneBrick, 300L), (ItemID.EbonstoneBrick, 300L), (ItemID.CrimstoneBrick, 300L), (ItemID.Glass, 300L),
+			(ItemID.RedDynastyShingles, 300L), (ItemID.BlueDynastyShingles, 300L), (ItemID.Pumpkin, 300L), (ItemID.Cactus, 300L),
+			(ItemID.ObsidianBrick, 300L), (ItemID.IridescentBrick, 300L), (ItemID.StoneSlab, 300L), (ItemID.AccentSlab, 300L),
+			(ItemID.SandstoneSlab, 300L), (ItemID.MarbleBlock, 300L), (ItemID.GraniteBlock, 300L), (ItemID.SunplateBlock, 300L),
+		};
+
+		/// <summary>药水商店：增益药水，便宜在前。铁皮/敏捷/再生 30银(3000)；基础 1金(10000)；洞穴探险/狩猎/危险感知/耐力/隐身 3金(30000)；生命力 5金(50000，仅肉山后)；战斗/镇静/暴怒/怒气/狱火 10金(100000，后三者仅肉山后)；生物群落观测/黑曜石皮 20金(200000)。钓鱼/宝匣/声呐/幸运药水暂不卖</summary>
+		private static readonly (int itemId, long price)[] PotionItems =
+		{
+			// ── 30 银：铁皮/敏捷/再生 ──
+			(ItemID.IronskinPotion, 3000L), (ItemID.SwiftnessPotion, 3000L), (ItemID.RegenerationPotion, 3000L),
+			// ── 基础 1 金 ──
+			(ItemID.ShinePotion, 10000L), (ItemID.NightOwlPotion, 10000L), (ItemID.GillsPotion, 10000L),
+			(ItemID.WaterWalkingPotion, 10000L), (ItemID.GravitationPotion, 10000L), (ItemID.ThornsPotion, 10000L),
+			(ItemID.ArcheryPotion, 10000L), (ItemID.AmmoReservationPotion, 10000L), (ItemID.WarmthPotion, 10000L),
+			(ItemID.TitanPotion, 10000L), (ItemID.BuilderPotion, 10000L), (ItemID.SummoningPotion, 10000L),
+			(ItemID.ManaRegenerationPotion, 10000L), (ItemID.MagicPowerPotion, 10000L), (ItemID.FeatherfallPotion, 10000L),
+			(ItemID.MiningPotion, 10000L), (ItemID.HeartreachPotion, 10000L), (ItemID.FlipperPotion, 10000L),
+			// ── 3 金：洞穴探险/狩猎/危险感知/耐力/隐身 ──
+			(ItemID.SpelunkerPotion, 30000L), (ItemID.HunterPotion, 30000L), (ItemID.TrapsightPotion, 30000L),
+			(ItemID.EndurancePotion, 30000L), (ItemID.InvisibilityPotion, 30000L),
+			// ── 5 金：生命力（仅肉山后售卖）──
+			(ItemID.LifeforcePotion, 50000L),
+			// ── 10 金：战斗/镇静 + 暴怒/怒气/狱火（后三者仅肉山后）──
+			(ItemID.BattlePotion, 100000L), (ItemID.CalmingPotion, 100000L),
+			(ItemID.RagePotion, 100000L), (ItemID.WrathPotion, 100000L), (ItemID.InfernoPotion, 100000L),
+			// ── 20 金：生物群落观测/黑曜石皮 ──
+			(ItemID.BiomeSightPotion, 200000L), (ItemID.ObsidianSkinPotion, 200000L),
 		};
 
 		/// <summary>按商店索引构建商品列表（顺序铺满，固定价格）</summary>
@@ -142,16 +169,25 @@ namespace TShockData
 						}
 					}
 					break;
-				case 1: // 方块：固定 50 个一组
+				case 1: // 天然方块：每个 1 银（100 铜），珍珠木仅困难模式
 					foreach (var b in BlockItems)
 					{
-						list.Add((b.itemId, 50, (int)b.price));
+						if (b.itemId == ItemID.Pearlwood && !Main.hardMode) continue; // 肉山前移除
+						list.Add((b.itemId, 1, (int)b.price));
 					}
 					break;
-				case 2: // 药水：每个 50 银
+				case 2: // 建筑方块：每个 3 银（300 铜）
+					foreach (var b in BuildingItems)
+					{
+						list.Add((b.itemId, 1, (int)b.price));
+					}
+					break;
+				case 3: // 药水：便宜在前；生命力/暴怒/怒气/狱火 仅肉山后售卖
 					foreach (var p in PotionItems)
 					{
-						list.Add((p, 1, 50000));
+						if (p.itemId == ItemID.LifeforcePotion && !Main.hardMode) continue; // 肉山前不卖生命力
+						if ((p.itemId == ItemID.RagePotion || p.itemId == ItemID.WrathPotion || p.itemId == ItemID.InfernoPotion) && !Main.hardMode) continue; // 肉山前不卖暴怒/怒气/狱火
+						list.Add((p.itemId, 1, (int)p.price));
 					}
 					break;
 			}
@@ -168,8 +204,11 @@ namespace TShockData
 		private static readonly Dictionary<int, bool> _prevUsing = new Dictionary<int, bool>();
 		/// <summary>whoAmI → 是否正在与虚拟旅商对话（精确区分：关闭的是旅商对话还是其他 NPC 对话）</summary>
 		private static readonly Dictionary<int, bool> _talkingWithMerchant = new Dictionary<int, bool>();
+		/// <summary>whoAmI → 是否在持续高频刷新初始页（打开商店后每 0.2s 重发 104，直到退出旅商/购买雕像）</summary>
+		private static readonly Dictionary<int, bool> _refreshing = new Dictionary<int, bool>();
+		/// <summary>whoAmI → 距上次 104 发送的累计毫秒（每 0.2s 一次）</summary>
+		private static readonly Dictionary<int, double> _refreshAccum = new Dictionary<int, double>();
 
-		private static int _tickCounter; // GameUpdate 计数，300 tick = 5 秒
 		private static readonly SocketSendCallback _emptySendCallback = _ => { };
 
 		private static bool _initialized;
@@ -191,10 +230,8 @@ namespace TShockData
 			GetDataHandlers.PlayerSlot += OnPlayerSlot;
 			// 5. 玩家下线兜底清理
 			ServerApi.Hooks.ServerLeave.Register(plugin, OnServerLeave);
-			// 6. 商店定时刷新（每 5 秒按当前商店重新应用）
+			// 6. 打开商店后的持续高频刷新（每 0.2s 重发 104，直到退出旅商/购买雕像）
 			ServerApi.Hooks.GameUpdate.Register(plugin, OnGameUpdate);
-
-			TShock.Log.ConsoleInfo("[ShopUI] 已初始化（挥动锡斧召唤仅自己可见的虚拟旅商，雕像切换商店）");
 		}
 
 		public static void Dispose()
@@ -211,14 +248,15 @@ namespace TShockData
 
 			foreach (int who in _active.Keys.ToList())
 			{
-				RemoveMerchant(who, closeChat: false, silent: true);
+				RemoveMerchant(who, closeChat: false);
 			}
 			_active.Clear();
 			_currentShop.Clear();
 			_prevUsing.Clear();
 			_talkingWithMerchant.Clear();
+			_refreshing.Clear();
+			_refreshAccum.Clear();
 			_plugin = null;
-			TShock.Log.ConsoleInfo("[ShopUI] 已释放");
 		}
 
 		// ═══════════════════ 出站包定向过滤（仅自己可见） ═══════════════════
@@ -274,56 +312,119 @@ namespace TShockData
 
 		// ═══════════════════ 商店应用（104 号包逐槽刷新） ═══════════════════
 
-		/// <summary>GameUpdate 计数驱动：每 300 tick（约 5 秒）给所有持有旅商的玩家重新应用商店</summary>
-		private static void OnGameUpdate(EventArgs args)
+		/// <summary>
+		/// 刷新某玩家商店（事件驱动，非轮询）：
+		/// 72 号包更新 travelShop 快照（玩家打开商店时的初始布局），
+		/// 104 号包覆盖已打开的商店（价格），客户端 Main.npcShop>0 时才应用。
+		/// 调用时机：召唤旅商、玩家点开旅商对话（打开商店前）、雕像切商店。
+		/// </summary>
+		private static void RefreshShop(int who)
 		{
-			if (_active.Count == 0) return;
-			if (++_tickCounter < 300) return;
-			_tickCounter = 0;
-			try
-			{
-				RefreshAllShops();
-			}
-			catch (Exception ex)
-			{
-				TShock.Log.ConsoleError($"[ShopUI] 商店刷新异常: {ex.Message}");
-			}
+			if (who < 0 || who >= Main.maxPlayers) return;
+			SyncTravelShop(who);
+			ApplyShop(who);
 		}
 
-		private static void RefreshAllShops()
+		/// <summary>
+		/// 打开旅商商店：立即应用一次（72 快照 + 104），并开启持续高频刷新（每 0.2s 重发 104）。
+		/// 原因（源码实证）：72 号包只能写物品 ID，无法定价/置空栏位；104 号包能定价/置空，
+		/// 但客户端只在 Main.npcShop > 0（OpenShop 已执行、商店面板已打开）时才应用。
+		/// 因此必须打开商店后持续发 104，才能把价格/空槽刷新正确。
+		/// 停止时机：退出旅商（关闭对话/移除/下线）或点击雕像切商店。
+		/// </summary>
+		private static void StartRefresh(int who)
 		{
-			foreach (var kvp in _active)
+			RefreshShop(who); // 立即先应用一次
+			_refreshing[who] = true;
+			_refreshAccum[who] = 0;
+		}
+
+		/// <summary>每帧检查：持续刷新中的玩家每 0.2s 重发一次 104；旅商已移除或玩家已离线则停</summary>
+		private static void OnGameUpdate(EventArgs e)
+		{
+			ValidateMerchants(); // 旅商死亡/槽被复用 → 清理状态（每帧，不依赖其他事件）
+			if (_refreshing.Count == 0) return;
+			var stop = new List<int>();
+			foreach (var who in _refreshing.Keys)
 			{
-				int who = kvp.Key;
-				if (who < 0 || who >= Main.maxPlayers) continue;
-				// 72 号包更新客户端 travelShop：玩家下次打开商店立即是完整布局（含底部雕像，可跳转）
-				SyncTravelShop(who);
-				// 104 号包实时刷新已打开的商店（价格/内容），客户端 Main.npcShop>0 时才应用
-				ApplyShop(who);
+				// 玩家已离线/断开（ServerLeave 可能未及时触发）→ 停止并兜底移除，避免持续向断开 socket 发包报错
+				bool offline = who < 0 || who >= Netplay.Clients.Length
+					|| Netplay.Clients[who]?.Socket == null
+					|| !Netplay.Clients[who]!.Socket.IsConnected();
+				if (!_active.ContainsKey(who) || offline)
+				{
+					stop.Add(who); // 旅商已移除/玩家离线 → 停止
+					continue;
+				}
+				double acc = _refreshAccum.TryGetValue(who, out var a) ? a : 0;
+				acc += 1000.0 / 60.0; // GameUpdate 约 60fps
+				_refreshAccum[who] = acc;
+				if (acc >= 200) // 每 0.2s
+				{
+					_refreshAccum[who] = 0;
+					ApplyShop(who);
+				}
+			}
+			foreach (var who in stop)
+			{
+				_refreshing.Remove(who);
+				_refreshAccum.Remove(who);
+				if (_active.ContainsKey(who))
+				{
+					RemoveMerchant(who, closeChat: false); // 兜底：清 NPC + 状态
+				}
 			}
 		}
 
 		/// <summary>
-		/// 临时填充全局 Main.travelShop 并 socket 直发 72 号包（TravelMerchantItems）给目标玩家，
-		/// 然后恢复。填满 40 槽（37 商品 + 3 雕像）保证 SetupShop(19) 顺序填充后槽位对齐、
-		/// 雕像固定底部（否则雕像会被推到商品后面乱序）。
+		/// 校验虚拟旅商是否仍存活（每帧）。
+		/// 关键：_active 记录的是 NPC 槽索引（Main.npc[] 下标），而 NPC 槽是可复用的——
+		/// 旅商死亡后槽被服务器自动复用生成其他 NPC/怪物时，Main.npc[槽] 会变成别的实体。
+		/// 若槽内不是活跃的 368 旅商，则判定旅商已死/丢失，仅清理本插件状态，
+		/// 绝不触碰 Main.npc[槽]（可能是其他玩家的实体，误删会杀错 NPC/怪物）。
+		/// 否则再次挥动锡斧会走 PullBack 把错误实体拉回身边，且 SendBytes 过滤会把它对其他玩家隐藏。
+		/// </summary>
+		private static void ValidateMerchants()
+		{
+			if (_active.Count == 0) return;
+			var lost = new List<int>();
+			foreach (var kvp in _active)
+			{
+				int idx = kvp.Value;
+				bool alive = idx >= 0 && idx < Main.maxNPCs
+					&& Main.npc[idx].active
+					&& Main.npc[idx].type == TravelingMerchantType;
+				if (!alive) lost.Add(kvp.Key);
+			}
+			foreach (var who in lost)
+			{
+				CleanupState(who); // 旅商已死/丢失：只清状态，不删 Main.npc[槽]
+			}
+		}
+
+		/// <summary>仅清理某玩家的虚拟旅商状态（不触碰 NPC 实体，避免误删被复用的其他实体）</summary>
+		private static void CleanupState(int who)
+		{
+			_active.Remove(who);
+			_currentShop.Remove(who);
+			_talkingWithMerchant.Remove(who);
+			_refreshing.Remove(who);
+			_refreshAccum.Remove(who);
+		}
+
+		/// <summary>
+		/// 发送 72 号包（TravelMerchantItems）全空快照：40 槽全 0。
+		/// 玩家打开商店瞬间 SetupShop(19) 顺序填充全为 0 → 初始商店完全空白；
+		/// 内容（商品+雕像）由打开后的持续高频 104 逐槽填充（104 按槽位精确覆盖，不依赖 SetupShop）。
 		/// </summary>
 		private static void SyncTravelShop(int who)
 		{
-			int shopIndex = _currentShop.TryGetValue(who, out var s) ? s : 0;
-			var goods = BuildGoods(shopIndex);
 			var old = (int[])Main.travelShop.Clone();
 			try
 			{
-				// 商品铺到 0-36（不足留 0），雕像 37-39。SetupShop 顺序填充：
-				// 商品不满 37 时雕像会被推到商品后（打开瞬间位置偏差），104 刷新后按槽位修正回底部
-				for (int i = 0; i < GoodsSlots; i++)
+				for (int i = 0; i < Main.travelShop.Length; i++)
 				{
-					Main.travelShop[i] = i < goods.Count ? goods[i].itemId : 0;
-				}
-				for (int i = 0; i < StatueControls.Length; i++)
-				{
-					Main.travelShop[StatueSlotBase + i] = StatueControls[i].itemId;
+					Main.travelShop[i] = 0; // 全空
 				}
 				SendTravelShopPacket(who);
 			}
@@ -340,7 +441,9 @@ namespace TShockData
 		private static void SendTravelShopPacket(int who)
 		{
 			if (who < 0 || who >= Main.maxPlayers) return;
-			if (who >= Netplay.Clients.Length || Netplay.Clients[who]?.Socket == null) return;
+			if (who >= Netplay.Clients.Length) return;
+			var sock = Netplay.Clients[who]?.Socket;
+			if (sock == null || !sock.IsConnected()) return; // 玩家已断开 → 不再发包
 
 			var body = new byte[80];
 			for (int i = 0; i < 40; i++)
@@ -371,7 +474,6 @@ namespace TShockData
 		{
 			int shopIndex = _currentShop.TryGetValue(who, out var s) ? s : 0;
 			var goods = BuildGoods(shopIndex);
-			int sent = 0;
 
 			// 商品区 0-36：顺序铺满（固定价格），不足补空槽
 			for (int slot = 0; slot < GoodsSlots; slot++)
@@ -384,17 +486,13 @@ namespace TShockData
 				{
 					SendShopOverride(who, (byte)slot, 0, 0, 0, 0, false); // 空槽
 				}
-				sent++;
 			}
 
 			// 雕像控件 37-39（价格 0，点击即切商店）
 			for (int i = 0; i < StatueControls.Length; i++)
 			{
 				SendShopOverride(who, (byte)(StatueSlotBase + i), (short)StatueControls[i].itemId, 1, 0, 0, false);
-				sent++;
 			}
-
-			TShock.Log.ConsoleInfo($"[ShopUI][调试] 玩家#{who} 商店[{shopIndex}] 已应用：{goods.Count} 商品 + {StatueControls.Length} 雕像，共 {sent} 个 104 包");
 		}
 
 		/// <summary>
@@ -405,7 +503,9 @@ namespace TShockData
 		private static void SendShopOverride(int who, byte slot, short itemType, short stack, byte prefix, int value, bool buyOnce)
 		{
 			if (who < 0 || who >= Main.maxPlayers) return;
-			if (who >= Netplay.Clients.Length || Netplay.Clients[who]?.Socket == null) return;
+			if (who >= Netplay.Clients.Length) return;
+			var sock = Netplay.Clients[who]?.Socket;
+			if (sock == null || !sock.IsConnected()) return; // 玩家已断开 → 不再发包
 
 			var body = new byte[11];
 			body[0] = slot;
@@ -458,12 +558,11 @@ namespace TShockData
 			args.Handled = true;
 			// 回滚客户端该槽（服务器端槽无雕像 → 客户端恢复原状，雕像被"清空"）
 			args.Player.SendData(PacketTypes.PlayerSlot, "", args.Player.Index, args.Slot, args.Prefix);
-			// 切换商店并立即应用
+			// 切换商店并刷新（72 快照 + 104 覆盖已打开的商店）；购买雕像 = 停止初始页持续高频刷新
 			_currentShop[who] = targetShop;
-			ApplyShop(who);
-
-			TShock.Players[who]?.SendSuccessMessage($"[ShopUI] 已切换到{StatueControls[targetShop].name}！");
-			TShock.Log.ConsoleInfo($"[ShopUI] 玩家 {args.Player.Name} 点击雕像切换到{StatueControls[targetShop].name}");
+			_refreshing[who] = false; // 停止持续刷新（已切到其他商店）
+			_refreshAccum.Remove(who);
+			RefreshShop(who);
 		}
 
 		// ═══════════════════ 挥动检测 ═══════════════════
@@ -523,17 +622,15 @@ namespace TShockData
 			npc.aiStyle = -1;           // 冻结移动（站定展示）
 			npc.velocity = Vector2.Zero;
 			_active[who] = npcIndex;
-			_currentShop[who] = 0;      // 默认宝藏袋商店
+			_currentShop[who] = 0;      // 默认宝藏袋商店（打开商店默认页）
 
 			// 广播 23 号包 → SendBytes 钩子过滤 → 仅目标玩家可见
 			// ⚠️ 不再主动发 40 号包（会把 talkNPC 卡住产生虚假对话窗口）
 			NetMessage.SendData(23, -1, -1, null, npcIndex);
 
-			// 初始化商店：72 号包同步 travelShop（打开即见完整布局+底部雕像），104 号包立即应用
-			SyncTravelShop(who);
-			ApplyShop(who);
+			// 初始化商店：72 号包同步 travelShop（全空快照），104 号包立即应用
+			RefreshShop(who);
 
-			TShock.Log.ConsoleInfo($"[ShopUI] 玩家 {TShock.Players[who]?.Name} 召唤了虚拟旅商（NPC #{npcIndex}）");
 			TShock.Players[who]?.SendSuccessMessage("[ShopUI] 虚拟旅商已出现！点击他对话开商店；点击底部雕像可切换商店；关闭对话后自动消失；再挥动锡斧可拉回身边");
 		}
 
@@ -546,24 +643,32 @@ namespace TShockData
 			if (tp == null || !tp.active) return;
 
 			var npc = Main.npc[npcIndex];
+			// 旅商已死/槽被其他 NPC 占用 → 清状态并重新召唤真正的旅商，绝不拉错实体
+			if (!npc.active || npc.type != TravelingMerchantType)
+			{
+				CleanupState(who);
+				Spawn(who);
+				return;
+			}
 			npc.Bottom = tp.Bottom;
 			npc.velocity = Vector2.Zero;
 			npc.netUpdate = true;
 			// 定向广播（SendBytes 钩子过滤 → 仅目标玩家可见拉回）
 			NetMessage.SendData(23, -1, -1, null, npcIndex);
-
-			TShock.Players[who]?.SendSuccessMessage("[ShopUI] 虚拟旅商已拉回身边");
 		}
 
 		/// <summary>移除：实体置 inactive + 定向广播 23 + 可选关闭对话</summary>
-		private static void RemoveMerchant(int who, bool closeChat, bool silent)
+		private static void RemoveMerchant(int who, bool closeChat)
 		{
 			if (!_active.TryGetValue(who, out int npcIndex)) return;
 			_active.Remove(who);
 			_currentShop.Remove(who);
 			_talkingWithMerchant[who] = false;
+			_refreshing.Remove(who);
+			_refreshAccum.Remove(who);
 
-			if (npcIndex >= 0 && npcIndex < Main.maxNPCs && Main.npc[npcIndex].active)
+			if (npcIndex >= 0 && npcIndex < Main.maxNPCs && Main.npc[npcIndex].active
+				&& Main.npc[npcIndex].type == TravelingMerchantType) // 双保险：只删除真正的旅商，槽被其他实体占用时不动它
 			{
 				Main.npc[npcIndex].life = 0;
 				Main.npc[npcIndex].active = false;
@@ -574,11 +679,6 @@ namespace TShockData
 			{
 				Main.player[who].SetTalkNPC(-1);
 				NetMessage.SendData(40, -1, -1, null, who);
-			}
-
-			if (!silent)
-			{
-				TShock.Log.ConsoleInfo($"[ShopUI] 虚拟旅商（NPC #{npcIndex}）已移除");
 			}
 		}
 
@@ -607,8 +707,15 @@ namespace TShockData
 
 				if (talkNPC == expected)
 				{
-					// 玩家正在与虚拟旅商对话
+					// 玩家点开旅商对话：打开商店前刷新一次（72 快照按当前 Boss 状态 + 104 价格）
+					bool wasTalking = _talkingWithMerchant.TryGetValue(who, out var t) && t;
 					_talkingWithMerchant[who] = true;
+					if (!wasTalking)
+					{
+						// 打开商店：开启持续高频刷新（每 0.2s 重发 104），填充 72 全空快照的商品+雕像
+						// （104 只在商店已打开时应用，72 无法定价/置空 → 必须打开后持续刷新才能正确显示价格）
+						StartRefresh(who);
+					}
 				}
 				else if (talkNPC == -1)
 				{
@@ -617,8 +724,7 @@ namespace TShockData
 					_talkingWithMerchant[who] = false;
 					if (wasTalking)
 					{
-						TShock.Log.ConsoleInfo($"[ShopUI] 玩家 {TShock.Players[who]?.Name} 已断开旅商对话，移除虚拟旅商");
-						RemoveMerchant(who, closeChat: false, silent: false);
+						RemoveMerchant(who, closeChat: false);
 					}
 				}
 				else
@@ -638,9 +744,11 @@ namespace TShockData
 			_prevUsing.Remove(e.Who);
 			_talkingWithMerchant.Remove(e.Who);
 			_currentShop.Remove(e.Who);
+			_refreshing.Remove(e.Who);
+			_refreshAccum.Remove(e.Who);
 			if (_active.ContainsKey(e.Who))
 			{
-				RemoveMerchant(e.Who, closeChat: false, silent: true);
+				RemoveMerchant(e.Who, closeChat: false);
 			}
 		}
 
@@ -652,7 +760,7 @@ namespace TShockData
 			{
 				if (_active.ContainsKey(args.Player.Index))
 				{
-					RemoveMerchant(args.Player.Index, closeChat: true, silent: false);
+					RemoveMerchant(args.Player.Index, closeChat: true);
 					args.Player.SendSuccessMessage("[ShopUI] 已移除你的虚拟旅商");
 				}
 				else
