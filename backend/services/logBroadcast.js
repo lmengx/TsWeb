@@ -93,3 +93,17 @@ export function sseClientCount(serverId) {
   for (const set of _sseClientGroups.values()) total += set.size
   return total
 }
+
+/**
+ * 获取某服务器内存队列中最近的日志行（时间正序），供前端 SSE 连接时补发历史日志。
+ * 只读该 serverId 自己的队列，绝不跨服混用。
+ * @param {string} serverId
+ * @param {number} [limit=200] 最多返回条数
+ * @returns {string[]} 最近 limit 条（从旧到新），队列为空返回 []
+ */
+export function getRecentLines(serverId, limit = 200) {
+  const queue = _logQueues.get(normalizeKey(serverId))
+  if (!queue || queue.length === 0) return []
+  const n = Math.max(0, Math.min(limit, queue.length))
+  return queue.slice(queue.length - n)
+}

@@ -3,7 +3,7 @@ import jwt from 'jsonwebtoken'
 import { getConfig, getServers } from '../config.js'
 import audit from '../services/auditLogger.js'
 import { getCurrentServerId } from '../services/tshockService.js'
-import { addSseClient, removeSseClient } from '../services/logBroadcast.js'
+import { addSseClient, removeSseClient, getRecentLines } from '../services/logBroadcast.js'
 
 // ═══ 说明：日志主通道为后端→插件 SSE 常驻长连接（sseConnection.js），
 // 前端日志流由后端内存队列 + 广播提供；历史 webhook 日志回传（/api/online/log-webhook）已废弃移除 ═══
@@ -89,6 +89,12 @@ export const streamLogs = async (req, res) => {
       'Connection': 'keep-alive',
       'Access-Control-Allow-Origin': '*'
     })
+
+    // 连接即补发该服务器的最近日志（纯内存队列，按 serverId 隔离，绝不混服）
+    const history = getRecentLines(serverId, 200)
+    if (history.length > 0) {
+      res.write(`data: ${JSON.stringify(history)}\n\n`)
+    }
 
     // 发送连接成功事件
     res.write(`data: ${JSON.stringify({ connected: true, transport: 'webhook' })}\n\n`)
