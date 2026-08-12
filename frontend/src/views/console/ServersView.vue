@@ -15,7 +15,7 @@ const showAddModal = ref(false)
 
 // 编辑弹窗
 const showEditModal = ref(false)
-const editForm = ref({ id: '', name: '', host: '', port: 7878, apiKey: '', note: '', enabled: true, syncQQAccounts: false, syncUUID: false })
+const editForm = ref({ id: '', name: '', host: '', port: 7878, apiKey: '', note: '', enabled: true })
 const editSaving = ref(false)
 
 const flash = (msg, type = 'success') => {
@@ -80,12 +80,33 @@ const removeServer = async (s) => {
   } catch (e) { flash('删除失败: ' + e.message, 'error') }
 }
 
+// ═══════════════ 同步开关（卡片上直接切换保存） ═══════════════
+const toggleSync = async (s, field, value) => {
+  // 先乐观更新本地回显，接口失败再回滚
+  const prev = { ...s }
+  s[field] = value
+  try {
+    const res = await put(`/api/servers/${s.id}`, { [field]: value })
+    if (res.ok) {
+      flash(`已${value ? '开启' : '关闭'}「${field === 'syncQQAccounts' ? '同步QQ注册' : '上传与接收uuid'}」`)
+      await loadServers(true)
+      await fetchServers()
+    } else {
+      Object.assign(s, prev)
+      const data = await res.json().catch(() => ({}))
+      flash(data.error || '保存失败', 'error')
+    }
+  } catch (e) {
+    Object.assign(s, prev)
+    flash('保存失败: ' + e.message, 'error')
+  }
+}
+
 // ═══════════════ 编辑 ═══════════════
 const openEdit = (s) => {
   editForm.value = {
     id: s.id, name: s.name, host: s.host, port: s.port,
-    apiKey: '', note: s.note || '', enabled: s.enabled !== false,
-    syncQQAccounts: s.syncQQAccounts === true, syncUUID: s.syncUUID === true
+    apiKey: '', note: s.note || '', enabled: s.enabled !== false
   }
   showEditModal.value = true
 }
@@ -101,9 +122,7 @@ const saveEdit = async () => {
       host: editForm.value.host,
       port: editForm.value.port,
       note: editForm.value.note,
-      enabled: editForm.value.enabled,
-      syncQQAccounts: editForm.value.syncQQAccounts,
-      syncUUID: editForm.value.syncUUID
+      enabled: editForm.value.enabled
     }
     if (editForm.value.apiKey) body.apiKey = editForm.value.apiKey
     const res = await put(`/api/servers/${editForm.value.id}`, body)
@@ -201,6 +220,7 @@ onUnmounted(() => {
           @test="testServer"
           @edit="openEdit"
           @remove="removeServer"
+          @toggle-sync="toggleSync"
         />
       </div>
   </div>
@@ -242,17 +262,6 @@ onUnmounted(() => {
             <option :value="true">启用</option>
             <option :value="false">停用</option>
           </select>
-        </div>
-        <div class="form-row">
-          <label>QQ 数据同步</label>
-          <label class="checkbox-row">
-            <input type="checkbox" v-model="editForm.syncQQAccounts" />
-            <span>接收 QQ 绑定数据并创建账号（台账账号/密码哈希推送到本服）</span>
-          </label>
-          <label class="checkbox-row">
-            <input type="checkbox" v-model="editForm.syncUUID" />
-            <span>同步设备 UUID（登录过的新设备在本服免密登录）</span>
-          </label>
         </div>
         <div class="modal-actions">
           <button class="mini-btn" @click="showEditModal = false">取消</button>

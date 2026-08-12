@@ -187,10 +187,9 @@ export async function broadcastUuid(username, uuid) {
   const payload = { type: 'uuid', username, uuid }
   const results = await Promise.allSettled(targets.map(s => postToServer(s, payload)))
   const okCount = results.filter(r => r.status === 'fulfilled' && r.value.ok).length
+  // uuid 同步日志保持简洁：成功不刷屏，仅转发不全时警告（不暴露具体 uuid 值）
   if (okCount !== targets.length) {
-    console.warn(`[QQ台账] UUID 转发完成: ${okCount}/${targets.length} (${username} +${uuid})`)
-  } else {
-    console.log(`[QQ台账] UUID 转发完成: ${okCount}/${targets.length} (${username} +${uuid})`)
+    console.warn(`[SSE] UUID 转发异常: ${okCount}/${targets.length}`)
   }
   return { ok: okCount, total: targets.length }
 }

@@ -4,7 +4,7 @@ defineProps({
   isCurrent: { type: Boolean, default: false }
 })
 
-defineEmits(['switch-current', 'test', 'edit', 'remove'])
+defineEmits(['switch-current', 'test', 'edit', 'remove', 'toggle-sync'])
 </script>
 
 <template>
@@ -43,6 +43,30 @@ defineEmits(['switch-current', 'test', 'edit', 'remove'])
         </span>
       </div>
       <div v-if="server.note" class="info-line note">{{ server.note }}</div>
+    </div>
+
+    <!-- 同步开关（直接展示在卡片上，点击即时保存） -->
+    <div class="card-sync">
+      <label class="sync-item">
+        <span class="sync-label">是否同步qq注册</span>
+        <input
+          type="checkbox"
+          class="sync-check"
+          :checked="server.syncQQAccounts === true"
+          @change="$emit('toggle-sync', server, 'syncQQAccounts', $event.target.checked)"
+        />
+        <span class="sync-switch"></span>
+      </label>
+      <label class="sync-item">
+        <span class="sync-label">是否上传与接收uuid</span>
+        <input
+          type="checkbox"
+          class="sync-check"
+          :checked="server.syncUUID === true"
+          @change="$emit('toggle-sync', server, 'syncUUID', $event.target.checked)"
+        />
+        <span class="sync-switch"></span>
+      </label>
     </div>
 
     <!-- 操作 -->
@@ -123,6 +147,33 @@ defineEmits(['switch-current', 'test', 'edit', 'remove'])
 .bad-text { color: #ef4444 !important; }
 .warn-text { color: #f59e0b !important; }
 .info-line.note { color: var(--text-muted); font-style: italic; padding-left: 64px; }
+
+/* 同步开关 */
+.card-sync {
+  display: flex; flex-direction: column; gap: 8px;
+  margin-bottom: 12px; padding: 10px 12px;
+  background: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: 10px;
+}
+.sync-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  cursor: pointer; user-select: none;
+}
+.sync-label { font-size: .8rem; color: var(--text-primary); font-weight: 500; }
+.sync-check { position: absolute; opacity: 0; width: 0; height: 0; }
+.sync-switch {
+  position: relative; flex-shrink: 0;
+  width: 34px; height: 19px; border-radius: 20px;
+  background: var(--border-color); transition: background .2s ease;
+}
+.sync-switch::after {
+  content: ''; position: absolute; top: 2px; left: 2px;
+  width: 15px; height: 15px; border-radius: 50%;
+  background: #fff; transition: transform .2s ease;
+  box-shadow: 0 1px 3px rgba(0,0,0,.25);
+}
+.sync-check:checked + .sync-switch { background: var(--accent-primary); }
+.sync-check:checked + .sync-switch::after { transform: translateX(15px); }
+.sync-check:focus-visible + .sync-switch { box-shadow: 0 0 0 2px rgba(99,102,241,.4); }
 
 .card-actions { display: flex; gap: 6px; flex-wrap: wrap; border-top: 1px solid var(--border-light); padding-top: 12px; }
 .act-btn {

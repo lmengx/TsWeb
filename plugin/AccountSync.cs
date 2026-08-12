@@ -192,8 +192,8 @@ namespace TShockData
 
             try
             {
+                // 接收端静默落盘（无需刷屏）；仅异常时输出错误
                 TShock.DB.Query("UPDATE Users SET UUID=@0 WHERE Username=@1", uuid, username);
-                TShock.Log.ConsoleInfo($"[AccountSync] 已同步设备UUID(落盘): {username} = {uuid}");
             }
             catch (Exception ex)
             {

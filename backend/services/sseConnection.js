@@ -181,7 +181,8 @@ function handleQqUuidEvent(conn, parsed) {
   const uuid = String(parsed?.uuid || '').trim()
   if (!username || !uuid) return
 
-  console.log(`[QQ台账] SSE 收到登录设备: ${username} +${uuid} (来自 ${conn.server.name})，转发同步`)
+  // uuid 同步与 QQ 台账无关：上报侧只显示「xxx 的 uuid 已上传」，不暴露具体 uuid 值
+  console.log(`[SSE] ${username} 的 uuid 已上传`)
   broadcastUuid(username, uuid)
 }
 
