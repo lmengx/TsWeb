@@ -3,6 +3,7 @@ import { ref, computed, onMounted } from 'vue'
 import { apiRequest, post, del } from '../utils/api.js'
 
 const systemSettings = ref({ server: { port: 3000, host: '0.0.0.0' } })
+const singleLogin = ref({ enabled: false })   // 禁止多服登录（全局）
 const accounts = ref([])
 const settingsTab = ref('listen')   // 'listen' 监听设置 | 'accounts' 账户管理
 const showAddAccount = ref(false)
@@ -39,6 +40,13 @@ const load = async () => {
     }
   } catch { /* 静默 */ }
   try {
+    const res = await apiRequest('/api/config/single-login', { method: 'GET' })
+    if (res.ok) {
+      const data = await res.json()
+      if (data.singleLogin) singleLogin.value = { enabled: data.singleLogin.enabled === true }
+    }
+  } catch { /* 静默 */ }
+  try {
     const res = await apiRequest('/api/auth/accounts', { method: 'GET' })
     if (res.ok) {
       accounts.value = (await res.json()).accounts || []
@@ -56,6 +64,20 @@ const saveListenCfg = async () => {
     else {
       const data = await res.json().catch(() => ({}))
       flash(data.error || '保存失败', 'error')
+    }
+  } catch (e) { flash(e.message, 'error') }
+}
+
+const saveSingleLogin = async () => {
+  try {
+    const res = await post('/api/config/single-login', { enabled: singleLogin.value.enabled })
+    if (res.ok) flash('禁止多服登录设置已保存')
+    else {
+      const data = await res.json().catch(() => ({}))
+      flash(data.error || '保存失败', 'error')
+      // 保存失败回滚
+      const r2 = await apiRequest('/api/config/single-login', { method: 'GET' })
+      if (r2.ok) singleLogin.value = { enabled: (await r2.json()).singleLogin?.enabled === true }
     }
   } catch (e) { flash(e.message, 'error') }
 }
@@ -141,6 +163,16 @@ onMounted(load)
         </div>
         <p class="hint">监听端口/地址修改后需重启后端生效。服务器日志已由插件 SSE 常连实时回传，无需额外配置。</p>
         <button class="save-btn" @click="saveListenCfg">保存（重启生效）</button>
+      </div>
+
+      <div class="sys-card">
+        <h3>禁止多服登录</h3>
+        <p class="hint">启用后，玩家在某台服务器登录，将自动踢出其他启用了「上传与接收uuid」的服务器上同名的在线角色（未开启 uuid 同步的服务器不参与）。</p>
+        <label class="switch-row">
+          <span class="switch-label">启用</span>
+          <input type="checkbox" class="switch-check" v-model="singleLogin.enabled" @change="saveSingleLogin" />
+          <span class="switch-switch"></span>
+        </label>
       </div>
     </div>
 
@@ -244,6 +276,24 @@ onMounted(load)
 .save-btn:hover { opacity: .9; }
 .save-btn:disabled { opacity: .5; cursor: not-allowed; }
 .hint { font-size: .78rem; color: var(--text-muted); margin: 4px 0 10px; line-height: 1.5; }
+
+/* 开关（禁止多服登录） */
+.switch-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; cursor: pointer; user-select: none; }
+.switch-label { font-size: .88rem; color: var(--text-primary); font-weight: 600; }
+.switch-check { position: absolute; opacity: 0; width: 0; height: 0; }
+.switch-switch {
+  position: relative; flex-shrink: 0;
+  width: 38px; height: 21px; border-radius: 20px;
+  background: var(--border-color); transition: background .2s ease;
+}
+.switch-switch::after {
+  content: ''; position: absolute; top: 2px; left: 2px;
+  width: 17px; height: 17px; border-radius: 50%;
+  background: #fff; transition: transform .2s ease;
+  box-shadow: 0 1px 3px rgba(0,0,0,.25);
+}
+.switch-check:checked + .switch-switch { background: var(--accent-primary); }
+.switch-check:checked + .switch-switch::after { transform: translateX(17px); }
 .add-btn { background: var(--accent-primary); color: #fff; border: none; padding: 10px 18px; border-radius: 9px; cursor: pointer; font-size: .92rem; font-weight: 600; }
 .add-btn.small { font-size: 0.8rem; padding: 6px 12px; margin-bottom: 12px; }
 

@@ -180,11 +180,22 @@ export async function broadcastFullAll() {
   return { ok: okCount, total: targets.length }
 }
 
-/** 向所有启用 syncUUID 的服务器转发单条 UUID（登录设备同步，不落台账） */
-export async function broadcastUuid(username, uuid) {
+/**
+ * 向所有启用 syncUUID 的服务器转发单条 UUID（登录设备同步，不落台账）。
+ * @param {string} username
+ * @param {string} uuid
+ * @param {{ kick?: boolean, excludeServerId?: string|null }} [options]
+ *   kick: 禁止多服登录（全局开关）——转发时带 kick 标志，目标服插件踢掉本服同名在线角色
+ *   excludeServerId: 排除来源服务器（否则刚登录的玩家会被自己服踢掉）
+ */
+export async function broadcastUuid(username, uuid, { kick = false, excludeServerId = null } = {}) {
   const servers = await getServers()
-  const targets = servers.filter(shouldSyncUuid)
-  const payload = { type: 'uuid', username, uuid }
+  // 踢人只作用于启用 syncUUID 的服务器：转发目标保持不变（不开 uuid 同步的服不收不踢）
+  const targets = servers.filter(s =>
+    s.enabled !== false && s.id !== excludeServerId && s.syncUUID === true)
+  const payload = kick
+    ? { type: 'uuid', username, uuid, kick: true }
+    : { type: 'uuid', username, uuid }
   const results = await Promise.allSettled(targets.map(s => postToServer(s, payload)))
   const okCount = results.filter(r => r.status === 'fulfilled' && r.value.ok).length
   // uuid 同步日志保持简洁：成功不刷屏，仅转发不全时警告（不暴露具体 uuid 值）

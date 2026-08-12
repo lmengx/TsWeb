@@ -85,6 +85,35 @@ export const saveListenConfig = async (req, res) => {
   }
 }
 
+// ═══ 禁止多服登录（全局） ═══
+
+export const getSingleLoginConfig = async (req, res) => {
+  try {
+    const { getConfig } = await import('../config.js')
+    const cfg = await getConfig()
+    res.json({ status: '200', singleLogin: cfg?.singleLogin || { enabled: false } })
+  } catch (error) {
+    res.status(500).json({ status: '500', error: error.message })
+  }
+}
+
+export const setSingleLoginConfig = async (req, res) => {
+  try {
+    const { getConfig, saveConfig } = await import('../config.js')
+    const enabled = !!req.body?.enabled
+    const cfg = await getConfig()
+    if (!cfg) return res.status(400).json({ status: '400', error: '配置未初始化' })
+    await saveConfig({ singleLogin: { enabled } })
+    audit.record('config.update', {
+      changedKeys: ['singleLogin.enabled'],
+      actor: req.user?.username
+    })
+    res.json({ status: '200', message: '已保存' })
+  } catch (error) {
+    res.status(500).json({ status: '500', error: error.message })
+  }
+}
+
 export const saveConfigFile = async (req, res) => {
   try {
     const { name, content } = req.body

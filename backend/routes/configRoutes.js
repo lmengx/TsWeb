@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { getConfigFile, saveConfigFile, getTsWebConfig, setTsWebConfig, getBossConfig, setBossConfig, getBackupConfig, setBackupConfig, postLicenseClose, getBossLimitStatus, getPromotionConfig, setPromotionConfig, getListenConfig, saveListenConfig } from '../controllers/configController.js'
+import { getConfigFile, saveConfigFile, getTsWebConfig, setTsWebConfig, getBossConfig, setBossConfig, getBackupConfig, setBackupConfig, postLicenseClose, getBossLimitStatus, getPromotionConfig, setPromotionConfig, getListenConfig, saveListenConfig, getSingleLoginConfig, setSingleLoginConfig } from '../controllers/configController.js'
 import { verifyToken, requireRole, requireAdmin, requireManager } from '../middlewares/authMiddleware.js'
 
 const router = Router()
@@ -7,6 +7,9 @@ const router = Router()
 // 后端监听设置：仅 admin
 router.get('/listen', verifyToken, requireAdmin, getListenConfig)
 router.post('/listen', verifyToken, requireAdmin, saveListenConfig)
+// 禁止多服登录（全局）：仅 admin
+router.get('/single-login', verifyToken, requireAdmin, getSingleLoginConfig)
+router.post('/single-login', verifyToken, requireAdmin, setSingleLoginConfig)
 // 后端配置文件：仅 admin
 router.get('/file', verifyToken, requireAdmin, getConfigFile)
 router.post('/file', verifyToken, requireAdmin, saveConfigFile)

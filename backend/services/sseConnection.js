@@ -185,14 +185,24 @@ function handleFrame(conn, frame) {
 }
 
 /** 插件经 SSE 上报登录设备 uuid：后端不落库，仅转发到其他启用 syncUUID 的服务器落盘覆盖 */
-function handleQqUuidEvent(conn, parsed) {
+async function handleQqUuidEvent(conn, parsed) {
   const username = String(parsed?.username || '').trim()
   const uuid = String(parsed?.uuid || '').trim()
   if (!username || !uuid) return
 
   // uuid 同步与 QQ 台账无关：上报侧只显示「xxx 的 uuid 已上传」，不暴露具体 uuid 值
   console.log(`[SSE] ${username} 的 uuid 已上传`)
-  broadcastUuid(username, uuid)
+
+  // 禁止多服登录（全局开关 config.singleLogin.enabled）：
+  // 转发带 kick 标志 → 其他启用 syncUUID 的服踢掉本服同名在线角色；排除来源服避免误踢自己
+  let kick = false
+  try {
+    const cfg = await getConfig().catch(() => null)
+    kick = cfg?.singleLogin?.enabled === true
+  } catch {
+    kick = false
+  }
+  broadcastUuid(username, uuid, { kick, excludeServerId: conn.server.id })
 }
 
 /** 渲染跨服聊天前缀模板：替换 {serverName}/{id} 占位符（[c/HEX:...] 转义原样保留） */

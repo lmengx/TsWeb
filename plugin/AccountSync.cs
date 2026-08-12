@@ -169,11 +169,19 @@ namespace TShockData
         /// <summary>
         /// 收到后端转发的登录设备 UUID → 直接覆盖本地 Users.UUID 落盘。
         /// TShock 原生免密判断 account.UUID == player.UUID 由此命中。
+        /// 若后端带 kick 标志（禁止多服登录全局开关），先踢掉本服同名在线角色。
+        /// 注意：后端只转发给启用 syncUUID 的服务器，故此处天然满足"不开 uuid 同步就不踢"。
         /// </summary>
         private static void ApplyUuid(JObject payload)
         {
             var username = payload["username"]?.ToString();
             var uuid = payload["uuid"]?.ToString();
+            var kick = payload["kick"]?.Value<bool>() ?? false;
+
+            // 禁止多服登录：本服存在同名在线且已登录角色 → 踢掉（独立于 UUID 落盘开关）
+            if (kick)
+                TryKickDuplicate(username);
+
             if (string.IsNullOrEmpty(username) || string.IsNullOrEmpty(uuid)) return;
             if (!IsValidUuid(uuid))
             {
@@ -190,6 +198,27 @@ namespace TShockData
             catch (Exception ex)
             {
                 TShock.Log.ConsoleError($"[AccountSync] UUID 落盘失败 {username}: {ex.Message}");
+            }
+        }
+
+        /// <summary>禁止多服登录：踢掉本服同名的在线已登录角色</summary>
+        private static void TryKickDuplicate(string? username)
+        {
+            if (string.IsNullOrEmpty(username)) return;
+            foreach (var p in TShock.Players)
+            {
+                if (p == null || !p.Active) continue;
+                if (!p.Name.Equals(username, StringComparison.OrdinalIgnoreCase)) continue;
+                if (!p.IsLoggedIn) continue;   // 只踢已登录的同名角色（未登录的不构成重复）
+                try
+                {
+                    TShock.Log.ConsoleInfo($"[AccountSync] 禁止多服登录：踢出 {username}（已在其他服务器登录）");
+                    p.Kick("该账号已在其他服务器登录，已自动退出", true);
+                }
+                catch (Exception ex)
+                {
+                    TShock.Log.ConsoleError($"[AccountSync] 踢出重复登录失败 {username}: {ex.Message}");
+                }
             }
         }
 

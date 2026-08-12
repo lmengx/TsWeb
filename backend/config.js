@@ -31,6 +31,8 @@ export async function loadConfig() {
   if (config.bot.mainServerId === undefined) { config.bot.mainServerId = ''; migrated = true }
   if (config.bot.onlineMode === undefined) { config.bot.onlineMode = 'all'; migrated = true }
   if (config.bot.pollIntervalMinutes === undefined) { config.bot.pollIntervalMinutes = 10; migrated = true }
+  // 禁止多服登录（全局）：启用后，玩家在某服登录 → 踢掉其他启用 syncUUID 的服上的同名在线角色
+  if (config.singleLogin === undefined) { config.singleLogin = { enabled: false }; migrated = true }
   if (migrated) {
     try { await fs.writeFile(CONFIG_PATH, JSON.stringify(config, null, 2), 'utf8') } catch { /* 忽略写失败 */ }
   }
@@ -70,7 +72,9 @@ export async function saveNewConfig() {
       onlineMode: 'all',
       // 多服游玩时长聚合间隔（分钟）
       pollIntervalMinutes: 10
-    }
+    },
+    // 禁止多服登录（全局）：启用后，玩家在某服登录 → 踢掉其他启用 syncUUID 的服上的同名在线角色
+    singleLogin: { enabled: false }
   }
 
   try {
