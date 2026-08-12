@@ -22,6 +22,14 @@ export async function loadConfig() {
       config = null
     }
   }
+  if (!config) return config
+  // 迁移：旧配置缺少 bot.token（首次初始化才有）→ 自动补齐并落盘
+  let migrated = false
+  if (!config.bot || typeof config.bot !== 'object') { config.bot = {}; migrated = true }
+  if (!config.bot.token) { config.bot.token = generateSecret(); migrated = true }
+  if (migrated) {
+    try { await fs.writeFile(CONFIG_PATH, JSON.stringify(config, null, 2), 'utf8') } catch { /* 忽略写失败 */ }
+  }
   return config
 }
 

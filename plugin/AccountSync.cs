@@ -2,10 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Net.Http;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
 using MonoMod.RuntimeDetour;
 using Newtonsoft.Json;
@@ -58,14 +58,18 @@ namespace TShockData
         private static Hook? _hookGetData;
         private static Hook? _hookGetUserByName;
 
-        private static readonly HttpClient _http = new();
-        private static readonly TimeSpan _httpTimeout = TimeSpan.FromSeconds(8);
-
         // ════════════════════════════════════════════
         //  HMAC 签名 nonce 去重缓存
         // ════════════════════════════════════════════
         private static readonly HashSet<string> _nonceCache = new();
         private static readonly object _nonceLock = new();
+
+        // ════════════════════════════════════════════
+        //  uuid-check 等待队列：requestId → 结果（SSE 发请求，/tsweb/qqsync 回传）
+        // ════════════════════════════════════════════
+        private static readonly Dictionary<string, TaskCompletionSource<JObject?>> _uuidCheckWaiters = new();
+        private static readonly object _uuidCheckLock = new();
+        private static int _uuidCheckSeq;
 
         // ════════════════════════════════════════════
         //  生命周期
@@ -125,6 +129,7 @@ namespace TShockData
             lock (_cacheLock) _uuidCache.Clear();
             lock (_connectingLock) _connectingUuid.Clear();
             lock (_nonceLock) _nonceCache.Clear();
+            lock (_uuidCheckLock) _uuidCheckWaiters.Clear();
         }
 
         /// <summary>SSE 握手时由后端下发开关（WebRestServer.HandleSseAsync 调用）</summary>
@@ -169,6 +174,9 @@ namespace TShockData
                         break;
                     case "uuid":
                         ApplyUuid(payload);
+                        break;
+                    case "uuid-check-result":
+                        CompleteUuidCheck(payload);
                         break;
                     default:
                         return "{\"status\":\"400\",\"error\":\"Unknown type\"}";
@@ -267,6 +275,20 @@ namespace TShockData
             TShock.Log.ConsoleInfo($"[AccountSync] 已更新设备: {username} +{uuid}");
         }
 
+        /// <summary>处理后端回传的 uuid-check-result，唤醒等待中的免密查询</summary>
+        private static void CompleteUuidCheck(JObject payload)
+        {
+            var requestId = payload?["requestId"]?.ToString();
+            if (string.IsNullOrEmpty(requestId)) return;
+            TaskCompletionSource<JObject?>? tcs;
+            lock (_uuidCheckLock)
+            {
+                _uuidCheckWaiters.TryGetValue(requestId, out tcs);
+                _uuidCheckWaiters.Remove(requestId);
+            }
+            tcs?.TrySetResult(payload);
+        }
+
         // ════════════════════════════════════════════
         //  多设备免密登录
         // ════════════════════════════════════════════
@@ -347,23 +369,24 @@ namespace TShockData
             return res == true;
         }
 
-        /// <summary>免密判定 miss 时向后端确认设备授权；返回 null 表示无法判定</summary>
+        /// <summary>免密判定 miss 时经 SSE 向后端确认设备授权；返回 null 表示无法判定（超时/无连接）</summary>
         private static bool? QueryBackendUuid(string username, string uuid)
         {
-            var hookBase = SSELogger.GetHookBase();
-            var secret = SSELogger.GetWebhookSecret();
-            var serverId = SSELogger.GetServerId();
-            if (string.IsNullOrEmpty(hookBase) || string.IsNullOrEmpty(secret) || string.IsNullOrEmpty(serverId))
-                return null;
-
-            var body = JsonConvert.SerializeObject(new { username, uuid });
-            var respText = PostSignedAsync(hookBase, "/hook/uuid-check", body, secret, serverId)
-                .GetAwaiter().GetResult();
-            if (respText == null) return null;
+            var requestId = "uc-" + Guid.NewGuid().ToString("N").Substring(0, 8) + "-" + Interlocked.Increment(ref _uuidCheckSeq);
+            var tcs = new TaskCompletionSource<JObject?>(TaskCreationOptions.RunContinuationsAsynchronously);
+            lock (_uuidCheckLock)
+            {
+                _uuidCheckWaiters[requestId] = tcs;
+            }
 
             try
             {
-                var res = JsonConvert.DeserializeObject<JObject>(respText);
+                var body = JsonConvert.SerializeObject(new { requestId, username, uuid });
+                WebRestServer.Broadcast("uuid-check", body);
+                // 等待回传（SSE 发请求 → 后端查台账 → /tsweb/qqsync 回传 uuid-check-result）
+                if (!tcs.Task.Wait(TimeSpan.FromSeconds(5)))
+                    return null; // 超时 → 走密码
+                var res = tcs.Task.Result;
                 if (res?["inList"] != null)
                 {
                     // 顺带把后端集合写回本地缓存
@@ -406,24 +429,17 @@ namespace TShockData
             {
                 var name = p.Name;
                 var uuid = p.UUID;
-                _ = Task.Run(() =>
+                try
                 {
-                    try
-                    {
-                        var hookBase = SSELogger.GetHookBase();
-                        var secret = SSELogger.GetWebhookSecret();
-                        var serverId = SSELogger.GetServerId();
-                        if (string.IsNullOrEmpty(hookBase) || string.IsNullOrEmpty(secret) || string.IsNullOrEmpty(serverId))
-                            return;
-                        var body = JsonConvert.SerializeObject(new { username = name, uuid });
-                        PostSignedAsync(hookBase, "/hook/qq-uuid", body, secret, serverId).GetAwaiter().GetResult();
-                        TShock.Log.ConsoleInfo($"[AccountSync] 已上报新设备: {name} +{uuid}");
-                    }
-                    catch (Exception ex)
-                    {
-                        TShock.Log.ConsoleWarn($"[AccountSync] 上报新设备失败 {name}: {ex.Message}");
-                    }
-                });
+                    // 通过已建立的 SSE 连接推送给后端（复用日志通道，插件无需知道后端地址）
+                    var body = JsonConvert.SerializeObject(new { username = name, uuid });
+                    WebRestServer.Broadcast("qq-uuid", body);
+                    TShock.Log.ConsoleInfo($"[AccountSync] 已上报新设备: {name} +{uuid}");
+                }
+                catch (Exception ex)
+                {
+                    TShock.Log.ConsoleWarn($"[AccountSync] 上报新设备失败 {name}: {ex.Message}");
+                }
             }
         }
 
@@ -470,41 +486,6 @@ namespace TShockData
             var bodyHash = Sha256Hex(body);
             var expected = HmacSha256Hex(secret, $"{tsRaw}.{nonce}.{bodyHash}");
             return string.Equals(sig, expected, StringComparison.OrdinalIgnoreCase);
-        }
-
-        /// <summary>POST {hookBase}{path}（HMAC 签名），返回响应体；失败返回 null</summary>
-        private static async Task<string?> PostSignedAsync(string hookBase, string path, string body,
-            string secret, string serverId)
-        {
-            var baseUrl = hookBase.TrimEnd('/');
-            const string suffix = "/hook/log";
-            if (baseUrl.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
-                baseUrl = baseUrl.Substring(0, baseUrl.Length - suffix.Length);
-
-            var ts = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString();
-            var nonce = Guid.NewGuid().ToString("N");
-            var bodyHash = Sha256Hex(body);
-            var signature = HmacSha256Hex(secret, $"{ts}.{nonce}.{bodyHash}");
-
-            using var req = new HttpRequestMessage(HttpMethod.Post, baseUrl + path)
-            {
-                Content = new StringContent(body, Encoding.UTF8, "application/json")
-            };
-            req.Headers.Add("X-Server-Id", serverId);
-            req.Headers.Add("X-Timestamp", ts);
-            req.Headers.Add("X-Nonce", nonce);
-            req.Headers.Add("X-Signature", signature);
-
-            try
-            {
-                using var cts = new CancellationTokenSource(_httpTimeout);
-                using var resp = await _http.SendAsync(req, cts.Token);
-                return await resp.Content.ReadAsStringAsync(cts.Token);
-            }
-            catch
-            {
-                return null;
-            }
         }
 
         private static string Sha256Hex(string input)
