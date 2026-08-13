@@ -157,12 +157,18 @@ namespace TShockData
         //  跨服上报（PlayerChat 事件，不 Handled）
         // ════════════════════════════════════════════
 
-        private static void OnPlayerChat(PlayerChatEventArgs e)
-        {
-            if (e.Handled) return;
-            var p = e.Player;
-            if (p == null || string.IsNullOrEmpty(e.RawText)) return;
-            var text = e.RawText.Trim();
+		private static void OnPlayerChat(PlayerChatEventArgs e)
+		{
+			if (e.Handled) return;
+			var p = e.Player;
+			if (p == null || string.IsNullOrEmpty(e.RawText)) return;
+
+			// 尊重屏蔽：被 mute 的玩家消息不上报跨服
+			// （TShock 聊天处理在 mute 分支已 args.Handled=true 不触发 PlayerChat，此为双保险，
+			//   覆盖第三方插件/其他途径直接置 p.mute 的场景）
+			if (p.mute) return;
+
+			var text = e.RawText.Trim();
             if (text.Length == 0 || text.Length > MaxChatLength) return;
 
             // 跨服上报（仅本服启用跨服聊天）
@@ -218,9 +224,21 @@ namespace TShockData
                 var text = payload["text"]?.ToString() ?? "";
                 if (string.IsNullOrEmpty(text)) return "{\"status\":\"200\",\"ok\":true}";
 
-                var r = ParseByte(payload["r"], _colorR);
-                var g = ParseByte(payload["g"], _colorG);
-                var b = ParseByte(payload["b"], _colorB);
+				var r = ParseByte(payload["r"], _colorR);
+				var g = ParseByte(payload["g"], _colorG);
+				var b = ParseByte(payload["b"], _colorB);
+
+				// 尊重屏蔽：本服若存在同名且被 mute 的玩家，则跳过广播
+				// （防止发送者换到其他服后，其跨服消息绕过本服的 mute 仍被广播）
+				foreach (var tp in TShock.Players)
+				{
+					if (tp != null && tp.Active && tp.mute
+						&& tp.Name.Equals(player, StringComparison.OrdinalIgnoreCase))
+					{
+						TShock.Log.ConsoleDebug($"[CrossChat] 跨服消息被屏蔽（{player} 在本服被 mute），跳过广播");
+						return "{\"status\":\"200\",\"ok\":true}";
+					}
+				}
 
                 // 组装显示文本：前缀(带色) + 组前缀 + 玩家名(不转义，[i:] 生效) + 组后缀 + 消息
                 var msg = prefix.Length > 0
