@@ -11,6 +11,8 @@ using MonoMod.RuntimeDetour;
 using Newtonsoft.Json;
 using Terraria;
 using Terraria.Localization;
+using Terraria.Net;
+using Terraria.Net.Sockets;
 using TerrariaApi.Server;
 using TShockAPI;
 
@@ -37,6 +39,32 @@ namespace TShockData
 	}
 
 	/// <summary>
+	/// 丢弃发送、转发接收的包装 socket。挂在桥接玩家的 Netplay.Clients[who].Socket 上：
+	/// - A 服所有下行（NetManager.Broadcast / NetMessage.SendData / SendBytes）走 AsyncSend → 被丢弃，
+	///   不再直达玩家（解决跨服聊天重放、A 服广播污染、静止玩家）。
+	/// - 上行接收 AsyncReceive 照常转发真 socket（玩家数据仍到 A 服，由桥接钩子转发目标服）。
+	/// 桥接下行（目标服 → 玩家）改用 BridgeSession.PlayerSocket（真 socket）直接发，不受影响。
+	/// </summary>
+	public sealed class DiscardSocket : ISocket
+	{
+		private readonly ISocket _inner;
+		public DiscardSocket(ISocket inner) => _inner = inner;
+
+		void ISocket.Close() => _inner.Close();
+		bool ISocket.IsConnected() => _inner.IsConnected();
+		void ISocket.Connect(RemoteAddress address) => _inner.Connect(address);
+		void ISocket.AsyncSend(byte[] data, int offset, int size, SocketSendCallback callback, object state)
+			=> callback?.Invoke(state); // 丢弃：不真正发送，立即回调假装完成
+		void ISocket.AsyncReceive(byte[] data, int offset, int size, SocketReceiveCallback callback, object state)
+			=> _inner.AsyncReceive(data, offset, size, callback, state);
+		bool ISocket.IsDataAvailable() => _inner.IsDataAvailable();
+		RemoteAddress ISocket.GetRemoteAddress() => _inner.GetRemoteAddress();
+		bool ISocket.StartListening(SocketConnectionAccepted callback)
+			=> throw new NotSupportedException("DiscardSocket 不是监听 socket");
+		void ISocket.StopListening() { }
+	}
+
+	/// <summary>
 	/// 跨服传送（纯插件，阶段 0：控制通道地基）。
 	/// - 自定义包通道：Unused15(15)，ServerApi.Hooks.NetGetData 最高优先级（int.MinValue）
 	///   在 TShock.OnGetData 之前完全接管（原 MonoMod detour private 方法在本环境不触发）
@@ -55,6 +83,11 @@ namespace TShockData
 		private static TerrariaPlugin? _plugin;
 		private static Hook? _getDataDetour;
 		private static Hook? _sendDataDetour;
+		private static Hook? _netBroadcastHook;
+
+		// 保活定时器：桥接玩家的 TimeOutTimer 虽已随上行包重置，但玩家长时间静止（无上行包）
+		// 时仍可能超时被踢，这里定时兜底归零，确保桥接连接稳定存活（约 20s 一次）。
+		private static System.Threading.Timer? _keepAliveTimer;
 
 		// 玩家进入本服握手期发送的 PlayerInfo 原始帧缓存（whoAmI → 完整帧），跨服重放给目标服
 		private static readonly Dictionary<int, byte[]> PlayerInfoFrames = new();
@@ -142,6 +175,29 @@ namespace TShockData
 				TShock.Log.ConsoleError($"[CrossTransfer] SendData detour 注册失败: {ex}");
 			}
 
+			// ═══ 底层广播过滤：NetManager.Broadcast（ChatHelper 聊天广播等所有 NetModule 广播）═══
+			// TShock 本地聊天/公告走 ChatHelper.BroadcastChatMessage → NetManager.Broadcast，
+			// 直发所有 socket（含桥接玩家的 A 服 socket），且绕过 SendBytes/SendData 钩子
+			// → 桥接玩家在目标服会重复收到 A 服的本地消息（"玩家名 消息"）+ 跨服转发（"A服 玩家名 消息"）。
+			// 这里逐客户端发送并跳过桥接玩家（仅存在桥接玩家时走逐发，平时透传原广播，性能零影响）。
+			try
+			{
+				var bm = typeof(Terraria.Net.NetManager).GetMethod("Broadcast",
+					BindingFlags.Public | BindingFlags.Instance, null,
+					new[] { typeof(Terraria.Net.NetPacket), typeof(int) }, null);
+				if (bm != null)
+				{
+					_netBroadcastHook = new Hook(bm, new DetourNetBroadcast(OnNetManagerBroadcast));
+					TShock.Log.ConsoleInfo("[CrossTransfer] NetManager.Broadcast 广播过滤已挂载");
+				}
+				else
+					TShock.Log.ConsoleError("[CrossTransfer] 未找到 NetManager.Broadcast，广播过滤不可用");
+			}
+			catch (Exception ex)
+			{
+				TShock.Log.ConsoleError($"[CrossTransfer] NetManager.Broadcast detour 注册失败: {ex}");
+			}
+
 			// ═══ 玩家断线 → 清理桥接会话 ═══
 			ServerApi.Hooks.ServerLeave.Register(plugin, OnServerLeave);
 
@@ -156,6 +212,21 @@ namespace TShockData
 			Commands.ChatCommands.Add(new Command(Permission, TransferCommand, "跨服", "crosstransfer"));
 			Commands.ChatCommands.Add(new Command(Permission, ReturnCommand, "返回", "ctback"));
 			Commands.ChatCommands.Add(new Command(Permission, PasswordCommand, "跨服密码", "ctpass"));
+
+			// ═══ 保活定时器：桥接玩家 TimeOutTimer 兜底归零（防止静止无上行包时超时断线）═══
+			_keepAliveTimer = new System.Threading.Timer(_ =>
+			{
+				try
+				{
+					foreach (var who in Bridges.Keys)
+					{
+						if (who < 0 || who >= Netplay.Clients.Length) continue;
+						var rc = Netplay.Clients[who];
+						if (rc.IsActive) rc.TimeOutTimer = 0;
+					}
+				}
+				catch { }
+			}, null, TimeSpan.FromSeconds(20), TimeSpan.FromSeconds(20));
 
 			TShock.Log.ConsoleInfo($"[CrossTransfer] 跨服传送初始化完成（{Config.Servers.Count} 个目标服）");
 		}
@@ -174,6 +245,10 @@ namespace TShockData
 			}
 			Bridges.Clear();
 
+			// 1.5) 停止保活定时器
+			try { _keepAliveTimer?.Dispose(); } catch { }
+			_keepAliveTimer = null;
+
 			// 2) 清理 B 服 preTransfer 标记 + nonce 缓存
 			TransferProtocol.Reset();
 
@@ -190,6 +265,8 @@ namespace TShockData
 			_getDataDetour = null;
 			try { _sendDataDetour?.Dispose(); } catch { }
 			_sendDataDetour = null;
+			try { _netBroadcastHook?.Dispose(); } catch { }
+			_netBroadcastHook = null;
 			OTAPI.Hooks.MessageBuffer.GetData -= OnMessageBufferGetData;
 			OTAPI.Hooks.NetMessage.SendBytes -= OnSendBytes;
 			ServerApi.Hooks.ServerLeave.Deregister(_plugin!, OnServerLeave);
@@ -349,13 +426,17 @@ namespace TShockData
 				// 真实包 ID：payload 前一字节（args.PacketId 可能被其他插件改写为 255）
 				byte id = buf[off - 1];
 
-				// ═══ 桥接：玩家已传送 → 所有上行包（含 PlayerUpdate/聊天/交互）原样转发目标服 ═══
-				if (Bridges.TryGetValue(args.Instance.whoAmI, out var bridge))
-				{
-					ForwardToTarget(bridge, buf, off, len);
-					CancelPacket(args);
-					return;
-				}
+			// ═══ 桥接：玩家已传送 → 所有上行包（含 PlayerUpdate/聊天/交互）原样转发目标服 ═══
+			if (Bridges.TryGetValue(args.Instance.whoAmI, out var bridge))
+			{
+				ForwardToTarget(bridge, buf, off, len);
+				// 兜底：若最外层 detour 未生效（此路径由 orig 内 OTAPI 钩子触发），
+				// MessageBuffer.GetData 开头的 TimeOutTimer 重置已执行；这里再归零一次无害。
+				if (args.Instance.whoAmI >= 0 && args.Instance.whoAmI < Netplay.Clients.Length)
+					Netplay.Clients[args.Instance.whoAmI].TimeOutTimer = 0;
+				CancelPacket(args);
+				return;
+			}
 
 				// B 服：ClientUUID(68) → 写入 Terraria 原生 ClientUUID
 				if (id == (byte)PacketTypes.ClientUUID)
@@ -455,6 +536,15 @@ namespace TShockData
 					try { s.Write(frame, 0, total); }
 					catch (Exception ex) { TShock.Log.ConsoleWarn($"[CrossTransfer] 上行转发失败: {ex.Message}"); }
 				}
+
+				// 关键修复：桥接玩家的包被本 detour 完全接管（不调 orig），
+				// MessageBuffer.GetData 开头的 `Netplay.Clients[whoAmI].TimeOutTimer = 0`
+				// 重置代码永不执行 → 服务器主循环每 tick 累加 TimeOutTimer，
+				// 7200 tick（≈2 分钟@60fps，用户感知"约 5 分钟内"）后判定超时
+				// （PendingTermination）→ RemoteClient.Reset() → Socket.Close() → 桥接必断。
+				// 这里手动重置，保持 A 服认为该连接持续活跃。
+				if (self.whoAmI >= 0 && self.whoAmI < Netplay.Clients.Length)
+					Netplay.Clients[self.whoAmI].TimeOutTimer = 0;
 				return true;
 			}
 			catch { return false; }
@@ -480,6 +570,7 @@ namespace TShockData
 			public string? CurrentServerName;   // 当前桥接目标服名（用于判断"你已在该服务器"）
 			public TcpClient? Target;
 			public NetworkStream? Stream;
+			public ISocket? PlayerSocket;       // 玩家在 A 服的真实 socket（桥接占用，桥接下行直发用）
 			public CancellationTokenSource Cts = new();
 			public Task? ReadLoop;
 			public bool Switching;              // 切换中：旧读循环 finally 不得清理桥接
@@ -514,7 +605,9 @@ namespace TShockData
 				PlayerInfoFrame = playerInfoFrame,
 				CurrentServerName = server.Name,
 				Target = result.Connection,
-				Stream = result.Connection.GetStream()
+				Stream = result.Connection.GetStream(),
+				PlayerSocket = player.Index >= 0 && player.Index < Netplay.Clients.Length
+					? Netplay.Clients[player.Index]?.Socket : null
 			};
 
 			// 提示必须先于桥接激活发送（激活后 A 服→玩家的消息会被出站拦截钩子丢弃）
@@ -522,13 +615,52 @@ namespace TShockData
 
 			Bridges[player.Index] = session;
 
-			// ═══ 玩家从 A 服"消失"（socket 保留用于桥接，实体/在线列表移除）═══
-			// 1) 广播 PlayerActive(69, active=false)：A 服其他玩家看到该玩家下线
-			// 2) A 服世界实体移除
-			// 3) TShock 在线列表移除（后续其上行包由桥接钩子转发 + 事件兜底跳过）
+			// ═══ 模拟 TShock 玩家真正离开（socket 保留用于桥接）═══
+			// 关键：TShock.OnLeave 里 `if (tsplr == null) return;` —— 若先把 TShock.Players[who] 置 null，
+			// OnLeave 会跳过"XXX 已离开"广播与角色保存。因此必须在置 null 之前、用现有 tsplr 完整执行
+			// OnLeave 的核心逻辑（广播离开 / 保存角色 / 清理状态），同时保留 socket 做桥接。
 			try
 			{
-				NetMessage.TrySendData(69, -1, player.Index, null, player.Index, 0);
+				var tsplr = TShock.Players[player.Index];
+
+				// 0) 先隔离 A 服下行：替换为 DiscardSocket（此后 A 服所有广播不再到达 who）
+				if (session.PlayerSocket != null && player.Index >= 0 && player.Index < Netplay.Clients.Length)
+				{
+					Netplay.Clients[player.Index].Socket = new DiscardSocket(session.PlayerSocket);
+				}
+
+				// 1) 广播"XXX 已离开"（复刻 TShock.OnLeave 的广播条件与消息）
+				if (tsplr != null && tsplr.ReceivedInfo && !tsplr.SilentKickInProgress
+					&& tsplr.State >= (int)ConnectionState.RequestingWorldData && tsplr.FinishedHandshake)
+				{
+					TShock.Utils.Broadcast($"{tsplr.Name} 已离开", Color.Yellow);
+					TShock.Log.Info($"{tsplr.Name} disconnected.");
+				}
+
+				// 2) 广播 PlayerActive(false)：A 服其他玩家看到该玩家下线、实体移除
+				//    注意：PlayerActive = 14！之前误用 69（ChestName）导致实体未移除（虚假玩家残留）
+				NetMessage.TrySendData((int)PacketTypes.PlayerActive, -1, player.Index, null, player.Index, 0);
+
+				// 3) 保存角色/清理状态（复刻 TShock.OnLeave 剩余逻辑）
+				if (tsplr != null)
+				{
+					if (tsplr.IsLoggedIn && !tsplr.IsDisabledPendingTrashRemoval && Main.ServerSideCharacter
+						&& (!tsplr.Dead || tsplr.TPlayer.difficulty != 2))
+					{
+						tsplr.PlayerData.CopyCharacter(tsplr);
+						TShock.CharacterDB.InsertPlayerData(tsplr);
+					}
+					if (TShock.Config.Settings.RememberLeavePos && !tsplr.LoginHarassed)
+						TShock.RememberedPos?.InsertLeavePos(tsplr.Name, tsplr.IP,
+							(int)(tsplr.X / 16), (int)(tsplr.Y / 16));
+					if (tsplr.tempGroupTimer != null)
+						tsplr.tempGroupTimer.Stop();
+					tsplr.FinishedHandshake = false;
+					if (tsplr.IsLoggedIn)
+						TShockAPI.Hooks.PlayerHooks.OnPlayerLogout(tsplr);
+				}
+
+				// 4) A 服世界实体移除 + TShock 在线列表移除
 				Main.player[player.Index].active = false;
 				Main.player[player.Index].name = ""; // 清名字：Terraria 底层名字冲突检测用 Main.player 的 name，
 				                                    // 不清会触发 NameCollision（原玩家 slot 已退但名字残留）
@@ -536,7 +668,7 @@ namespace TShockData
 			}
 			catch (Exception ex)
 			{
-				TShock.Log.ConsoleWarn($"[CrossTransfer] 移除 A 服玩家实体失败: {ex.Message}");
+				TShock.Log.ConsoleWarn($"[CrossTransfer] 模拟玩家离开失败: {ex.Message}");
 			}
 
 			// 1) 重放握手期缓存的 B 服世界数据快照（WorldInfo/tile/NPC/玩家等）
@@ -878,6 +1010,17 @@ namespace TShockData
 		{
 			try
 			{
+				// 桥接中：必须用 session 保存的真 socket 发送（Netplay.Clients[who].Socket
+				// 已被替换为 DiscardSocket，其 AsyncSend 会丢弃）
+				if (Bridges.TryGetValue(who, out var b) && b.PlayerSocket != null)
+				{
+					if (b.PlayerSocket.IsConnected())
+					{
+						b.PlayerSocket.AsyncSend(data, 0, data.Length, _ => { });
+						return;
+					}
+				}
+
 				if (who < 0 || who >= Netplay.Clients.Length) return;
 				var sock = Netplay.Clients[who]?.Socket;
 				if (sock == null || !sock.IsConnected()) return;
@@ -925,6 +1068,40 @@ namespace TShockData
 				return;
 			}
 			orig(msgType, remoteClient, ignoreClient, text, number, number2, number3, number4, number5, number6, number7);
+		}
+
+		// ════════════════════════════════════════════
+		//  NetManager.Broadcast detour：底层广播（ChatHelper 聊天/公告等）跳过桥接玩家
+		//  与 SendData 不同，NetManager.Broadcast 不走 SendBytes/SendData，是 NetModule 广播
+		// ════════════════════════════════════════════
+
+		private delegate void OrigNetManagerBroadcast(Terraria.Net.NetManager self,
+			Terraria.Net.NetPacket packet, int ignoreClient);
+		private delegate void DetourNetBroadcast(OrigNetManagerBroadcast orig, Terraria.Net.NetManager self,
+			Terraria.Net.NetPacket packet, int ignoreClient);
+
+		private static void OnNetManagerBroadcast(OrigNetManagerBroadcast orig, Terraria.Net.NetManager self,
+			Terraria.Net.NetPacket packet, int ignoreClient)
+		{
+			if (Bridges.IsEmpty)
+			{
+				orig(self, packet, ignoreClient);
+				return;
+			}
+
+			// 诊断：确认 detour 触发 + 是否有桥接玩家被跳过
+			var bridged = Bridges.Keys.Where(w => w != ignoreClient && w >= 0 && w < Netplay.Clients.Length
+				&& Netplay.Clients[w]?.IsConnected() == true).ToArray();
+			if (bridged.Length > 0)
+				TShock.Log.ConsoleInfo($"[CrossTransfer][广播] NetManager.Broadcast 拦截：跳过桥接 {string.Join(",", bridged)} (ignore={ignoreClient})");
+
+			for (int i = 0; i < Netplay.Clients.Length; i++)
+			{
+				if (i == ignoreClient) continue;
+				if (Bridges.ContainsKey(i)) continue;
+				if (Netplay.Clients[i]?.IsConnected() != true) continue;
+				try { self.SendToClient(packet, i); } catch (Exception ex) { TShock.Log.ConsoleWarn($"[CrossTransfer] SendToClient 失败 slot#{i}: {ex.Message}"); }
+			}
 		}
 
 		/// <summary>玩家断线 → 清理桥接（A 服）与跨服标记（B 服）</summary>
