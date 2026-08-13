@@ -6,9 +6,11 @@ using System.Net.Sockets;
 using System.Reflection;
 using System.Text;
 using System.Threading.Tasks;
+using Microsoft.Xna.Framework;
 using MonoMod.RuntimeDetour;
 using Newtonsoft.Json;
 using Terraria;
+using Terraria.Localization;
 using TerrariaApi.Server;
 using TShockAPI;
 
@@ -52,6 +54,7 @@ namespace TShockData
 		private static bool _initialized;
 		private static TerrariaPlugin? _plugin;
 		private static Hook? _getDataDetour;
+		private static Hook? _sendDataDetour;
 
 		// 玩家进入本服握手期发送的 PlayerInfo 原始帧缓存（whoAmI → 完整帧），跨服重放给目标服
 		private static readonly Dictionary<int, byte[]> PlayerInfoFrames = new();
@@ -119,6 +122,26 @@ namespace TShockData
 			// 桥接的下行数据不走 NetMessage.SendBytes（直接 socket.AsyncSend），天然绕过此钩子。
 			OTAPI.Hooks.NetMessage.SendBytes += OnSendBytes;
 
+			// ═══ 广播兜底：NetMessage.SendData 广播（remoteClient=-1）时逐玩家发送并跳过桥接玩家 ═══
+			// 覆盖 SendBytes 钩子 RemoteClient=-1（广播一次调用）的语义差异，双保险。
+			// 仅在存在桥接玩家时走逐玩家路径，平时直接透传原广播，性能零影响。
+			try
+			{
+				var sendData = typeof(NetMessage).GetMethod("SendData",
+					BindingFlags.Public | BindingFlags.Static);
+				if (sendData != null)
+				{
+					_sendDataDetour = new Hook(sendData, new DetourSendData(OnSendDataDetour));
+					TShock.Log.ConsoleInfo("[CrossTransfer] SendData 广播过滤已挂载");
+				}
+				else
+					TShock.Log.ConsoleError("[CrossTransfer] 未找到 NetMessage.SendData，广播过滤不可用");
+			}
+			catch (Exception ex)
+			{
+				TShock.Log.ConsoleError($"[CrossTransfer] SendData detour 注册失败: {ex}");
+			}
+
 			// ═══ 玩家断线 → 清理桥接会话 ═══
 			ServerApi.Hooks.ServerLeave.Register(plugin, OnServerLeave);
 
@@ -141,6 +164,8 @@ namespace TShockData
 			ServerApi.Hooks.NetGetData.Deregister(_plugin!, OnCrossTransferGetData);
 			try { _getDataDetour?.Dispose(); } catch { }
 			_getDataDetour = null;
+			try { _sendDataDetour?.Dispose(); } catch { }
+			_sendDataDetour = null;
 			OTAPI.Hooks.MessageBuffer.GetData -= OnMessageBufferGetData;
 			OTAPI.Hooks.NetMessage.SendBytes -= OnSendBytes;
 			ServerApi.Hooks.ServerLeave.Deregister(_plugin!, OnServerLeave);
@@ -250,9 +275,9 @@ namespace TShockData
 						var uuid = br.ReadString();
 						if (!string.IsNullOrEmpty(uuid))
 						{
-							TransferProtocol.SetRemoteClientUUID(who, uuid);
-							if (TransferProtocol.PreTransfers.TryGetValue(who, out var pre)) pre.UUID = uuid;
-							TShock.Log.ConsoleInfo($"[CrossTransfer] ClientUUID 已写入 slot#{who}: {uuid}");
+								TransferProtocol.SetRemoteClientUUID(who, uuid);
+								if (TransferProtocol.PreTransfers.TryGetValue(who, out var pre)) pre.UUID = uuid;
+								TShock.Log.ConsoleDebug($"[CrossTransfer] ClientUUID 已写入 slot#{who}");
 							e.Handled = true;
 							return;
 						}
@@ -788,9 +813,30 @@ namespace TShockData
 				restored.FinishedHandshake = true;
 				TShock.Players[who] = restored;
 
-				// 3) 广播上线 + 重发源服世界数据（客户端重载源服世界，出生点重生）
+				// 3) 广播上线
 				NetMessage.TrySendData(69, -1, who, null, who, 1);
-				NetMessage.SendData((int)PacketTypes.WorldInfo, who);
+
+				// 4) 重新进入源服世界（模拟登录数据流）：
+				//    ① 重放玩家角色外观（进服时的 PlayerInfo 帧）
+				//    ② 世界元数据（客户端据此重载世界视图）
+				//    ③ 同步玩家自身状态（SyncPlayer：生命/位置/状态）
+				//    ④ 传送到出生点 → 客户端 GetSection 机制自动请求新 section tile → 图格加载
+				try
+				{
+					if (PlayerInfoFrames.TryGetValue(who, out var pf) && pf is { Length: > 3 })
+					{
+						var frame = (byte[])pf.Clone();
+						frame[3] = (byte)who;
+						SendToPlayerSocket(who, frame);
+					}
+					NetMessage.SendData((int)PacketTypes.WorldInfo, who);
+					NetMessage.SendData((int)PacketTypes.PlayerSpawn, who, -1, null, who);
+					restored.TeleportCentered(new Vector2(Main.spawnTileX * 16 + 8, Main.spawnTileY * 16), 1);
+				}
+				catch (Exception ex)
+				{
+					TShock.Log.ConsoleWarn($"[CrossTransfer] 返回源服世界同步失败: {ex.Message}");
+				}
 
 				TShock.Log.ConsoleInfo($"[CrossTransfer] 玩家 {pname} 已返回源服（slot#{who}）");
 			}
@@ -821,6 +867,37 @@ namespace TShockData
 		{
 			if (Bridges.ContainsKey(args.RemoteClient))
 				args.Result = OTAPI.HookResult.Cancel;
+		}
+
+		// ════════════════════════════════════════════
+		//  NetMessage.SendData detour：广播（remoteClient=-1）时跳过桥接玩家
+		//  覆盖 SendBytes 钩子对广播（RemoteClient 可能为 -1）语义差异的漏网
+		// ════════════════════════════════════════════
+
+		private delegate void OrigSendData(int msgType, int remoteClient, int ignoreClient,
+			NetworkText text, int number, float number2, float number3, float number4,
+			int number5, int number6, int number7);
+		private delegate void DetourSendData(OrigSendData orig, int msgType, int remoteClient, int ignoreClient,
+			NetworkText text, int number, float number2, float number3, float number4,
+			int number5, int number6, int number7);
+
+		private static void OnSendDataDetour(OrigSendData orig, int msgType, int remoteClient, int ignoreClient,
+			NetworkText text, int number, float number2, float number3, float number4,
+			int number5, int number6, int number7)
+		{
+			// 广播 + 存在桥接玩家 → 手动逐玩家发送并跳过桥接玩家（其余透传原广播）
+			if (remoteClient == -1 && !Bridges.IsEmpty)
+			{
+				for (int i = 0; i < Netplay.Clients.Length; i++)
+				{
+					if (i == ignoreClient) continue;
+					if (Bridges.ContainsKey(i)) continue;
+					if (Netplay.Clients[i]?.IsConnected() != true) continue;
+					orig(msgType, i, -1, text, number, number2, number3, number4, number5, number6, number7);
+				}
+				return;
+			}
+			orig(msgType, remoteClient, ignoreClient, text, number, number2, number3, number4, number5, number6, number7);
 		}
 
 		/// <summary>玩家断线 → 清理桥接（A 服）与跨服标记（B 服）</summary>
@@ -864,7 +941,7 @@ namespace TShockData
 				&& !string.IsNullOrEmpty(pre.UUID))
 			{
 				TransferProtocol.SetRemoteClientUUID(args.Who, pre.UUID);
-				TShock.Log.ConsoleInfo($"[CrossTransfer] OnJoin 前写入 UUID slot#{args.Who}: {pre.UUID}");
+				TShock.Log.ConsoleDebug($"[CrossTransfer] OnJoin 前写入 UUID slot#{args.Who}");
 			}
 		}
 
