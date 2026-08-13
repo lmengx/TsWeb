@@ -153,3 +153,4 @@ backend/data/**
 /plugin-son/PacketCatch/bin
 /terraangel-plugins/TaDebug.TAPlugin/bin
 /plugin-son/shopui/bin
+/plugin-son/statuspanel/bin
