@@ -160,6 +160,25 @@ namespace TShockData
 			if (!_initialized) return;
 			_initialized = false;
 
+			// ═══ 0) 清理全部运行态（热重载后从零开始，杜绝残留导致的"寄生/包错乱/登录不生效"）═══
+			// 1) 中断所有进行中的跨服桥接：断 B 服连接 + 取消读循环 + 断开玩家残留连接
+			foreach (var who in Bridges.Keys.ToArray())
+			{
+				try { CleanupBridge(who); }
+				catch (Exception ex) { TShock.Log.ConsoleWarn($"[CrossTransfer] 卸载清理桥接 slot#{who} 失败: {ex.Message}"); }
+			}
+			Bridges.Clear();
+
+			// 2) 清理 B 服 preTransfer 标记 + nonce 缓存
+			TransferProtocol.Reset();
+
+			// 3) 清理挂起的进服密码会话（解除等待，旧握手自然失败退出）
+			CrossLoginClient.Reset();
+
+			// 4) 清理 PlayerInfo 帧缓存
+			PlayerInfoFrames.Clear();
+
+			// ═══ 5) 卸载全部钩子 ═══
 			ServerApi.Hooks.NetGetData.Deregister(_plugin!, OnNetGetData);
 			ServerApi.Hooks.NetGetData.Deregister(_plugin!, OnCrossTransferGetData);
 			try { _getDataDetour?.Dispose(); } catch { }
@@ -171,8 +190,7 @@ namespace TShockData
 			ServerApi.Hooks.ServerLeave.Deregister(_plugin!, OnServerLeave);
 			ServerApi.Hooks.ServerJoin.Deregister(_plugin!, OnCrossTransferJoin);
 
-			PlayerInfoFrames.Clear();
-
+			// ═══ 6) 移除命令 ═══
 			Commands.ChatCommands.RemoveAll(c => c.Names.Any(n =>
 				n.Equals("跨服", StringComparison.OrdinalIgnoreCase) ||
 				n.Equals("crosstransfer", StringComparison.OrdinalIgnoreCase) ||
@@ -514,15 +532,13 @@ namespace TShockData
 			}
 
 			// 1) 重放握手期缓存的 B 服世界数据快照（WorldInfo/tile/NPC/玩家等）
-			//    过滤握手控制包：客户端游戏中收到 LoadPlayer(3)/RequestPassword(37)/
-			//    FinishedConnecting(129) 会重置 myPlayer / 重新进入握手流程，造成状态错乱。
+			//    关键：必须转发 LoadPlayer(3)[B slot]——客户端据此把 Main.myPlayer 更新为目标服 slot，
+			//    B 服以该 slot 发的包才会被客户端渲染为"自己"（不转发 → 寄生/自身无实体/收别人包）。
+			//    MultiSEngine 参考：FlushBufferedPacketsToClientAsync 原样转发全部握手缓冲包（含 LoadPlayer）。
+			//    仅过滤 RequestPassword(37)：客户端已连接，无需密码握手。
 			foreach (var frame in result.BufferedPackets)
 			{
-				if (frame.Length >= 3)
-				{
-					byte t = frame[2];
-					if (t == 3 || t == 37 || t == 129) continue;
-				}
+				if (frame.Length >= 3 && frame[2] == 37) continue;
 				SendToPlayerSocket(player.Index, frame);
 			}
 
@@ -756,14 +772,10 @@ namespace TShockData
 					bridge.CurrentServerName = server.Name;
 					bridge.Switching = false;
 
-					// 4) 重放新世界数据（过滤握手控制包）
+					// 4) 重放新世界数据（转发 LoadPlayer 同步 myPlayer 到新目标服 slot，其余照旧）
 					foreach (var frame in result.BufferedPackets)
 					{
-						if (frame.Length >= 3)
-						{
-							byte t = frame[2];
-							if (t == 3 || t == 37 || t == 129) continue;
-						}
+						if (frame.Length >= 3 && frame[2] == 37) continue;
 						SendToPlayerSocket(who, frame);
 					}
 
@@ -809,30 +821,45 @@ namespace TShockData
 					if (Main.ServerSideCharacter && restored.PlayerData?.exists == true)
 						restored.PlayerData.RestoreCharacter(restored);
 				}
-				restored.State = (int)ConnectionState.Complete;
-				restored.FinishedHandshake = true;
-				TShock.Players[who] = restored;
+					restored.State = (int)ConnectionState.Complete;
+					restored.FinishedHandshake = true;
+					restored.IsDisabledForSSC = false; // 登录成功状态（HandleConnecting 正常登录会置 false）
+					// 服务器端玩家坐标（Bouncer 距离检查/区域判定依据；缺省 0,0 会导致所有编辑被判超距拒绝）
+					restored.TPlayer.position = new Vector2(Main.spawnTileX * 16, Main.spawnTileY * 16);
+					TShock.Players[who] = restored;
 
-				// 3) 广播上线
-				NetMessage.TrySendData(69, -1, who, null, who, 1);
+					// 3) 广播上线 + 外观同步（让其他玩家看到正确的名字/外观；
+					//    PlayerInfo 广播基于服务器 Main.player[who]，桥接期未被污染）
+					NetMessage.TrySendData(69, -1, who, null, who, 1);
+					NetMessage.SendData((int)PacketTypes.PlayerInfo, -1, -1, null, who);
 
-				// 4) 重新进入源服世界（模拟登录数据流）：
-				//    ① 重放玩家角色外观（进服时的 PlayerInfo 帧）
-				//    ② 世界元数据（客户端据此重载世界视图）
-				//    ③ 同步玩家自身状态（SyncPlayer：生命/位置/状态）
-				//    ④ 传送到出生点 → 客户端 GetSection 机制自动请求新 section tile → 图格加载
-				try
-				{
-					if (PlayerInfoFrames.TryGetValue(who, out var pf) && pf is { Length: > 3 })
+					// 4) 重新进入源服世界（模拟登录数据流）：
+					//    ① LoadPlayer(3)[who]：把客户端 myPlayer 从 B 服 slot 改回 A 服 slot
+					//    ② 玩家自身外观（PlayerInfo 帧覆盖客户端本地 Main.player[who]，防 B 服同 slot 污染）
+					//    ③ 世界元数据 + 出生点 tile（解决返回后无法挖放：客户端 tile 需与服务器一致）
+					//    ④ SpawnPlayer + FinishedConnectingToServer(129) 完成连接
+					try
 					{
-						var frame = (byte[])pf.Clone();
-						frame[3] = (byte)who;
-						SendToPlayerSocket(who, frame);
+						SendToPlayerSocket(who, TransferProtocol.EncodePacket(bw =>
+						{
+							bw.Write((byte)3); // LoadPlayer
+							bw.Write((byte)who);
+							bw.Write((byte)0); // serverWantsToRunCheckBytesInClientLoopThread = false
+						}));
+
+						if (PlayerInfoFrames.TryGetValue(who, out var pf) && pf is { Length: > 3 })
+						{
+							var frame = (byte[])pf.Clone();
+							frame[3] = (byte)who;
+							SendToPlayerSocket(who, frame);
+						}
+
+						NetMessage.SendData((int)PacketTypes.WorldInfo, who);
+						restored.SendTileSquareCentered(Main.spawnTileX, Main.spawnTileY, 30);
+						NetMessage.SendData((int)PacketTypes.PlayerSpawn, who, -1, null, who);
+						SendToPlayerSocket(who, TransferProtocol.EncodePacket(bw => bw.Write((byte)129))); // FinishedConnectingToServer
+						restored.TeleportCentered(new Vector2(Main.spawnTileX * 16 + 8, Main.spawnTileY * 16), 1);
 					}
-					NetMessage.SendData((int)PacketTypes.WorldInfo, who);
-					NetMessage.SendData((int)PacketTypes.PlayerSpawn, who, -1, null, who);
-					restored.TeleportCentered(new Vector2(Main.spawnTileX * 16 + 8, Main.spawnTileY * 16), 1);
-				}
 				catch (Exception ex)
 				{
 					TShock.Log.ConsoleWarn($"[CrossTransfer] 返回源服世界同步失败: {ex.Message}");

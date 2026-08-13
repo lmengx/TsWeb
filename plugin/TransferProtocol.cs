@@ -236,6 +236,14 @@ namespace TShockData
 			}
 		}
 
+		/// <summary>热重载/卸载时清理全部运行态：preTransfer 标记与 nonce 缓存。</summary>
+		public static void Reset()
+		{
+			PreTransfers.Clear();
+			lock (_nonceLock) _nonceCache.Clear();
+			TShock.Log.ConsoleInfo($"[CrossTransfer] TransferProtocol 运行态已清理（preTransfer/nonce）");
+		}
+
 		// ════════════════════════════════════════════
 		//  TransferResult：源服对二次传送请求的判定结果
 		// ════════════════════════════════════════════

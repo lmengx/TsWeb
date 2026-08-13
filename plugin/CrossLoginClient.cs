@@ -55,6 +55,18 @@ namespace TShockData
 			}
 		}
 
+		/// <summary>热重载/卸载时清理挂起的进服密码会话（解除等待，握手自然失败退出）</summary>
+		public static void Reset()
+		{
+			lock (PendingPasswordSessions)
+			{
+				foreach (var kv in PendingPasswordSessions)
+					kv.Value.PasswordTcs.TrySetResult(null);
+				PendingPasswordSessions.Clear();
+			}
+			TShock.Log.ConsoleInfo("[CrossTransfer] CrossLoginClient 挂起会话已清理");
+		}
+
 		/// <summary>
 		/// 完整前置握手（MultiSEngine PreConnectHandler 移植）：
 		///   ClientHello → ClientUUID → Auth → AuthAck →

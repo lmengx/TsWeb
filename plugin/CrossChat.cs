@@ -245,9 +245,13 @@ namespace TShockData
                     ? $"{prefix} {groupPrefix}{player}{groupSuffix}: {text}"
                     : $"{groupPrefix}{player}{groupSuffix}: {text}";
 
-                // author=255 → 客户端不转义名字；前缀 [c/HEX:...] 与名字 [i:] 均被 ParseMessage 解析
-                TShock.Utils.Broadcast(msg, r, g, b);
-                return "{\"status\":\"200\",\"ok\":true}";
+				// author=255 → 客户端不转义名字；前缀 [c/HEX:...] 与名字 [i:] 均被 ParseMessage 解析
+				// 注意：不能用 TShock.Utils.Broadcast —— 它走 TSPlayer.All.SendMessage →
+				// ChatHelper.BroadcastChatMessage → NetManager.Broadcast，底层广播给所有 socket
+				// （含跨服桥接玩家的 A 服 socket），且绕过 CrossTransfer 的 SendData detour 过滤
+				// → 桥接玩家会在目标服重复收到同一条消息（"重放"）。
+				BroadcastSkippingBridged(msg, r, g, b);
+				return "{\"status\":\"200\",\"ok\":true}";
             }
             catch (Exception ex)
             {
@@ -282,11 +286,40 @@ namespace TShockData
             return ColorHashTagRegex.Replace(prefix, "[c/$1");
         }
 
-        private static byte ParseByte(JToken? token, byte fallback)
-        {
-            if (token == null) return fallback;
-            var v = token.ToObject<int?>();
-            return v.HasValue && v.Value >= 0 && v.Value <= 255 ? (byte)v.Value : fallback;
-        }
+		private static byte ParseByte(JToken? token, byte fallback)
+		{
+			if (token == null) return fallback;
+			var v = token.ToObject<int?>();
+			return v.HasValue && v.Value >= 0 && v.Value <= 255 ? (byte)v.Value : fallback;
+		}
+
+		/// <summary>
+		/// 广播跨服聊天消息，但跳过跨服桥接玩家（他们在目标服已看到对应消息）。
+		/// 无桥接玩家时直接走 TShock.Utils.Broadcast（含控制台/日志）；有桥接玩家时
+		/// 手动逐玩家发送（TSPlayer.SendMessage → ChatHelper.SendChatMessageToClient，定向发给指定玩家）。
+		/// </summary>
+		private static void BroadcastSkippingBridged(string msg, byte r, byte g, byte b)
+		{
+			var anyBridged = false;
+			for (int i = 0; i < TShock.Players.Length; i++)
+			{
+				if (CrossTransfer.IsBridging(i)) { anyBridged = true; break; }
+			}
+
+			if (!anyBridged)
+			{
+				TShock.Utils.Broadcast(msg, r, g, b);
+				return;
+			}
+
+			for (int i = 0; i < TShock.Players.Length; i++)
+			{
+				var p = TShock.Players[i];
+				if (p == null || !p.Active) continue;
+				if (CrossTransfer.IsBridging(i)) continue;
+				p.SendMessage(msg, r, g, b);
+			}
+			TShock.Log.Info($"Broadcast: {msg}");
+		}
     }
 }
