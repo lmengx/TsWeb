@@ -82,12 +82,15 @@ namespace TShockData
 		};
 
 		/// <summary>宝藏袋商店：按 Boss 击败进度解锁，固定价格（铜币）。肉山标志 = Main.hardMode</summary>
+		/// ⚠️ 克脑/世吞不用 NPC.downedBoss2（原版里世吞/克脑共享同一 flag，打一个卖两个）；
+		///    改用 BestiaryTracker 图鉴击杀计数（同主插件 BossProgress.GetKillCount，随世界存档持久化）
+		///    按 NPC 击杀数各自独立判定（腐化世界打世吞只卖世吞袋，猩红世界打克脑只卖克脑袋）
 		private static readonly (int itemId, Func<bool> unlocked, string name, long price)[] TreasureBags =
 		{
 			(3318, () => NPC.downedSlimeKing,      "史莱姆王",   500000L),   // 50金
 			(3319, () => NPC.downedBoss1,          "克眼",       550000L),   // 55金
-			(3320, () => NPC.downedBoss2,          "世界吞噬者", 600000L),   // 60金
-			(3321, () => NPC.downedBoss3,          "克脑",       600000L),   // 60金
+			(3320, () => Killed(NPCID.EaterofWorldsHead) || Killed(NPCID.EaterofWorldsBody) || Killed(NPCID.EaterofWorldsTail), "世界吞噬者", 600000L),   // 60金
+			(3321, () => Killed(NPCID.BrainofCthulhu), "克脑", 600000L),   // 60金
 			(3322, () => NPC.downedQueenBee,       "蜂后",       700000L),   // 70金
 			(3323, () => NPC.downedBoss3,          "骷髅王",     750000L),   // 75金
 			(3324, () => Main.hardMode,            "肉山",       1000000L),  // 1铂金
@@ -102,6 +105,20 @@ namespace TShockData
 			(4782, () => NPC.downedEmpressOfLight, "光之女皇",   4500000L),
 			(5111, () => NPC.downedDeerclops,      "鹿角怪",     800000L),
 		};
+
+		/// <summary>指定 NPC type 是否被击杀过（图鉴 BestiaryTracker 击杀计数，随世界存档持久化，重启不清零）。
+		/// 用于区分克脑/世吞——原版 downedBoss2 两 Boss 共享同一 flag，无法各自判定</summary>
+		private static bool Killed(int npcType)
+		{
+			try
+			{
+				return Main.BestiaryTracker.Kills.GetKillCount(ContentSamples.NpcBestiaryCreditIdsByNpcNetIds[npcType]) > 0;
+			}
+			catch
+			{
+				return false;
+			}
+		}
 
 		/// <summary>方块商店：固定列表与价格（铜币）。1 银 = 100 铜。珍珠木仅困难模式（肉山前隐藏）</summary>
 		private static readonly (int itemId, long price)[] BlockItems =
