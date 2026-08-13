@@ -396,9 +396,12 @@ export const qqUnbind = async (req, res) => {
     if (!rec) return res.status(404).json({ error: '该角色未绑定 QQ' })
 
     await removeAccount(name)
+    // 广播全量同步解绑到各服（插件绑定快照移除该用户，解绑后登录不再触发晋升；
+    // full 推送不删本地账号，符合「各服本地账号保留、密码不变」语义）
+    const result = await broadcastFullAll()
     // 时长记录保留（qq 字段由下轮聚合自动清空；绑定列表 qq 以台账为准，立即失效）
     audit.record('qq_account.unbind', { username: name, qq: rec.qq || '' })
-    console.log(`[QQ台账] 解绑: ${name} (QQ:${rec.qq || ''})`)
+    console.log(`[QQ台账] 解绑: ${name} (QQ:${rec.qq || ''}), 广播 ${result.ok}/${result.total}`)
     res.json({ status: 'ok', message: '解绑成功' })
   } catch (err) {
     res.status(500).json({ error: err.message })
