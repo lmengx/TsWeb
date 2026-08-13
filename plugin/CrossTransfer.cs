@@ -148,6 +148,11 @@ namespace TShockData
 			// ═══ 最高优先级 ServerJoin：在 TShock.OnJoin 的 KickEmptyUUID 检查前写入 UUID（兜底）═══
 			ServerApi.Hooks.ServerJoin.Register(plugin, OnCrossTransferJoin, int.MinValue);
 
+			// ═══ 名字冲突处理：preTransfer/回环模拟连接放行（TShock 的 NetHooks_NameCollision 用
+			//    Players.First(...)，当原玩家 slot 已被桥接隐藏（TShock.Players[i]=null）时无匹配会
+			//    抛 Sequence contains no matching element 并把新连接踢出）═══
+			ServerApi.Hooks.NetNameCollision.Register(plugin, OnNameCollision, int.MinValue);
+
 			Commands.ChatCommands.Add(new Command(Permission, TransferCommand, "跨服", "crosstransfer"));
 			Commands.ChatCommands.Add(new Command(Permission, ReturnCommand, "返回", "ctback"));
 			Commands.ChatCommands.Add(new Command(Permission, PasswordCommand, "跨服密码", "ctpass"));
@@ -189,6 +194,7 @@ namespace TShockData
 			OTAPI.Hooks.NetMessage.SendBytes -= OnSendBytes;
 			ServerApi.Hooks.ServerLeave.Deregister(_plugin!, OnServerLeave);
 			ServerApi.Hooks.ServerJoin.Deregister(_plugin!, OnCrossTransferJoin);
+			ServerApi.Hooks.NetNameCollision.Deregister(_plugin!, OnNameCollision);
 
 			// ═══ 6) 移除命令 ═══
 			Commands.ChatCommands.RemoveAll(c => c.Names.Any(n =>
@@ -524,6 +530,8 @@ namespace TShockData
 			{
 				NetMessage.TrySendData(69, -1, player.Index, null, player.Index, 0);
 				Main.player[player.Index].active = false;
+				Main.player[player.Index].name = ""; // 清名字：Terraria 底层名字冲突检测用 Main.player 的 name，
+				                                    // 不清会触发 NameCollision（原玩家 slot 已退但名字残留）
 				TShock.Players[player.Index] = null;
 			}
 			catch (Exception ex)
@@ -793,83 +801,75 @@ namespace TShockData
 		}
 
 		/// <summary>返回源服：恢复玩家可见性与 TShock 状态，重发源服世界数据（无缝切回）</summary>
+		/// <summary>
+		/// 返回源服：把本服自身当作目标服，回环握手（模拟客户端连接 127.0.0.1:本服端口），
+		/// 复用完整 CrossLoginClient 握手 + SwitchTarget 桥接切换 → 客户端走 A 服原生完整加入流程，
+		/// 形象/物品/tile 全部由 A 服原生流程处理，避免手动模拟的所有问题。
+		/// </summary>
 		private static void ReturnToSelf(BridgeSession bridge)
 		{
-			int who = bridge.PlayerIndex;
-			string pname = bridge.PlayerName;
-
-			// 1) 停桥接（先标记切换中，防旧读循环 finally 清理）
-			bridge.Switching = true;
-			bridge.Cts.Cancel();
-			try { bridge.Target?.Dispose(); } catch { }
-			bridge.Stream = null;
-			Bridges.TryRemove(who, out _);
-
-			// 2) 恢复玩家在源服的可见性与 TShock 状态（复刻 HandleConnecting 登录成功逻辑）
 			try
 			{
-				Main.player[who].active = true;
-
-				var restored = new TSPlayer(who);
-				var acc = TShock.UserAccounts.GetUserAccountByName(pname);
-				if (acc != null)
+				var self = new TransferServerInfo
 				{
-					restored.Account = acc;
-					restored.Group = TShock.Groups.GetGroupByName(acc.Group) ?? Group.DefaultGroup;
-					restored.IsLoggedIn = true;
-					restored.PlayerData = TShock.CharacterDB.GetPlayerData(restored, acc.ID);
-					if (Main.ServerSideCharacter && restored.PlayerData?.exists == true)
-						restored.PlayerData.RestoreCharacter(restored);
-				}
-					restored.State = (int)ConnectionState.Complete;
-					restored.FinishedHandshake = true;
-					restored.IsDisabledForSSC = false; // 登录成功状态（HandleConnecting 正常登录会置 false）
-					// 服务器端玩家坐标（Bouncer 距离检查/区域判定依据；缺省 0,0 会导致所有编辑被判超距拒绝）
-					restored.TPlayer.position = new Vector2(Main.spawnTileX * 16, Main.spawnTileY * 16);
-					TShock.Players[who] = restored;
-
-					// 3) 广播上线 + 外观同步（让其他玩家看到正确的名字/外观；
-					//    PlayerInfo 广播基于服务器 Main.player[who]，桥接期未被污染）
-					NetMessage.TrySendData(69, -1, who, null, who, 1);
-					NetMessage.SendData((int)PacketTypes.PlayerInfo, -1, -1, null, who);
-
-					// 4) 重新进入源服世界（模拟登录数据流）：
-					//    ① LoadPlayer(3)[who]：把客户端 myPlayer 从 B 服 slot 改回 A 服 slot
-					//    ② 玩家自身外观（PlayerInfo 帧覆盖客户端本地 Main.player[who]，防 B 服同 slot 污染）
-					//    ③ 世界元数据 + 出生点 tile（解决返回后无法挖放：客户端 tile 需与服务器一致）
-					//    ④ SpawnPlayer + FinishedConnectingToServer(129) 完成连接
-					try
-					{
-						SendToPlayerSocket(who, TransferProtocol.EncodePacket(bw =>
-						{
-							bw.Write((byte)3); // LoadPlayer
-							bw.Write((byte)who);
-							bw.Write((byte)0); // serverWantsToRunCheckBytesInClientLoopThread = false
-						}));
-
-						if (PlayerInfoFrames.TryGetValue(who, out var pf) && pf is { Length: > 3 })
-						{
-							var frame = (byte[])pf.Clone();
-							frame[3] = (byte)who;
-							SendToPlayerSocket(who, frame);
-						}
-
-						NetMessage.SendData((int)PacketTypes.WorldInfo, who);
-						restored.SendTileSquareCentered(Main.spawnTileX, Main.spawnTileY, 30);
-						NetMessage.SendData((int)PacketTypes.PlayerSpawn, who, -1, null, who);
-						SendToPlayerSocket(who, TransferProtocol.EncodePacket(bw => bw.Write((byte)129))); // FinishedConnectingToServer
-						restored.TeleportCentered(new Vector2(Main.spawnTileX * 16 + 8, Main.spawnTileY * 16), 1);
-					}
-				catch (Exception ex)
-				{
-					TShock.Log.ConsoleWarn($"[CrossTransfer] 返回源服世界同步失败: {ex.Message}");
-				}
-
-				TShock.Log.ConsoleInfo($"[CrossTransfer] 玩家 {pname} 已返回源服（slot#{who}）");
+					Name = Config.SelfServerId,
+					IP = "127.0.0.1",
+					Port = Netplay.ListenPort,
+					Secret = Config.SelfSecret,
+					Password = Config.Servers.FirstOrDefault(
+						s => s.Name.Equals(Config.SelfServerId, StringComparison.OrdinalIgnoreCase))?.Password
+				};
+				TShock.Log.ConsoleInfo($"[CrossTransfer] 玩家 {bridge.PlayerName} 正在返回源服（回环握手 {self.IP}:{self.Port}）");
+				SwitchTarget(bridge, self);
 			}
 			catch (Exception ex)
 			{
-				TShock.Log.ConsoleError($"[CrossTransfer] 返回源服恢复失败: {ex}");
+				TShock.Log.ConsoleError($"[CrossTransfer] 返回源服失败: {ex}");
+				try { CleanupBridge(bridge.PlayerIndex); } catch { }
+			}
+		}
+
+		/// <summary>全量同步玩家物品/装备到客户端（从 Main.player[who] 读取，逐槽发 SyncEquipment(5) 只发给 who）。</summary>
+		private static void SyncAllEquipment(int who)
+		{
+			try
+			{
+				if (who < 0 || who >= Main.player.Length) return;
+				var tpl = Main.player[who];
+				if (tpl == null) return;
+
+				// 先同步当前套装索引（SyncLoadout 必须先于物品）
+				NetMessage.SendData((int)PacketTypes.SyncLoadout, who, -1, null, who, tpl.CurrentLoadoutIndex);
+
+				// 网络槽号（Terraria 协议固定值，对应 PlayerItemSlotID）：
+				// Inventory0=0 Armor0=59 Dye0=79 Misc0=89 MiscDye0=94 Bank1_0=99 Bank2_0=139
+				// TrashItem=179 Bank3_0=180 Bank4_0=220
+				const int Inventory0 = 0, Armor0 = 59, Dye0 = 79, Misc0 = 89, MiscDye0 = 94,
+					Bank1_0 = 99, Bank2_0 = 139, TrashItem = 179, Bank3_0 = 180, Bank4_0 = 220;
+
+				for (int k = 0; k < NetItem.InventorySlots; k++)
+					NetMessage.SendData(5, who, -1, null, who, Inventory0 + k);
+				for (int k = 0; k < NetItem.ArmorSlots; k++)
+					NetMessage.SendData(5, who, -1, null, who, Armor0 + k);
+				for (int k = 0; k < NetItem.DyeSlots; k++)
+					NetMessage.SendData(5, who, -1, null, who, Dye0 + k);
+				for (int k = 0; k < NetItem.MiscEquipSlots; k++)
+					NetMessage.SendData(5, who, -1, null, who, Misc0 + k);
+				for (int k = 0; k < NetItem.MiscDyeSlots; k++)
+					NetMessage.SendData(5, who, -1, null, who, MiscDye0 + k);
+				for (int k = 0; k < NetItem.PiggySlots; k++)
+					NetMessage.SendData(5, who, -1, null, who, Bank1_0 + k);
+				for (int k = 0; k < NetItem.SafeSlots; k++)
+					NetMessage.SendData(5, who, -1, null, who, Bank2_0 + k);
+				NetMessage.SendData(5, who, -1, null, who, TrashItem);
+				for (int k = 0; k < NetItem.ForgeSlots; k++)
+					NetMessage.SendData(5, who, -1, null, who, Bank3_0 + k);
+				for (int k = 0; k < NetItem.VoidSlots; k++)
+					NetMessage.SendData(5, who, -1, null, who, Bank4_0 + k);
+			}
+			catch (Exception ex)
+			{
+				TShock.Log.ConsoleWarn($"[CrossTransfer] 物品同步失败: {ex.Message}");
 			}
 		}
 
@@ -970,6 +970,19 @@ namespace TShockData
 				TransferProtocol.SetRemoteClientUUID(args.Who, pre.UUID);
 				TShock.Log.ConsoleDebug($"[CrossTransfer] OnJoin 前写入 UUID slot#{args.Who}");
 			}
+		}
+
+		/// <summary>
+		/// 名字冲突处理：preTransfer/回环模拟连接直接放行。
+		/// 原玩家 slot 在桥接时已被隐藏（TShock.Players[i]=null、Main.player[i].name=""），
+		/// Terraria 底层仍可能基于 Main.player 残留触发 NameCollision；此时 TShock 的
+		/// NetHooks_NameCollision 用 Players.First(...) 无匹配会抛异常并把新连接踢出，
+		/// 这里在 int.MinValue 优先级直接 Handled，跳过 TShock 的名字冲突踢出逻辑。
+		/// </summary>
+		private static void OnNameCollision(NameCollisionEventArgs args)
+		{
+			if (TransferProtocol.PreTransfers.ContainsKey(args.Who))
+				args.Handled = true;
 		}
 
 		// ════════════════════════════════════════════
