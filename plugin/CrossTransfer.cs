@@ -193,7 +193,7 @@ namespace TShockData
 
 			Commands.ChatCommands.Add(new Command(Permission, TransferCommand, "跨服", "crosstransfer"));
 			Commands.ChatCommands.Add(new Command(Permission, ReturnCommand, "返回", "ctback"));
-			Commands.ChatCommands.Add(new Command(Permission, PasswordCommand, "跨服密码", "ctpass"));
+			Commands.ChatCommands.Add(new Command(PasswordCommand, "跨服密码", "ctpass"));
 
 			// ═══ 保活定时器：桥接玩家 TimeOutTimer 兜底归零（防止静止无上行包时超时断线）═══
 			_keepAliveTimer = new System.Threading.Timer(_ =>
