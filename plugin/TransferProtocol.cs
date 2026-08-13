@@ -123,7 +123,7 @@ namespace TShockData
 			using var ms = new MemoryStream(readBuffer, index, length - 1);
 			using var br = new BinaryReader(ms, Encoding.UTF8);
 			var name = br.ReadString();
-			TShock.Log.ConsoleInfo($"[CrossTransfer] 收到自定义包 slot#{whoAmI}: {name}");
+			TShock.Log.ConsoleDebug($"[CrossTransfer] 收到自定义包 slot#{whoAmI}: {name}");
 			switch (name)
 			{
 				case AuthPacket:

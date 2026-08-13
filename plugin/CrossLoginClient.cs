@@ -16,7 +16,7 @@ namespace TShockData
 	/// </summary>
 	public static class CrossLoginClient
 	{
-		private const bool DebugLog = true; // 握手诊断日志（定位目标服响应）
+		private const bool DebugLog = false; // 握手诊断日志（定位目标服响应）
 
 		public class AuthResult
 		{
@@ -130,12 +130,12 @@ namespace TShockData
 						return Fail(client, result, err ?? "握手超时");
 
 						var type = body[0];
-						if (DebugLog)
+						// 日志只打关键包（排除 NetModule(82)/TileSection(10) 洪水），避免拖慢握手
+						if (DebugLog && type != 82 && type != 10)
 						{
-							var hex = BitConverter.ToString(body);
 							var desc = DescribePacket(type, body);
 							TShock.Log.ConsoleInfo(
-								$"[CrossTransfer][握手] {playerName} → {server.Name}: 收到 type={type} len={body.Length} 内容=[{hex}] {desc}");
+								$"[CrossTransfer][握手] {playerName} → {server.Name}: 收到 type={type} len={body.Length} {desc}");
 						}
 
 					// 缓存目标服数据帧（自定义包 15 除外，那是控制通道，不重放给玩家）
@@ -156,7 +156,7 @@ namespace TShockData
 							var frame = (byte[])playerInfoFrame.Clone();
 							frame[3] = (byte)result.RemoteSlot;
 							if (DebugLog)
-								TShock.Log.ConsoleInfo($"[CrossTransfer][握手] 发送 PlayerInfo 帧 len={frame.Length} 前12=[{BitConverter.ToString(frame, 0, Math.Min(12, frame.Length))}]");
+								TShock.Log.ConsoleInfo($"[CrossTransfer][握手] 发送 PlayerInfo 帧 len={frame.Length}");
 							await stream.WriteAsync(frame);
 						}
 
@@ -487,7 +487,7 @@ namespace TShockData
 		{
 			var bytes = TransferProtocol.EncodePacket(writeBody);
 			if (DebugLog)
-				TShock.Log.ConsoleInfo($"[CrossTransfer][握手] 发送 len={bytes.Length} 内容=[{BitConverter.ToString(bytes)}]");
+				TShock.Log.ConsoleInfo($"[CrossTransfer][握手] 发送 len={bytes.Length} 类型={(bytes.Length > 2 ? bytes[2].ToString() : "?")}");
 			await s.WriteAsync(bytes);
 		}
 
