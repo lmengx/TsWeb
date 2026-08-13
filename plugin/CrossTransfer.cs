@@ -333,18 +333,9 @@ namespace TShockData
 				return;
 			}
 
-			// B 服：preTransfer 连接的 PlayerInfo → 先保障账号（UUID 绑定），让 TShock 自动登录
-			if (e.MsgID == PacketTypes.PlayerInfo && TransferProtocol.PreTransfers.ContainsKey(e.Msg.whoAmI))
-			{
-				// 兜底：OnAuth 已保障过账号；此处若失败（禁止注册/账号被占用）则拒绝该玩家
-				if (!TransferProtocol.EnsureAccount(e.Msg.whoAmI))
-				{
-					TransferProtocol.PreTransfers.TryRemove(e.Msg.whoAmI, out _);
-					TransferProtocol.SendKick(e.Msg.whoAmI, "跨服账号注册被拒绝");
-					e.Handled = true;
-					return;
-				}
-			}
+			// B 服：preTransfer 连接的 PlayerInfo → 不做任何账号干预，由 TShock 原生
+			// HandleConnecting 决定（有账号+UUID 匹配自动登录；无账号游客放行或按目标服
+			// 策略踢出——踢出时 A 服侧握手失败，玩家留在原服）。
 
 			// B 服：ClientUUID(68) 会被 TShock 早期 State 拦截
 			// （68 不在 AllowedEarlyPackets → e.Handled=true → Terraria 底层跳过），

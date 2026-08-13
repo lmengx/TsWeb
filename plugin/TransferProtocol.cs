@@ -172,19 +172,11 @@ namespace TShockData
 			};
 			TShock.Log.ConsoleInfo($"[CrossTransfer] 受信连接已鉴权: {playerName} ({source}) → 本服 slot#{whoAmI}");
 
-			// 提前写入 Terraria 原生 ClientUUID（防止 OnJoin 的 KickEmptyUUID 检查读到空白）
+			// 提前写入 Terraria 原生 ClientUUID（防止 OnJoin 的 KickEmptyUUID 检查读到空白，
+			// 并让 TShock 的 UUID 自动登录正常工作）。
+			// ⚠️ 只转发玩家 UUID，不做任何账号干预：不建号、不代登录、不绑定——
+			// 目标服是否允许进入（有账号自动登录 / 无账号游客或踢出）完全走 TShock 原生流程。
 			SetRemoteClientUUID(whoAmI, uuid);
-
-			// 立即保障账号（在 ClientUUID 与 ContinueConnecting2 到达之前完成 UUID 绑定）
-			// 失败 = 目标服禁止注册 / 账号已被他人绑定 → 拒绝该跨服连接
-			if (!EnsureAccount(whoAmI))
-			{
-				PreTransfers.TryRemove(whoAmI, out _);
-				TShock.Log.ConsoleWarn($"[CrossTransfer] 账号保障失败，拒绝跨服连接: {playerName}@{source} (slot#{whoAmI})");
-				SendAuthAck(whoAmI, false, "目标服禁止注册新账号或账号已被占用");
-				SendKick(whoAmI, "跨服账号注册被拒绝");
-				return;
-			}
 
 			SendAuthAck(whoAmI, true, "");
 		}
@@ -215,69 +207,6 @@ namespace TShockData
 					TShock.Log.ConsoleWarn($"[CrossTransfer] SyncIP 替换失败: {ex.Message}");
 				}
 			}
-		}
-
-		// ════════════════════════════════════════════
-		//  B 服账号保障：preTransfer 连接在 TShock 处理 PlayerInfo 之前
-		//  确保账号存在且 UUID 已绑定 → TShock UUID 自动登录（HandleConnecting）
-		// ════════════════════════════════════════════
-
-		/// <summary>
-		/// B 服账号保障：preTransfer 连接在 TShock 处理 PlayerInfo 之前确保账号存在且 UUID 已绑定
-		/// → TShock UUID 自动登录（HandleConnecting）。
-		/// 遵循目标服注册策略（与正常玩家 /register 权限一致）：
-		///  - 账号不存在：仅当目标服允许注册（DefaultRegistrationGroupName 组持有
-		///    tshock.account.register 权限）时才自动创建；禁止注册的服务器返回 false；
-		///  - 账号已存在：UUID 为空才绑定；已绑定其他 UUID 返回 false（防同名账号被跨服冒用/劫持）。
-		/// </summary>
-		public static bool EnsureAccount(int whoAmI)
-		{
-			if (!PreTransfers.TryGetValue(whoAmI, out var pre)) return false;
-			try
-			{
-				var acc = TShock.UserAccounts.GetUserAccountByName(pre.PlayerName);
-				if (acc == null)
-				{
-					// ═══ 遵守“禁止新玩家注册”：default 组无注册权限 → 拒绝自动创建 ═══
-					if (!CanAutoRegister())
-					{
-						TShock.Log.ConsoleWarn($"[CrossTransfer] 目标服禁止新玩家注册，拒绝为 {pre.PlayerName} 自动创建账号");
-						return false;
-					}
-					acc = new UserAccount(pre.PlayerName, "", "",
-						TShock.Config.Settings.DefaultRegistrationGroupName, "", "", "");
-					acc.CreateBCryptHash(Guid.NewGuid().ToString("N")); // 随机密码：跨服仅靠 UUID 登录
-					TShock.UserAccounts.AddUserAccount(acc);
-				}
-				else if (!string.IsNullOrEmpty(acc.UUID)
-					&& !string.Equals(acc.UUID, pre.UUID, StringComparison.OrdinalIgnoreCase))
-				{
-					// ═══ 账号已绑定其他 UUID：不得覆盖（防同名账号被跨服冒用）═══
-					TShock.Log.ConsoleWarn($"[CrossTransfer] 账号 {pre.PlayerName} 已绑定其他 UUID，拒绝跨服玩家冒用");
-					return false;
-				}
-
-				if (string.IsNullOrEmpty(acc.UUID))
-					TShock.UserAccounts.SetUserAccountUUID(acc, pre.UUID);
-				TShock.Log.ConsoleInfo($"[CrossTransfer] 已为跨服玩家保障账号: {pre.PlayerName}");
-				return true;
-			}
-			catch (Exception ex)
-			{
-				TShock.Log.ConsoleWarn($"[CrossTransfer] 账号保障失败: {ex}");
-				return false;
-			}
-		}
-
-		/// <summary>目标服是否允许新玩家注册：DefaultRegistrationGroupName 组是否持有 tshock.account.register 权限。</summary>
-		private static bool CanAutoRegister()
-		{
-			try
-			{
-				var group = TShock.Groups.GetGroupByName(TShock.Config.Settings.DefaultRegistrationGroupName);
-				return group?.HasPermission(Permissions.canregister) ?? false;
-			}
-			catch { return false; }
 		}
 
 		/// <summary>热重载/卸载时清理全部运行态：preTransfer 标记与 nonce 缓存。</summary>
