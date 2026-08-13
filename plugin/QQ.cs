@@ -574,6 +574,31 @@ namespace TShockData
         }
 
         /// <summary>
+        /// 玩家登录时识别一次：若其账号在后端 QQ 台账中已有绑定数据，且 qqBind 晋升启用，则按配置晋升。
+        /// （QQ 机器人绑定已迁移到后端 /api/bot/*，插件经 /tsweb/qqsync 台账快照识别绑定关系）
+        /// </summary>
+        public static void TryPromoteOnLogin(TSPlayer player)
+        {
+            if (player == null || !player.IsLoggedIn || player.Account == null) return;
+
+            var account = player.Account;
+
+            // 后端台账中无该账号的 QQ 绑定数据 → 跳过
+            if (!AccountSync.IsQqBound(account.Name)) return;
+
+            var config = PromotionManager.GetConfig();
+            if (!config.QqBind.Enabled) return;   // 未启用不打扰
+
+            // TryPromote 幂等：auto 模式沿父组链检查，已达目标组 / 命中忽略组会自动跳过
+            PromotionManager.TryPromote(
+                account,
+                config.QqBind.TargetGroup,
+                config.QqBind.Mode,
+                player,
+                "QQ绑定登录识别");
+        }
+
+        /// <summary>
         /// 根据权限提升配置执行晋升
         /// </summary>
         private static void TryPromoteByConfig(UserAccount account, string playerName, string source)
