@@ -37,6 +37,9 @@ namespace TShockData
             QQBind.Initialize();
             PromotionManager.LoadConfig();
 
+            // ═══ 表情指令（玩家发表情时按配置顺序执行指定指令）═══
+            EmoteCommandManager.Initialize();
+
             // ═══ QQ 账号台账同步（后端推送：账号/UUID 全量、登录新设备免密）═══
             AccountSync.Initialize(this);
 
@@ -190,6 +193,10 @@ namespace TShockData
             TShock.RestApi.Register(new SecureRestCommand("/data/promotion/config", PromotionManager.GetConfigJson, "data.rest.invsee"));
             TShock.RestApi.Register(new SecureRestCommand("/data/promotion/config/set", PromotionManager.SetConfigJson, "data.rest.invsee"));
 
+            // 表情指令配置
+            TShock.RestApi.Register(new SecureRestCommand("/data/emoji/config", EmoteCommandManager.GetConfigJson, "data.rest.invsee"));
+            TShock.RestApi.Register(new SecureRestCommand("/data/emoji/config/set", EmoteCommandManager.SetConfigJson, "data.rest.invsee"));
+
             TShockAPI.Commands.ChatCommands.Add(new Command("tshock.admin", AntiCheat.HandleScanCommand, "scan", "扫描"));
 
             TShockAPI.Commands.ChatCommands.Add(new Command("tshock.admin", ProjDetection.ShowRestrictedList, "projlist", "违禁弹幕"));
@@ -210,6 +217,7 @@ namespace TShockData
             ItemDetection.RefreshRestrictedItems();
             ItemDetection.StartAutoScan();
             PromotionManager.LoadConfig();
+            EmoteCommandManager.LoadConfig();
             TaskScheduler.Reload();
             AutoBackup.LoadConfig();
 
@@ -241,6 +249,7 @@ namespace TShockData
 				PvPLockManager.Dispose();
 				TeamLockManager.Dispose();
 				HouseCore.Instance.Dispose();
+                EmoteCommandManager.Dispose();
 
 				CleanupChatCommands();
 				CleanupRestApiRoutes();
@@ -348,6 +357,8 @@ namespace TShockData
                 "/data/qq/player-data",
                 "/data/promotion/config",
                 "/data/promotion/config/set",
+                "/data/emoji/config",
+                "/data/emoji/config/set",
                 "/data/tasks/list",
                 "/data/tasks/get",
                 "/data/tasks/save",

@@ -108,6 +108,12 @@ const routes = [
             name: 'PromotionConfig',
             component: () => import('../views/console/PromotionConfigView.vue'),
             meta: { requiresAuth: true, requiresAdmin: true }
+          },
+          {
+            path: 'emoji',
+            name: 'EmoteCommandConfig',
+            component: () => import('../views/console/settings/EmoteCommandView.vue'),
+            meta: { requiresAuth: true, requiresAdmin: true }
           }
         ]
       },
