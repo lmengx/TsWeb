@@ -1,11 +1,12 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Net.Sockets;
-using System.Reflection;
-using System.Text;
-using System.Threading.Tasks;
+		using System;
+		using System.Collections.Generic;
+		using System.IO;
+		using System.Linq;
+		using System.Net.Sockets;
+		using System.Reflection;
+		using System.Text;
+		using System.Threading;
+		using System.Threading.Tasks;
 using Microsoft.Xna.Framework;
 using MonoMod.RuntimeDetour;
 using Newtonsoft.Json;
@@ -65,6 +66,36 @@ namespace TShockData
 	}
 
 	/// <summary>
+	/// 桥接保留 socket：挂在【已完整退出】的桥接玩家 slot 上。
+	/// - IsConnected() 返回 false → A 服认为该连接已断开，触发 Terraria 完整退出流程
+	///   （Netplay.UpdateConnectedClients 检测 IsConnected==false && IsActive==true →
+	///   PendingTermination → RemoteClient.Reset() 清状态 + SyncDisconnectedPlayer 广播下线），
+	///   使 A 服 slot 彻底静默、不再参与任何玩家同步（修复“幽灵连接导致 A 服玩家位置错乱”）。
+	/// - Close() 不关闭真 socket：真 socket 保留给桥接自读自写（玩家客户端仍连在上面）。
+	/// - AsyncSend 丢弃：拦截 A 服所有下行（含最后一步的 kick 踢出包），玩家客户端不收到。
+	/// - AsyncReceive 立即回调 0：若 A 服在退出完成前仍读一次，按断开语义（length=0）加速退出。
+	/// </summary>
+	public sealed class RetainedSocket : ISocket
+	{
+		private readonly ISocket _real;
+		public ISocket Real => _real;
+		public RetainedSocket(ISocket real) => _real = real;
+
+		void ISocket.Close() { /* 保留真 socket 给桥接，不真正关闭 */ }
+		bool ISocket.IsConnected() => false; // 关键：让 A 服认为断开 → 触发完整退出 + 不再向 slot 发送
+		void ISocket.Connect(RemoteAddress address) => _real.Connect(address);
+		void ISocket.AsyncSend(byte[] data, int offset, int size, SocketSendCallback callback, object state)
+			=> callback?.Invoke(state); // 丢弃 A 服下行（含 kick 包），立即回调假装完成
+		void ISocket.AsyncReceive(byte[] data, int offset, int size, SocketReceiveCallback callback, object state)
+			=> callback?.Invoke(state, 0); // A 服不应再读；若读则按断开返回 0（加速退出）
+		bool ISocket.IsDataAvailable() => false;
+		RemoteAddress ISocket.GetRemoteAddress() => _real.GetRemoteAddress();
+		bool ISocket.StartListening(SocketConnectionAccepted callback)
+			=> throw new NotSupportedException("RetainedSocket 不是监听 socket");
+		void ISocket.StopListening() { }
+	}
+
+	/// <summary>
 	/// 跨服传送（纯插件，阶段 0：控制通道地基）。
 	/// - 自定义包通道：Unused15(15)，ServerApi.Hooks.NetGetData 最高优先级（int.MinValue）
 	///   在 TShock.OnGetData 之前完全接管（原 MonoMod detour private 方法在本环境不触发）
@@ -82,8 +113,6 @@ namespace TShockData
 		private static bool _initialized;
 		private static TerrariaPlugin? _plugin;
 		private static Hook? _getDataDetour;
-		private static Hook? _sendDataDetour;
-		private static Hook? _netBroadcastHook;
 
 		// 保活定时器：桥接玩家的 TimeOutTimer 虽已随上行包重置，但玩家长时间静止（无上行包）
 		// 时仍可能超时被踢，这里定时兜底归零，确保桥接连接稳定存活（约 20s 一次）。
@@ -151,53 +180,6 @@ namespace TShockData
 			//  取消时同时置 Result=Cancel 与 PacketId=255（Omni 技巧：TSAPI 不尊重 Result）。
 			OTAPI.Hooks.MessageBuffer.GetData += OnMessageBufferGetData;
 
-			// ═══ 出站拦截：玩家桥接期间丢弃 A 服发给他的所有包（防止 A 服旧世界数据污染 B 服世界）═══
-			// 桥接的下行数据不走 NetMessage.SendBytes（直接 socket.AsyncSend），天然绕过此钩子。
-			OTAPI.Hooks.NetMessage.SendBytes += OnSendBytes;
-
-			// ═══ 广播兜底：NetMessage.SendData 广播（remoteClient=-1）时逐玩家发送并跳过桥接玩家 ═══
-			// 覆盖 SendBytes 钩子 RemoteClient=-1（广播一次调用）的语义差异，双保险。
-			// 仅在存在桥接玩家时走逐玩家路径，平时直接透传原广播，性能零影响。
-			try
-			{
-				var sendData = typeof(NetMessage).GetMethod("SendData",
-					BindingFlags.Public | BindingFlags.Static);
-				if (sendData != null)
-				{
-					_sendDataDetour = new Hook(sendData, new DetourSendData(OnSendDataDetour));
-					TShock.Log.ConsoleInfo("[CrossTransfer] SendData 广播过滤已挂载");
-				}
-				else
-					TShock.Log.ConsoleError("[CrossTransfer] 未找到 NetMessage.SendData，广播过滤不可用");
-			}
-			catch (Exception ex)
-			{
-				TShock.Log.ConsoleError($"[CrossTransfer] SendData detour 注册失败: {ex}");
-			}
-
-			// ═══ 底层广播过滤：NetManager.Broadcast（ChatHelper 聊天广播等所有 NetModule 广播）═══
-			// TShock 本地聊天/公告走 ChatHelper.BroadcastChatMessage → NetManager.Broadcast，
-			// 直发所有 socket（含桥接玩家的 A 服 socket），且绕过 SendBytes/SendData 钩子
-			// → 桥接玩家在目标服会重复收到 A 服的本地消息（"玩家名 消息"）+ 跨服转发（"A服 玩家名 消息"）。
-			// 这里逐客户端发送并跳过桥接玩家（仅存在桥接玩家时走逐发，平时透传原广播，性能零影响）。
-			try
-			{
-				var bm = typeof(Terraria.Net.NetManager).GetMethod("Broadcast",
-					BindingFlags.Public | BindingFlags.Instance, null,
-					new[] { typeof(Terraria.Net.NetPacket), typeof(int) }, null);
-				if (bm != null)
-				{
-					_netBroadcastHook = new Hook(bm, new DetourNetBroadcast(OnNetManagerBroadcast));
-					TShock.Log.ConsoleInfo("[CrossTransfer] NetManager.Broadcast 广播过滤已挂载");
-				}
-				else
-					TShock.Log.ConsoleError("[CrossTransfer] 未找到 NetManager.Broadcast，广播过滤不可用");
-			}
-			catch (Exception ex)
-			{
-				TShock.Log.ConsoleError($"[CrossTransfer] NetManager.Broadcast detour 注册失败: {ex}");
-			}
-
 			// ═══ 玩家断线 → 清理桥接会话 ═══
 			ServerApi.Hooks.ServerLeave.Register(plugin, OnServerLeave);
 
@@ -263,12 +245,7 @@ namespace TShockData
 			ServerApi.Hooks.NetGetData.Deregister(_plugin!, OnCrossTransferGetData);
 			try { _getDataDetour?.Dispose(); } catch { }
 			_getDataDetour = null;
-			try { _sendDataDetour?.Dispose(); } catch { }
-			_sendDataDetour = null;
-			try { _netBroadcastHook?.Dispose(); } catch { }
-			_netBroadcastHook = null;
 			OTAPI.Hooks.MessageBuffer.GetData -= OnMessageBufferGetData;
-			OTAPI.Hooks.NetMessage.SendBytes -= OnSendBytes;
 			ServerApi.Hooks.ServerLeave.Deregister(_plugin!, OnServerLeave);
 			ServerApi.Hooks.ServerJoin.Deregister(_plugin!, OnCrossTransferJoin);
 			ServerApi.Hooks.NetNameCollision.Deregister(_plugin!, OnNameCollision);
@@ -350,7 +327,7 @@ namespace TShockData
 
 			// 桥接中的玩家：所有上行包已由最底层钩子（OnMessageBufferGetData）转发目标服并取消，
 			// 这里兜底跳过，防止 A 服 TShock 继续处理其包（幽灵操作/误判）。
-			if (Bridges.ContainsKey(e.Msg.whoAmI))
+			if (IsBridgeActive(e.Msg.whoAmI))
 			{
 				e.Handled = true;
 				return;
@@ -358,7 +335,16 @@ namespace TShockData
 
 			// B 服：preTransfer 连接的 PlayerInfo → 先保障账号（UUID 绑定），让 TShock 自动登录
 			if (e.MsgID == PacketTypes.PlayerInfo && TransferProtocol.PreTransfers.ContainsKey(e.Msg.whoAmI))
-				TransferProtocol.EnsureAccount(e.Msg.whoAmI);
+			{
+				// 兜底：OnAuth 已保障过账号；此处若失败（禁止注册/账号被占用）则拒绝该玩家
+				if (!TransferProtocol.EnsureAccount(e.Msg.whoAmI))
+				{
+					TransferProtocol.PreTransfers.TryRemove(e.Msg.whoAmI, out _);
+					TransferProtocol.SendKick(e.Msg.whoAmI, "跨服账号注册被拒绝");
+					e.Handled = true;
+					return;
+				}
+			}
 
 			// B 服：ClientUUID(68) 会被 TShock 早期 State 拦截
 			// （68 不在 AllowedEarlyPackets → e.Handled=true → Terraria 底层跳过），
@@ -427,7 +413,7 @@ namespace TShockData
 				byte id = buf[off - 1];
 
 			// ═══ 桥接：玩家已传送 → 所有上行包（含 PlayerUpdate/聊天/交互）原样转发目标服 ═══
-			if (Bridges.TryGetValue(args.Instance.whoAmI, out var bridge))
+			if (Bridges.TryGetValue(args.Instance.whoAmI, out var bridge) && IsBridgeActive(args.Instance.whoAmI))
 			{
 				ForwardToTarget(bridge, buf, off, len);
 				// 兜底：若最外层 detour 未生效（此路径由 orig 内 OTAPI 钩子触发），
@@ -516,6 +502,7 @@ namespace TShockData
 			try
 			{
 				if (!Bridges.TryGetValue(self.whoAmI, out var bridge)) return false;
+				if (!IsBridgeActive(self.whoAmI)) return false; // 该 slot 已不是桥接保留连接（如返回回环复用）→ 放行原版处理
 				var buf = self.readBuffer;
 				if (buf == null || start < 0 || start >= buf.Length) return false;
 				if (length < 1 || start + length > buf.Length) return false;
@@ -570,9 +557,13 @@ namespace TShockData
 			public string? CurrentServerName;   // 当前桥接目标服名（用于判断"你已在该服务器"）
 			public TcpClient? Target;
 			public NetworkStream? Stream;
-			public ISocket? PlayerSocket;       // 玩家在 A 服的真实 socket（桥接占用，桥接下行直发用）
+			public ISocket? PlayerSocket;       // 玩家在 A 服的真实 socket（桥接占用，桥接下行直发 + 上行自读用）
 			public CancellationTokenSource Cts = new();
 			public Task? ReadLoop;
+			public CancellationTokenSource UpstreamCts = new(); // 上行自读循环独立的取消源（切换目标时不被取消）
+			public Task? UpstreamLoop;
+			public int TargetGeneration;    // 目标连接代数：切换目标服时递增。旧读循环检测到代数变化 → 丢弃并退出，
+			                                // 杜绝切换期间旧服残留数据串到客户端（“同时收到两个服的数据包”）。
 			public bool Switching;              // 切换中：旧读循环 finally 不得清理桥接
 			public readonly object WriteLock = new();
 		}
@@ -581,6 +572,19 @@ namespace TShockData
 
 		/// <summary>玩家是否处于跨服桥接中（供其他模块豁免处理）</summary>
 		public static bool IsBridging(int who) => Bridges.ContainsKey(who);
+
+		/// <summary>
+		/// 该 slot 是否仍处于桥接保留中：仅当 Netplay.Clients[who].Socket 仍挂着本桥接的
+		/// RetainedSocket 时才视为桥接激活（拦截其包转发目标服）。
+		/// 返回时回环连接可能复用原 slot（Socket 被新连接替换，不再是 RetainedSocket）→
+		/// 不再视为桥接 → A 服正常处理回环握手包（否则会卡在握手）。
+		/// </summary>
+		private static bool IsBridgeActive(int who)
+		{
+			return who >= 0 && who < Netplay.Clients.Length
+				&& Bridges.ContainsKey(who)
+				&& Netplay.Clients[who]?.Socket is RetainedSocket;
+		}
 
 		/// <summary>启动桥接：握手成功后调用。把玩家的网络流切换到目标服模拟连接。</summary>
 		private static void StartBridge(TSPlayer player, CrossLoginClient.HandshakeResult result, TransferServerInfo server, byte[]? playerInfoFrame)
@@ -615,26 +619,35 @@ namespace TShockData
 
 			Bridges[player.Index] = session;
 
-			// ═══ 模拟 TShock 玩家真正离开（socket 保留用于桥接）═══
-			// 关键：TShock.OnLeave 里 `if (tsplr == null) return;` —— 若先把 TShock.Players[who] 置 null，
-			// OnLeave 会跳过"XXX 已离开"广播与角色保存。因此必须在置 null 之前、用现有 tsplr 完整执行
-			// OnLeave 的核心逻辑（广播离开 / 保存角色 / 清理状态），同时保留 socket 做桥接。
+			// ═══ 让 A 服对桥接玩家执行【完整退出】，仅保留真 socket 给桥接 ═══
+			// 关键：不是“半活跃幽灵连接”，而是让 Terraria/TShock 真的认为玩家退出了：
+			//  0) 把 Netplay.Clients[who].Socket 换成 RetainedSocket（IsConnected()=false）→
+			//     服务器主循环下一 tick 检测到 IsConnected==false && IsActive==true →
+			//     PendingTermination → RemoteClient.Reset()（清 RemoteClient/Main.player/MessageBuffer
+			//     状态、IsActive=false）+ SyncDisconnectedPlayer（广播下线）→ 完整退出。
+			//  1) 手动执行 TShock.OnLeave 等效逻辑（广播已离开 / 保存 SSC / 触发 OnPlayerLogout /
+			//     置 TShock.Players[who]=null）→ 之后底层触发的 ServerLeave→TShock.OnLeave 因
+			//     tsplr==null 自动跳过，不会重复。
+			//  2) 拦截 kick 包：退出流程给 who 的任何下行（含最后踢出包）都被 RetainedSocket.AsyncSend
+			//     丢弃，玩家客户端不会收到“被踢出”也不真正断开。
+			//  3) 退出完成后 A 服 slot 彻底静默（不再参与任何玩家同步）→ 桥接不再干扰 A 服玩家位置。
+			//  4) 玩家上行改由自读循环直读真 socket（A 服已不读 slot），下行由 BridgeReadLoop 直发真 socket。
 			try
 			{
 				var tsplr = TShock.Players[player.Index];
 
-				// 0) 先隔离 A 服下行：替换为 DiscardSocket（此后 A 服所有广播不再到达 who）
+				// 0) 替换 Socket = RetainedSocket（IsConnected=false，Close 保留真 socket）
 				if (session.PlayerSocket != null && player.Index >= 0 && player.Index < Netplay.Clients.Length)
 				{
-					Netplay.Clients[player.Index].Socket = new DiscardSocket(session.PlayerSocket);
+					Netplay.Clients[player.Index].Socket = new RetainedSocket(session.PlayerSocket);
 				}
 
-				// 1) 广播"XXX 已离开"（复刻 TShock.OnLeave 的广播条件与消息）
+				// 1) 广播传送消息（替代 TShock 的“已离开”广播：桥接玩家传送走后 A 服应显示传送去向）
 				if (tsplr != null && tsplr.ReceivedInfo && !tsplr.SilentKickInProgress
 					&& tsplr.State >= (int)ConnectionState.RequestingWorldData && tsplr.FinishedHandshake)
 				{
-					TShock.Utils.Broadcast($"{tsplr.Name} 已离开", Color.Yellow);
-					TShock.Log.Info($"{tsplr.Name} disconnected.");
+					TShock.Utils.Broadcast($"{tsplr.Name} 传送到 {server.Name}", Color.Yellow);
+					TShock.Log.Info($"{tsplr.Name} transferred to {server.Name}.");
 				}
 
 				// 2) 广播 PlayerActive(false)：A 服其他玩家看到该玩家下线、实体移除
@@ -671,6 +684,25 @@ namespace TShockData
 				TShock.Log.ConsoleWarn($"[CrossTransfer] 模拟玩家离开失败: {ex.Message}");
 			}
 
+			// ═══ 触发并等待 A 服底层完整退出（Reset + SyncDisconnectedPlayer）═══
+			// 显式置 PendingTermination，让 UpdateConnectedClients 下一 tick 立即执行
+			// RemoteClient.Reset()（清状态 + RetainedSocket.Close() 不关真 socket）+ SyncDisconnectedPlayer。
+			try
+			{
+				if (player.Index >= 0 && player.Index < Netplay.Clients.Length)
+				{
+					Netplay.Clients[player.Index].PendingTermination = true;
+					Netplay.Clients[player.Index].PendingTerminationApproved = true;
+					// 等待退出完成（Reset 后 IsActive=false，最多 5 秒）
+					for (int i = 0; i < 250 && Netplay.Clients[player.Index].IsActive; i++)
+						Thread.Sleep(20);
+				}
+			}
+			catch (Exception ex)
+			{
+				TShock.Log.ConsoleWarn($"[CrossTransfer] 等待 A 服完整退出失败: {ex.Message}");
+			}
+
 			// 1) 重放握手期缓存的 B 服世界数据快照（WorldInfo/tile/NPC/玩家等）
 			//    关键：必须转发 LoadPlayer(3)[B slot]——客户端据此把 Main.myPlayer 更新为目标服 slot，
 			//    B 服以该 slot 发的包才会被客户端渲染为"自己"（不转发 → 寄生/自身无实体/收别人包）。
@@ -684,6 +716,9 @@ namespace TShockData
 
 			// 2) 启动 B 服 → 玩家 下行读循环
 			session.ReadLoop = Task.Run(() => BridgeReadLoop(session));
+
+			// 3) 启动 玩家 → B 服 上行自读循环（A 服已完整退出、不再读该 socket，由我们直读真 socket）
+			session.UpstreamLoop = Task.Run(() => BridgeUpstreamLoop(session));
 
 			TShock.Log.ConsoleInfo($"[CrossTransfer] 玩家 {player.Name} 桥接已启动 → {server.Name}（slot#{result.RemoteSlot}，重放 {result.BufferedPackets.Count} 包）");
 		}
@@ -712,11 +747,16 @@ namespace TShockData
 		{
 			var s = bridge.Stream;
 			if (s == null) return;
+			int gen = bridge.TargetGeneration; // 记录本循环对应的目标连接代数
 			var lenBuf = new byte[2];
 			try
 			{
 				while (!bridge.Cts.IsCancellationRequested)
 				{
+					// 目标已切换（代数变化）→ 旧读循环直接退出，不再转发旧服数据
+					if (gen != bridge.TargetGeneration) break;
+					// 玩家已断线（上行自读循环已结束）→ 退出并触发清理，避免目标服幽灵连接
+					if (bridge.UpstreamLoop != null && bridge.UpstreamLoop.IsCompleted) break;
 					if (!ReadExactly(s, lenBuf, 0, 2, bridge.Cts.Token)) break;
 					int total = lenBuf[0] | (lenBuf[1] << 8);
 					if (total < 3 || total > 0xFFFF) break;
@@ -724,6 +764,9 @@ namespace TShockData
 					frame[0] = lenBuf[0];
 					frame[1] = lenBuf[1];
 					if (!ReadExactly(s, frame, 2, total - 2, bridge.Cts.Token)) break;
+
+					// 读到完整帧后再查一次：切换瞬间旧服残留数据必须丢弃（防止“同时收到两个服的数据包”）
+					if (gen != bridge.TargetGeneration) break;
 
 					// B 服自定义控制包（15）：截获处理（返回等），不转发给玩家客户端
 					if (frame.Length >= 3 && frame[2] == TransferProtocol.CustomPacketId)
@@ -759,6 +802,85 @@ namespace TShockData
 				read += n;
 			}
 			return true;
+		}
+
+		/// <summary>
+		/// 上行：玩家 → 目标服。A 服已完整退出（不再读该 socket），由本循环直读真 socket 原始字节流，
+		/// 按 Terraria 帧（[ushort 整帧总长][msgId][payload]）切分后逐帧转发当前目标服连接。
+		/// 使用独立的 UpstreamCts（切换目标服时不被取消，仅更换写入目标 Stream）。
+		/// </summary>
+		private static void BridgeUpstreamLoop(BridgeSession bridge)
+		{
+			var sock = bridge.PlayerSocket;
+			if (sock == null) return;
+			var buf = new byte[8192];
+			var acc = new byte[65536];
+			int accLen = 0;
+			try
+			{
+				while (!bridge.UpstreamCts.IsCancellationRequested)
+				{
+					if (!sock.IsConnected()) break;
+					// 无数据时轮询（不发起 AsyncReceive → 无挂起读 → CleanupBridge Close socket 不会卡死）
+					if (!sock.IsDataAvailable()) { Thread.Sleep(2); continue; }
+
+					int got = 0;
+					using var done = new ManualResetEventSlim(false);
+					sock.AsyncReceive(buf, 0, buf.Length, (st, len) => { got = len; done.Set(); }, null);
+					// 有数据才发起 → 回调必然快速触发（socket 关闭时不在此时发起，故不会卡死）
+					done.Wait();
+					if (got <= 0) break; // 断开
+
+					// 累积（溢出保护：异常数据直接丢弃重新同步）
+					if (accLen + got > acc.Length) { accLen = 0; Buffer.BlockCopy(buf, 0, acc, 0, Math.Min(got, acc.Length)); accLen = Math.Min(got, acc.Length); continue; }
+					Buffer.BlockCopy(buf, 0, acc, accLen, got);
+					accLen += got;
+
+					// 按帧切分转发
+					int pos = 0;
+					while (accLen - pos >= 2)
+					{
+						int total = acc[pos] | (acc[pos + 1] << 8);
+						if (total < 3 || total > 0xFFFF)
+						{
+							accLen = 0; pos = 0; break; // 非法帧：丢弃整段重新同步
+						}
+						if (accLen - pos < total) break; // 帧未完整，等待更多数据
+
+						var frame = new byte[total];
+						Buffer.BlockCopy(acc, pos, frame, 0, total);
+						pos += total;
+						ForwardUpstreamFrame(bridge, frame);
+					}
+					if (pos > 0)
+					{
+						Buffer.BlockCopy(acc, pos, acc, 0, accLen - pos);
+						accLen -= pos;
+					}
+				}
+			}
+			catch (Exception ex)
+			{
+				TShock.Log.ConsoleWarn($"[CrossTransfer] 桥接上行自读循环结束: {ex.Message}");
+			}
+			finally
+			{
+				// 主动切换目标服时（Switching=true）旧读循环退出不清理，由切换逻辑接管
+				if (!bridge.Switching)
+					CleanupBridge(bridge.PlayerIndex);
+			}
+		}
+
+		/// <summary>把完整帧（[ushort 整帧总长][msgId][payload]）转发到当前目标服连接。</summary>
+		private static void ForwardUpstreamFrame(BridgeSession bridge, byte[] frame)
+		{
+			var s = bridge.Stream;
+			if (s == null) return;
+			lock (bridge.WriteLock)
+			{
+				try { s.Write(frame, 0, frame.Length); }
+				catch (Exception ex) { TShock.Log.ConsoleWarn($"[CrossTransfer] 上行帧转发失败: {ex.Message}"); }
+			}
 		}
 
 		/// <summary>截获 B 服自定义控制包（15 号通道）：处理二次传送请求/返回指令</summary>
@@ -798,19 +920,27 @@ namespace TShockData
 		{
 			try
 			{
+				// 切换进行中：拒绝重复传送请求（防并发触发多次 SwitchTarget）
+				if (bridge.Switching)
+				{
+					SendTransferResult(bridge, false, "正在切换服务器，请稍候再试");
+					return;
+				}
+
+				// 已在目标服？（必须先于 SelfServerId 分支：玩家已在源服时再请求返回源服
+				// 不应再走一次回环握手）
+				if (bridge.CurrentServerName != null
+					&& bridge.CurrentServerName.Equals(target, StringComparison.OrdinalIgnoreCase))
+				{
+					SendTransferResult(bridge, false, $"你已在该服务器（{target}）");
+					return;
+				}
+
 				// 目标 = 源服自身 → 返回
 				if (target.Equals(Config.SelfServerId, StringComparison.OrdinalIgnoreCase))
 				{
 					SendTransferResult(bridge, true, "正在返回源服…");
 					ReturnToSelf(bridge);
-					return;
-				}
-
-				// 已在目标服？
-				if (bridge.CurrentServerName != null
-					&& bridge.CurrentServerName.Equals(target, StringComparison.OrdinalIgnoreCase))
-				{
-					SendTransferResult(bridge, false, $"你已在该服务器（{target}）");
 					return;
 				}
 
@@ -887,12 +1017,25 @@ namespace TShockData
 				{
 					// 1) 停旧读循环 + 断开旧连接（旧读循环 finally 因 Switching=true 不清理）
 					bridge.Switching = true;
+					bridge.TargetGeneration++; // 代数递增：旧读循环下次检测到代数变化 → 丢弃残留数据并退出
 					bridge.Cts.Cancel();
-					try { bridge.Target?.Dispose(); } catch { }
+					// 优雅关闭旧连接：先 Shutdown(Both) 发 FIN 让对端正常走下线流程（清 slot/PreTransfers），
+					// 再 Dispose；避免直接 RST 导致对端 slot 下线处理不完整（幽灵连接/持续广播）。
+					try
+					{
+						var old = bridge.Target;
+						if (old != null)
+						{
+							try { old.Client?.Shutdown(SocketShutdown.Both); } catch { }
+							old.Dispose();
+						}
+					}
+					catch { }
 					bridge.Stream = null;
-					// 等旧读循环退出（旧连接 Dispose 后同步 Read 必然抛异常立即退出），
-					// 避免其 finally 在 Switching 复位后才执行造成误清理
-					try { bridge.ReadLoop?.Wait(1500); } catch { }
+					// 等旧读循环退出（旧连接 Dispose 后同步 Read 必然抛异常立即退出；
+					// 即使未及时退出，代数检测也保证其不再转发旧服数据）
+					try { bridge.ReadLoop?.Wait(3000); } catch { }
+					bridge.ReadLoop = null;
 
 					// 2) 新握手（复用与首次传送完全相同的 CrossLoginClient 流程）
 					var result = await CrossLoginClient.FullHandshakeAsync(
@@ -901,32 +1044,70 @@ namespace TShockData
 					if (!result.Ok || result.Connection == null)
 					{
 						TShock.Log.ConsoleError($"[CrossTransfer] 切换到 {server.Name} 失败: {result.Reason}");
+						bridge.Switching = false; // 恢复可清理状态再清理，避免 OnServerLeave 防护漏掉后续断线
 						CleanupBridge(who);  // 断开玩家，避免幽灵
 						return;
 					}
 
-					// 3) 更新会话
+					// 3) 更新会话（TargetGeneration 已为新代数，新读循环记录之）
 					bridge.Target = result.Connection;
 					bridge.Stream = result.Connection.GetStream();
 					bridge.Cts = new CancellationTokenSource();
 					bridge.CurrentServerName = server.Name;
+
+					// 4) 玩家若在切换期间真断线（上行自读循环已退出）→ 立即清理新连接，
+					//    避免目标服以为玩家在线而产生幽灵玩家/持续广播。
+					//    注意：必须在 Switching 仍为 true 时检查——UpstreamLoop 的 finally
+					//    因 Switching=true 不会自行清理，由这里统一处理。
+					if (bridge.UpstreamLoop == null || bridge.UpstreamLoop.IsCompleted)
+					{
+						TShock.Log.ConsoleInfo($"[CrossTransfer] 玩家 {bridge.PlayerName} 切换期间已断线，取消切换后的桥接");
+						bridge.Switching = false;
+						CleanupBridge(who);
+						return;
+					}
+
 					bridge.Switching = false;
 
-					// 4) 重放新世界数据（转发 LoadPlayer 同步 myPlayer 到新目标服 slot，其余照旧）
+					// 5) 重放新世界数据（转发 LoadPlayer 同步 myPlayer 到新目标服 slot，其余照旧）
 					foreach (var frame in result.BufferedPackets)
 					{
 						if (frame.Length >= 3 && frame[2] == 37) continue;
 						SendToPlayerSocket(who, frame);
 					}
 
-					// 5) 新读循环
+					// 6) 新读循环
 					bridge.ReadLoop = Task.Run(() => BridgeReadLoop(bridge));
+
+					// 7) 返回原服：A 服原生流程对“回环模拟连接”下发装备可能不及时/不完整
+					//    （客户端 Main.player[myPlayer] 残留 B 服装备）→ 主动补发 A 服角色装备，
+					//    从 A 服 Main.player[RemoteSlot] 读取（SSC/PlayerInfo 已加载），覆盖 B 服残留。
+					if (server.Name.Equals(Config.SelfServerId, StringComparison.OrdinalIgnoreCase)
+						&& result.RemoteSlot >= 0 && result.RemoteSlot < Main.player.Length)
+					{
+						int rslot = result.RemoteSlot;
+						_ = Task.Delay(800).ContinueWith(_ =>
+						{
+							try
+							{
+								// 等待 A 服完成角色填充（Main.player[rslot].name 非空），最多等 4 秒
+								for (int i = 0; i < 10; i++)
+								{
+									if (Main.player[rslot] != null && !string.IsNullOrEmpty(Main.player[rslot].name)) break;
+									Thread.Sleep(400);
+								}
+								SyncAllEquipment(rslot);
+							}
+							catch (Exception ex) { TShock.Log.ConsoleWarn($"[CrossTransfer] 返回后补发装备失败: {ex.Message}"); }
+						});
+					}
 
 					TShock.Log.ConsoleInfo($"[CrossTransfer] 桥接已切换到 {server.Name}（玩家 {bridge.PlayerName}）");
 				}
 				catch (Exception ex)
 				{
 					TShock.Log.ConsoleError($"[CrossTransfer] 切换桥接异常: {ex}");
+					bridge.Switching = false;
 					try { CleanupBridge(who); } catch { }
 				}
 			});
@@ -1011,20 +1192,15 @@ namespace TShockData
 			try
 			{
 				// 桥接中：必须用 session 保存的真 socket 发送（Netplay.Clients[who].Socket
-				// 已被替换为 DiscardSocket，其 AsyncSend 会丢弃）
-				if (Bridges.TryGetValue(who, out var b) && b.PlayerSocket != null)
-				{
-					if (b.PlayerSocket.IsConnected())
-					{
-						b.PlayerSocket.AsyncSend(data, 0, data.Length, _ => { });
-						return;
-					}
-				}
-
-				if (who < 0 || who >= Netplay.Clients.Length) return;
-				var sock = Netplay.Clients[who]?.Socket;
-				if (sock == null || !sock.IsConnected()) return;
-				sock.AsyncSend(data, 0, data.Length, _ => { });
+				// 已被替换为 RetainedSocket，其 AsyncSend 会丢弃）。
+				// 仅当 Bridges 中存在该 slot 时才发送；Bridges 已移除（桥接结束）后一律丢弃——
+				// 绝不能向 Netplay.Clients[who].Socket 兜底发送：该 slot 可能已被新连接/
+				// 其他玩家复用，会把目标服数据误发给无关玩家（"其它玩家收到 B 服数据"）。
+				if (!Bridges.TryGetValue(who, out var b) || b.PlayerSocket == null)
+					return;
+				if (!b.PlayerSocket.IsConnected())
+					return;
+				b.PlayerSocket.AsyncSend(data, 0, data.Length, _ => { });
 			}
 			catch (Exception ex)
 			{
@@ -1032,95 +1208,55 @@ namespace TShockData
 			}
 		}
 
-		/// <summary>出站拦截：玩家桥接期间丢弃 A 服发给他的所有包（旧世界数据不污染 B 服视图）</summary>
-		private static void OnSendBytes(object? sender, OTAPI.Hooks.NetMessage.SendBytesEventArgs args)
-		{
-			if (Bridges.ContainsKey(args.RemoteClient))
-				args.Result = OTAPI.HookResult.Cancel;
-		}
-
-		// ════════════════════════════════════════════
-		//  NetMessage.SendData detour：广播（remoteClient=-1）时跳过桥接玩家
-		//  覆盖 SendBytes 钩子对广播（RemoteClient 可能为 -1）语义差异的漏网
-		// ════════════════════════════════════════════
-
-		private delegate void OrigSendData(int msgType, int remoteClient, int ignoreClient,
-			NetworkText text, int number, float number2, float number3, float number4,
-			int number5, int number6, int number7);
-		private delegate void DetourSendData(OrigSendData orig, int msgType, int remoteClient, int ignoreClient,
-			NetworkText text, int number, float number2, float number3, float number4,
-			int number5, int number6, int number7);
-
-		private static void OnSendDataDetour(OrigSendData orig, int msgType, int remoteClient, int ignoreClient,
-			NetworkText text, int number, float number2, float number3, float number4,
-			int number5, int number6, int number7)
-		{
-			// 广播 + 存在桥接玩家 → 手动逐玩家发送并跳过桥接玩家（其余透传原广播）
-			if (remoteClient == -1 && !Bridges.IsEmpty)
-			{
-				for (int i = 0; i < Netplay.Clients.Length; i++)
-				{
-					if (i == ignoreClient) continue;
-					if (Bridges.ContainsKey(i)) continue;
-					if (Netplay.Clients[i]?.IsConnected() != true) continue;
-					orig(msgType, i, -1, text, number, number2, number3, number4, number5, number6, number7);
-				}
-				return;
-			}
-			orig(msgType, remoteClient, ignoreClient, text, number, number2, number3, number4, number5, number6, number7);
-		}
-
-		// ════════════════════════════════════════════
-		//  NetManager.Broadcast detour：底层广播（ChatHelper 聊天/公告等）跳过桥接玩家
-		//  与 SendData 不同，NetManager.Broadcast 不走 SendBytes/SendData，是 NetModule 广播
-		// ════════════════════════════════════════════
-
-		private delegate void OrigNetManagerBroadcast(Terraria.Net.NetManager self,
-			Terraria.Net.NetPacket packet, int ignoreClient);
-		private delegate void DetourNetBroadcast(OrigNetManagerBroadcast orig, Terraria.Net.NetManager self,
-			Terraria.Net.NetPacket packet, int ignoreClient);
-
-		private static void OnNetManagerBroadcast(OrigNetManagerBroadcast orig, Terraria.Net.NetManager self,
-			Terraria.Net.NetPacket packet, int ignoreClient)
-		{
-			if (Bridges.IsEmpty)
-			{
-				orig(self, packet, ignoreClient);
-				return;
-			}
-
-			// 诊断：确认 detour 触发 + 是否有桥接玩家被跳过
-			var bridged = Bridges.Keys.Where(w => w != ignoreClient && w >= 0 && w < Netplay.Clients.Length
-				&& Netplay.Clients[w]?.IsConnected() == true).ToArray();
-			if (bridged.Length > 0)
-				TShock.Log.ConsoleInfo($"[CrossTransfer][广播] NetManager.Broadcast 拦截：跳过桥接 {string.Join(",", bridged)} (ignore={ignoreClient})");
-
-			for (int i = 0; i < Netplay.Clients.Length; i++)
-			{
-				if (i == ignoreClient) continue;
-				if (Bridges.ContainsKey(i)) continue;
-				if (Netplay.Clients[i]?.IsConnected() != true) continue;
-				try { self.SendToClient(packet, i); } catch (Exception ex) { TShock.Log.ConsoleWarn($"[CrossTransfer] SendToClient 失败 slot#{i}: {ex.Message}"); }
-			}
-		}
-
 		/// <summary>玩家断线 → 清理桥接（A 服）与跨服标记（B 服）</summary>
 		private static void OnServerLeave(LeaveEventArgs args)
 		{
 			TransferProtocol.PreTransfers.TryRemove(args.Who, out _); // B 服：清理跨服玩家标记
-			CleanupBridge(args.Who);                                  // A 服：清理桥接会话
+
+			// A 服：若该 slot 处于跨服桥接保留中，不得在此清理桥接，否则会断掉桥接本身：
+			//  1) Socket 仍为 RetainedSocket —— 我们主动触发的完整退出（StartBridge）；
+			//  2) bridge.Switching == true —— SwitchTarget 切换中。返回 A 服时回环连接
+			//     可能复用了玩家原 slot（Socket 不再是 RetainedSocket），切换断开回环连接
+			//     会触发本 ServerLeave；若在此清理会误关玩家真 socket 并移除桥接 →
+			//     玩家断联、B 服数据无处送达。切换期间桥接生命周期由 SwitchTarget 统一接管，
+			//     切换完成后它会检查玩家是否存活并决定是否清理。
+			// 桥接生命周期由上行自读循环管理：真 socket 真正断开时，自读循环 finally 自己 CleanupBridge。
+			if (args.Who >= 0 && args.Who < Netplay.Clients.Length
+				&& Bridges.TryGetValue(args.Who, out var b)
+				&& (Netplay.Clients[args.Who]?.Socket is RetainedSocket || b.Switching))
+			{
+				return;
+			}
+			CleanupBridge(args.Who); // 非桥接玩家的正常下线清理
 		}
 
-		/// <summary>清理桥接会话：关闭 B 服连接、取消读循环，并断开玩家在 A 服的残留连接</summary>
+		/// <summary>清理桥接会话：取消读循环、关闭 B 服连接、断开玩家真 socket（让 A 服 slot 彻底静默可复用）</summary>
 		private static void CleanupBridge(int who)
 		{
 			if (!Bridges.TryRemove(who, out var bridge)) return;
 			bridge.Cts.Cancel();
-			try { bridge.Target?.Dispose(); } catch { }
+			bridge.UpstreamCts.Cancel();
+			// 优雅关闭到目标服的连接：先 Shutdown(Both) 发 FIN，让对端正常走下线流程
+			//（清理 slot / PreTransfers），避免 RST 导致对端留下幽灵连接。
+			try
+			{
+				var t = bridge.Target;
+				if (t != null)
+				{
+					try { t.Client?.Shutdown(SocketShutdown.Both); } catch { }
+					t.Dispose();
+				}
+			}
+			catch { }
 			bridge.Stream = null;
+
+			// 断开玩家真 socket：让上行自读循环挂起的 AsyncReceive 立即返回（length=0 → 退出）。
+			// 注意：Netplay.Clients[who].Socket 此时是 RetainedSocket（Close 不关真 socket），
+			// 必须显式 Close 保存的真 socket 才能真正断开玩家连接。
+			try { bridge.PlayerSocket?.Close(); } catch { }
 			TShock.Log.ConsoleInfo($"[CrossTransfer] 玩家 slot#{who} 桥接已清理");
 
-			// 桥接结束（B 服断开/传送结束）→ 断开玩家在 A 服的连接，避免幽灵玩家
+			// 兜底：若真 socket 未被上面关闭，断开 A 服挂着的连接对象
 			try
 			{
 				if (who >= 0 && who < Netplay.Clients.Length)
@@ -1276,10 +1412,24 @@ namespace TShockData
 			player.SendSuccessMessage("[跨服] 密码已提交");
 		}
 
-		/// <summary>/返回：回程流程（本地回环重连原服，阶段 2 实现）</summary>
+		/// <summary>/返回：回程请求。桥接中（在目标服）→ 向源服发 TransferRequest(来源服ID)，
+		/// 由源服判定并执行回环返回；普通状态提示无需返回。</summary>
 		private static void ReturnCommand(CommandArgs args)
 		{
-			args.Player?.SendErrorMessage("[跨服] 返回原服功能开发中（回程流程）");
+			var player = args.Player;
+			if (player == null || !player.RealPlayer) return;
+
+			if (TransferProtocol.PreTransfers.TryGetValue(player.Index, out var pre)
+				&& !string.IsNullOrEmpty(pre.SourceServerId))
+			{
+				var req = TransferProtocol.EncodeCustomData(TransferProtocol.TransferRequestPacket,
+					bw => bw.Write(pre.SourceServerId));
+				TransferProtocol.SendRaw(player.Index, req);
+				player.SendInfoMessage($"[跨服] 已请求返回原服 {pre.SourceServerId}，等待判定…");
+				return;
+			}
+
+			player.SendErrorMessage("[跨服] 你当前不在跨服传送状态，无需返回");
 		}
 	}
 }
