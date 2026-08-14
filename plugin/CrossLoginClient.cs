@@ -18,13 +18,6 @@ namespace TShockData
 	{
 		private const bool DebugLog = false; // 握手诊断日志（定位目标服响应）
 
-		public class AuthResult
-		{
-			public bool Ok { get; set; }
-			public string Reason { get; set; } = "";
-			public int RemoteSlot { get; set; } = -1;   // 目标服分配的玩家槽位
-		}
-
 		/// <summary>完整握手结果（阶段 8 桥接使用）</summary>
 		public class HandshakeResult
 		{
@@ -377,122 +370,6 @@ namespace TShockData
 				return br.ReadString();
 			}
 			catch { return ""; }
-		}
-
-		/// <summary>前置鉴权握手（超时中断返回失败）</summary>
-		public static async Task<AuthResult> AuthHandshakeAsync(
-			TransferServerInfo server, string playerName, string uuid, string realIP,
-			string? serverPassword, int timeoutMs = 8000)
-		{
-			using var client = new TcpClient();
-			try
-			{
-				using var cts = new CancellationTokenSource(timeoutMs);
-				await client.ConnectAsync(server.IP, server.Port, cts.Token);
-			}
-			catch (Exception ex)
-			{
-				return new AuthResult { Ok = false, Reason = $"无法连接 {server.IP}:{server.Port}: {ex.Message}" };
-			}
-
-			var stream = client.GetStream();
-			try
-			{
-				// 1) ClientHello（协议版本）
-				var version = server.VersionNum > 0
-					? $"Terraria{server.VersionNum}"
-					: "Terraria319";
-				await SendPacketAsync(stream, bw =>
-				{
-					bw.Write((byte)1);
-					bw.Write(version);
-				});
-
-				// 2) ClientUUID —— 先发 UUID（用户要求，让目标服尽早拿到玩家身份）
-				if (!string.IsNullOrEmpty(uuid))
-				{
-					await SendPacketAsync(stream, bw =>
-					{
-						bw.Write((byte)68);
-						bw.Write(uuid);
-					});
-				}
-
-				// 3) 读循环
-				var reader = new PacketReader(stream);
-				var result = new AuthResult();
-				while (true)
-				{
-					var (readOk, body, err) = await reader.ReadPacketAsync(timeoutMs);
-					if (!readOk)
-						return new AuthResult { Ok = false, Reason = err ?? "握手超时" };
-
-					var type = body[0];
-					using var ms = new MemoryStream(body, 1, body.Length - 1);
-					using var br = new BinaryReader(ms, Encoding.UTF8);
-
-					switch (type)
-					{
-						case 5: // LoadPlayer：目标服分配槽位
-							result.RemoteSlot = br.ReadByte();
-
-							// 槽位就绪后发送 Auth（此时目标服 TShock 已为该连接建立玩家上下文，
-							// 包 15 由目标服 MonoMod detour 完全接管，不受早期/密码状态拦截）
-							var ts = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-							var nonce = Guid.NewGuid().ToString("N");
-							var signInput = TransferProtocol.BuildAuthSignInput(
-								CrossTransfer.Config.SelfServerId, ts, nonce, playerName, uuid, realIP);
-							var sig = WebhookAuth.HmacSha256Hex(CrossTransfer.Config.SelfSecret, signInput);
-							await SendPacketAsync(stream, bw =>
-							{
-								bw.Write(TransferProtocol.CustomPacketId);
-								bw.Write(TransferProtocol.AuthPacket);
-								bw.Write(CrossTransfer.Config.SelfServerId);
-								bw.Write(playerName);
-								bw.Write(uuid);
-								bw.Write(realIP);
-								bw.Write(ts);
-								bw.Write(nonce);
-								bw.Write(sig);
-							});
-							break;
-
-						case 37: // RequestPassword：目标服需要进服密码
-							if (string.IsNullOrEmpty(serverPassword))
-								return new AuthResult { Ok = false, Reason = $"{server.Name} 需要进服密码，但未提供" };
-							await SendPacketAsync(stream, bw =>
-							{
-								bw.Write((byte)38);
-								bw.Write(serverPassword);
-							});
-							break;
-
-						case 2: // Kick
-							var reason = br.ReadString();
-							return new AuthResult { Ok = false, Reason = $"{server.Name} 拒绝: {reason}" };
-
-						case TransferProtocol.CustomPacketId: // 15：自定义包
-							var pktName = br.ReadString();
-							if (pktName == TransferProtocol.AuthAckPacket)
-							{
-								var ok = br.ReadBoolean();
-								var msg = br.ReadString();
-								return ok
-									? new AuthResult { Ok = true, Reason = "鉴权通过", RemoteSlot = result.RemoteSlot }
-									: new AuthResult { Ok = false, Reason = msg };
-							}
-							break;
-
-						default:
-							// 其他握手包（WorldInfo 等）阶段 0 忽略，完整握手阶段再处理
-							break;
-					}
-				}
-			}
-			catch (Exception ex)
-			{
-				return new AuthResult { Ok = false, Reason = $"握手异常: {ex.Message}" };
-			}
 		}
 
 		private static async Task SendPacketAsync(NetworkStream s, Action<BinaryWriter> writeBody)

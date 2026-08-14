@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -16,7 +17,8 @@ namespace TShockData
     /// </summary>
     public static class WebhookAuth
     {
-        private static readonly HashSet<string> _nonceCache = new();
+        // nonce key → 首次收到时间戳（毫秒）。按时间窗惰性淘汰，避免超量后整体清空放大重放窗口
+        private static readonly Dictionary<string, long> _nonceCache = new();
         private static readonly object _nonceLock = new();
 
         /// <summary>校验 HMAC 签名。通过返回 true，并消耗 nonce（防重放）。</summary>
@@ -37,8 +39,15 @@ namespace TShockData
             var key = $"{sid}:{nonce}";
             lock (_nonceLock)
             {
-                if (!_nonceCache.Add(key)) return false;
-                if (_nonceCache.Count > 10000) _nonceCache.Clear();
+                // 惰性淘汰时间窗（±300s）外的旧 nonce
+                if (_nonceCache.Count > 5000)
+                {
+                    var cutoff = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - 300_000;
+                    foreach (var kv in _nonceCache.Where(kv => kv.Value < cutoff).ToList())
+                        _nonceCache.Remove(kv.Key);
+                }
+                if (_nonceCache.ContainsKey(key)) return false;
+                _nonceCache[key] = ts;
             }
 
             var bodyHash = Sha256Hex(body);

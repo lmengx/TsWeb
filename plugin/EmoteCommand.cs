@@ -42,6 +42,10 @@ namespace TShockData
     /// </summary>
     public class EmoteConfig
     {
+        /// <summary>同一玩家两次表情触发之间的最小间隔（毫秒），防连点刷指令；0 = 不限制</summary>
+        [JsonProperty("cooldownMs")]
+        public long CooldownMs { get; set; } = 2000;
+
         [JsonProperty("emotes")]
         public List<EmoteRuleConfig> Emotes { get; set; } = new();
     }
@@ -55,6 +59,10 @@ namespace TShockData
         private static EmoteConfig _config = new();
         private static string ConfigPath => Path.Combine(TShock.SavePath, "TSWeb", "emote_command_config.json");
         private static bool _loaded = false;
+
+        // 每玩家上次触发时间（whoAmI → 毫秒时间戳）。槽位数量有限（≤255），不会泄漏；
+        // slot 复用后残留时间戳最多让新玩家多等一个冷却周期，无实际影响。
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<int, long> _lastTrigger = new();
 
         // ═══════════════════════════════════════════════
         // 生命周期
@@ -143,6 +151,16 @@ namespace TShockData
             if (e.Player == null)
                 return;
 
+            // 冷却：同一玩家两次表情触发至少间隔 cooldownMs（防连点刷指令，如刷发物/刷屏）
+            var cooldown = _config.CooldownMs;
+            if (cooldown > 0)
+            {
+                var now = Environment.TickCount64;
+                if (_lastTrigger.TryGetValue(e.Player.Index, out var last) && now - last < cooldown)
+                    return;
+                _lastTrigger[e.Player.Index] = now;
+            }
+
             var rules = _config.Emotes.Where(r => r.Enabled && r.EmojiId == e.EmojiID);
             foreach (var rule in rules)
             {
@@ -213,6 +231,7 @@ namespace TShockData
 
             return new RestObject
             {
+                { "cooldownMs", _config.CooldownMs },
                 { "emotes", emotes }
             };
         }
@@ -232,6 +251,7 @@ namespace TShockData
                     return new RestObject("400") { { "error", "配置解析失败" } };
 
                 // 防御性清洗
+                if (parsed.CooldownMs < 0) parsed.CooldownMs = 0; // 冷却最小 0（不限制）
                 if (parsed.Emotes == null)
                     parsed.Emotes = new List<EmoteRuleConfig>();
                 foreach (var rule in parsed.Emotes)

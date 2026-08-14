@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using System.Text;
 using Terraria;
@@ -42,7 +43,9 @@ namespace TShockData
 		/// <summary>本服 TShock 眼中"来自他服的受信连接"（whoAmI → 预传送信息）</summary>
 		public static readonly ConcurrentDictionary<int, PreTransferInfo> PreTransfers = new();
 
-		private static readonly HashSet<string> _nonceCache = new();
+		// nonce → 首次收到时间戳（毫秒）。按时间窗惰性淘汰：既有重放防护，
+		// 又避免超量后整体清空导致重放窗口被放大。
+		private static readonly Dictionary<string, long> _nonceCache = new();
 		private static readonly object _nonceLock = new();
 
 		/// <summary>编码自定义包：[ushort len][byte 15][string name][payload...]</summary>
@@ -99,8 +102,15 @@ namespace TShockData
 
 			lock (_nonceLock)
 			{
-				if (!_nonceCache.Add(nonce)) return false;
-				if (_nonceCache.Count > 10000) _nonceCache.Clear();
+				// 惰性淘汰时间窗（±300s）外的旧 nonce，仅在缓存较大时摊还清理（O(n)）
+				if (_nonceCache.Count > 5000)
+				{
+					var cutoff = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - 300_000;
+					foreach (var kv in _nonceCache.Where(kv => kv.Value < cutoff).ToList())
+						_nonceCache.Remove(kv.Key);
+				}
+				if (_nonceCache.ContainsKey(nonce)) return false;
+				_nonceCache[nonce] = ts;
 			}
 
 			var expected = WebhookAuth.HmacSha256Hex(CrossTransfer.Config.SelfSecret, signInput);

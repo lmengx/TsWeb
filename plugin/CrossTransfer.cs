@@ -561,8 +561,10 @@ namespace TShockData
 
 		private static readonly System.Collections.Concurrent.ConcurrentDictionary<int, BridgeSession> Bridges = new();
 
-		/// <summary>玩家是否处于跨服桥接中（供其他模块豁免处理）</summary>
-		public static bool IsBridging(int who) => Bridges.ContainsKey(who);
+		/// <summary>玩家是否处于跨服桥接中（供其他模块豁免处理）。
+		/// 使用 IsBridgeActive 语义（slot 仍挂着 RetainedSocket 才算桥接）：
+		/// 避免 Bridges 残留条目（断线/切换失败未及时清理）误伤复用同一 slot 的新玩家。</summary>
+		public static bool IsBridging(int who) => IsBridgeActive(who);
 
 		/// <summary>
 		/// 该 slot 是否仍处于桥接保留中：仅当 Netplay.Clients[who].Socket 仍挂着本桥接的
@@ -678,6 +680,7 @@ namespace TShockData
 			// ═══ 触发并等待 A 服底层完整退出（Reset + SyncDisconnectedPlayer）═══
 			// 显式置 PendingTermination，让 UpdateConnectedClients 下一 tick 立即执行
 			// RemoteClient.Reset()（清状态 + RetainedSocket.Close() 不关真 socket）+ SyncDisconnectedPlayer。
+			bool exited = true;
 			try
 			{
 				if (player.Index >= 0 && player.Index < Netplay.Clients.Length)
@@ -687,11 +690,23 @@ namespace TShockData
 					// 等待退出完成（Reset 后 IsActive=false，最多 5 秒）
 					for (int i = 0; i < 250 && Netplay.Clients[player.Index].IsActive; i++)
 						Thread.Sleep(20);
+					exited = !Netplay.Clients[player.Index].IsActive;
 				}
 			}
 			catch (Exception ex)
 			{
 				TShock.Log.ConsoleWarn($"[CrossTransfer] 等待 A 服完整退出失败: {ex.Message}");
+			}
+
+			// 超时未退出：绝不带着「半退出」slot 继续桥接（A 服状态未收敛，后续断线清理也会被
+			// RetainedSocket 判断跳过 → 桥接生命周期悬空）。放弃桥接：CleanupBridge 关闭 B 服连接
+			// 与玩家真 socket → 客户端掉线重进，状态干净无幽灵。
+			if (!exited)
+			{
+				TShock.Log.ConsoleWarn($"[CrossTransfer] 等待 A 服完整退出超时（slot#{player.Index}），传送失败，断开玩家连接");
+				try { player.SendErrorMessage("[跨服] 服务器切换失败，连接已重置，请重新进入"); } catch { }
+				CleanupBridge(player.Index);
+				return;
 			}
 
 			// 1) 重放握手期缓存的 B 服世界数据快照（WorldInfo/tile/NPC/玩家等）
@@ -818,9 +833,10 @@ namespace TShockData
 					int got = 0;
 					using var done = new ManualResetEventSlim(false);
 					sock.AsyncReceive(buf, 0, buf.Length, (st, len) => { got = len; done.Set(); }, null);
-					// 有数据才发起 → 回调必然快速触发（socket 关闭时不在此时发起，故不会卡死）
-					done.Wait();
-					if (got <= 0) break; // 断开
+					// 有数据才发起 → 回调应快速触发；仍加 2s 超时兜底：
+					// socket 在「检查有数据 → 发起读取」间隙被关闭时回调可能丢失，无超时 Wait 会永久挂起线程池线程
+					done.Wait(2000);
+					if (got <= 0) break; // 断开或超时
 
 					// 累积（溢出保护：异常数据直接丢弃重新同步）
 					if (accLen + got > acc.Length) { accLen = 0; Buffer.BlockCopy(buf, 0, acc, 0, Math.Min(got, acc.Length)); accLen = Math.Min(got, acc.Length); continue; }
@@ -1203,6 +1219,7 @@ namespace TShockData
 		private static void OnServerLeave(LeaveEventArgs args)
 		{
 			TransferProtocol.PreTransfers.TryRemove(args.Who, out _); // B 服：清理跨服玩家标记
+			PlayerInfoFrames.Remove(args.Who); // 清理该 slot 缓存的 PlayerInfo 帧（防复用后误用旧角色数据）
 
 			// A 服：若该 slot 处于跨服桥接保留中，不得在此清理桥接，否则会断掉桥接本身：
 			//  1) Socket 仍为 RetainedSocket —— 我们主动触发的完整退出（StartBridge）；
