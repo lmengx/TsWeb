@@ -9,12 +9,21 @@ public class LPlayer
     public int TileY { get; set; }
     public bool Look { get; set; }
 
+    /// <summary>
+    /// 当前所在房屋名（null = 不在任何房屋内）。
+    /// 作为「进入/离开」状态机依据而非用坐标反查，
+    /// 保证玩家出生在房内 / 被传送进房 / 跨屋传送时也能触发进入判定。
+    /// 用名字而非 House 引用：热重载会重建 Houses 列表，引用会失效。
+    /// </summary>
+    public string? CurrentHouseName { get; set; }
+
     public LPlayer(int who, int lasttileX, int lasttileY)
     {
         Who = who;
         TileX = lasttileX;
         TileY = lasttileY;
         Look = false;
+        CurrentHouseName = null; // 初始未知 → 首帧若在房内即判定进入
     }
 }
 

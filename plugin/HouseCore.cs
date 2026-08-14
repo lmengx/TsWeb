@@ -291,9 +291,21 @@ public class HouseCore
 
                 int tx = ts.TileX, ty = ts.TileY;
                 var currentHouse = Utils.InAreaHouse(tx, ty);
-                var lastHouse = Utils.InAreaHouse(LPlayers[i]!.TileX, LPlayers[i]!.TileY);
+                // 状态机：以上一帧记录的「所在房屋」为准，而非用坐标反查。
+                // 否则玩家出生在房内 / 被传送进房 / 跨屋传送时 lastHouse 恒非空，进入判定永不触发。
+                var lastHouse = LPlayers[i]!.CurrentHouseName != null
+                    ? Utils.GetHouseByName(LPlayers[i]!.CurrentHouseName)
+                    : null;
 
-                // 进入事件
+                // 跨屋传送（A → B）：先按离开 A 处理，再按进入 B 处理
+                if (currentHouse != null && lastHouse != null && currentHouse != lastHouse)
+                {
+                    ts.SendMessage($"你离开了房子: {lastHouse.Name}", Color.LightSeaGreen);
+                    GetDataHandlers.HideHouseDisplay(ts, lastHouse);
+                    lastHouse = null;
+                }
+
+                // 进入事件（含：出生即在房内 / 传送进房 / 跨屋传送的进入端）
                 if (currentHouse != null && lastHouse == null)
                 {
                     if (Utils.IsAuthorized(ts, currentHouse))
@@ -308,6 +320,8 @@ public class HouseCore
                         GetDataHandlers.ExpelPlayer(ts, currentHouse);
                         if (currentHouse.NotifyEnter == 1)
                             NotifyOwnerStatic(currentHouse, $"{ts.Name} 试图进入房屋");
+                        // 被驱离：视为未进入该房屋，避免下一帧在屋外又触发「离开」通知
+                        LPlayers[i]!.CurrentHouseName = null;
                         LPlayers[i]!.TileX = tx;
                         LPlayers[i]!.TileY = ty;
                         continue;
@@ -336,6 +350,8 @@ public class HouseCore
                     GetDataHandlers.HideHouseDisplay(ts, lastHouse);
                 }
 
+                // 记录当前所在房屋（null = 不在任何房屋内）
+                LPlayers[i]!.CurrentHouseName = currentHouse?.Name;
                 LPlayers[i]!.TileX = tx;
                 LPlayers[i]!.TileY = ty;
             }
