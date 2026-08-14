@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { getEmoteConfig, saveEmoteConfig, EMOTE_PRESETS } from '../../../api/emojiApi.js'
 
 const loading = ref(true)
@@ -23,7 +23,6 @@ const loadConfig = async () => {
         commands: Array.isArray(r.commands) ? r.commands.filter(c => typeof c === 'string') : [],
         remark: r.remark || '',
         ignorePermission: !!r.ignorePermission,
-        _selectValue: preset ? String(r.emojiId) : 'custom',
         _customMode: !preset
       }
     })
@@ -69,24 +68,12 @@ const addRule = () => {
     commands: ['/heal'],
     remark: '',
     ignorePermission: false,
-    _selectValue: '0',
     _customMode: false
   })
 }
 
 const removeRule = (index) => {
   rules.value.splice(index, 1)
-}
-
-const handleEmojiSelect = (rule, event) => {
-  const val = event.target.value
-  if (val === 'custom') {
-    rule._customMode = true
-    if (rule.emojiId === undefined || rule.emojiId === null) rule.emojiId = 0
-  } else {
-    rule._customMode = false
-    rule.emojiId = parseInt(val)
-  }
 }
 
 const addCommand = (rule) => {
@@ -97,7 +84,100 @@ const removeCommand = (rule, index) => {
   rule.commands.splice(index, 1)
 }
 
-onMounted(loadConfig)
+// ===== 表情搜索选择器 =====
+// 编辑距离（Levenshtein），用于子串匹配结果过少时模糊补充
+const levenshtein = (a, b) => {
+  const m = a.length, n = b.length
+  if (m === 0) return n
+  if (n === 0) return m
+  const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0))
+  for (let i = 0; i <= m; i++) dp[i][0] = i
+  for (let j = 0; j <= n; j++) dp[0][j] = j
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      dp[i][j] = Math.min(
+        dp[i - 1][j] + 1,
+        dp[i][j - 1] + 1,
+        dp[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)
+      )
+    }
+  }
+  return dp[m][n]
+}
+
+const activePicker = ref(-1)     // 当前展开面板的规则索引，-1 = 关闭
+const searchKeyword = ref('')    // 搜索词（面板内共用）
+const customIdInput = ref(null)  // 面板底部自定义 ID 输入（数字）
+const pickerSearchRef = ref(null)
+
+const openPicker = (index, rule) => {
+  if (!rule.enabled) return
+  activePicker.value = index
+  searchKeyword.value = ''
+  customIdInput.value = ''
+  nextTick(() => {
+    if (pickerSearchRef.value) pickerSearchRef.value.focus()
+  })
+}
+
+const closePicker = () => { activePicker.value = -1 }
+
+const selectPreset = (rule, preset) => {
+  rule.emojiId = preset.id
+  rule._customMode = false
+  closePicker()
+}
+
+const confirmCustomId = (rule) => {
+  const id = parseInt(customIdInput.value)
+  if (isNaN(id) || id < 0) { customIdInput.value = ''; return }
+  rule.emojiId = id
+  rule._customMode = true
+  closePicker()
+}
+
+const currentLabel = (rule) => {
+  const p = EMOTE_PRESETS.find(x => x.id === rule.emojiId)
+  return p ? `${p.id} · ${p.name}` : `自定义 ${rule.emojiId}`
+}
+
+// 搜索过滤：优先子串匹配（中文名/ID）；结果 < 5 时用编辑距离补充（距离 ≤ 3，最多 5 条）
+const filteredPresets = computed(() => {
+  const kw = searchKeyword.value.trim().toLowerCase()
+  if (!kw) return EMOTE_PRESETS
+
+  const substring = EMOTE_PRESETS.filter(p =>
+    p.name.toLowerCase().includes(kw) || String(p.id).includes(kw)
+  )
+
+  if (substring.length >= 5) return substring
+
+  const fuzzy = EMOTE_PRESETS
+    .map(p => ({
+      p,
+      d: Math.min(levenshtein(kw, p.name.toLowerCase()), levenshtein(kw, String(p.id)))
+    }))
+    .filter(x => x.d <= 3 && !substring.some(s => s.id === x.p.id))
+    .sort((a, b) => a.d - b.d || a.p.id - b.p.id)
+    .slice(0, 5)
+    .map(x => x.p)
+
+  return [...substring, ...fuzzy]
+})
+
+// 点击面板外部关闭
+const onDocClick = (e) => {
+  if (!e.target.closest('.emoji-picker')) closePicker()
+}
+
+onMounted(() => {
+  loadConfig()
+  document.addEventListener('click', onDocClick)
+})
+
+onUnmounted(() => {
+  document.removeEventListener('click', onDocClick)
+})
 </script>
 
 <template>
@@ -150,32 +230,57 @@ onMounted(loadConfig)
             <div class="form-row">
               <div class="form-group">
                 <label class="form-label">触发表情</label>
-                <div class="emoji-select-row">
-                  <select
-                    class="form-select"
-                    :value="rule._selectValue"
-                    @change="handleEmojiSelect(rule, $event)"
+                <div class="emoji-picker">
+                  <!-- 当前选中显示 + 点击展开 -->
+                  <div
+                    class="picker-current"
+                    :class="{ open: activePicker === index }"
                     :disabled="!rule.enabled"
+                    @click="openPicker(index, rule)"
                   >
-                    <option
-                      v-for="p in EMOTE_PRESETS"
-                      :key="p.id"
-                      :value="String(p.id)"
-                    >{{ p.id }} · {{ p.name }}</option>
-                    <option value="custom">自定义 ID...</option>
-                  </select>
-                  <input
-                    v-if="rule._customMode"
-                    v-model.number="rule.emojiId"
-                    type="number"
-                    min="0"
-                    max="150"
-                    class="form-input custom-id-input"
-                    placeholder="表情ID"
-                    :disabled="!rule.enabled"
-                  />
+                    <span class="picker-current-label">{{ currentLabel(rule) }}</span>
+                    <span class="picker-arrow">▾</span>
+                  </div>
+
+                  <!-- 搜索下拉面板 -->
+                  <div v-if="activePicker === index" class="picker-panel" @click.stop>
+                    <input
+                      ref="pickerSearchRef"
+                      v-model="searchKeyword"
+                      class="form-input picker-search"
+                      placeholder="搜索：中文名 / ID"
+                    />
+                    <div class="picker-list">
+                      <div
+                        v-for="p in filteredPresets"
+                        :key="p.id"
+                        class="picker-item"
+                        :class="{ active: p.id === rule.emojiId }"
+                        @click="selectPreset(rule, p)"
+                      >
+                        <span class="picker-item-id">{{ p.id }}</span>
+                        <span class="picker-item-name">{{ p.name }}</span>
+                        <span v-if="p.id === rule.emojiId" class="picker-item-check">✓</span>
+                      </div>
+                      <div v-if="filteredPresets.length === 0" class="picker-empty">
+                        无匹配结果，可在下方输入自定义 ID
+                      </div>
+                    </div>
+                    <div class="picker-custom">
+                      <input
+                        v-model.number="customIdInput"
+                        type="number"
+                        min="0"
+                        max="150"
+                        class="form-input picker-custom-input"
+                        placeholder="自定义 ID (0~150)"
+                        @keydown.enter="confirmCustomId(rule)"
+                      />
+                      <button class="btn-custom-ok" @click="confirmCustomId(rule)">确定</button>
+                    </div>
+                  </div>
                 </div>
-                <span v-if="rule._customMode" class="field-hint">表情 ID 范围 0 ~ 150（见表情菜单）</span>
+                <span v-if="rule._customMode" class="field-hint">自定义表情 ID（不在预设列表中）</span>
               </div>
 
               <div class="form-group">
@@ -415,16 +520,6 @@ onMounted(loadConfig)
   color: var(--text-primary);
 }
 
-.emoji-select-row {
-  display: flex;
-  gap: 8px;
-}
-
-.custom-id-input {
-  width: 110px;
-  flex-shrink: 0;
-}
-
 .field-hint {
   display: block;
   font-size: 0.76rem;
@@ -432,7 +527,145 @@ onMounted(loadConfig)
   margin-top: 4px;
 }
 
-/* ===== 指令列表 ===== */
+/* ===== 表情搜索选择器 ===== */
+.emoji-picker {
+  position: relative;
+}
+
+.picker-current {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 9px 12px;
+  background: var(--bg-tertiary);
+  border: 2px solid var(--border-color);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: border-color 0.2s;
+  user-select: none;
+}
+
+.picker-current:hover,
+.picker-current.open {
+  border-color: var(--accent-primary);
+}
+
+.picker-current-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.picker-arrow {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  transition: transform 0.2s;
+}
+
+.picker-current.open .picker-arrow {
+  transform: rotate(180deg);
+}
+
+.picker-panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 100;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: 8px;
+}
+
+.picker-search {
+  margin-bottom: 6px;
+}
+
+.picker-list {
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.picker-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.picker-item:hover {
+  background: var(--bg-hover);
+}
+
+.picker-item.active {
+  background: rgba(99, 102, 241, 0.12);
+}
+
+.picker-item-id {
+  width: 34px;
+  flex-shrink: 0;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--accent-primary);
+}
+
+.picker-item-name {
+  flex: 1;
+  font-size: 0.85rem;
+  color: var(--text-primary);
+}
+
+.picker-item-check {
+  color: var(--accent-primary);
+  font-weight: 700;
+}
+
+.picker-empty {
+  padding: 14px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.picker-custom {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-light);
+}
+
+.picker-custom-input {
+  flex: 1;
+}
+
+.btn-custom-ok {
+  flex-shrink: 0;
+  padding: 0 16px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--accent-primary);
+  color: white;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.btn-custom-ok:hover {
+  opacity: 0.88;
+}
+
+/* ===== 忽略权限 ===== */
 .perm-row {
   display: flex;
   align-items: center;
@@ -461,6 +694,7 @@ onMounted(loadConfig)
   color: var(--text-muted);
 }
 
+/* ===== 指令列表 ===== */
 .cmd-block {
   margin-top: 4px;
 }
