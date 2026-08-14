@@ -17,6 +17,7 @@ import { getServers, getConfig } from '../config.js'
 import { pushWebhookLog } from './logBroadcast.js'
 import { pushFullIfEnabled, broadcastUuid } from './qqAccountService.js'
 import { broadcastCrossChat } from './crossChatService.js'
+import { onOnlineReport } from './statusPanelService.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -171,6 +172,10 @@ function handleFrame(conn, frame) {
     case 'cross-chat':
       // 插件本地聊天上报 → 转发到其他启用跨服聊天的服务器
       handleCrossChatEvent(conn, parsed)
+      break
+    case 'online':
+      // 状态面板：插件玩家上下线上报本服在线数 → 后端聚合全服在线并下发所有插件
+      onOnlineReport(conn.server.id, parsed?.online)
       break
     default:
       if (event.startsWith('file.')) {

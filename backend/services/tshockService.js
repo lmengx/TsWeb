@@ -1638,6 +1638,43 @@ export class TShockService {
     }
   }
 
+  // ===== 状态面板配置 =====
+
+  async getStatusPanelConfig() {
+    if (!this.baseUrl) await this.init()
+    const url = `${this.baseUrl}/data/statuspanel/config${this.apiKey ? `?token=${encodeURIComponent(this.apiKey)}` : ''}`
+    console.log(`[OUTGOING] GET ${url}`)
+    try {
+      const response = await fetch(url, { method: 'GET', headers: { 'Accept': 'application/json' } })
+      const text = await response.text()
+      try { return JSON.parse(text) } catch { return { error: 'Invalid JSON', rawResponse: text } }
+    } catch (error) {
+      this.isConnected = false
+      return { error: error.message }
+    }
+  }
+
+  async setStatusPanelConfig(params) {
+    if (!this.baseUrl) await this.init()
+    const query = Object.entries(params).map(([k, v]) => {
+      const val = typeof v === 'object' ? JSON.stringify(v) : String(v)
+      return `${k}=${encodeURIComponent(val)}`
+    }).join('&')
+    const url = `${this.baseUrl}/data/statuspanel/config/set?${query}${this.apiKey ? `&token=${encodeURIComponent(this.apiKey)}` : ''}`
+    console.log(`[OUTGOING] POST ${url.substring(0, 600)}`)
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Accept': 'application/json' }
+      })
+      const text = await response.text()
+      try { return JSON.parse(text) } catch { return { error: 'Invalid JSON', rawResponse: text } }
+    } catch (error) {
+      this.isConnected = false
+      return { error: error.message }
+    }
+  }
+
   // ===== 通用数据代理：/data/tasks/* 等自定义端点 =====
 
   async proxyDataRequest(subPath, method = 'GET', params = {}) {

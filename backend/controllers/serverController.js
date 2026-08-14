@@ -4,6 +4,7 @@ import {
 } from '../config.js'
 import { getServerInstance, testConnectionWith } from '../services/tshockService.js'
 import { activateServer, deactivateServer } from '../services/serverActivation.js'
+import { refreshStatusPanelPush } from '../services/statusPanelService.js'
 
 /** 脱敏：apiKey / pushSecret 只返回是否已设置，不返回明文；同时附上实时在线状态 */
 function sanitize(server) {
@@ -56,6 +57,8 @@ export const create = async (req, res) => {
     const server = await addServer({ name, host, port, apiKey, note })
     // 激活：注册 REST 实例 + 建立 SSE 常连（日志/文件推送主通道）+ 注册 webhook 推流
     activateServer(server)
+    // 状态面板：服务器配置变更 → 重新拉取并下发全服在线
+    refreshStatusPanelPush().catch(() => {})
     audit.record('server.add', {
       name: server.name,
       host: server.host,
@@ -80,6 +83,8 @@ export const update = async (req, res) => {
 
     // 激活：同步 REST 实例 + 重建 SSE 常连（host/port/apiKey/enabled 可能变化）+ 重新注册 webhook
     activateServer(server)
+    // 状态面板：服务器配置变更 → 重新拉取并下发全服在线
+    refreshStatusPanelPush().catch(() => {})
     audit.record('server.update', {
       id: server.id,
       name: server.name,
@@ -102,6 +107,8 @@ export const remove = async (req, res) => {
     await deleteServer(id)
     // 停用：注销 REST 实例 + 释放 SSE 常连 + 注销 webhook
     deactivateServer(id)
+    // 状态面板：服务器配置变更 → 重新拉取并下发全服在线
+    refreshStatusPanelPush().catch(() => {})
     audit.record('server.delete', {
       id: before.id,
       name: before.name,

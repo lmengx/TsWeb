@@ -23,6 +23,7 @@ import botRoutes from './routes/botRoutes.js'
 import tshockService, { registerServer, runWithServer, getServicesStatus } from './services/tshockService.js'
 import { connectAll as connectAllSse } from './services/sseConnection.js'
 import { startAggregation } from './services/qqPlaytimeService.js'
+import { refreshStatusPanelPush } from './services/statusPanelService.js'
 import audit from './services/auditLogger.js'
 import readline from 'readline'
 import iconv from 'iconv-lite'
@@ -303,6 +304,17 @@ async function startServer() {
       startAggregation()
     } else {
       console.log('  暂无已配置服务器，跳过 QQ 时长聚合')
+    }
+
+    // ═══ 状态面板：后端启动时下发一次全服在线（各服插件玩家上下线会经 SSE 上报增量更新）═══
+    if (servers.length > 0) {
+      refreshStatusPanelPush().then(r => {
+        console.log(`  状态面板全服在线已下发: ${r.ok}/${r.total} 台服务器`)
+      }).catch(e => {
+        console.warn(`  状态面板全服在线下发失败: ${e.message}`)
+      })
+    } else {
+      console.log('  暂无已配置服务器，跳过状态面板全服在线下发')
     }
   })
 }

@@ -115,6 +115,13 @@ namespace TShockData
             TShockAPI.Commands.ChatCommands.Add(new Command("", Ping.PingCommand, "ping") { HelpText = "查看你到服务器的延迟；管理员可用 /ping 玩家名 查看指定玩家延迟" });
             Ping.Initialize(this);
 
+            // ═══ 服务器信息面板（客户端固定屏幕位置持久文本框，前端可配置，/st 玩家可开关）═══
+            TShockAPI.Commands.ChatCommands.Add(new Command("", StatusPanel.ToggleCommand, "statustext", "st") { HelpText = "开关服务器信息面板（on/show/off/hide）" });
+            StatusPanel.Initialize(this);
+
+            TShock.RestApi.Register(new SecureRestCommand("/data/statuspanel/config", StatusPanel.GetConfigJson, "data.rest.invsee"));
+            TShock.RestApi.Register(new SecureRestCommand("/data/statuspanel/config/set", StatusPanel.SetConfigJson, "data.rest.invsee"));
+
             TShockAPI.Commands.ChatCommands.Add(new Command("tshock.admin", AutoRegister.HandleCommand, "autoregister", "ar"));
 
             TShockAPI.Commands.ChatCommands.Add(new Command("tshock.admin", ExportPlayer.Export, "export", "导出"));
@@ -220,6 +227,7 @@ namespace TShockData
             EmoteCommandManager.LoadConfig();
             TaskScheduler.Reload();
             AutoBackup.LoadConfig();
+            StatusPanel.LoadConfig();
 
             TShock.Log.ConsoleInfo("[TSWeb] 反作弊配置已重新加载");
         }
@@ -250,6 +258,7 @@ namespace TShockData
 				TeamLockManager.Dispose();
 				HouseCore.Instance.Dispose();
                 EmoteCommandManager.Dispose();
+                StatusPanel.Dispose();
 
 				CleanupChatCommands();
 				CleanupRestApiRoutes();
@@ -284,6 +293,7 @@ namespace TShockData
 				"scanlist", "违禁物品",
                 "lightning", "闪电",
                 "ping",
+                "statustext", "st",
 				"bosslimit", "进度锁",			};
 
 			Commands.ChatCommands.RemoveAll(cmd =>
@@ -357,6 +367,8 @@ namespace TShockData
                 "/data/qq/player-data",
                 "/data/promotion/config",
                 "/data/promotion/config/set",
+                "/data/statuspanel/config",
+                "/data/statuspanel/config/set",
                 "/data/emoji/config",
                 "/data/emoji/config/set",
                 "/data/tasks/list",

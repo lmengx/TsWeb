@@ -210,3 +210,21 @@ export const setPromotionConfig = async (req, res) => {
     res.status(500).json({ status: '500', error: error.message })
   }
 }
+
+export const getStatusPanelConfig = async (req, res) => {
+  try {
+    const result = await tshockService.getStatusPanelConfig()
+    res.json(result)
+  } catch (error) {
+    res.status(500).json({ status: '500', error: error.message })
+  }
+}
+
+export const setStatusPanelConfig = async (req, res) => {
+  try {
+    const result = await tshockService.setStatusPanelConfig(req.body)
+    res.json(result)
+  } catch (error) {
+    res.status(500).json({ status: '500', error: error.message })
+  }
+}

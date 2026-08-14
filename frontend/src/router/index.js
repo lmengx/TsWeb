@@ -110,6 +110,12 @@ const routes = [
             meta: { requiresAuth: true, requiresAdmin: true }
           },
           {
+            path: 'statuspanel',
+            name: 'StatusPanelSettings',
+            component: () => import('../views/console/settings/StatusPanelSettingsView.vue'),
+            meta: { requiresAuth: true, requiresAdmin: true }
+          },
+          {
             path: 'emoji',
             name: 'EmoteCommandConfig',
             component: () => import('../views/console/settings/EmoteCommandView.vue'),
