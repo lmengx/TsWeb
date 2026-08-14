@@ -55,6 +55,76 @@ const presets = [
     { r: 0, g: 255, b: 128 },
     { r: 128, g: 255, b: 0 },
     { r: 255, g: 128, b: 0 }
+  ]},
+  { name: '日落', colors: [
+    { r: 255, g: 81, b: 39 },
+    { r: 255, g: 119, b: 69 },
+    { r: 255, g: 179, b: 71 },
+    { r: 255, g: 107, b: 149 },
+    { r: 142, g: 84, b: 233 }
+  ]},
+  { name: '极光', colors: [
+    { r: 0, g: 242, b: 96 },
+    { r: 100, g: 245, b: 168 },
+    { r: 43, g: 210, b: 255 },
+    { r: 123, g: 104, b: 238 },
+    { r: 155, g: 89, b: 182 }
+  ]},
+  { name: '糖果', colors: [
+    { r: 255, g: 154, b: 158 },
+    { r: 255, g: 195, b: 160 },
+    { r: 255, g: 245, b: 195 },
+    { r: 212, g: 252, b: 121 },
+    { r: 161, g: 196, b: 253 }
+  ]},
+  { name: '火焰', colors: [
+    { r: 255, g: 0, b: 0 },
+    { r: 255, g: 69, b: 0 },
+    { r: 255, g: 140, b: 0 },
+    { r: 255, g: 165, b: 0 },
+    { r: 255, g: 215, b: 0 }
+  ]},
+  { name: '海洋', colors: [
+    { r: 0, g: 4, b: 40 },
+    { r: 0, g: 78, b: 146 },
+    { r: 0, g: 180, b: 219 },
+    { r: 72, g: 201, b: 176 },
+    { r: 127, g: 255, b: 212 }
+  ]},
+  { name: '森林', colors: [
+    { r: 19, g: 78, b: 94 },
+    { r: 30, g: 132, b: 73 },
+    { r: 39, g: 174, b: 96 },
+    { r: 125, g: 206, b: 160 },
+    { r: 169, g: 223, b: 191 }
+  ]},
+  { name: '梦幻紫', colors: [
+    { r: 102, g: 126, b: 234 },
+    { r: 118, g: 75, b: 162 },
+    { r: 168, g: 85, b: 247 },
+    { r: 217, g: 70, b: 239 },
+    { r: 240, g: 171, b: 252 }
+  ]},
+  { name: '冰霜', colors: [
+    { r: 224, g: 234, b: 252 },
+    { r: 207, g: 222, b: 243 },
+    { r: 161, g: 196, b: 253 },
+    { r: 118, g: 178, b: 254 },
+    { r: 59, g: 130, b: 246 }
+  ]},
+  { name: '金色', colors: [
+    { r: 255, g: 215, b: 0 },
+    { r: 255, g: 193, b: 7 },
+    { r: 255, g: 160, b: 0 },
+    { r: 245, g: 124, b: 0 },
+    { r: 230, g: 81, b: 0 }
+  ]},
+  { name: '霓虹', colors: [
+    { r: 255, g: 0, b: 255 },
+    { r: 0, g: 255, b: 255 },
+    { r: 57, g: 255, b: 20 },
+    { r: 255, g: 255, b: 0 },
+    { r: 138, g: 43, b: 226 }
   ]}
 ]
 
@@ -127,7 +197,7 @@ const generateGradientText = () => {
   const chars = inputText.value.split('')
   const result = chars.map((char, index) => {
     const color = getGradientColor(index, chars.length - 1 || 1)
-    const hex = '#' + [color.r, color.g, color.b].map(x => x.toString(16).padStart(2, '0')).join('')
+    const hex = [color.r, color.g, color.b].map(x => x.toString(16).padStart(2, '0')).join('')
     return `[c/${hex}:${char}]`
   }).join('')
   
