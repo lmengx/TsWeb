@@ -27,8 +27,11 @@ namespace TShockData
 	/// 拦截策略（零误伤）：
 	///   1. StormLightning / StormlightningWindup：原版客户端从不主动向服务端请求
 	///      （仅服务端天气生成后广播；客户端内部调用均为 clientOnly:true）→ 必为恶意 → 直接丢弃并踢出
-	///   2. 其他粒子类型：正常客户端武器特效等请求频率极低 → 按频率限流（默认 20 个/秒/玩家）
-	///   3. 累计违规达到阈值 → 踢出
+	///   2. 合法高频类型（ChlorophyteLeafCrystalShot / TrueExcalibur 等）：原版客户端在弹幕存续期间
+	///      每帧请求的持续特效 → 走独立高阈值限流（默认 500 个/秒/玩家）
+	///   3. 其他粒子类型：正常客户端武器特效等请求频率低 → 按频率限流（默认 20 个/秒/玩家）
+	///   4. 除恶意类型外，所有超限请求一律「仅丢弃 + 记日志」，绝不踢出 ——
+	///      合法特效（弹幕持续粒子、换装、武器剑气）被插件批量弹幕放大频率是正常现象，踢出会造成大规模误伤
 	///
 	/// 实现：MonoMod RuntimeDetour 挂钩 NetManager.Read（82 号包服务端分发总入口）。
 	///   - 只捕获客户端 → 服务端的 82 号包（服务端 Broadcast 直接写 socket，不经 Read）
@@ -51,8 +54,9 @@ namespace TShockData
 		/// <summary>每秒允许的合法粒子请求上限（正常客户端武器特效等远低于此）</summary>
 		public const int MaxParticlesPerSecond = 20;
 
-		/// <summary>非恶意类型因超频被拦截的累计次数达到此值 → 踢出</summary>
-		public const int KickAfterViolations = 5;
+		/// <summary>合法高频类型（如叶绿水晶矢）的每秒上限：原版客户端每帧请求持续特效，
+		/// 多弹幕同时存在时轻松超过普通限流；超限仅丢弃，不累计踢出</summary>
+		public const int HighFrequencyLimitPerSecond = 500;
 
 		/// <summary>
 		/// 恶意粒子类型：原版客户端从不主动向服务端请求的类型。
@@ -64,15 +68,27 @@ namespace TShockData
 			(byte)ParticleOrchestraType.StormlightningWindup  // 62
 		};
 
+		/// <summary>
+		/// 合法高频粒子类型：原版客户端在弹幕存续期间每帧请求的持续特效（clientOnly:false），
+		/// 如叶绿水晶矢(227) 的 ChlorophyteLeafCrystalShot、海龟套弹幕触发的 TrueExcalibur 剑气 ——
+		/// 60fps 下单弹幕即约 60/s，插件批量弹幕（海龟套每 3 秒 15~25 个）频率更高，远超普通限流 20/s。
+		/// 此类请求是正常游戏行为 → 走独立高阈值限流，超限仅丢弃，绝不踢出。
+		/// </summary>
+		private static readonly HashSet<byte> HighFrequencyTypes = new HashSet<byte>
+		{
+			(byte)ParticleOrchestraType.ChlorophyteLeafCrystalShot,  // 17：叶绿水晶矢粒子（抓包日志实证）
+			(byte)ParticleOrchestraType.TrueExcalibur                // 14：真断钢剑/真永夜刃剑气（海龟套弹幕触发，抓包日志实证）
+		};
+
 		private static Hook? _hook;
 		private static bool _initialized;
 		private static ushort _particlesModuleId = ushort.MaxValue;
 		private static TerrariaPlugin? _plugin;
 
-		// 玩家索引 → 最近 1 秒内的粒子请求时间戳
+		// 玩家索引 → 最近 1 秒内的粒子请求时间戳（普通类型）
 		private static readonly Dictionary<int, List<DateTime>> _timestamps = new Dictionary<int, List<DateTime>>();
-		// 玩家索引 → 累计违规次数
-		private static readonly Dictionary<int, int> _violations = new Dictionary<int, int>();
+		// 玩家索引 → 最近 1 秒内的高频类型请求时间戳（独立统计，避免高频类型污染普通类型限流）
+		private static readonly Dictionary<int, List<DateTime>> _highFreqTimestamps = new Dictionary<int, List<DateTime>>();
 		private static readonly object SyncLock = new object();
 
 		/// <summary>NetManager.Read(BinaryReader, int, int) 原始委托签名（实例方法，首个参数为 this）</summary>
@@ -182,7 +198,7 @@ namespace TShockData
 			lock (SyncLock)
 			{
 				_timestamps.Clear();
-				_violations.Clear();
+				_highFreqTimestamps.Clear();
 			}
 			_initialized = false;
 			TShock.Log.ConsoleInfo("[ParticleGuard] 粒子防线已卸载");
@@ -208,8 +224,47 @@ namespace TShockData
 			// 粒子模块：读取粒子类型（moduleId 之后 1 字节）
 			byte particleType = reader.ReadByte();
 			bool isMalicious = MaliciousTypes.Contains(particleType);
+			bool isHighFrequency = !isMalicious && HighFrequencyTypes.Contains(particleType);
 
-			// 频率限流：恶意类型必然拦截；合法类型按每秒数量
+			// ═══ 恶意类型：100% 恶意 → 丢弃并立即踢出 ═══
+			if (isMalicious)
+			{
+				HandleViolation(userId, particleType);
+				return;
+			}
+
+			// ═══ 合法高频类型（如叶绿水晶矢）：独立高阈值限流，超限仅丢弃不踢出 ═══
+			if (isHighFrequency)
+			{
+				bool overLimit;
+				lock (SyncLock)
+				{
+					if (!_highFreqTimestamps.TryGetValue(userId, out var list))
+					{
+						list = new List<DateTime>();
+						_highFreqTimestamps[userId] = list;
+					}
+
+					var now = DateTime.Now;
+					list.Add(now);
+					list.RemoveAll(t => (now - t).TotalSeconds > 1.0);
+					overLimit = list.Count > HighFrequencyLimitPerSecond;
+				}
+
+				if (overLimit)
+				{
+					// 超限：丢弃该请求（不调 orig → 不广播），仅记日志，绝不踢出
+					var name = userId >= 0 && userId < TShock.Players.Length ? TShock.Players[userId]?.Name : null;
+					TShock.Log.ConsoleInfo($"[ParticleGuard] 丢弃 {name ?? "#" + userId} 的超高频粒子请求 Type={particleType}（> {HighFrequencyLimitPerSecond}/s）");
+					return;
+				}
+
+				reader.BaseStream.Position = start;
+				orig(self, reader, userId, readLength);
+				return;
+			}
+
+			// ═══ 普通类型：按频率限流（20/s），超限仅丢弃不踢出 ═══
 			bool shouldBlock;
 			lock (SyncLock)
 			{
@@ -223,7 +278,7 @@ namespace TShockData
 				list.Add(now);
 				list.RemoveAll(t => (now - t).TotalSeconds > 1.0);
 
-				shouldBlock = isMalicious || list.Count > MaxParticlesPerSecond;
+				shouldBlock = list.Count > MaxParticlesPerSecond;
 			}
 
 			if (!shouldBlock)
@@ -233,21 +288,14 @@ namespace TShockData
 				return;
 			}
 
-			// ═══ 违规：丢弃整个粒子模块（不调 orig → 不广播）═══
-			// 恶意闪电类型 → 立即踢出；其他类型超频 → 记违规，累计达阈值才踢
-			HandleViolation(userId, particleType, kickImmediately: isMalicious);
+			// ═══ 普通类型超频：丢弃该请求（不调 orig → 不广播），仅记日志，绝不踢出 ═══
+			// 合法特效（武器剑气、换装、弹幕粒子等）被插件批量弹幕放大频率是正常现象，不视为作弊
+			var p = userId >= 0 && userId < TShock.Players.Length ? TShock.Players[userId] : null;
+			TShock.Log.ConsoleInfo($"[ParticleGuard] 丢弃 {p?.Name ?? "#" + userId} 的超频粒子请求 Type={particleType}（> {MaxParticlesPerSecond}/s）");
 		}
 
-		private static void HandleViolation(int userId, byte particleType, bool kickImmediately)
+		private static void HandleViolation(int userId, byte particleType)
 		{
-			int violations;
-			lock (SyncLock)
-			{
-				violations = _violations.TryGetValue(userId, out var v) ? v : 0;
-				violations++;
-				_violations[userId] = violations;
-			}
-
 			var player = userId >= 0 && userId < TShock.Players.Length ? TShock.Players[userId] : null;
 			string name = player?.Name ?? $"#{userId}";
 
@@ -255,25 +303,12 @@ namespace TShockData
 				? $"{Enum.GetName(typeof(ParticleOrchestraType), particleType)}({particleType})"
 				: $"未知类型({particleType})";
 
-			TShock.Log.ConsoleInfo($"[ParticleGuard] 拦截 {name} 的异常粒子请求 Type={typeName}" +
-				(kickImmediately ? $"，恶意类型，立即踢出" : $"（超频违规 {violations}/{KickAfterViolations}）"));
-
-			// 恶意闪电类型：直接踢出（无需累计）；其他类型：累计达阈值踢出
-			if (kickImmediately || violations >= KickAfterViolations)
+			TShock.Log.ConsoleInfo($"[ParticleGuard] 玩家 {name} 发送恶意粒子数据包 Type={typeName}，踢出服务器");
+			try
 			{
-				TShock.Log.ConsoleInfo($"[ParticleGuard] 玩家 {name} 发送恶意粒子数据包，踢出服务器");
-				try
-				{
-					player?.Kick($"发送恶意粒子数据包（{typeName}）", true);
-				}
-				catch { }
-
-				lock (SyncLock)
-				{
-					_violations.Remove(userId);
-					_timestamps.Remove(userId);
-				}
+				player?.Kick($"发送恶意粒子数据包（{typeName}）", true);
 			}
+			catch { }
 		}
 
 		// ════════════════════════════════════════════
