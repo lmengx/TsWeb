@@ -1,6 +1,8 @@
 <script setup>
 import { ref, computed, nextTick, onMounted } from 'vue'
 import { get, post } from '../../../utils/api.js'
+import GradientText from '../tools/GradientText.vue'
+import { loadItemData } from '../../../api/itemDataApi.js'
 
 // ═══════════ 插值字典（前端展示 + 点击插入，无需手打） ═══════════
 const INTERPOLATIONS = [
@@ -187,6 +189,96 @@ const insertToken = (token) => {
   autoSave()
 }
 
+// ═══════════ 行拖拽排序（原生 HTML5 DnD，仅 ⠿ 把手可拖起） ═══════════
+const dragIndex = ref(-1)
+const dragOverIndex = ref(-1)
+const dragOverPos = ref('') // 'before' | 'after'
+
+/**
+ * 判定事件目标是否位于交互元素上（文本框/输入框/按钮/下拉框）。
+ * 命中则绝不判定拖拽（不启动、不显示指示线、不执行移动），
+ * 且不 preventDefault，保持文本框默认行为（文本选择/输入/拖放）。
+ */
+const isInteractiveTarget = (e) => {
+  const el = e.target
+  // 文本节点等非元素目标一律视为交互区，避免误判
+  if (!el || el.nodeType !== 1) return true
+  return !!el.closest('textarea, input, button, select')
+}
+
+const onDragStart = (i, e) => {
+  // 仅 ⠿ 把手可启动（draggable 只在把手上）；防御性排除交互元素
+  if (isInteractiveTarget(e)) { e.preventDefault(); return }
+  dragIndex.value = i
+  if (e.dataTransfer) {
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', String(i))
+  }
+}
+
+const onDragOver = (i, e) => {
+  if (dragIndex.value < 0 || dragIndex.value === i) return
+  // 输入框/控件上不判定（先于 preventDefault，保持文本框默认行为）
+  if (isInteractiveTarget(e)) return
+  e.preventDefault()
+  // 鼠标落在目标行上半 → 插到其前；下半 → 插到其后
+  const rect = e.currentTarget.getBoundingClientRect()
+  dragOverPos.value = e.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
+  dragOverIndex.value = i
+}
+
+const onDrop = (i, e) => {
+  const from = dragIndex.value
+  const pos = dragOverPos.value
+  dragIndex.value = -1
+  dragOverIndex.value = -1
+  dragOverPos.value = ''
+  if (from < 0 || from === i) return
+  // 在输入框/控件元素上释放时不执行移动（不 preventDefault）
+  if (isInteractiveTarget(e)) return
+  e.preventDefault()
+  const rows = panels.value[activePanel.value]
+  const [item] = rows.splice(from, 1)
+  let target = i
+  if (from < i) target = i - 1 // 移除前方元素后目标索引前移
+  if (pos === 'after') target += 1
+  rows.splice(target, 0, item)
+  activeLineIndex.value = target
+  autoSave()
+}
+
+const onDragEnd = () => {
+  dragIndex.value = -1
+  dragOverIndex.value = -1
+  dragOverPos.value = ''
+}
+
+// ═══════════ 彩虹字插入（右侧 GradientText 组件生成代码 → 插入当前行光标位置） ═══════════
+const insertGradientCode = (code) => {
+  if (activeLineIndex.value < 0) {
+    error.value = '请先点击左侧列表中的一行，再插入彩虹字'
+    return
+  }
+  const token = code || ''
+  if (!token) return
+  const line = panels.value[activePanel.value][activeLineIndex.value]
+  if (!line) return
+  const el = lineTextareas.value[activeLineIndex.value]
+  const start = (el && typeof el.selectionStart === 'number') ? el.selectionStart : line.text.length
+  const end = (el && typeof el.selectionEnd === 'number') ? el.selectionEnd : line.text.length
+  const before = line.text.slice(0, start)
+  const after = line.text.slice(end)
+  line.text = before + token + after
+  nextTick(() => {
+    if (el) {
+      el.focus()
+      const pos = start + token.length
+      el.setSelectionRange(pos, pos)
+    }
+  })
+  autoSave()
+}
+
 // ═══════════ 加载配置 ═══════════
 const fetchConfig = async () => {
   loading.value = true
@@ -219,17 +311,86 @@ const fetchConfig = async () => {
   loading.value = false
 }
 
-onMounted(fetchConfig)
+onMounted(async () => {
+  fetchConfig()
+  // 异步加载物品数据（ID.json），用于预览图标/名称；失败不影响其余功能
+  try { itemData.value = await loadItemData() } catch { itemData.value = null }
+})
 
-// ═══════════ 实时预览（当前面板） ═══════════
-const previewText = computed(() => {
-  return currentRows.value.map(row => {
+// ═══════════ 物品数据（预览图标/名称，ID.json 异步加载） ═══════════
+const itemData = ref(null)
+
+const itemNameOf = (id) => {
+  const it = itemData.value?.list?.find(i => i.id === id)
+  return it ? (it.cn || it.english || `物品(${id})`) : `物品(${id})`
+}
+
+/** 图标加载失败回退：本地 → wiki（按英文名） → 隐藏 */
+const onItemIconError = (seg) => {
+  if (!seg.fallback) {
+    seg.fallback = true
+    const it = itemData.value?.list?.find(i => i.id === seg.itemId)
+    seg.icon = (it && it.english) ? `https://terraria.wiki.gg/images/${it.english.replace(/\s+/g, '_')}.png` : ''
+  } else {
+    seg.icon = ''
+  }
+}
+
+// ═══════════ 实时预览（当前面板，转义 [c/色值:文字] 颜色与 [i:ID] 物品） ═══════════
+const TAG_RE = /\[([^\]]*)\]/g
+
+/** 把 Terraria 富文本解析为片段：[c/色:字] → color，[i:ID]/[i/sX:ID] → item，其余原样 */
+const parseRichText = (text) => {
+  const segs = []
+  TAG_RE.lastIndex = 0
+  let last = 0, m
+  while ((m = TAG_RE.exec(text))) {
+    if (m.index > last) segs.push({ type: 'text', text: text.slice(last, m.index) })
+    const inner = m[1]
+    if (inner.startsWith('c/')) {
+      const rest = inner.slice(2)
+      const ci = rest.indexOf(':')
+      if (ci > 0) {
+        const hex = rest.slice(0, ci).trim()
+        if (/^[0-9a-fA-F]{3}([0-9a-fA-F]{3})?$/.test(hex)) {
+          const color = '#' + (hex.length === 3 ? [...hex].map(ch => ch + ch).join('') : hex).toLowerCase()
+          segs.push({ type: 'color', color, text: rest.slice(ci + 1) })
+          last = TAG_RE.lastIndex
+          continue
+        }
+      }
+    } else if (inner.startsWith('i:') || inner.startsWith('i/s') || inner.startsWith('i/p')) {
+      const rest = inner.startsWith('i:') ? inner.slice(2).trim() : inner.slice(2).trim()
+      // 兼容 [i:ID]、[i/sX:ID|name]、[i/pX:ID|name]（i/s5:757 → s5:757 → 757）
+      const mm = rest.match(/^(?:s|p)\d*:(.*)$/)
+      const raw = (mm ? mm[1] : rest).trim()
+      const id = parseInt(raw, 10)
+      if (!isNaN(id) && id > 0) {
+        segs.push({ type: 'item', itemId: id, icon: `/assets/img/img/Item_${id}.png`, fallback: false })
+        last = TAG_RE.lastIndex
+        continue
+      }
+    }
+    // 其他标签（[n/] [g/] 等）或无法解析的内容：原样文本
+    segs.push({ type: 'text', text: m[0] })
+    last = TAG_RE.lastIndex
+  }
+  if (last < text.length) segs.push({ type: 'text', text: text.slice(last) })
+  return segs
+}
+
+const previewSegments = computed(() => {
+  return currentRows.value.map((row, rowIdx) => {
     let t = row.text || ''
     for (const it of INTERPOLATIONS) {
       t = t.split(it.token).join(it.preview)
     }
-    return t + ('·'.repeat(Math.max(0, Math.min(12, Number(spacerWidth.value) / 5 || 0))))
-  }).join('\n')
+    return {
+      rowIdx,
+      spacer: '·'.repeat(Math.max(0, Math.min(12, Number(spacerWidth.value) / 5 || 0))),
+      segments: parseRichText(t)
+    }
+  })
 })
 
 const activeGroupList = computed(() => {
@@ -245,71 +406,47 @@ const activeGroupList = computed(() => {
     </div>
 
     <div v-else class="settings-content">
-      <!-- 全局设置 -->
-      <div class="section-card">
-        <h3>状态面板</h3>
-        <p class="section-desc">
-          在客户端固定屏幕位置显示持久文本框，纯服务端实现，所有原版客户端可见。
-          可配置多个面板，玩家用 <code>/st</code> 查看面板列表、<code>/st 面板名</code> 切换查看（内存态）、<code>/st on|off</code> 开关。
-          <code>default</code> 面板强制存在且不可删除。
-        </p>
-
-        <div class="toggle-row">
-          <span class="toggle-label">启用面板</span>
-          <span class="toggle-hint">关闭后停止向所有玩家发送面板文本</span>
-          <label class="switch">
-            <input type="checkbox" v-model="enabled" @change="autoSave" />
-            <span class="slider"></span>
-          </label>
-        </div>
-
-        <div class="interval-row">
-          <span class="toggle-label">行尾空格宽度</span>
-          <div class="number-control">
-            <button class="num-btn" @click="spacerWidth = Math.max(0, (Number(spacerWidth) || 0) - 5); autoSave()">−</button>
-            <input type="number" v-model.number="spacerWidth" min="0" max="500" step="5" class="num-input" title="每行行尾补空格数：越大文本块越宽，可视文字越靠近屏幕中部；屏幕越宽需越大" />
-            <button class="num-btn" @click="spacerWidth = Math.min(500, (Number(spacerWidth) || 0) + 5); autoSave()">+</button>
+      <!-- 顶部总览（100% 宽）：状态面板总览 + 启用按钮 + 次要设置 -->
+      <div class="section-card overview-card">
+        <div class="overview-row">
+          <div class="overview-info">
+            <h3>状态面板</h3>
+            <p class="section-desc">
+              在客户端固定屏幕位置显示持久文本框，纯服务端实现，所有原版客户端可见。
+              玩家用 <code>/st</code> 查看面板列表、<code>/st 面板名</code> 切换查看（内存态）、<code>/st on|off</code> 开关。
+              <code>default</code> 面板强制存在且不可删除。
+            </p>
           </div>
-          <span class="interval-desc">文本块撑宽 → 客户端固定锚点居中（屏幕越宽需越大，过大偏出左屏）</span>
+          <div class="overview-toggle">
+            <span class="toggle-label">启用面板</span>
+            <label class="switch">
+              <input type="checkbox" v-model="enabled" @change="autoSave" />
+              <span class="slider"></span>
+            </label>
+          </div>
         </div>
 
-        <div class="toggle-row">
-          <span class="toggle-label">日志等级</span>
-          <select v-model="logLevel" class="log-select" @change="autoSave">
-            <option v-for="lv in LOG_LEVELS" :key="lv" :value="lv">{{ lv }}</option>
-          </select>
-          <span class="toggle-hint">兼容参考插件 LogLevel</span>
+        <div class="overview-sub">
+          <div class="interval-row">
+            <span class="toggle-label">行尾空格宽度</span>
+            <div class="number-control">
+              <button class="num-btn" @click="spacerWidth = Math.max(0, (Number(spacerWidth) || 0) - 5); autoSave()">−</button>
+              <input type="number" v-model.number="spacerWidth" min="0" max="500" step="5" class="num-input" title="每行行尾补空格数：越大文本块越宽，可视文字越靠近屏幕中部；屏幕越宽需越大" />
+              <button class="num-btn" @click="spacerWidth = Math.min(500, (Number(spacerWidth) || 0) + 5); autoSave()">+</button>
+            </div>
+            <span class="interval-desc">文本块撑宽 → 客户端固定锚点居中（屏幕越宽需越大，过大偏出左屏）</span>
+          </div>
+          <div class="toggle-row">
+            <span class="toggle-label">日志等级</span>
+            <select v-model="logLevel" class="log-select" @change="autoSave">
+              <option v-for="lv in LOG_LEVELS" :key="lv" :value="lv">{{ lv }}</option>
+            </select>
+            <span class="toggle-hint">兼容参考插件 LogLevel</span>
+          </div>
         </div>
       </div>
 
-      <!-- 面板选择器 -->
-      <div class="section-card">
-        <div class="card-head">
-          <h3>面板</h3>
-          <div class="head-actions">
-            <input v-model="newPanelName" class="new-panel-input" placeholder="新面板名称" @keyup.enter="addPanel" />
-            <button class="ghost-btn accent" @click="addPanel">+ 添加面板</button>
-          </div>
-        </div>
-        <p class="section-desc">
-          <code>default</code> 不可删除；面板名不能是 <code>on/off/show/hide</code>（与 /st 命令冲突）。
-        </p>
-
-        <div class="panel-tabs">
-          <span
-            v-for="name in panelNames"
-            :key="name"
-            class="panel-tab"
-            :class="{ active: activePanel === name, locked: name === 'default' }"
-            @click="selectPanel(name)"
-          >
-            {{ name }}
-            <button v-if="name !== 'default'" class="panel-del" @click.stop="removePanel(name)" title="删除面板">×</button>
-          </span>
-        </div>
-      </div>
-
-      <!-- 当前面板行列表 -->
+      <!-- 当前面板行列表（左）+ 彩虹字设计器（右） -->
       <div class="section-card">
         <div class="card-head">
           <h3>面板内容：{{ activePanel }}</h3>
@@ -319,75 +456,135 @@ const activeGroupList = computed(() => {
           </div>
         </div>
         <p class="section-desc">
-          每行支持插值并按其更新间隔（帧数，60=1秒）刷新；不含插值的行内容保持不变。每行渲染后自动追加行尾空格。
+          每行支持插值并按其更新间隔（帧数，60=1秒）刷新；每行渲染后自动追加行尾空格。
+          <strong>按住 ⠿ 把手拖动即可调整顺序</strong>（文本框内拖动不受影响）。
         </p>
 
-        <div v-if="currentRows.length === 0" class="empty-hint">该面板暂无内容行，点击「+ 添加行」开始配置</div>
+        <div class="panel-content-layout">
+          <!-- 左栏：面板选择 + 行编辑 -->
+          <div class="lines-column">
+            <div class="panel-tabs-wrap">
+              <div class="panel-tabs">
+                <span
+                  v-for="name in panelNames"
+                  :key="name"
+                  class="panel-tab"
+                  :class="{ active: activePanel === name, locked: name === 'default' }"
+                  @click="selectPanel(name)"
+                >
+                  {{ name }}
+                  <button v-if="name !== 'default'" class="panel-del" @click.stop="removePanel(name)" title="删除面板">×</button>
+                </span>
+              </div>
+              <div class="panel-add">
+                <input v-model="newPanelName" class="new-panel-input" placeholder="新面板名称" @keyup.enter="addPanel" />
+                <button class="ghost-btn accent" @click="addPanel">+ 添加面板</button>
+              </div>
+            </div>
+            <p class="section-desc panel-tip">
+              <code>default</code> 不可删除；面板名不能是 <code>on/off/show/hide</code>（与 /st 命令冲突）。
+            </p>
 
-        <div
-          v-for="(line, i) in currentRows"
-          :key="activePanel + '-' + i"
-          class="line-card"
-          :class="{ active: activeLineIndex === i }"
-          @click="focusLine(i)"
-        >
-          <div class="line-head">
-            <span class="line-index">{{ i + 1 }}</span>
-            <span class="type-badge">动态文本</span>
-            <span class="interval-label">更新间隔</span>
-            <input type="number" v-model.number="line.updateInterval" min="1" max="6000" class="interval-input" @change="autoSave" title="帧数，60=1秒" />
-            <span class="interval-unit">帧</span>
-            <span class="flex-spacer"></span>
-            <button class="mini-btn" :disabled="i === 0" @click.stop="moveLine(i, -1)" title="上移">↑</button>
-            <button class="mini-btn" :disabled="i === currentRows.length - 1" @click.stop="moveLine(i, 1)" title="下移">↓</button>
-            <button class="mini-btn danger" @click.stop="removeLine(i)" title="删除">×</button>
+            <div v-if="currentRows.length === 0" class="empty-hint">该面板暂无内容行，点击「+ 添加行」开始配置</div>
+
+            <div
+              v-for="(line, i) in currentRows"
+              :key="activePanel + '-' + i"
+              class="line-card"
+              :class="{
+                active: activeLineIndex === i,
+                dragging: dragIndex === i,
+                'drag-over-before': dragOverIndex === i && dragOverPos === 'before',
+                'drag-over-after': dragOverIndex === i && dragOverPos === 'after'
+              }"
+              @dragover="onDragOver(i, $event)"
+              @drop="onDrop(i, $event)"
+              @dragend="onDragEnd"
+              @click="focusLine(i)"
+            >
+              <div class="line-head">
+                <span
+                  class="drag-handle"
+                  title="按住拖动排序"
+                  draggable="true"
+                  @dragstart="onDragStart(i, $event)"
+                >⠿</span>
+                <span class="line-index">{{ i + 1 }}</span>
+                <span class="type-badge">动态文本</span>
+                <span class="interval-label">更新间隔</span>
+                <input type="number" v-model.number="line.updateInterval" min="1" max="6000" class="interval-input" @change="autoSave" title="帧数，60=1秒" />
+                <span class="interval-unit">帧</span>
+                <span class="flex-spacer"></span>
+                <button class="mini-btn" :disabled="i === 0" @click.stop="moveLine(i, -1)" title="上移">↑</button>
+                <button class="mini-btn" :disabled="i === currentRows.length - 1" @click.stop="moveLine(i, 1)" title="下移">↓</button>
+                <button class="mini-btn danger" @click.stop="removeLine(i)" title="删除">×</button>
+              </div>
+              <textarea
+                :ref="el => { lineTextareas[i] = el }"
+                v-model="line.text"
+                class="line-text"
+                rows="2"
+                placeholder="例如：在线人数：{OnlinePlayersCount}人"
+                @input="autoSave"
+                @focus="focusLine(i)"
+              ></textarea>
+
+              <!-- 插值填入面板 -->
+              <div class="interpolate-panel" @click.stop>
+                <div class="interp-head">点击插入插值（光标位置）</div>
+                <div class="interp-groups">
+                  <button
+                    v-for="g in ['全部', ...INTERPOLATION_GROUPS]"
+                    :key="g"
+                    class="group-chip"
+                    :class="{ active: activeGroup === g }"
+                    @click="activeGroup = g"
+                  >{{ g }}</button>
+                </div>
+                <div class="interp-chips">
+                  <button
+                    v-for="it in activeGroupList"
+                    :key="it.token"
+                    class="interp-chip"
+                    :title="`${it.label}（示例：${it.preview}）`"
+                    @click="insertToken(it.token)"
+                  >
+                    <code>{{ it.token }}</code>
+                    <span class="interp-label">{{ it.label }}</span>
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
-          <textarea
-            :ref="el => { lineTextareas[i] = el }"
-            v-model="line.text"
-            class="line-text"
-            rows="2"
-            placeholder="例如：在线人数：{OnlinePlayersCount}人"
-            @input="autoSave"
-            @focus="focusLine(i)"
-          ></textarea>
 
-          <!-- 插值填入面板 -->
-          <div class="interpolate-panel" @click.stop>
-            <div class="interp-head">点击插入插值（光标位置）</div>
-            <div class="interp-groups">
-              <button
-                v-for="g in ['全部', ...INTERPOLATION_GROUPS]"
-                :key="g"
-                class="group-chip"
-                :class="{ active: activeGroup === g }"
-                @click="activeGroup = g"
-              >{{ g }}</button>
+          <!-- 右栏：预览 + 彩虹字编辑器 -->
+          <div class="rainbow-column">
+            <div class="mini-card preview-card">
+              <div class="mini-card-head">
+                <span class="mini-title">预览（{{ activePanel }}）</span>
+              </div>
+              <p class="mini-desc">
+                插值以示例值展示（真实游戏中动态替换）；「·」示意行尾空格数量；<code>[c/]</code> 颜色与 <code>[i:]</code> 物品已转义。
+              </p>
+              <div v-if="previewSegments.length" class="preview-box">
+                <div v-for="row in previewSegments" :key="row.rowIdx" class="preview-line">
+                  <template v-for="(seg, si) in row.segments" :key="si">
+                    <span v-if="seg.type === 'color'" class="preview-color" :style="{ color: seg.color }">{{ seg.text }}</span>
+                    <span v-else-if="seg.type === 'item'" class="preview-item" :title="itemNameOf(seg.itemId)">
+                      <img v-if="seg.icon" :src="seg.icon" :alt="itemNameOf(seg.itemId)" class="preview-item-icon" @error="onItemIconError(seg)" />
+                    </span>
+                    <span v-else>{{ seg.text }}</span>
+                  </template>
+                  <span v-if="row.spacer" class="preview-spacer">{{ row.spacer }}</span>
+                </div>
+              </div>
+              <div v-else class="preview-box preview-empty">（空）</div>
             </div>
-            <div class="interp-chips">
-              <button
-                v-for="it in activeGroupList"
-                :key="it.token"
-                class="interp-chip"
-                :title="`${it.label}（示例：${it.preview}）`"
-                @click="insertToken(it.token)"
-              >
-                <code>{{ it.token }}</code>
-                <span class="interp-label">{{ it.label }}</span>
-              </button>
-            </div>
+
+            <!-- 彩虹字编辑器（复用 GradientText，点击「插入当前行」把代码插入左侧选中行） -->
+            <GradientText embedded insertable @insert="insertGradientCode" />
           </div>
         </div>
-      </div>
-
-      <!-- 实时预览 -->
-      <div class="section-card">
-        <h3>预览（{{ activePanel }}）</h3>
-        <p class="section-desc">
-          插值以示例值展示（真实游戏中动态替换）；「·」示意行尾空格数量。服务器名行可用
-          <code>[i:物品ID]</code> 图标与 <code>[c/色值:文字]</code> 颜色。
-        </p>
-        <pre class="preview-box">{{ previewText || '（空）' }}</pre>
       </div>
 
       <!-- Toast -->
@@ -407,7 +604,7 @@ const activeGroupList = computed(() => {
 
 <style scoped>
 .settings-page { padding: 20px; width: 100%; }
-.settings-content { max-width: 760px; }
+.settings-content { max-width: 1100px; }
 .loading-state { text-align: center; padding: 60px; color: var(--text-muted); }
 
 .section-card {
@@ -527,6 +724,62 @@ const activeGroupList = computed(() => {
   transition: border-color 0.2s ease;
 }
 .line-card.active { border-color: var(--accent-primary); }
+
+/* ── 顶部总览（100% 宽） ── */
+.overview-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; }
+.overview-info { flex: 1; min-width: 0; }
+.overview-info h3 { margin: 0 0 4px 0; color: var(--text-primary); font-size: 1.1rem; font-weight: 600; }
+.overview-info .section-desc { margin: 0; }
+.overview-toggle { display: flex; align-items: center; gap: 10px; flex-shrink: 0; padding-top: 4px; }
+.overview-sub { margin-top: 16px; border-top: 1px solid var(--border-light); padding-top: 4px; }
+.overview-sub .interval-row,
+.overview-sub .toggle-row { border-bottom: none; }
+
+/* ── 双栏布局（左编辑 + 右预览/彩虹字） ── */
+.panel-content-layout { display: flex; gap: 20px; align-items: flex-start; }
+.lines-column { flex: 1; min-width: 0; }
+.rainbow-column {
+  width: 360px; flex-shrink: 0; position: sticky; top: 20px;
+  display: flex; flex-direction: column; gap: 16px;
+}
+@media (max-width: 1180px) {
+  .panel-content-layout { flex-direction: column; }
+  .rainbow-column { width: 100%; position: static; }
+  .overview-row { flex-direction: column; }
+}
+
+/* ── 左栏面板选择条 ── */
+.panel-tabs-wrap {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; flex-wrap: wrap; margin-bottom: 10px;
+}
+.panel-add { display: flex; gap: 8px; align-items: center; }
+.panel-tip { margin-bottom: 12px; }
+
+/* ── 右栏迷你卡片（预览） ── */
+.mini-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  padding: 14px;
+}
+.mini-card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.mini-title { font-size: 0.95rem; font-weight: 700; color: var(--text-primary); }
+.mini-desc { margin: 0 0 10px 0; color: var(--text-muted); font-size: 0.78rem; line-height: 1.6; }
+.mini-desc code {
+  color: var(--accent-primary); background: var(--bg-tertiary);
+  border-radius: 4px; padding: 1px 5px; font-size: 0.75rem;
+}
+
+/* ── 拖拽排序（仅 ⠿ 把手可拖起） ── */
+.drag-handle {
+  color: var(--text-muted); font-size: 0.95rem; cursor: grab;
+  user-select: none; padding: 0 3px;
+}
+.drag-handle:active { cursor: grabbing; }
+.line-card.dragging { opacity: 0.45; border-style: dashed; }
+.line-card.drag-over-before { box-shadow: 0 -3px 0 0 var(--accent-primary); }
+.line-card.drag-over-after { box-shadow: 0 3px 0 0 var(--accent-primary); }
 .line-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
 .line-index {
   width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
@@ -597,6 +850,16 @@ const activeGroupList = computed(() => {
   color: var(--text-primary); font-size: 0.9rem; line-height: 1.7;
   white-space: pre-wrap; font-family: inherit;
 }
+.preview-line { min-height: 1.4em; }
+.preview-line + .preview-line { margin-top: 4px; }
+.preview-color { font-weight: 700; }
+.preview-item {
+  display: inline-flex; align-items: center; gap: 4px;
+  vertical-align: middle; margin: 0 2px;
+}
+.preview-item-icon { width: 18px; height: 18px; image-rendering: pixelated; }
+.preview-spacer { color: var(--text-muted); opacity: 0.55; user-select: none; }
+.preview-empty { color: var(--text-muted); }
 
 /* ── Toast ── */
 .toast {

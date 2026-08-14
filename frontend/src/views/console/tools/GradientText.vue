@@ -1,6 +1,14 @@
 <script setup>
 import { ref, computed, watch, onMounted } from 'vue'
 
+// ── 可复用配置（嵌入其他页面时使用）──
+// embedded：嵌入模式（紧凑布局，隐藏页头）；insertable：显示「插入当前行」按钮
+defineProps({
+  embedded: { type: Boolean, default: false },
+  insertable: { type: Boolean, default: false }
+})
+const emit = defineEmits(['insert'])
+
 const inputText = ref('')
 const outputCode = ref('')
 const selectedColorIndex = ref(0)
@@ -488,8 +496,8 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="gradient-text-page">
-    <div class="page-header">
+  <div class="gradient-text-page" :class="{ 'embedded-mode': embedded }">
+    <div v-if="!embedded" class="page-header">
       <h2>彩色渐变文字生成器</h2>
       <p class="page-desc">生成泰拉瑞亚游戏内可用的彩色渐变文字代码</p>
     </div>
@@ -550,7 +558,10 @@ onMounted(() => {
               placeholder="生成的彩色代码..."
             ></textarea>
             <div class="output-actions">
-              <button class="action-btn primary" @click="copyToClipboard(outputCode)">
+              <button v-if="insertable" class="action-btn primary" @click="emit('insert', outputCode)" :disabled="!outputCode">
+                ↩ 插入当前行
+              </button>
+              <button class="action-btn" @click="copyToClipboard(outputCode)">
                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
                   <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
@@ -1193,4 +1204,18 @@ onMounted(() => {
     transform: translateX(-50%) translateY(0);
   }
 }
+
+/* ── 嵌入模式（在其他页面内嵌复用：紧凑单列布局）── */
+.gradient-text-page.embedded-mode { padding: 0; }
+.gradient-text-page.embedded-mode .main-content { gap: 12px; }
+.gradient-text-page.embedded-mode .top-section,
+.gradient-text-page.embedded-mode .bottom-section { grid-template-columns: 1fr; gap: 12px; }
+.gradient-text-page.embedded-mode .sv-picker { height: 140px; }
+.gradient-text-page.embedded-mode .input-textarea,
+.gradient-text-page.embedded-mode .output-textarea { min-height: 64px; }
+.gradient-text-page.embedded-mode .input-actions,
+.gradient-text-page.embedded-mode .output-actions { margin-top: 8px; }
+.gradient-text-page.embedded-mode .action-btn { padding: 6px 10px; font-size: 0.78rem; }
+.gradient-text-page.embedded-mode .control-buttons { flex-direction: row; flex-wrap: wrap; gap: 6px; }
+.gradient-text-page.embedded-mode .control-btn { flex: 1 1 90px; padding: 8px 10px; font-size: 0.78rem; }
 </style>
