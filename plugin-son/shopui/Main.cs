@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using Microsoft.Xna.Framework;
+using MonoMod.RuntimeDetour;
 using Terraria;
 using Terraria.DataStructures;
 using Terraria.ID;
@@ -40,7 +42,7 @@ namespace TShockData
 		public override string Author => "lmx12330";
 		public override string Description => "虚拟旅商商店（挥动锡斧召唤，仅自己可见）";
 		public override string Name => "ShopUI";
-		public override Version Version => new System.Version(1, 4, 10, 0);
+		public override Version Version => new System.Version(1, 4, 11, 0);
 
 		public ShopUIPlugin(Main game) : base(game) { }
 
@@ -228,6 +230,15 @@ namespace TShockData
 
 		private static readonly SocketSendCallback _emptySendCallback = _ => { };
 
+		/// <summary>MonoMod detour：WorldGen.UnspawnTravelNPC。
+		/// 天黑/黄昏时原版会移除第一个 type==368 旅商并全服播报"旅商已离开"（NPC.cs UpdateNPC: type==368→travelNPC=true；
+		/// Main.cs: !dayTime||time>48600→UnspawnTravelNPC；WorldGen.cs: 广播 Lang.misc[35] + active=false，不走 checkDead）。
+		/// 虚拟旅商也是 368 → 被无差别移除+播报。detour 临时隐藏虚拟旅商，让原逻辑只处理真旅商。</summary>
+		private static Hook? _unspawnTravelHook;
+
+		/// <summary>WorldGen.UnspawnTravelNPC 原始委托（public static，无参）</summary>
+		private delegate void OrigUnspawnTravelNPC();
+
 		private static bool _initialized;
 		private static TerrariaPlugin? _plugin;
 
@@ -251,6 +262,23 @@ namespace TShockData
 			ServerApi.Hooks.ServerLeave.Register(plugin, OnServerLeave);
 			// 6. 打开商店后的持续高频刷新（每 0.2s 重发 104，直到退出旅商/购买雕像）
 			ServerApi.Hooks.GameUpdate.Register(plugin, OnGameUpdate);
+			// 7. 天黑自动移除防护：MonoMod detour WorldGen.UnspawnTravelNPC（跳过虚拟旅商）
+			try
+			{
+				var method = typeof(WorldGen).GetMethod("UnspawnTravelNPC", BindingFlags.Public | BindingFlags.Static);
+				if (method == null)
+				{
+					TShock.Log.ConsoleError("[ShopUI] 未找到 WorldGen.UnspawnTravelNPC，天黑自动移除防护未启用");
+				}
+				else
+				{
+					_unspawnTravelHook = new Hook(method, OnUnspawnTravelNPC);
+				}
+			}
+			catch (Exception ex)
+			{
+				TShock.Log.ConsoleError($"[ShopUI] UnspawnTravelNPC detour 注册失败: {ex.Message}");
+			}
 		}
 
 		public static void Dispose()
@@ -265,6 +293,8 @@ namespace TShockData
 			GetDataHandlers.ItemDrop -= OnItemDrop;
 			ServerApi.Hooks.ServerLeave.Deregister(_plugin, OnServerLeave);
 			ServerApi.Hooks.GameUpdate.Deregister(_plugin, OnGameUpdate);
+			try { _unspawnTravelHook?.Dispose(); } catch { }
+			_unspawnTravelHook = null;
 
 			foreach (int who in _active.Keys.ToList())
 			{
@@ -442,6 +472,41 @@ namespace TShockData
 			_talkingWithMerchant.Remove(who);
 			_refreshing.Remove(who);
 			_refreshAccum.Remove(who);
+		}
+
+		// ═══════════════════ 天黑自动移除防护（WorldGen.UnspawnTravelNPC detour） ═══════════════════
+
+		/// <summary>
+		/// detour：临时把虚拟旅商 active 置 false → 原版 UnspawnTravelNPC 遍历时跳过它们（只处理真旅商）→ 恢复。
+		/// 效果：天黑/黄昏时虚拟旅商不被移除，且不产生全服"旅商已离开"播报；真旅商不受影响照常离开。
+		/// </summary>
+		private static void OnUnspawnTravelNPC(OrigUnspawnTravelNPC orig)
+		{
+			var hidden = new List<int>();
+			foreach (var kvp in _active)
+			{
+				int idx = kvp.Value;
+				if (idx >= 0 && idx < Main.maxNPCs && Main.npc[idx].active && Main.npc[idx].type == TravelingMerchantType)
+				{
+					hidden.Add(idx);
+					Main.npc[idx].active = false; // 临时隐藏：让原逻辑遍历时跳过虚拟旅商
+				}
+			}
+			try
+			{
+				orig();
+			}
+			finally
+			{
+				foreach (int idx in hidden)
+				{
+					// 恢复 active；若槽内已不是旅商（极端复用）则不动
+					if (idx >= 0 && idx < Main.maxNPCs && Main.npc[idx].type == TravelingMerchantType)
+					{
+						Main.npc[idx].active = true;
+					}
+				}
+			}
 		}
 
 		/// <summary>
