@@ -33,6 +33,9 @@ namespace TShockData
 	/// <summary>单个商品</summary>
 	public class ShopItem
 	{
+		/// <summary>格子位置（0-39，非控件格）。-1 / 非法 / 控件格 / 重复时由 NormalizeSlots 自动分配第一个可用格</summary>
+		public int slot { get; set; } = -1;
+
 		public int itemId { get; set; } = 1;
 
 		/// <summary>价格（铜币：1银=100，1金=10000，1铂金=1000000）</summary>
@@ -130,6 +133,7 @@ namespace TShockData
 						_config = JsonConvert.DeserializeObject<ShopUIConfig>(json) ?? new ShopUIConfig();
 					}
 					MigrateLegacySlots();
+					NormalizeSlots(); // 旧配置商品无 slot → 自动分配非控件格（内存生效，下次保存落盘）
 					TShock.Log.ConsoleInfo("[TSWeb] ShopUI 配置已加载");
 				}
 				else
@@ -137,6 +141,7 @@ namespace TShockData
 					lock (_lock)
 					{
 						_config = BuildDefault();
+						NormalizeSlots(); // 默认商品分配格子位置
 					}
 					SaveConfig();
 					TShock.Log.ConsoleInfo("[TSWeb] 已创建默认 ShopUI 配置");
@@ -190,6 +195,34 @@ namespace TShockData
 			}
 			SaveConfig();
 			TShock.Log.ConsoleInfo("[TSWeb] ShopUI 旧配置已迁移：控件格子自动分配为尾部布局");
+		}
+
+		/// <summary>商品格位置归一化：非法 / 控件格 / 重复 slot → 重新分配第一个可用非控件格；无可用格 → -1（不上架）。</summary>
+		public static void NormalizeSlots()
+		{
+			var controlSlots = new HashSet<int>();
+			foreach (var sc in _config.statueControls)
+				if (sc.slot >= 0 && sc.slot < 40) controlSlots.Add(sc.slot);
+
+			foreach (var shop in _config.shops)
+			{
+				var used = new HashSet<int>();
+				foreach (var it in shop.items)
+				{
+					if (it.slot < 0 || it.slot >= 40 || controlSlots.Contains(it.slot) || !used.Add(it.slot))
+					{
+						it.slot = FirstFreeSlot(controlSlots, used);
+						if (it.slot >= 0) used.Add(it.slot);
+					}
+				}
+			}
+		}
+
+		private static int FirstFreeSlot(HashSet<int> controlSlots, HashSet<int> used)
+		{
+			for (int s = 0; s < 40; s++)
+				if (!controlSlots.Contains(s) && !used.Contains(s)) return s;
+			return -1;
 		}
 
 		/// <summary>条件求值：商品是否在当前世界进度下上架</summary>
@@ -300,10 +333,15 @@ namespace TShockData
 						if (it.itemId <= 0) it.itemId = 1;
 						if (it.price < 0) it.price = 0;
 						if (it.stack < 1) it.stack = 1;
+						if (it.slot < 0 || it.slot >= 40) it.slot = -1;
 					}
 				}
 
-				lock (_lock) { _config = incoming; }
+				lock (_lock)
+				{
+					_config = incoming;
+					NormalizeSlots(); // 冲突/控件格/重复 slot → 自动重分配第一个可用格
+				}
 				SaveConfig();
 
 				TShock.Log.ConsoleInfo("[TSWeb] ShopUI 配置已通过 REST API 更新");

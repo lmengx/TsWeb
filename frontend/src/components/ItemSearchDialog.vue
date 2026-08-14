@@ -5,6 +5,7 @@ import { loadItemData } from '../api/itemDataApi.js'
 const props = defineProps({
   show: Boolean,
   mode: { type: String, default: 'restrict' },
+  multi: { type: Boolean, default: false },
   scanResults: { type: Object, default: null },
   scanLoading: { type: Boolean, default: false },
   scanError: { type: String, default: '' }
@@ -13,6 +14,8 @@ const props = defineProps({
 const emit = defineEmits(['select', 'close', 'back'])
 
 const selectedItem = ref(null)
+// 多选模式：已选物品 id 集合（id 全局唯一，用作选中标记）
+const selectedIds = ref(new Set())
 
 const searchQuery = ref('')
 const itemData = ref({ list: [], dict: {} })
@@ -111,9 +114,25 @@ const handleSelect = (item) => {
   if (props.mode === 'scan') {
     selectedItem.value = item
     emit('select', item)
+  } else if (props.multi) {
+    // 多选模式：点击仅切换选中，不立即 emit（由确认按钮统一提交）
+    const next = new Set(selectedIds.value)
+    if (next.has(item.id)) next.delete(item.id)
+    else next.add(item.id)
+    selectedIds.value = next
   } else {
     emit('select', item)
   }
+}
+
+// 多选确认：把选中的物品对象数组 emit 出去（{ multi: true, items: [...] }）
+const confirmMulti = () => {
+  const items = itemData.value.list.filter(i => selectedIds.value.has(i.id))
+  emit('select', { multi: true, items })
+  selectedIds.value = new Set()
+}
+const clearMulti = () => {
+  selectedIds.value = new Set()
 }
 
 const initItemData = async () => {
@@ -125,6 +144,7 @@ watch(() => props.show, (val) => {
   if (val) {
     searchQuery.value = ''
     imageErrors.value = {}
+    selectedIds.value = new Set()
     if (!dataLoaded.value) {
       initItemData()
     }
@@ -163,8 +183,14 @@ watch(() => props.show, (val) => {
                 v-for="item in searchResults"
                 :key="item.id"
                 class="item-card"
+                :class="{ 'item-card-selected': multi && selectedIds.has(item.id) }"
                 @click="handleSelect(item)"
               >
+                <span v-if="multi" class="item-check" :class="{ checked: selectedIds.has(item.id) }">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                    <polyline points="20 6 9 17 4 12"></polyline>
+                  </svg>
+                </span>
                 <div class="item-image-wrapper">
                   <img
                     :src="getItemImage(item.id)"
@@ -181,6 +207,17 @@ watch(() => props.show, (val) => {
               </div>
               <div v-if="searchResults.length === 0 && searchQuery.trim()" class="no-results">
                 未找到匹配的物品
+              </div>
+            </div>
+
+            <!-- 多选底部操作条 -->
+            <div v-if="multi" class="multi-footer">
+              <span class="multi-count">已选 {{ selectedIds.size }} 个</span>
+              <div class="multi-actions">
+                <button class="back-btn" @click="clearMulti" :disabled="selectedIds.size === 0">清空</button>
+                <button class="multi-confirm" :disabled="selectedIds.size === 0" @click="confirmMulti">
+                  添加 {{ selectedIds.size }} 个物品
+                </button>
               </div>
             </div>
           </template>
@@ -330,6 +367,84 @@ watch(() => props.show, (val) => {
   border-radius: 12px;
   cursor: pointer;
   transition: all 0.25s ease;
+  position: relative;
+}
+
+.item-card-selected {
+  border-color: var(--accent-primary);
+  background: rgba(99, 102, 241, 0.08);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.2);
+}
+
+.item-check {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid var(--border-color);
+  background: var(--bg-card);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: transparent;
+  transition: all 0.2s ease;
+}
+
+.item-check.checked {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+  color: #fff;
+}
+
+.multi-footer {
+  position: sticky;
+  bottom: 0;
+  margin-top: 16px;
+  padding: 12px 0 4px;
+  background: var(--bg-card);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.multi-count {
+  font-size: 0.85rem;
+  color: var(--accent-primary);
+  font-weight: 600;
+}
+
+.multi-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.multi-actions .back-btn { margin-top: 0; }
+
+.multi-confirm {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 9px;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.multi-confirm:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.35);
+}
+
+.multi-confirm:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .item-card:hover {

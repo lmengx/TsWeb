@@ -437,25 +437,30 @@ namespace TShockData
 			}
 		}
 
-		/// <summary>按配置构建商品列表：过滤未解锁（条件求值），价格/数量钳制合法范围</summary>
-		private static List<(int itemId, int stack, int price)> BuildGoods(int shopIndex)
+		/// <summary>按配置构建商品列表：过滤未解锁（条件求值）与无效格（slot 越界/控件格），价格/数量钳制合法范围</summary>
+		private static List<(int slot, int itemId, int stack, int price)> BuildGoods(int shopIndex)
 		{
-			var list = new List<(int, int, int)>();
+			var list = new List<(int, int, int, int)>();
 			var config = ShopUIConfigManager.GetConfig();
 			if (shopIndex < 0 || shopIndex >= config.shops.Count) return list;
+			var controlSlots = new HashSet<int>();
+			foreach (var sc in config.statueControls)
+				if (sc.slot >= 0 && sc.slot < 40) controlSlots.Add(sc.slot);
 
 			foreach (var it in config.shops[shopIndex].items)
 			{
 				if (!ShopUIConfigManager.EvalCondition(it.condition)) continue; // 未解锁 → 不上架
+				if (it.slot < 0 || it.slot >= 40 || controlSlots.Contains(it.slot)) continue; // 无效格 → 不上架
 				long price = Math.Max(0, Math.Min(int.MaxValue, it.price));
 				int stack = Math.Max(1, it.stack);
-				list.Add((it.itemId, stack, (int)price));
+				list.Add((it.slot, it.itemId, stack, (int)price));
 			}
 			return list;
 		}
 
 		/// <summary>按玩家当前商店索引应用商店：40 格布局（10×4）。控件（目录）优先级高于商品——
-		/// 控件占据 statueControls[].slot 指定格子（各商店一致），商品按顺序填充剩余格子；数量均不限，超出截断。</summary>
+		/// 控件占据 statueControls[].slot 指定格子（各商店一致），商品按各自 slot 放置（支持中间留空格、不强制紧凑排序）；
+		/// 非法/重复 slot 已被 BuildGoods 过滤，其余格子置空。</summary>
 		private static void ApplyShop(int who)
 		{
 			int shopIndex = _currentShop.TryGetValue(who, out var s) ? s : 0;
@@ -473,20 +478,19 @@ namespace TShockData
 				}
 			}
 
-			// 商品区：剩余格子按顺序填充（超出截断）
-			int goodsIdx = 0;
+			// 商品按各自 slot 放置（支持中间留空格，不强制紧凑排序）；非法/重复 slot 已在 BuildGoods 过滤
+			var placed = new HashSet<int>();
+			foreach (var (slot, itemId, stack, price) in goods)
+			{
+				if (controlSlots.Contains(slot) || !placed.Add(slot)) continue;
+				SendShopOverride(who, (byte)slot, (short)itemId, (short)stack, 0, price, false);
+			}
+
+			// 其余格子置空
 			for (int slot = 0; slot < 40; slot++)
 			{
-				if (controlSlots.Contains(slot)) continue; // 控件格跳过
-				if (goodsIdx < goods.Count)
-				{
-					SendShopOverride(who, (byte)slot, (short)goods[goodsIdx].itemId, (short)goods[goodsIdx].stack, 0, goods[goodsIdx].price, false);
-					goodsIdx++;
-				}
-				else
-				{
-					SendShopOverride(who, (byte)slot, 0, 0, 0, 0, false); // 空槽
-				}
+				if (controlSlots.Contains(slot) || placed.Contains(slot)) continue;
+				SendShopOverride(who, (byte)slot, 0, 0, 0, 0, false);
 			}
 		}
 
