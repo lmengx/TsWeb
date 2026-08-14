@@ -93,7 +93,7 @@ export function apply(ctx: Context, config: Config) {
         qq: senderQQ, player: playerName
       })
       if (res.ok) {
-        await session.send(`✅注册成功✅\n角色名：${playerName}\n发送「改密码 密码」设密码`)
+        await session.send(`✅注册成功✅\n角色名：${playerName}\n私聊发送「改密码 密码」设密码`)
         ctx.logger.info('[注册]QQ', senderQQ, '注册角色', playerName, '成功')
       } else {
         await session.send(h('at', { id: senderQQ }) + res.msg)
