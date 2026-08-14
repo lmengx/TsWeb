@@ -61,6 +61,9 @@ const panels = ref({})
 const activePanel = ref('default')
 const newPanelName = ref('')
 
+// 面板级行尾空格覆盖：{ 面板名: 空格数 }；缺省 = 使用全局 spacerWidth
+const panelSpacers = ref({})
+
 // 当前编辑行（用于插值插入定位）
 const activeLineIndex = ref(-1)
 const lineTextareas = ref([])
@@ -73,6 +76,22 @@ const panelNames = computed(() => {
 })
 
 const currentRows = computed(() => panels.value[activePanel.value] || [])
+
+// 当前面板行尾空格（双向绑定；空 = 回退全局）
+const panelSpacerVal = computed({
+  get: () => panelSpacers.value[activePanel.value] ?? '',
+  set: (v) => {
+    if (v === '' || v === null || v === undefined || !Number.isFinite(Number(v)) || Number(v) < 0) {
+      delete panelSpacers.value[activePanel.value]
+    } else {
+      panelSpacers.value[activePanel.value] = Math.min(500, Math.round(Number(v)))
+    }
+    autoSave()
+  }
+})
+
+// 预览用：当前面板实际生效的空格数
+const activeSpacer = computed(() => panelSpacers.value[activePanel.value] ?? spacerWidth.value)
 
 // ═══════════ 自动保存 ═══════════
 const autoSave = () => {
@@ -94,7 +113,8 @@ const autoSave = () => {
         enabled: enabled.value,
         spacerWidth: Number(spacerWidth.value) || 0,
         logLevel: logLevel.value,
-        panels: payloadPanels
+        panels: payloadPanels,
+        panelSpacers: { ...panelSpacers.value }
       })
       const data = await res.json()
       if (data.status === '200' || data.response) {
@@ -132,6 +152,7 @@ const removePanel = (name) => {
   if (!window.confirm(`确定删除面板「${name}」？`)) return
   const next = Object.fromEntries(Object.entries(panels.value).filter(([k]) => k !== name))
   panels.value = next
+  delete panelSpacers.value[name]
   if (activePanel.value === name) selectPanel('default')
   autoSave()
 }
@@ -301,6 +322,7 @@ const fetchConfig = async () => {
     } else {
       panels.value = {}
     }
+    panelSpacers.value = (data.panelSpacers && typeof data.panelSpacers === 'object') ? { ...data.panelSpacers } : {}
     // 强制 default 面板存在
     if (!panels.value.default) panels.value.default = DEFAULT_ROWS().map(r => ({ ...r }))
     activePanel.value = 'default'
@@ -387,7 +409,7 @@ const previewSegments = computed(() => {
     }
     return {
       rowIdx,
-      spacer: '·'.repeat(Math.max(0, Math.min(12, Number(spacerWidth.value) / 5 || 0))),
+      spacer: '·'.repeat(Math.max(0, Math.min(12, Number(activeSpacer.value) / 5 || 0))),
       segments: parseRichText(t)
     }
   })
@@ -481,9 +503,26 @@ const activeGroupList = computed(() => {
                 <button class="ghost-btn accent" @click="addPanel">+ 添加面板</button>
               </div>
             </div>
-            <p class="section-desc panel-tip">
-              <code>default</code> 不可删除；面板名不能是 <code>on/off/show/hide</code>（与 /st 命令冲突）。
-            </p>
+
+            <!-- 面板级行尾空格（留空 = 使用全局）：创建面板区域下方 -->
+            <div class="interval-row panel-spacer-row">
+              <span class="toggle-label">本面板行尾空格</span>
+              <div class="number-control">
+                <button class="num-btn" @click="panelSpacerVal = Math.max(0, ((panelSpacers[activePanel] ?? spacerWidth) - 5))">−</button>
+                <input
+                  type="number"
+                  v-model.number="panelSpacerVal"
+                  min="0"
+                  max="500"
+                  step="5"
+                  class="num-input"
+                  :placeholder="`全局 ${spacerWidth}`"
+                  title="该面板每行行尾补空格数；留空 = 使用全局设置"
+                />
+                <button class="num-btn" @click="panelSpacerVal = Math.min(500, ((panelSpacers[activePanel] ?? spacerWidth) + 5))">+</button>
+              </div>
+              <span class="interval-desc">留空/清除 = 使用全局（{{ spacerWidth }}）；每个面板可独立调整</span>
+            </div>
 
             <div v-if="currentRows.length === 0" class="empty-hint">该面板暂无内容行，点击「+ 添加行」开始配置</div>
 

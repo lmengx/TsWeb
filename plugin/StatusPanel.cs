@@ -53,6 +53,10 @@ namespace TShockData
         /// </summary>
         [JsonProperty("panels")]
         public Dictionary<string, List<JObject>> Panels { get; set; } = new();
+
+        /// <summary>面板级行尾空格覆盖（面板名 → 空格数）；未配置的面板回退用全局 SpacerWidth</summary>
+        [JsonProperty("panelSpacers")]
+        public Dictionary<string, int> PanelSpacers { get; set; } = new();
     }
 
     /// <summary>默认面板模板（保留当前 statuspanel 观感 + 新增全服在线/系统时间）</summary>
@@ -91,7 +95,7 @@ namespace TShockData
         // 渲染节流与缓存
         private static ulong _tickCount;
         private static string?[][] _lineCache = Array.Empty<string?[]>(); // [playerIndex][settingIdx]
-        private static string _spacerCache = new(' ', 60);
+        private static Dictionary<string, string> _panelSpacerCache = new(); // 面板名 → 行尾空格串（含面板级覆盖）
 
         // 全服在线缓存（后端推送）
         private static int _allOnlineTotal = -1; // -1 = 未知（后端未下发）
@@ -225,8 +229,30 @@ namespace TShockData
                 _lineCache[i] = new string?[_config.Panels[panelName].Count];
             }
 
-            _spacerCache = new string(' ', Math.Max(0, _config.SpacerWidth));
+            // 重建面板级行尾空格缓存（面板覆盖 ?? 全局）
+            _panelSpacerCache = new Dictionary<string, string>();
+            foreach (var name in _config.Panels.Keys)
+                _panelSpacerCache[name] = new string(' ', GetPanelSpacerValue(name));
+
             ForceRefreshAll();
+        }
+
+        /// <summary>面板行尾空格数：面板级 PanelSpacers 覆盖 ?? 全局 SpacerWidth</summary>
+        private static int GetPanelSpacerValue(string panelName)
+        {
+            if (_config.PanelSpacers != null && _config.PanelSpacers.TryGetValue(panelName, out var s) && s >= 0)
+                return s;
+            return Math.Max(0, _config.SpacerWidth);
+        }
+
+        /// <summary>面板行尾空格串（缓存，配置变更时由 RebuildCaches 重建）</summary>
+        private static string GetPanelSpacer(string panelName)
+        {
+            if (_panelSpacerCache.TryGetValue(panelName, out var s))
+                return s;
+            s = new string(' ', GetPanelSpacerValue(panelName));
+            _panelSpacerCache[panelName] = s;
+            return s;
         }
 
         /// <summary>玩家当前面板名（未设置/失效回退 default，并同步内存态）</summary>
@@ -292,7 +318,8 @@ namespace TShockData
                 { "enabled", _config.Enabled },
                 { "spacerWidth", _config.SpacerWidth },
                 { "logLevel", _config.LogLevel },
-                { "panels", panels }
+                { "panels", panels },
+                { "panelSpacers", new Dictionary<string, int>(_config.PanelSpacers) }
             };
         }
 
@@ -300,11 +327,12 @@ namespace TShockData
         {
             try
             {
-                string enabled = null, spacer = null, logLevel = null, panelsJson = null;
+                string enabled = null, spacer = null, logLevel = null, panelsJson = null, panelSpacersJson = null;
                 try { enabled = args.Parameters["enabled"]; } catch { }
                 try { spacer = args.Parameters["spacerWidth"]; } catch { }
                 try { logLevel = args.Parameters["logLevel"]; } catch { }
                 try { panelsJson = args.Parameters["panels"]; } catch { }
+                try { panelSpacersJson = args.Parameters["panelSpacers"]; } catch { }
 
                 if (!string.IsNullOrEmpty(enabled))
                     _config.Enabled = enabled.Equals("true", StringComparison.OrdinalIgnoreCase);
@@ -320,6 +348,17 @@ namespace TShockData
                         foreach (var kv in parsed)
                             kv.Value?.RemoveAll(s => s == null);
                         _config.Panels = parsed;
+                    }
+                }
+                if (!string.IsNullOrEmpty(panelSpacersJson))
+                {
+                    var parsedSpacers = JsonConvert.DeserializeObject<Dictionary<string, int>>(panelSpacersJson);
+                    if (parsedSpacers != null)
+                    {
+                        // 清理无效值（<0 视为未配置，渲染回退全局）
+                        foreach (var k in parsedSpacers.Where(kv => kv.Value < 0).Select(kv => kv.Key).ToList())
+                            parsedSpacers.Remove(k);
+                        _config.PanelSpacers = parsedSpacers;
                     }
                 }
 
@@ -429,7 +468,7 @@ namespace TShockData
             var cache = _lineCache[p.Index];
             if (cache.Length != lines.Count) // 防御：面板行数变化时重建
                 cache = _lineCache[p.Index] = new string?[lines.Count];
-            var spacer = _spacerCache;
+            var spacer = GetPanelSpacer(panelName);
             var needUpdate = false;
             var sb = new StringBuilder();
 
