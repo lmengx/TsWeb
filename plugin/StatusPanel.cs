@@ -221,6 +221,7 @@ namespace TShockData
             EnsureLoaded();
 
             // 手工构建小写字段（JavaScriptSerializer 不认 [JsonProperty]）
+            // 注意：RestObject 无参构造已内置 status=200，不可再手动添加 "status" 键（字典 Add 不查重会抛重复键异常）
             var settings = new List<object>();
             foreach (var s in _config.StatusTextSettings)
             {
@@ -236,7 +237,6 @@ namespace TShockData
 
             return new RestObject
             {
-                { "status", "200" },
                 { "enabled", _config.Enabled },
                 { "spacerWidth", _config.SpacerWidth },
                 { "logLevel", _config.LogLevel },
