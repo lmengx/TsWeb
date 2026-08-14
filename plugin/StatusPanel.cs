@@ -40,14 +40,19 @@ namespace TShockData
         [JsonProperty("logLevel")]
         public string LogLevel { get; set; } = "INFO";
 
+        /// <summary>旧版单面板字段（v1：statusTextSettings），仅用于迁移到 panels.default，迁移后置 null</summary>
+        [JsonProperty("statusTextSettings")]
+        public List<JObject>? StatusTextSettings { get; set; }
+
         /// <summary>
-        /// 面板行配置（兼容参考插件 StatusTextSettings）：
+        /// 多面板：面板名 → 行列表。default 面板强制存在。
+        /// 行元素（兼容参考插件 StatusTextSettings 三类）：
         ///   { typeName: "StaticText", text }                                     —— 静态文本
         ///   { typeName: "DynamicText", text, updateInterval }                     —— 动态文本（插值，帧数节流）
         ///   { typeName: "HandlerInfoOverride", pluginName, enabled, ... }         —— 外部插件 handler 覆盖（主插件无外部 handler，解析兼容）
         /// </summary>
-        [JsonProperty("statusTextSettings")]
-        public List<JObject> StatusTextSettings { get; set; } = new();
+        [JsonProperty("panels")]
+        public Dictionary<string, List<JObject>> Panels { get; set; } = new();
     }
 
     /// <summary>默认面板模板（保留当前 statuspanel 观感 + 新增全服在线/系统时间）</summary>
@@ -80,6 +85,9 @@ namespace TShockData
         private static bool[] _isVisible = new bool[Main.maxPlayers];
         private static bool[] _needInit = new bool[Main.maxPlayers];
 
+        // 玩家当前选中的面板名（仅内存态，不持久化；默认 default，/st 面板名 切换）
+        private static string[] _playerPanel = new string[Main.maxPlayers];
+
         // 渲染节流与缓存
         private static ulong _tickCount;
         private static string?[][] _lineCache = Array.Empty<string?[]>(); // [playerIndex][settingIdx]
@@ -108,7 +116,7 @@ namespace TShockData
             ServerApi.Hooks.ServerJoin.Register(plugin, OnServerJoin);
             ServerApi.Hooks.ServerLeave.Register(plugin, OnServerLeave);
 
-            TShock.Log.ConsoleInfo($"[TSWeb] 状态面板已初始化 (启用:{(Config.Enabled ? "是" : "否")}, 行数:{Config.StatusTextSettings.Count})");
+            TShock.Log.ConsoleInfo($"[TSWeb] 状态面板已初始化 (启用:{(Config.Enabled ? "是" : "否")}, 面板数:{Config.Panels.Count})");
         }
 
         public static void Dispose()
@@ -134,6 +142,7 @@ namespace TShockData
             _allOnlineTotal = -1;
             _isVisible = new bool[Main.maxPlayers];
             _needInit = new bool[Main.maxPlayers];
+            _playerPanel = new string[Main.maxPlayers];
 
             TShock.Log.ConsoleInfo("[TSWeb] 状态面板已停止");
         }
@@ -152,21 +161,31 @@ namespace TShockData
                 {
                     var json = File.ReadAllText(ConfigPath);
                     _config = JsonConvert.DeserializeObject<StatusPanelConfig>(json) ?? new StatusPanelConfig();
-                    _config.StatusTextSettings ??= new List<JObject>();
-                    // 无行配置时补默认模板（兼容空配置文件）
-                    if (_config.StatusTextSettings.Count == 0)
-                        _config.StatusTextSettings = StatusPanelDefaults.Template();
+                    _config.Panels ??= new Dictionary<string, List<JObject>>();
+
+                    // 旧版单面板迁移：statusTextSettings → panels.default
+                    if (_config.Panels.Count == 0 && _config.StatusTextSettings != null && _config.StatusTextSettings.Count > 0)
+                    {
+                        _config.Panels["default"] = _config.StatusTextSettings;
+                        _config.StatusTextSettings = null;
+                    }
+
+                    // 强制 default 面板存在
+                    if (!_config.Panels.ContainsKey("default"))
+                        _config.Panels["default"] = StatusPanelDefaults.Template();
                 }
                 else
                 {
-                    _config = new StatusPanelConfig { StatusTextSettings = StatusPanelDefaults.Template() };
+                    _config = new StatusPanelConfig();
+                    _config.Panels["default"] = StatusPanelDefaults.Template();
                     SaveConfig();
                 }
             }
             catch (Exception ex)
             {
                 TShock.Log.ConsoleError($"[TSWeb] 加载状态面板配置失败: {ex.Message}");
-                _config = new StatusPanelConfig { StatusTextSettings = StatusPanelDefaults.Template() };
+                _config = new StatusPanelConfig();
+                _config.Panels["default"] = StatusPanelDefaults.Template();
             }
 
             RebuildCaches();
@@ -196,15 +215,43 @@ namespace TShockData
                 LoadConfig();
         }
 
-        /// <summary>配置变更后重建渲染缓存（行数/间隔/spacer）</summary>
+        /// <summary>配置变更后重建渲染缓存（按各玩家当前面板行数）并强制刷新</summary>
         private static void RebuildCaches()
         {
-            var n = _config.StatusTextSettings.Count;
             _lineCache = new string?[Main.maxPlayers][];
             for (var i = 0; i < Main.maxPlayers; i++)
-                _lineCache[i] = new string?[n];
+            {
+                var panelName = GetPlayerPanel(i);
+                _lineCache[i] = new string?[_config.Panels[panelName].Count];
+            }
 
             _spacerCache = new string(' ', Math.Max(0, _config.SpacerWidth));
+            ForceRefreshAll();
+        }
+
+        /// <summary>玩家当前面板名（未设置/失效回退 default，并同步内存态）</summary>
+        private static string GetPlayerPanel(int playerIdx)
+        {
+            var name = _playerPanel[playerIdx];
+            if (string.IsNullOrEmpty(name) || !_config.Panels.ContainsKey(name))
+            {
+                name = "default";
+                _playerPanel[playerIdx] = name;
+            }
+            return name;
+        }
+
+        /// <summary>切换玩家面板（忽略大小写匹配），成功返回 true</summary>
+        private static bool TrySwitchPanel(int playerIdx, string panelName)
+        {
+            var actual = _config.Panels.Keys.FirstOrDefault(k => k.Equals(panelName, StringComparison.OrdinalIgnoreCase));
+            if (actual == null)
+                return false;
+
+            _playerPanel[playerIdx] = actual;
+            _lineCache[playerIdx] = new string?[_config.Panels[actual].Count];
+            _needInit[playerIdx] = true;
+            return true;
         }
 
         /// <summary>强制所有在线玩家下次渲染立即刷新（配置变更后调用）</summary>
@@ -222,17 +269,22 @@ namespace TShockData
 
             // 手工构建小写字段（JavaScriptSerializer 不认 [JsonProperty]）
             // 注意：RestObject 无参构造已内置 status=200，不可再手动添加 "status" 键（字典 Add 不查重会抛重复键异常）
-            var settings = new List<object>();
-            foreach (var s in _config.StatusTextSettings)
+            var panels = new Dictionary<string, List<object>>();
+            foreach (var kv in _config.Panels)
             {
-                var d = new Dictionary<string, object>();
-                if (s["typeName"] != null) d["typeName"] = s["typeName"]!.ToString()!;
-                if (s["text"] != null) d["text"] = s["text"]!.ToString()!;
-                if (s["updateInterval"] != null) d["updateInterval"] = s["updateInterval"]!.ToObject<int>();
-                if (s["pluginName"] != null) d["pluginName"] = s["pluginName"]!.ToString()!;
-                if (s["enabled"] != null) d["enabled"] = s["enabled"]!.ToObject<bool>();
-                if (s["overrideInterval"] != null) d["overrideInterval"] = s["overrideInterval"]!.ToObject<bool>();
-                settings.Add(d);
+                var settings = new List<object>();
+                foreach (var s in kv.Value)
+                {
+                    var d = new Dictionary<string, object>();
+                    if (s["typeName"] != null) d["typeName"] = s["typeName"]!.ToString()!;
+                    if (s["text"] != null) d["text"] = s["text"]!.ToString()!;
+                    if (s["updateInterval"] != null) d["updateInterval"] = s["updateInterval"]!.ToObject<int>();
+                    if (s["pluginName"] != null) d["pluginName"] = s["pluginName"]!.ToString()!;
+                    if (s["enabled"] != null) d["enabled"] = s["enabled"]!.ToObject<bool>();
+                    if (s["overrideInterval"] != null) d["overrideInterval"] = s["overrideInterval"]!.ToObject<bool>();
+                    settings.Add(d);
+                }
+                panels[kv.Key] = settings;
             }
 
             return new RestObject
@@ -240,7 +292,7 @@ namespace TShockData
                 { "enabled", _config.Enabled },
                 { "spacerWidth", _config.SpacerWidth },
                 { "logLevel", _config.LogLevel },
-                { "statusTextSettings", settings }
+                { "panels", panels }
             };
         }
 
@@ -248,11 +300,11 @@ namespace TShockData
         {
             try
             {
-                string enabled = null, spacer = null, logLevel = null, settingsJson = null;
+                string enabled = null, spacer = null, logLevel = null, panelsJson = null;
                 try { enabled = args.Parameters["enabled"]; } catch { }
                 try { spacer = args.Parameters["spacerWidth"]; } catch { }
                 try { logLevel = args.Parameters["logLevel"]; } catch { }
-                try { settingsJson = args.Parameters["statusTextSettings"]; } catch { }
+                try { panelsJson = args.Parameters["panels"]; } catch { }
 
                 if (!string.IsNullOrEmpty(enabled))
                     _config.Enabled = enabled.Equals("true", StringComparison.OrdinalIgnoreCase);
@@ -260,23 +312,26 @@ namespace TShockData
                     _config.SpacerWidth = Math.Max(0, Math.Min(500, sw));
                 if (!string.IsNullOrEmpty(logLevel))
                     _config.LogLevel = logLevel;
-                if (!string.IsNullOrEmpty(settingsJson))
+                if (!string.IsNullOrEmpty(panelsJson))
                 {
-                    var parsed = JsonConvert.DeserializeObject<List<JObject>>(settingsJson);
+                    var parsed = JsonConvert.DeserializeObject<Dictionary<string, List<JObject>>>(panelsJson);
                     if (parsed != null)
                     {
-                        _config.StatusTextSettings = parsed;
-                        _config.StatusTextSettings.RemoveAll(s => s == null);
+                        foreach (var kv in parsed)
+                            kv.Value?.RemoveAll(s => s == null);
+                        _config.Panels = parsed;
                     }
                 }
 
-                _config.StatusTextSettings ??= new List<JObject>();
+                // 强制 default 面板存在
+                _config.Panels ??= new Dictionary<string, List<JObject>>();
+                if (!_config.Panels.ContainsKey("default"))
+                    _config.Panels["default"] = StatusPanelDefaults.Template();
 
                 SaveConfig();
                 RebuildCaches();
-                ForceRefreshAll();
 
-                TShock.Log.ConsoleInfo("[TSWeb] 状态面板配置已通过 REST API 更新");
+                TShock.Log.ConsoleInfo($"[TSWeb] 状态面板配置已通过 REST API 更新 (面板数:{_config.Panels.Count})");
                 return new RestObject { { "response", "配置已保存" } };
             }
             catch (Exception ex)
@@ -291,47 +346,51 @@ namespace TShockData
         public static void ToggleCommand(CommandArgs args)
         {
             var idx = args.Player.Index;
+
+            // /st：查看所有面板 + 当前选中
             if (args.Parameters.Count == 0)
             {
-                _isVisible[idx] = !_isVisible[idx];
-                if (_isVisible[idx])
-                {
-                    _needInit[idx] = true;
-                    args.Player.SendSuccessMessage("已开启状态面板显示");
-                }
-                else
-                {
-                    _needInit[idx] = false;
-                    args.Player.SendData(PacketTypes.Status, "", 0, 0x1f);
-                    args.Player.SendSuccessMessage("已关闭状态面板显示");
-                }
+                var current = GetPlayerPanel(idx);
+                var names = string.Join("、", _config.Panels.Keys);
+                args.Player.SendInfoMessage($"可用面板：{names}。当前：{current}。用法：/st on|off|<面板名>");
                 return;
             }
 
-            switch (args.Parameters[0].ToLower())
+            var arg = args.Parameters[0];
+
+            // /st on|show：开启面板
+            if (arg.Equals("on", StringComparison.OrdinalIgnoreCase) || arg.Equals("show", StringComparison.OrdinalIgnoreCase))
             {
-                case "on":
-                case "show":
-                    if (!_isVisible[idx])
-                    {
-                        _isVisible[idx] = true;
-                        _needInit[idx] = true;
-                    }
-                    args.Player.SendSuccessMessage("已开启状态面板显示");
-                    break;
-                case "off":
-                case "hide":
-                    if (_isVisible[idx])
-                    {
-                        _isVisible[idx] = false;
-                        _needInit[idx] = false;
-                        args.Player.SendData(PacketTypes.Status, "", 0, 0x1f);
-                    }
-                    args.Player.SendSuccessMessage("已关闭状态面板显示");
-                    break;
-                default:
-                    args.Player.SendInfoMessage("用法：/st <on/show/off/hide>");
-                    break;
+                if (!_isVisible[idx])
+                {
+                    _isVisible[idx] = true;
+                    _needInit[idx] = true;
+                }
+                args.Player.SendSuccessMessage("已开启状态面板显示");
+                return;
+            }
+
+            // /st off|hide：关闭面板
+            if (arg.Equals("off", StringComparison.OrdinalIgnoreCase) || arg.Equals("hide", StringComparison.OrdinalIgnoreCase))
+            {
+                if (_isVisible[idx])
+                {
+                    _isVisible[idx] = false;
+                    _needInit[idx] = false;
+                    args.Player.SendData(PacketTypes.Status, "", 0, 0x1f);
+                }
+                args.Player.SendSuccessMessage("已关闭状态面板显示");
+                return;
+            }
+
+            // /st <面板名>：切换面板（忽略大小写匹配，仅内存态）
+            if (TrySwitchPanel(idx, arg))
+            {
+                args.Player.SendSuccessMessage($"已切换到面板：{_playerPanel[idx]}");
+            }
+            else
+            {
+                args.Player.SendInfoMessage($"面板「{arg}」不存在。可用面板：{string.Join("、", _config.Panels.Keys)}。用法：/st on|off|<面板名>");
             }
         }
 
@@ -360,13 +419,16 @@ namespace TShockData
         }
 
         /// <summary>
-        /// 拼接某玩家的面板文本（每行尾部自动补 spacer 空格）。
+        /// 拼接某玩家**当前选中面板**的文本（每行尾部自动补 spacer 空格）。
         /// 返回是否需要发送（任一 DynamicText 行到达节流周期或 force）。
         /// </summary>
         private static bool RenderPlayer(TSPlayer p, bool force, out string text)
         {
-            var lines = _config.StatusTextSettings;
+            var panelName = GetPlayerPanel(p.Index);
+            var lines = _config.Panels[panelName];
             var cache = _lineCache[p.Index];
+            if (cache.Length != lines.Count) // 防御：面板行数变化时重建
+                cache = _lineCache[p.Index] = new string?[lines.Count];
             var spacer = _spacerCache;
             var needUpdate = false;
             var sb = new StringBuilder();
@@ -425,7 +487,8 @@ namespace TShockData
 
         private static void OnServerJoin(JoinEventArgs args)
         {
-            _isVisible[args.Who] = true;  // 默认开
+            _isVisible[args.Who] = true;         // 默认开
+            _playerPanel[args.Who] = "default"; // 进服用默认面板（内存态，不持久化）
             _needInit[args.Who] = true;
             ScheduleReport();
         }

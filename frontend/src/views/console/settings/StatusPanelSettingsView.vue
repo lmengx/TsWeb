@@ -32,12 +32,15 @@ const INTERPOLATIONS = [
 
 const INTERPOLATION_GROUPS = ['玩家', '服务器', '渔夫任务', '全服', '时间']
 
-const DEFAULT_TEMPLATE = () => [
+const DEFAULT_ROWS = () => [
   { text: '[i:757][c/f15642:开荒服]', updateInterval: 600 },
   { text: '在线人数：{OnlinePlayersCount}人', updateInterval: 60 },
   { text: '全服在线：{AllOnlineCount}人', updateInterval: 60 },
   { text: '系统时间：{SystemTime}', updateInterval: 60 }
 ]
+
+// 命令保留字：不允许用作面板名（与 /st on/off 冲突）
+const RESERVED_NAMES = ['on', 'off', 'show', 'hide']
 
 // ═══════════ 表单状态 ═══════════
 const loading = ref(true)
@@ -49,14 +52,25 @@ let ready = false
 const enabled = ref(true)
 const spacerWidth = ref(60)
 const logLevel = ref('INFO')
-const settings = ref([])
+const LOG_LEVELS = ['NONE', 'ERROR', 'WARNING', 'INFO', 'DEBUG']
+
+// 多面板：{ 面板名: [{ text, updateInterval }] }，default 强制存在
+const panels = ref({})
+const activePanel = ref('default')
+const newPanelName = ref('')
 
 // 当前编辑行（用于插值插入定位）
 const activeLineIndex = ref(-1)
 const lineTextareas = ref([])
 const activeGroup = ref('玩家')
 
-const LOG_LEVELS = ['NONE', 'ERROR', 'WARNING', 'INFO', 'DEBUG']
+const panelNames = computed(() => {
+  const names = Object.keys(panels.value)
+  // default 永远排最前
+  return ['default', ...names.filter(n => n !== 'default')]
+})
+
+const currentRows = computed(() => panels.value[activePanel.value] || [])
 
 // ═══════════ 自动保存 ═══════════
 const autoSave = () => {
@@ -66,16 +80,19 @@ const autoSave = () => {
     error.value = ''
     success.value = ''
     try {
+      const payloadPanels = {}
+      for (const [name, rows] of Object.entries(panels.value)) {
+        payloadPanels[name] = (rows || []).map(r => ({
+          typeName: 'DynamicText',
+          text: r.text || '',
+          updateInterval: Number(r.updateInterval) >= 1 ? Number(r.updateInterval) : 60
+        }))
+      }
       const res = await post('/api/config/statuspanel', {
         enabled: enabled.value,
         spacerWidth: Number(spacerWidth.value) || 0,
         logLevel: logLevel.value,
-        // 统一保存为动态文本（插件端兼容旧 StaticText 解析）
-        statusTextSettings: settings.value.map(s => ({
-          typeName: 'DynamicText',
-          text: s.text || '',
-          updateInterval: Number(s.updateInterval) >= 1 ? Number(s.updateInterval) : 60
-        }))
+        panels: payloadPanels
       })
       const data = await res.json()
       if (data.status === '200' || data.response) {
@@ -90,30 +107,58 @@ const autoSave = () => {
   }, 500)
 }
 
-// ═══════════ 行操作 ═══════════
+// ═══════════ 面板操作 ═══════════
+const selectPanel = (name) => {
+  activePanel.value = name
+  activeLineIndex.value = -1
+}
+
+const addPanel = () => {
+  const name = newPanelName.value.trim()
+  if (!name) { error.value = '请输入面板名称'; return }
+  if (RESERVED_NAMES.includes(name.toLowerCase())) { error.value = `「${name}」为命令保留字，不能用作面板名`; return }
+  if (panels.value[name]) { error.value = `面板「${name}」已存在`; return }
+  panels.value[name] = []
+  activePanel.value = name
+  activeLineIndex.value = -1
+  newPanelName.value = ''
+  autoSave()
+}
+
+const removePanel = (name) => {
+  if (name === 'default') return
+  if (!window.confirm(`确定删除面板「${name}」？`)) return
+  const next = Object.fromEntries(Object.entries(panels.value).filter(([k]) => k !== name))
+  panels.value = next
+  if (activePanel.value === name) selectPanel('default')
+  autoSave()
+}
+
+// ═══════════ 行操作（作用于当前面板） ═══════════
 const addLine = () => {
-  settings.value.push({ text: '', updateInterval: 60 })
+  panels.value[activePanel.value].push({ text: '', updateInterval: 60 })
   autoSave()
 }
 
 const removeLine = (i) => {
-  settings.value.splice(i, 1)
-  if (activeLineIndex.value >= settings.value.length) activeLineIndex.value = -1
+  panels.value[activePanel.value].splice(i, 1)
+  if (activeLineIndex.value >= panels.value[activePanel.value].length) activeLineIndex.value = -1
   autoSave()
 }
 
 const moveLine = (i, dir) => {
+  const rows = panels.value[activePanel.value]
   const j = i + dir
-  if (j < 0 || j >= settings.value.length) return
-  const t = settings.value[i]
-  settings.value[i] = settings.value[j]
-  settings.value[j] = t
+  if (j < 0 || j >= rows.length) return
+  const t = rows[i]
+  rows[i] = rows[j]
+  rows[j] = t
   activeLineIndex.value = j
   autoSave()
 }
 
 const resetTemplate = () => {
-  settings.value = DEFAULT_TEMPLATE()
+  panels.value[activePanel.value] = DEFAULT_ROWS().map(r => ({ ...r }))
   autoSave()
 }
 
@@ -124,7 +169,7 @@ const focusLine = (i) => {
 
 const insertToken = (token) => {
   if (activeLineIndex.value < 0) return
-  const line = settings.value[activeLineIndex.value]
+  const line = panels.value[activePanel.value][activeLineIndex.value]
   if (!line) return
   const el = lineTextareas.value[activeLineIndex.value]
   const start = (el && typeof el.selectionStart === 'number') ? el.selectionStart : line.text.length
@@ -152,15 +197,21 @@ const fetchConfig = async () => {
     if (data.enabled !== undefined) enabled.value = !!data.enabled
     if (data.spacerWidth !== undefined) spacerWidth.value = data.spacerWidth
     if (data.logLevel) logLevel.value = data.logLevel
-    if (Array.isArray(data.statusTextSettings)) {
-      // 统一为动态文本：忽略 typeName（兼容旧 StaticText 配置），只读 text/updateInterval
-      settings.value = data.statusTextSettings.map(s => ({
-        text: s.text || '',
-        updateInterval: s.updateInterval ?? 60
-      }))
+    if (data.panels && typeof data.panels === 'object') {
+      const loaded = {}
+      for (const [name, rows] of Object.entries(data.panels)) {
+        loaded[name] = (Array.isArray(rows) ? rows : []).map(s => ({
+          text: s.text || '',
+          updateInterval: s.updateInterval ?? 60
+        }))
+      }
+      panels.value = loaded
     } else {
-      settings.value = DEFAULT_TEMPLATE()
+      panels.value = {}
     }
+    // 强制 default 面板存在
+    if (!panels.value.default) panels.value.default = DEFAULT_ROWS().map(r => ({ ...r }))
+    activePanel.value = 'default'
   } catch (err) {
     error.value = '加载配置失败: ' + err.message
   }
@@ -170,11 +221,10 @@ const fetchConfig = async () => {
 
 onMounted(fetchConfig)
 
-// ═══════════ 实时预览 ═══════════
+// ═══════════ 实时预览（当前面板） ═══════════
 const previewText = computed(() => {
-  return settings.value.map(line => {
-    let t = line.text || ''
-    // 用示例值替换插值，便于直观预览
+  return currentRows.value.map(row => {
+    let t = row.text || ''
     for (const it of INTERPOLATIONS) {
       t = t.split(it.token).join(it.preview)
     }
@@ -199,8 +249,9 @@ const activeGroupList = computed(() => {
       <div class="section-card">
         <h3>状态面板</h3>
         <p class="section-desc">
-          在客户端固定屏幕位置显示持久文本框（服务器名 / 在线人数等），纯服务端实现，所有原版客户端可见。
-          <br />面板默认开启，玩家可用 <code>/st</code> 命令自行开关。
+          在客户端固定屏幕位置显示持久文本框，纯服务端实现，所有原版客户端可见。
+          可配置多个面板，玩家用 <code>/st</code> 查看面板列表、<code>/st 面板名</code> 切换查看（内存态）、<code>/st on|off</code> 开关。
+          <code>default</code> 面板强制存在且不可删除。
         </p>
 
         <div class="toggle-row">
@@ -231,10 +282,37 @@ const activeGroupList = computed(() => {
         </div>
       </div>
 
-      <!-- 面板行列表 -->
+      <!-- 面板选择器 -->
       <div class="section-card">
         <div class="card-head">
-          <h3>面板内容</h3>
+          <h3>面板</h3>
+          <div class="head-actions">
+            <input v-model="newPanelName" class="new-panel-input" placeholder="新面板名称" @keyup.enter="addPanel" />
+            <button class="ghost-btn accent" @click="addPanel">+ 添加面板</button>
+          </div>
+        </div>
+        <p class="section-desc">
+          <code>default</code> 不可删除；面板名不能是 <code>on/off/show/hide</code>（与 /st 命令冲突）。
+        </p>
+
+        <div class="panel-tabs">
+          <span
+            v-for="name in panelNames"
+            :key="name"
+            class="panel-tab"
+            :class="{ active: activePanel === name, locked: name === 'default' }"
+            @click="selectPanel(name)"
+          >
+            {{ name }}
+            <button v-if="name !== 'default'" class="panel-del" @click.stop="removePanel(name)" title="删除面板">×</button>
+          </span>
+        </div>
+      </div>
+
+      <!-- 当前面板行列表 -->
+      <div class="section-card">
+        <div class="card-head">
+          <h3>面板内容：{{ activePanel }}</h3>
           <div class="head-actions">
             <button class="ghost-btn" @click="resetTemplate">恢复默认模板</button>
             <button class="ghost-btn accent" @click="addLine">+ 添加行</button>
@@ -244,11 +322,11 @@ const activeGroupList = computed(() => {
           每行支持插值并按其更新间隔（帧数，60=1秒）刷新；不含插值的行内容保持不变。每行渲染后自动追加行尾空格。
         </p>
 
-        <div v-if="settings.length === 0" class="empty-hint">暂无内容行，点击「+ 添加行」开始配置</div>
+        <div v-if="currentRows.length === 0" class="empty-hint">该面板暂无内容行，点击「+ 添加行」开始配置</div>
 
         <div
-          v-for="(line, i) in settings"
-          :key="i"
+          v-for="(line, i) in currentRows"
+          :key="activePanel + '-' + i"
           class="line-card"
           :class="{ active: activeLineIndex === i }"
           @click="focusLine(i)"
@@ -261,7 +339,7 @@ const activeGroupList = computed(() => {
             <span class="interval-unit">帧</span>
             <span class="flex-spacer"></span>
             <button class="mini-btn" :disabled="i === 0" @click.stop="moveLine(i, -1)" title="上移">↑</button>
-            <button class="mini-btn" :disabled="i === settings.length - 1" @click.stop="moveLine(i, 1)" title="下移">↓</button>
+            <button class="mini-btn" :disabled="i === currentRows.length - 1" @click.stop="moveLine(i, 1)" title="下移">↓</button>
             <button class="mini-btn danger" @click.stop="removeLine(i)" title="删除">×</button>
           </div>
           <textarea
@@ -304,7 +382,7 @@ const activeGroupList = computed(() => {
 
       <!-- 实时预览 -->
       <div class="section-card">
-        <h3>预览</h3>
+        <h3>预览（{{ activePanel }}）</h3>
         <p class="section-desc">
           插值以示例值展示（真实游戏中动态替换）；「·」示意行尾空格数量。服务器名行可用
           <code>[i:物品ID]</code> 图标与 <code>[c/色值:文字]</code> 颜色。
@@ -342,7 +420,7 @@ const activeGroupList = computed(() => {
 }
 .section-card h3 { margin: 0 0 4px 0; color: var(--text-primary); font-size: 1.1rem; font-weight: 600; }
 .section-desc { margin: 0 0 16px 0; color: var(--text-muted); font-size: 0.85rem; line-height: 1.6; }
-.section-desc code, .section-desc code {
+.section-desc code {
   background: var(--bg-tertiary);
   border: 1px solid var(--border-light);
   border-radius: 4px;
@@ -351,8 +429,8 @@ const activeGroupList = computed(() => {
   color: var(--accent-primary);
 }
 
-.card-head { display: flex; align-items: center; justify-content: space-between; }
-.head-actions { display: flex; gap: 8px; }
+.card-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+.head-actions { display: flex; gap: 8px; align-items: center; }
 .ghost-btn {
   background: var(--bg-tertiary);
   border: 1px solid var(--border-color);
@@ -365,6 +443,30 @@ const activeGroupList = computed(() => {
 }
 .ghost-btn:hover { border-color: var(--accent-primary); }
 .ghost-btn.accent { color: var(--accent-primary); border-color: var(--accent-primary); }
+
+/* ── 面板选择器 ── */
+.new-panel-input {
+  width: 120px; height: 30px; padding: 0 8px;
+  background: var(--bg-tertiary); color: var(--text-primary);
+  border: 1px solid var(--border-color); border-radius: var(--radius-sm);
+  font-size: 0.85rem; outline: none; font-family: inherit;
+}
+.new-panel-input:focus { border-color: var(--accent-primary); }
+.panel-tabs { display: flex; gap: 8px; flex-wrap: wrap; }
+.panel-tab {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 14px; border-radius: 999px;
+  background: var(--bg-tertiary); border: 1px solid var(--border-color);
+  color: var(--text-secondary); font-size: 0.88rem; font-weight: 500;
+  cursor: pointer; transition: all 0.15s ease; user-select: none;
+}
+.panel-tab:hover { border-color: var(--accent-primary); }
+.panel-tab.active { color: var(--accent-primary); border-color: var(--accent-primary); background: var(--bg-hover); font-weight: 600; }
+.panel-tab.locked { cursor: default; }
+.panel-del {
+  background: none; border: none; color: var(--accent-error);
+  font-size: 0.95rem; line-height: 1; cursor: pointer; padding: 0 2px;
+}
 
 .toggle-row {
   display: flex; align-items: center; gap: 12px;

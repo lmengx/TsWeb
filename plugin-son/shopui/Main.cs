@@ -40,7 +40,7 @@ namespace TShockData
 		public override string Author => "lmx12330";
 		public override string Description => "虚拟旅商商店（挥动锡斧召唤，仅自己可见）";
 		public override string Name => "ShopUI";
-		public override Version Version => new System.Version(1, 4, 0, 0);
+		public override Version Version => new System.Version(1, 4, 10, 0);
 
 		public ShopUIPlugin(Main game) : base(game) { }
 
@@ -723,6 +723,9 @@ namespace TShockData
 			var npc = Main.npc[npcIndex];
 			npc.aiStyle = -1;           // 冻结移动（站定展示）
 			npc.velocity = Vector2.Zero;
+			npc.immortal = true;        // 不死：StrikeNPC 中 `if(!immortal)` 跳过扣血 → life 恒>0 → checkDead 开头 `life>0` 直接 return →
+			                        // 绝不进入城镇 NPC 死亡流程（NPC.cs checkDead: ChatHelper.BroadcastChatMessage(ChatColors.Death) 全服播报"旅商xxx已死去"）
+			                        // 同时根除旅商死亡后 NPC 槽被复用的隐患（v1.4.5）；对 friendly 城镇 NPC 无副作用（CanBeChasedBy 需 !friendly 才检查 immortal）
 			_active[who] = npcIndex;
 			_currentShop[who] = 0;      // 默认宝藏袋商店（打开商店默认页）
 
