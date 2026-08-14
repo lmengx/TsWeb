@@ -75,6 +75,7 @@ const serverSection = [
   { id: 'permissions', name: '个人权限', path: '/console/permissions', adminOnly: true },
   { id: 'houses', name: '房屋与建筑', path: '/console/houses', managerOnly: true, icon: '🏠' },
   { id: 'tasks', name: '自动任务', path: '/console/tasks', managerOnly: true, icon: '⏰' },
+  { id: 'shopui', name: '虚拟商店', path: '/console/shopui', managerOnly: true },
   {
     id: 'anticheat', name: '反作弊', path: '/console/anticheat', managerOnly: true,
     children: [

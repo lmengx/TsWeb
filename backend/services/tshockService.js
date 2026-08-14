@@ -1638,6 +1638,44 @@ export class TShockService {
     }
   }
 
+  // ===== ShopUI 虚拟商店配置 =====
+
+  async getShopUIConfig() {
+    if (!this.baseUrl) await this.init()
+    const url = `${this.baseUrl}/data/shopui/config${this.apiKey ? `?token=${encodeURIComponent(this.apiKey)}` : ''}`
+    console.log(`[OUTGOING] GET ${url}`)
+    try {
+      const response = await fetch(url, { method: 'GET', headers: { 'Accept': 'application/json' } })
+      const text = await response.text()
+      try { return JSON.parse(text) } catch { return { error: 'Invalid JSON', rawResponse: text } }
+    } catch (error) {
+      this.isConnected = false
+      return { error: error.message }
+    }
+  }
+
+  async setShopUIConfig(params) {
+    if (!this.baseUrl) await this.init()
+    // params = { config: <完整 ShopUIConfig 对象> }，转 TShock REST query（config=JSON 字符串）
+    const query = Object.entries(params).map(([k, v]) => {
+      const val = typeof v === 'object' ? JSON.stringify(v) : String(v)
+      return `${k}=${encodeURIComponent(val)}`
+    }).join('&')
+    const url = `${this.baseUrl}/data/shopui/config/set?${query}${this.apiKey ? `&token=${encodeURIComponent(this.apiKey)}` : ''}`
+    console.log(`[OUTGOING] POST ${url.substring(0, 600)}`)
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Accept': 'application/json' }
+      })
+      const text = await response.text()
+      try { return JSON.parse(text) } catch { return { error: 'Invalid JSON', rawResponse: text } }
+    } catch (error) {
+      this.isConnected = false
+      return { error: error.message }
+    }
+  }
+
   // ===== 状态面板配置 =====
 
   async getStatusPanelConfig() {

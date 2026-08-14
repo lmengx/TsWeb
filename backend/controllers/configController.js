@@ -211,6 +211,25 @@ export const setPromotionConfig = async (req, res) => {
   }
 }
 
+export const getShopUIConfig = async (req, res) => {
+  try {
+    const result = await tshockService.getShopUIConfig()
+    res.json(result)
+  } catch (error) {
+    res.status(500).json({ status: '500', error: error.message })
+  }
+}
+
+export const setShopUIConfig = async (req, res) => {
+  try {
+    // 前端 POST { config: <完整 ShopUIConfig> } → 后端原样转发给 TShock
+    const result = await tshockService.setShopUIConfig(req.body)
+    res.json(result)
+  } catch (error) {
+    res.status(500).json({ status: '500', error: error.message })
+  }
+}
+
 export const getStatusPanelConfig = async (req, res) => {
   try {
     const result = await tshockService.getStatusPanelConfig()

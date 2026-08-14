@@ -136,6 +136,12 @@ const routes = [
         meta: { requiresAuth: true, requiresManager: true }
       },
       {
+        path: 'shopui',
+        name: 'ShopUI',
+        component: () => import('../views/console/ShopUIView.vue'),
+        meta: { requiresAuth: true, requiresManager: true }
+      },
+      {
         path: 'players',
         name: 'Players',
         component: PlayersView,

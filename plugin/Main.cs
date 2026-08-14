@@ -53,6 +53,12 @@ namespace TShockData
             HouseCore.Instance.Initialize(this);
             HouseApi.Register();
 
+            // ═══ ShopUI 虚拟旅商商店（原 plugin-son/shopui 并入，内容配置化可前端编辑）═══
+            ShopUICore.Initialize(this);
+            TShockAPI.Commands.ChatCommands.Add(new Command("", ShopUICore.HandleCommand, "shopui", "旅商"));
+            TShock.RestApi.Register(new SecureRestCommand("/data/shopui/config", ShopUIConfigManager.GetConfigJson, ""));
+            TShock.RestApi.Register(new SecureRestCommand("/data/shopui/config/set", ShopUIConfigManager.SetConfigJson, "data.rest.invsee"));
+
 			TShock.RestApi.Register(new SecureRestCommand("/data/users/invsee", GetPlayerInv.GetInv, "data.rest.invsee"));
 			TShock.RestApi.Register(new SecureRestCommand("/data/users/editinv", GetPlayerInv.EditInv, "data.rest.invsee"));
 			TShock.RestApi.Register(new SecureRestCommand("/data/users/batch-edit", GetPlayerInv.BatchEdit, "data.rest.invsee"));
@@ -237,6 +243,8 @@ namespace TShockData
             EmoteCommandManager.LoadConfig();
             TaskScheduler.Reload();
             AutoBackup.LoadConfig();
+            ShopUIConfigManager.LoadConfig();
+            ShopUICore.ReloadConfig();
             StatusPanel.LoadConfig();
             PersonalPermissionManager.Reload();
 
@@ -268,6 +276,7 @@ namespace TShockData
 				PvPLockManager.Dispose();
 				TeamLockManager.Dispose();
 				HouseCore.Instance.Dispose();
+                ShopUICore.Dispose();
 				EmoteCommandManager.Dispose();
                 StatusPanel.Dispose();
                 PersonalPermissionManager.Dispose();
@@ -306,7 +315,8 @@ namespace TShockData
                 "lightning", "闪电",
                 "ping",
                 "statustext", "st",
-				"bosslimit", "进度锁",			};
+				"bosslimit", "进度锁",
+                "shopui", "旅商",			};
 
 			Commands.ChatCommands.RemoveAll(cmd =>
 				cmd.Names.Any(name => tswebCommandNames.Contains(name)));
@@ -405,6 +415,8 @@ namespace TShockData
                 "/data/buildings/upload",
                 "/data/buildings/delete-local",
                 "/data/buildings/online-players",
+                "/data/shopui/config",
+                "/data/shopui/config/set",
 			};
 
 			try
