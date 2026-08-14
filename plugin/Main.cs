@@ -122,6 +122,16 @@ namespace TShockData
             TShock.RestApi.Register(new SecureRestCommand("/data/statuspanel/config", StatusPanel.GetConfigJson, "data.rest.invsee"));
             TShock.RestApi.Register(new SecureRestCommand("/data/statuspanel/config/set", StatusPanel.SetConfigJson, "data.rest.invsee"));
 
+            // ═══ 个人独立权限（快速/批量签发 + 到期自动失效 + 多维排序查看）═══
+            PersonalPermissionManager.Initialize(this);
+            TShock.RestApi.Register(new SecureRestCommand("/data/permissions/summary", PersonalPermissionManager.SummaryApi, "data.rest.invsee"));
+            TShock.RestApi.Register(new SecureRestCommand("/data/permissions/list", PersonalPermissionManager.ListApi, "data.rest.invsee"));
+            TShock.RestApi.Register(new SecureRestCommand("/data/permissions/grant", PersonalPermissionManager.GrantApi, "data.rest.invsee"));
+            TShock.RestApi.Register(new SecureRestCommand("/data/permissions/grant-batch", PersonalPermissionManager.GrantBatchApi, "data.rest.invsee"));
+            TShock.RestApi.Register(new SecureRestCommand("/data/permissions/revoke", PersonalPermissionManager.RevokeApi, "data.rest.invsee"));
+            TShock.RestApi.Register(new SecureRestCommand("/data/permissions/revoke-batch", PersonalPermissionManager.RevokeBatchApi, "data.rest.invsee"));
+            TShock.RestApi.Register(new SecureRestCommand("/data/permissions/cleanup", PersonalPermissionManager.CleanupApi, "data.rest.invsee"));
+
             TShockAPI.Commands.ChatCommands.Add(new Command("tshock.admin", AutoRegister.HandleCommand, "autoregister", "ar"));
 
             TShockAPI.Commands.ChatCommands.Add(new Command("tshock.admin", ExportPlayer.Export, "export", "导出"));
@@ -228,6 +238,7 @@ namespace TShockData
             TaskScheduler.Reload();
             AutoBackup.LoadConfig();
             StatusPanel.LoadConfig();
+            PersonalPermissionManager.Reload();
 
             TShock.Log.ConsoleInfo("[TSWeb] 反作弊配置已重新加载");
         }
@@ -257,8 +268,9 @@ namespace TShockData
 				PvPLockManager.Dispose();
 				TeamLockManager.Dispose();
 				HouseCore.Instance.Dispose();
-                EmoteCommandManager.Dispose();
+				EmoteCommandManager.Dispose();
                 StatusPanel.Dispose();
+                PersonalPermissionManager.Dispose();
 
 				CleanupChatCommands();
 				CleanupRestApiRoutes();
@@ -369,6 +381,13 @@ namespace TShockData
                 "/data/promotion/config/set",
                 "/data/statuspanel/config",
                 "/data/statuspanel/config/set",
+                "/data/permissions/summary",
+                "/data/permissions/list",
+                "/data/permissions/grant",
+                "/data/permissions/grant-batch",
+                "/data/permissions/revoke",
+                "/data/permissions/revoke-batch",
+                "/data/permissions/cleanup",
                 "/data/emoji/config",
                 "/data/emoji/config/set",
                 "/data/tasks/list",

@@ -228,6 +228,12 @@ const routes = [
         meta: { requiresAuth: true, requiresManager: true }
       },
       {
+        path: 'permissions',
+        name: 'Permissions',
+        component: () => import('../views/console/PermissionView.vue'),
+        meta: { requiresAuth: true, requiresAdmin: true }
+      },
+      {
         path: 'houses',
         name: 'Houses',
         component: () => import('../views/console/HouseManagementView.vue'),

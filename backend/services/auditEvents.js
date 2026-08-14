@@ -196,6 +196,28 @@ export const AUDIT_EVENTS = {
     fields: ['changedKeys', 'actor'], ip: false, sensitive: []
   },
 
+  // ═══ permission 类 — 个人独立权限签发/回收 ═══
+  'permission.grant': {
+    level: 'info', category: 'permission', title: '签发个人权限',
+    fields: ['player', 'permission', 'note', 'expireAt', 'serverId', 'actor'], ip: false, sensitive: []
+  },
+  'permission.grant_batch': {
+    level: 'info', category: 'permission', title: '批量签发个人权限',
+    fields: ['players', 'permissions', 'note', 'expireAt', 'serverId', 'actor'], ip: false, sensitive: []
+  },
+  'permission.revoke': {
+    level: 'warn', category: 'permission', title: '回收个人权限',
+    fields: ['player', 'permission', 'serverId', 'actor'], ip: false, sensitive: []
+  },
+  'permission.revoke_batch': {
+    level: 'warn', category: 'permission', title: '批量回收个人权限',
+    fields: ['players', 'permissions', 'serverId', 'actor'], ip: false, sensitive: []
+  },
+  'permission.cleanup': {
+    level: 'info', category: 'permission', title: '清理过期个人权限',
+    fields: ['cleaned', 'serverId', 'actor'], ip: false, sensitive: []
+  },
+
   // ═══ system 类 ═══
   'system.start': {
     level: 'info', category: 'system', title: '后端启动',

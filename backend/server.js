@@ -20,6 +20,7 @@ import serverRoutes from './routes/serverRoutes.js'
 import auditRoutes from './routes/auditRoutes.js'
 import hookRoutes from './routes/hookRoutes.js'
 import botRoutes from './routes/botRoutes.js'
+import permissionRoutes from './routes/permissionRoutes.js'
 import tshockService, { registerServer, runWithServer, getServicesStatus } from './services/tshockService.js'
 import { connectAll as connectAllSse } from './services/sseConnection.js'
 import { startAggregation } from './services/qqPlaytimeService.js'
@@ -118,6 +119,7 @@ app.use('/api/servers', serverRoutes)
 app.use('/api/audit', auditRoutes)
 app.use('/api/setup', setupRoutes)
 app.use('/api/bot', botRoutes)
+app.use('/api/permissions', permissionRoutes)
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: Date.now() })
