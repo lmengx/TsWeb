@@ -120,6 +120,18 @@ const routes = [
             name: 'EmoteCommandConfig',
             component: () => import('../views/console/settings/EmoteCommandView.vue'),
             meta: { requiresAuth: true, requiresAdmin: true }
+          },
+          {
+            path: 'shopui',
+            name: 'ShopUIConfig',
+            component: () => import('../views/console/settings/ShopUISettingsView.vue'),
+            meta: { requiresAuth: true, requiresAdmin: true }
+          },
+          {
+            path: 'permissions',
+            name: 'Permissions',
+            component: () => import('../views/console/PermissionView.vue'),
+            meta: { requiresAuth: true, requiresAdmin: true }
           }
         ]
       },
@@ -133,12 +145,6 @@ const routes = [
         path: 'tasks',
         name: 'Tasks',
         component: () => import('../views/console/TasksView.vue'),
-        meta: { requiresAuth: true, requiresManager: true }
-      },
-      {
-        path: 'shopui',
-        name: 'ShopUI',
-        component: () => import('../views/console/ShopUIView.vue'),
         meta: { requiresAuth: true, requiresManager: true }
       },
       {
@@ -232,12 +238,6 @@ const routes = [
         name: 'Groups',
         component: () => import('../views/console/GroupsView.vue'),
         meta: { requiresAuth: true, requiresManager: true }
-      },
-      {
-        path: 'permissions',
-        name: 'Permissions',
-        component: () => import('../views/console/PermissionView.vue'),
-        meta: { requiresAuth: true, requiresAdmin: true }
       },
       {
         path: 'houses',

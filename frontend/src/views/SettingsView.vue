@@ -4,12 +4,14 @@ import { useRoute } from 'vue-router'
 const route = useRoute()
 
 const tabs = [
-  { path: '/console/settings/register', name: '注册与登录' },
+  { path: '/console/settings/register', name: '注册登录' },
+  { path: '/console/settings/statuspanel', name: '状态面板' },
   { path: '/console/settings/boss', name: 'Boss 限制' },
   { path: '/console/settings/promotion', name: '权限提升' },
   { path: '/console/settings/emoji', name: '表情指令' },
-  { path: '/console/settings/backup', name: '自动备份' },
-  { path: '/console/settings/statuspanel', name: '状态面板' }
+  { path: '/console/settings/permissions', name: '个人权限' },
+  { path: '/console/settings/shopui', name: '虚拟商店' },
+  { path: '/console/settings/backup', name: '自动备份' }
 ]
 </script>
 
