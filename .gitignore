@@ -154,3 +154,4 @@ backend/data/**
 /terraangel-plugins/TaDebug.TAPlugin/bin
 /plugin-son/shopui/bin
 /plugin-son/statuspanel/bin
+/plugin-son/itemflash/bin

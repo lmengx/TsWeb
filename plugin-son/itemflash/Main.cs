@@ -133,7 +133,9 @@ namespace ItemFlash
 		private const int ChargeDuration = 150;   // 蓄力阶段时长（tick）：核心剑移中心 + 其它环绕
 		private const int FlyInterval = 60;       // 每把剑飞入中心的间隔（tick）= 1 秒
 		private const int FlyDuration = 60;       // 单把剑飞入时长（tick）= 1 秒
-		private const int FinalDuration = 240;    // 只剩核心剑后继续劈雷时长（tick = 4 秒）
+		private const int FinalDuration = 330;    // 终局总时长（tick）：雷暴 150 + 暂停 120 + 连环雷 60 = 5.5 秒
+		private const int FinalBurstEnd = 150;    // 终局前段雷暴结束（每 15t 全剑数 burst）
+		private const int FinalPauseEnd = 270;    // 终局暂停结束（150~270 无雷酝酿 2 秒），之后 60t 劈 10 道彩色连环雷
 
 		private const int SyncInterval = 3;       // 动画期间每 3 帧广播一次 21 号包
 		private const int FindRadius = 192;       // 掉落物区域验证半径（像素），≈ 12 格，覆盖丢出初速造成的落点漂移
@@ -158,6 +160,7 @@ namespace ItemFlash
 		private static ItemFlashConfig _config = new();
 		private static readonly List<DropRecord> _records = new();
 		private static readonly List<GroupSession> _sessions = new();
+		private static readonly HashSet<int> _animatingIndexes = new(); // 动画中的掉落物槽位（O(1) 查询，替代遍历会话）
 		private static readonly object SyncLock = new();
 		private static bool _initialized;
 		private static int _tick;
@@ -229,6 +232,7 @@ namespace ItemFlash
 			{
 				_records.Clear();
 				_sessions.Clear();
+				_animatingIndexes.Clear();
 			}
 			TShock.Log.ConsoleInfo("[ItemFlash] 掉落物献祭插件已卸载");
 		}
@@ -434,8 +438,26 @@ namespace ItemFlash
 			long oldest = _tick - _config.RecordWindowSeconds * 60L;
 			List<DropRecord> records;
 			lock (SyncLock)
+			{
+				if (_records.Count == 0)
+					return; // 无任何丢物登记，直接跳过（优化：避免每轮全遍历 Main.item）
 				records = _records.Where(r => r.Ticks >= oldest).ToList();
+			}
 			if (records.Count == 0)
+				return;
+
+			// 每轮扫描只收集一次可用掉落物快照，所有簇/配方复用（优化：避免 N 簇 N 次全遍历）
+			var activeDrops = new List<int>();
+			for (int i = 0; i < Main.item.Length; i++)
+			{
+				if (_animatingIndexes.Contains(i))
+					continue;
+				var it = Main.item[i];
+				if (!it.active || it.IsAir || it.type <= 0 || it.stack <= 0)
+					continue;
+				activeDrops.Add(i);
+			}
+			if (activeDrops.Count == 0)
 				return;
 
 			// 按玩家分组，组内把丢物记录按位置聚类（丢在一起的记录归为一簇）
@@ -477,40 +499,35 @@ namespace ItemFlash
 						foreach (var r in cluster) anchor += r.Position;
 						anchor /= cluster.Count;
 
-						if (!VerifyDropsNear(anchor, recipe))
+						if (!VerifyDropsNear(activeDrops, anchor, recipe))
 							continue; // 区域内实际掉落物不足（被捡走/落点漂移），等下一轮扫描
 
-						Trigger(recipe, anchor, group.Key);
+						Trigger(recipe, anchor, group.Key, activeDrops);
 						break; // 一个簇最多触发一个配方
 					}
 				}
 			}
 		}
 
-		/// <summary>收集锚点半径内、未在动画中的掉落物槽位</summary>
-		private static List<int> FindDropsNear(Vector2 anchor, int radius)
+		/// <summary>从快照中收集锚点半径内的掉落物槽位（快照已过滤动画中/非活动的槽）</summary>
+		private static List<int> FindDropsNear(List<int> activeDrops, Vector2 anchor, int radius)
 		{
 			var result = new List<int>();
-			for (int i = 0; i < Main.item.Length; i++)
+			foreach (var i in activeDrops)
 			{
-				if (_sessions.Any(s => s.ItemIndices.Contains(i)))
-					continue;
-				var it = Main.item[i];
-				if (!it.active || it.IsAir || it.type <= 0 || it.stack <= 0)
-					continue;
-				if (Vector2.Distance(it.Center, anchor) <= radius)
+				if (Vector2.Distance(Main.item[i].Center, anchor) <= radius)
 					result.Add(i);
 			}
 			return result;
 		}
 
 		/// <summary>区域验证：锚点附近实际存在的掉落物必须满足配方所需数量（允许 NPC 掉落/残留物混入，扣减时才精确区分）</summary>
-		private static bool VerifyDropsNear(Vector2 anchor, RecipeConfig recipe)
+		private static bool VerifyDropsNear(List<int> activeDrops, Vector2 anchor, RecipeConfig recipe)
 		{
 			var needed = recipe.Items
 				.GroupBy(i => i.ItemId)
 				.ToDictionary(g => g.Key, g => g.Sum(i => i.Count));
-			var idxs = FindDropsNear(anchor, FindRadius);
+			var idxs = FindDropsNear(activeDrops, anchor, FindRadius);
 			foreach (var kv in needed)
 			{
 				int have = idxs.Where(i => Main.item[i].type == kv.Key).Sum(i => Main.item[i].stack);
@@ -541,12 +558,12 @@ namespace ItemFlash
 		}
 
 		// ---- 触发：材料收集 + 组动画 ----
-		private static void Trigger(RecipeConfig recipe, Vector2 anchor, int who)
+		private static void Trigger(RecipeConfig recipe, Vector2 anchor, int who, List<int> activeDrops)
 		{
 			var needed = recipe.Items
 				.GroupBy(i => i.ItemId)
 				.ToDictionary(g => g.Key, g => g.Sum(i => i.Count));
-			var idxs = FindDropsNear(anchor, FindRadius);
+			var idxs = FindDropsNear(activeDrops, anchor, FindRadius);
 			bool zenith = string.Equals(recipe.Animation, "zenith", StringComparison.OrdinalIgnoreCase);
 
 			if (zenith)
@@ -612,6 +629,10 @@ namespace ItemFlash
 				});
 				foreach (var i in animIndices)
 					NetMessage.SendData(21, -1, -1, null, i, 2, 0); // number2=2：客户端持续保持 keepTime，禁止拾取拉取动画
+
+				// 登记动画槽位（O(1) 查询，避免后续扫描重复遍历会话）
+				foreach (var i in animIndices)
+					_animatingIndexes.Add(i);
 			}
 			else
 			{
@@ -656,6 +677,9 @@ namespace ItemFlash
 					ResultCount = recipe.ResultCount,
 				});
 				NetMessage.SendData(21, -1, -1, null, mainIdx, 2, 0); // number2=2：防客户端拾取拉取
+
+				// 登记动画槽位
+				_animatingIndexes.Add(mainIdx);
 			}
 
 			// 清空该玩家全部有效登记，防止残留记录导致同一堆物品重复触发
@@ -701,6 +725,8 @@ namespace ItemFlash
 				}
 				if (!valid)
 				{
+					foreach (var i in s.ItemIndices)
+						_animatingIndexes.Remove(i);
 					_sessions.RemoveAt(k); // 被异常移除，放弃动画
 					continue;
 				}
@@ -720,7 +746,11 @@ namespace ItemFlash
 				}
 
 				if (done)
+				{
+					foreach (var i in s.ItemIndices)
+						_animatingIndexes.Remove(i);
 					_sessions.RemoveAt(k);
+				}
 			}
 		}
 
@@ -801,9 +831,9 @@ namespace ItemFlash
 						it.keepTime = KeepTimeLock;
 					}
 
-					// 中心雷击（每 18 tick，初始 1 道）
+					// 中心雷击（每 18 tick，初始 1 道，主色 = 核心剑颜色）
 					if (s.PhaseTick % 18 == 0)
-						BroadcastLightningBurst(coreCenter, s.Owner, 1);
+						BroadcastLightningBurst(coreCenter, s.Owner, 1, s.SwordColors[s.ItemIndices.IndexOf(core)]);
 					// 中心闪光粒子（每 30 tick，强度 1）
 					if (s.PhaseTick % 30 == 0)
 						BroadcastChargeEffects(coreCenter, s.Owner, 1);
@@ -835,8 +865,9 @@ namespace ItemFlash
 						BroadcastParticleAt(ParticleOrchestraType.ShimmerTownNPC, swordPos, s.Owner);
 						BroadcastParticleAt(ParticleOrchestraType.BestReforge, swordPos, s.Owner);
 						s.FlyCursor++;
-						// 每加一把剑，中心同时劈的雷就加一道（1 + 已飞入剑数）
-						BroadcastLightningBurst(coreCenter, s.Owner, 1 + s.FlyCursor);
+						// 每加一把剑，中心同时劈的雷就加一道（1 + 已飞入剑数），主色 = 刚加入的剑
+						Color newMain = s.SwordColors[s.ItemIndices.IndexOf(s.FlyOrder[s.FlyCursor - 1])];
+						BroadcastLightningBurst(coreCenter, s.Owner, 1 + s.FlyCursor, newMain);
 					}
 
 					// 更新飞行中的剑（从环绕位置收敛到中心）
@@ -877,9 +908,14 @@ namespace ItemFlash
 						it.keepTime = KeepTimeLock;
 					}
 
-					// 中心持续雷击（每 12 tick）：同时劈 1 + 已飞入剑数 道
+					// 中心持续雷击（每 12 tick）：同时劈 1 + 已飞入剑数 道，主色 = 最后飞入的剑
 					if (s.PhaseTick % 12 == 0)
-						BroadcastLightningBurst(coreCenter, s.Owner, 1 + s.FlyCursor);
+					{
+						Color main = s.FlyCursor > 0
+							? s.SwordColors[s.ItemIndices.IndexOf(s.FlyOrder[s.FlyCursor - 1])]
+							: s.SwordColors[s.ItemIndices.IndexOf(core)];
+						BroadcastLightningBurst(coreCenter, s.Owner, 1 + s.FlyCursor, main);
+					}
 					// 闪光粒子渐强（每 15 tick，强度随已飞入数量递增）
 					if (s.PhaseTick % 15 == 0)
 						BroadcastChargeEffects(coreCenter, s.Owner, 2 + s.FlyCursor);
@@ -900,27 +936,23 @@ namespace ItemFlash
 					coreItem.velocity = Vector2.Zero;
 					coreItem.keepTime = KeepTimeLock;
 
-					// 雷击加速：前 2.5 秒每 15 tick，最后 1.5 秒每 6 tick；全部剑数同时劈（1 + flyCount 道）
-					int lightningPeriod = s.PhaseTick > FinalDuration - 90 ? 6 : 15;
-					if (s.PhaseTick % lightningPeriod == 0)
-						BroadcastLightningBurst(coreCenter, s.Owner, 1 + flyCount);
-
-					// 终局最后 1 秒：依次劈 10 道不同颜色闪电（每 6 帧一道，极速彩色连环雷）
-					if (s.PhaseTick > FinalDuration - 60 && s.PhaseTick % 6 == 0)
+					// 前段（0~150）：每 15t 全剑数彩色雷暴（主色 = 最后加入的剑/彩虹猫）
+					if (s.PhaseTick < FinalBurstEnd && s.PhaseTick % 15 == 0)
 					{
-						int seq = (s.PhaseTick - (FinalDuration - 60)) / 6;
+						Color mainColor = s.SwordColors[s.ItemIndices.IndexOf(s.FlyOrder[flyCount - 1])];
+						BroadcastLightningBurst(coreCenter, s.Owner, 1 + flyCount, mainColor);
+					}
+					// 中段（150~270）：暂停 2 秒，无雷无粒子（酝酿蓄力）
+					// 后段（270~330）：60 tick 依次劈 10 道彩色连环雷（每 6 帧一道）+ 粒子爆发渐强
+					else if (s.PhaseTick >= FinalPauseEnd && (s.PhaseTick - FinalPauseEnd) % 6 == 0)
+					{
+						int seq = (s.PhaseTick - FinalPauseEnd) / 6;
 						if (seq < 10)
 						{
 							var pos = coreCenter + new Vector2(Main.rand.Next(-160, 161), Main.rand.Next(-120, 121));
 							BroadcastLightning(pos, s.Owner, Palette[seq % Palette.Length], new Vector2(0f, 200f));
+							BroadcastChargeEffects(coreCenter, s.Owner, 4 + seq);
 						}
-					}
-
-					// 粒子爆发渐强（每 10 tick，强度 4 → 8）
-					if (s.PhaseTick % 10 == 0)
-					{
-						int intensity = 4 + (int)(4f * s.PhaseTick / FinalDuration);
-						BroadcastChargeEffects(coreCenter, s.Owner, intensity);
 					}
 
 					if (s.PhaseTick >= FinalDuration)
@@ -998,19 +1030,28 @@ namespace ItemFlash
 			}
 		}
 
-		/// <summary>同时劈下 count 道落雷：位置大范围随机散布、随机方向、随机彩色（视觉彩色雷暴）</summary>
-		private static void BroadcastLightningBurst(Vector2 center, int owner, int count)
+		/// <summary>同时劈下 count 道落雷：50% 用主色（最后加入剑的颜色）更集中靠近中心，50% 随机彩色保持现有散布范围</summary>
+		private static void BroadcastLightningBurst(Vector2 center, int owner, int count, Color mainColor)
 		{
 			if (count < 1) count = 1;
 			if (count > 20) count = 20;
 
 			for (int i = 0; i < count; i++)
 			{
-				// 分散随机：位置 ±160/±140，方向随机倾斜
-				var pos = center + new Vector2(Main.rand.Next(-160, 161), Main.rand.Next(-140, 141));
-				var movement = new Vector2(Main.rand.Next(-120, 121), Main.rand.Next(140, 260));
-				Color color = Palette[Main.rand.Next(Palette.Length)]; // 随机彩色
-				BroadcastLightning(pos, owner, color, movement);
+				if (Main.rand.Next(2) == 0)
+				{
+					// 50%：主色（最后加入剑的颜色），更集中靠近中心（垂直下劈）
+					var pos = center + new Vector2(Main.rand.Next(-64, 65), Main.rand.Next(-56, 57));
+					BroadcastLightning(pos, owner, mainColor, new Vector2(0f, 200f));
+				}
+				else
+				{
+					// 50%：随机彩色，保持现有散布范围（±160/±140）+ 随机倾斜
+					var pos = center + new Vector2(Main.rand.Next(-160, 161), Main.rand.Next(-140, 141));
+					var movement = new Vector2(Main.rand.Next(-120, 121), Main.rand.Next(140, 260));
+					Color color = Palette[Main.rand.Next(Palette.Length)];
+					BroadcastLightning(pos, owner, color, movement);
+				}
 			}
 		}
 
@@ -1142,6 +1183,10 @@ namespace ItemFlash
 
 			foreach (var i in indices)
 				NetMessage.SendData(21, -1, -1, null, i, 2, 0); // number2=2：防客户端拾取拉取
+
+			// 登记动画槽位
+			foreach (var i in indices)
+				_animatingIndexes.Add(i);
 
 			plr.SendSuccessMessage($"[ItemFlash] 天顶剑仪式测试开始（{indices.Count} 把剑）");
 			TShock.Log.ConsoleInfo($"[ItemFlash] 测试指令触发天顶剑仪式: {plr.Name}");
