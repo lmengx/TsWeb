@@ -38,6 +38,42 @@ const panelOpen = ref(false)
 const selectedItems = ref(new Set())
 
 const isSelected = (item) => selectedItems.value.has(item)
+
+// ═════════ 复制参数到多个物品（以当前单选物品为源，按字段勾选复制） ═════════
+const copyMode = ref(false)
+const copyTargets = ref(new Set())
+const copyFields = ref({ price: true, stack: true, condition: true })
+
+// 进入复制模式：源 = 当前单选物品；网格勾选即选目标
+const enterCopyMode = () => {
+  copyMode.value = true
+  copyTargets.value = new Set()
+}
+const exitCopyMode = () => {
+  copyMode.value = false
+  copyTargets.value = new Set()
+}
+// 勾选/高亮统一判断：复制模式下看目标集合，否则看选中集合
+const isMarked = (item) => copyMode.value ? copyTargets.value.has(item) : selectedItems.value.has(item)
+// 应用：把源物品选中的字段复制给所有目标（未勾选字段不赋值；源自身跳过）
+const applyCopy = () => {
+  const src = panelItem.value
+  if (!src || copyTargets.value.size === 0) return
+  const f = copyFields.value
+  let count = 0
+  try {
+    for (const t of copyTargets.value) {
+      if (t === src) continue
+      if (f.price) t.price = src.price
+      if (f.stack) t.stack = src.stack
+      if (f.condition) t.condition = JSON.parse(JSON.stringify(src.condition)) // 深拷贝，避免共享引用
+      count++
+    }
+  } finally {
+    if (count > 0) showToast(`已将参数复制到 ${count} 个物品`)
+    exitCopyMode() // 无论成功/异常都重置，保证状态不泄漏
+  }
+}
 const panelItem = computed(() => {
   if (selectedItems.value.size !== 1) return null
   return [...selectedItems.value][0]
@@ -69,10 +105,19 @@ const panelTitle = computed(() => {
 })
 
 const selectSingle = (item) => {
+  exitCopyMode() // 切换到新物品编辑前重置复制模式
   selectedItems.value = new Set([item])
   panelOpen.value = true
 }
 const toggleSelect = (item) => {
+  // 复制模式下：勾选 = 加入/移出复制目标
+  if (copyMode.value) {
+    const next = new Set(copyTargets.value)
+    if (next.has(item)) next.delete(item)
+    else next.add(item)
+    copyTargets.value = next
+    return
+  }
   const next = new Set(selectedItems.value)
   if (next.has(item)) next.delete(item)
   else next.add(item)
@@ -83,15 +128,18 @@ const toggleSelect = (item) => {
 }
 const removeFromSelection = (item) => toggleSelect(item)
 const clearSelection = () => {
+  exitCopyMode()
   selectedItems.value = new Set()
   panelOpen.value = false
 }
 const panelClose = () => {
+  exitCopyMode() // 退出面板同时重置复制模式，避免状态泄漏
   panelOpen.value = false
   selectedItems.value = new Set()
 }
 // 配置完参数后返回控件面板：收起编辑面板（控件面板自动展开），选中保留 → 商品格高亮仍在，点击可继续编辑
 const returnToControls = () => {
+  exitCopyMode() // 复制模式中途返回 → 重置，避免后续点击物品误入复制选择
   panelOpen.value = false
 }
 
@@ -101,6 +149,7 @@ const removePanelItem = () => {
   if (!loc) return
   const item = panelItem.value
   config.value.shops[loc.shopIndex].items.splice(loc.goodsIndex, 1)
+  exitCopyMode()
   selectedItems.value = new Set()
   panelOpen.value = false
 }
@@ -371,6 +420,7 @@ const handleBatchSelect = (res) => {
   if (items.length === 0) return
   const shop = config.value.shops[batchShopIndex.value]
   if (!shop) return
+  exitCopyMode()
   const added = []
   for (const it of items) {
     // 每个新物品自动放到第一个可用空格（不强制紧凑）
@@ -415,12 +465,22 @@ const onLockedControlClick = (slot) => {
 const onGoodsCellClick = (shopIndex, slot) => {
   if (suppressClickSlot === slot) return // 刚拖放到该格 → 抑制误触
   const item = goodsItem(config.value.shops[shopIndex], slot)
-  if (item) {
-    selectSingle(item)
-  } else {
+  if (!item) {
+    // 复制模式下：空格不触发添加，避免打断目标选择
+    if (copyMode.value) {
+      showToast('复制模式：请点击物品格勾选目标')
+      return
+    }
     // 空格点击 → 添加物品到该格
     openSearch({ type: 'item-add', shopIndex, slot })
+    return
   }
+  // 复制模式下：点击物品格 = 勾选/取消复制目标（不跳转配置页）
+  if (copyMode.value) {
+    toggleSelect(item)
+    return
+  }
+  selectSingle(item)
 }
 const cellTitle = (shop, slot) => {
   const c = controlBySlot(slot)
@@ -435,6 +495,7 @@ const addShop = () => {
 }
 const removeShop = (index) => {
   // 清理选中集合中属于该商店的物品
+  exitCopyMode()
   const shopItems = config.value.shops[index].items
   const next = new Set([...selectedItems.value].filter(it => !shopItems.includes(it)))
   selectedItems.value = next
@@ -663,7 +724,7 @@ onMounted(() => {
               :class="{
                 'cell-control': controlBySlot(slot),
                 'cell-empty': !controlBySlot(slot) && !goodsItem(shop, slot),
-                'cell-selected': goodsItem(shop, slot) && isSelected(goodsItem(shop, slot)),
+                'cell-selected': goodsItem(shop, slot) && isMarked(goodsItem(shop, slot)),
                 'cell-drag-over': dragOverSlot === slot
               }"
               :draggable="!!controlBySlot(slot) || !!goodsItem(shop, slot)"
@@ -696,10 +757,10 @@ onMounted(() => {
                 <label
                   v-if="goodsItem(shop, slot)"
                   class="cell-check"
-                  title="勾选加入批量赋值"
+                  :title="copyMode ? '勾选为复制目标' : '勾选加入批量赋值'"
                   @click.stop="toggleSelect(goodsItem(shop, slot))"
                 >
-                  <input type="checkbox" :checked="isSelected(goodsItem(shop, slot))" />
+                  <input type="checkbox" :checked="isMarked(goodsItem(shop, slot))" />
                   <span class="checkmark"></span>
                 </label>
               </template>
@@ -778,6 +839,41 @@ onMounted(() => {
                     class="form-input cond-input" placeholder="NPC ID，如 266 / 13,14,15"
                   />
                 </div>
+              </div>
+              <!-- 复制参数到多个物品（源 = 当前物品，按字段勾选复制到目标） -->
+              <div class="copy-section">
+                <div class="copy-head">
+                  <span class="form-label copy-label">将该物品的参数写入多个物品</span>
+                  <button v-if="!copyMode" class="ghost-btn accent copy-start" @click="enterCopyMode">选择目标…</button>
+                </div>
+                <template v-if="copyMode">
+                  <div class="copy-fields">
+                    <span class="copy-field-title">要复制的字段（未勾选不赋值）</span>
+                    <div class="copy-field-list">
+                      <label class="copy-field">
+                        <input type="checkbox" v-model="copyFields.price" />
+                        <span>价格</span>
+                      </label>
+                      <label class="copy-field">
+                        <input type="checkbox" v-model="copyFields.stack" />
+                        <span>数量</span>
+                      </label>
+                      <label class="copy-field">
+                        <input type="checkbox" v-model="copyFields.condition" />
+                        <span>解锁条件</span>
+                      </label>
+                    </div>
+                  </div>
+                  <p class="copy-tip">
+                    已选目标 <strong>{{ copyTargets.size }}</strong> 个：请在商品网格中勾选目标物品（当前物品自身不会受影响）。
+                  </p>
+                  <div class="copy-actions">
+                    <button class="ghost-btn danger" @click="exitCopyMode">取消</button>
+                    <button class="save-btn sm" @click="applyCopy" :disabled="copyTargets.size === 0">
+                      应用到目标（{{ copyTargets.size }}）
+                    </button>
+                  </div>
+                </template>
               </div>
               <div class="panel-foot">
                 <button class="ghost-btn danger" @click="removePanelItem">移除商品</button>
@@ -1250,6 +1346,31 @@ onMounted(() => {
   font-size: 0.8rem; color: var(--text-primary);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+
+/* ═══════ 复制参数到多个物品 ═══════ */
+.copy-section {
+  border-top: 1px dashed var(--border-light);
+  padding-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.copy-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.copy-label { margin: 0; }
+.copy-start { flex-shrink: 0; }
+.copy-fields { display: flex; flex-direction: column; gap: 6px; }
+.copy-field-title { font-size: 0.75rem; color: var(--text-muted); }
+.copy-field-list { display: flex; gap: 14px; flex-wrap: wrap; }
+.copy-field {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 0.82rem; color: var(--text-primary);
+  cursor: pointer; user-select: none;
+}
+.copy-field input { accent-color: var(--accent-primary); cursor: pointer; }
+.copy-tip { margin: 0; font-size: 0.78rem; color: var(--text-secondary); line-height: 1.6; }
+.copy-tip strong { color: var(--accent-primary); }
+.copy-tip em { color: var(--text-muted); font-style: normal; }
+.copy-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 
 /* ═══════ 弹窗 ═══════ */
 .modal-overlay {
