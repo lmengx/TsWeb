@@ -60,6 +60,26 @@ const loadList = async () => {
   } catch (e) { error.value = e.message } finally { loading.value = false }
 }
 
+// ── 重新获取并计算时长 ──
+const refreshing = ref(false)
+
+const refreshPlaytime = async () => {
+  if (refreshing.value) return
+  refreshing.value = true
+  okMsg.value = ''
+  error.value = ''
+  try {
+    const res = await apiRequest('/api/bot/playtime-refresh', { method: 'POST' })
+    const d = await res.json().catch(() => ({}))
+    if (res.ok) {
+      flashMsg(`已从服务器重新获取并计算（成功 ${d.ok}/${d.total}）`)
+      loadList()
+    } else {
+      flashMsg(d.error || '刷新失败', true)
+    }
+  } catch (e) { flashMsg(e.message, true) } finally { refreshing.value = false }
+}
+
 // ── 解绑 ──
 const unbindTarget = ref(null)
 const showUnbind = (row) => { unbindTarget.value = row }
@@ -175,8 +195,13 @@ onMounted(() => {
     <div v-show="activeTab === 'list'" class="panel">
       <div class="panel-head">
         <h3>QQ 绑定列表（{{ total }}）</h3>
-        <div class="search-box">
-          <input v-model="searchQ" placeholder="搜索玩家名 / QQ" />
+        <div class="head-actions">
+          <button class="btn" :disabled="refreshing" @click="refreshPlaytime">
+            {{ refreshing ? '聚合中...' : '重新获取并计算' }}
+          </button>
+          <div class="search-box">
+            <input v-model="searchQ" placeholder="搜索玩家名 / QQ" />
+          </div>
         </div>
       </div>
 
@@ -326,6 +351,8 @@ onMounted(() => {
   margin-bottom: 14px;
 }
 .panel-head h3 { margin: 0; font-size: 1rem; color: var(--text-primary); }
+.head-actions { display: flex; align-items: center; gap: 10px; }
+.head-actions .btn:disabled { opacity: .6; cursor: not-allowed; }
 .search-box input {
   padding: 7px 12px;
   border: 1px solid var(--border-light);

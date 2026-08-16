@@ -2,7 +2,7 @@ import { Router } from 'express'
 import {
   register, changePassword, bind, listServers, requireBotToken,
   playerInfo, online, bossProgress,
-  qqList, qqUnbind, qqRebind, getBotSettings, setBotSettings
+  qqList, qqUnbind, qqRebind, getBotSettings, setBotSettings, refreshPlaytime
 } from '../controllers/botController.js'
 import { verifyToken, requireAdmin } from '../middlewares/authMiddleware.js'
 
@@ -17,6 +17,9 @@ const router = Router()
 // —— 管理接口（仅 admin，前端 QQ 配置页使用）——
 // QQ 绑定列表（QQ/玩家名/多服时长）：GET /api/bot/qq-list
 router.get('/qq-list', verifyToken, requireAdmin, qqList)
+
+// 手动触发多服时长聚合（重新获取并计算）：POST /api/bot/playtime-refresh
+router.post('/playtime-refresh', verifyToken, requireAdmin, refreshPlaytime)
 
 // 解绑：POST /api/bot/qq-unbind  { username } 或 { qq }
 router.post('/qq-unbind', verifyToken, requireAdmin, qqUnbind)

@@ -191,6 +191,10 @@ export const AUDIT_EVENTS = {
     level: 'warn', category: 'qq_account', title: 'QQ 改绑角色',
     fields: ['username', 'qq', 'from'], ip: false, sensitive: []
   },
+  'qq_playtime.refresh': {
+    level: 'info', category: 'qq_account', title: '手动刷新多服时长',
+    fields: ['ok', 'total', 'actor'], ip: false, sensitive: []
+  },
   'config.bot.set': {
     level: 'warn', category: 'config', title: '修改 QQ 机器人设置',
     fields: ['changedKeys', 'actor'], ip: false, sensitive: []

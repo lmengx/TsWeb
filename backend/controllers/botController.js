@@ -2,7 +2,7 @@ import crypto from 'crypto'
 import bcrypt from 'bcrypt'
 import { getConfig, getServers, updateBotSettings } from '../config.js'
 import { upsertAccount, getAccountByQq, getAccountByUsername, removeAccount, broadcastFullAll, getAccounts } from '../services/qqAccountService.js'
-import { getPlaytime, getPlaytimeRecords, startAggregation, stopAggregation } from '../services/qqPlaytimeService.js'
+import { getPlaytime, getPlaytimeRecords, aggregateAll, startAggregation, stopAggregation } from '../services/qqPlaytimeService.js'
 import audit from '../services/auditLogger.js'
 
 // ═══════════════════════════════════════════════════════════
@@ -374,6 +374,27 @@ export const qqList = async (_req, res) => {
     list.sort((a, b) => b.playtime.total - a.playtime.total)
     res.json({ total: list.length, list })
   } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+}
+
+/**
+ * 手动触发多服时长聚合：POST /api/bot/playtime-refresh
+ * 立即从所有启用服重新拉取全量累计时长并合并计算（与定时器共用 aggregateAll）
+ * 耗时取决于服务器响应，成功后前端应重新加载绑定列表
+ */
+export const refreshPlaytime = async (req, res) => {
+  try {
+    const result = await aggregateAll()
+    audit.record('qq_playtime.refresh', {
+      ok: result.ok,
+      total: result.total,
+      actor: req.user?.username || 'admin'
+    })
+    console.log(`[QQ时长] 手动聚合: ${result.ok}/${result.total}`)
+    res.json({ status: 'ok', ...result })
+  } catch (err) {
+    console.error('[QQ时长] 手动聚合失败:', err.message)
     res.status(500).json({ error: err.message })
   }
 }
