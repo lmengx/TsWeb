@@ -49,6 +49,11 @@ namespace TShockData
             // ═══ 跨服传送（纯插件：Unused15 自定义包通道 + Auth 密钥鉴权 + 前置握手）═══
             CrossTransfer.Initialize(this);
 
+            // ═══ 跨服传送配置管理（前后端整合：后端下发 / 连通性探测）═══
+            TShock.RestApi.Register(new SecureRestCommand("/data/crosstransfer/config", CrossTransfer.GetConfigRest, "tshock.admin"));
+            TShock.RestApi.Register(new SecureRestCommand("/data/crosstransfer/config/set", CrossTransfer.SetConfigRest, "tshock.admin"));
+            TShock.RestApi.Register(new SecureRestCommand("/data/crosstransfer/probe", CrossTransfer.ProbeRest, "tshock.admin"));
+
             // ═══ House 房屋系统（原 plugin-son/House 并入）═══
             HouseCore.Instance.Initialize(this);
             HouseApi.Register();
@@ -386,8 +391,7 @@ namespace TShockData
                 "/data/qq/reset-password",
 				"/data/qq/query-player",
                 "/data/qq/find-account",
-                "/data/qq/player-data",
-                "/data/promotion/config",
+                "/data/qq/player-data",                "/data/promotion/config",
                 "/data/promotion/config/set",
                 "/data/statuspanel/config",
                 "/data/statuspanel/config/set",
@@ -417,6 +421,9 @@ namespace TShockData
                 "/data/buildings/online-players",
                 "/data/shopui/config",
                 "/data/shopui/config/set",
+                "/data/crosstransfer/config",
+                "/data/crosstransfer/config/set",
+                "/data/crosstransfer/probe",
 			};
 
 			try

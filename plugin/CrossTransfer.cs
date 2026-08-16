@@ -10,6 +10,7 @@
 using Microsoft.Xna.Framework;
 using MonoMod.RuntimeDetour;
 using Newtonsoft.Json;
+using Rests;
 using Terraria;
 using Terraria.Localization;
 using Terraria.Net;
@@ -23,16 +24,40 @@ namespace TShockData
 	public class TransferServerInfo
 	{
 		[JsonProperty("名称")] public string Name { get; set; } = "";
+		[JsonProperty("启用")] public bool Enabled { get; set; } = true;
 		[JsonProperty("地址")] public string IP { get; set; } = "127.0.0.1";
 		[JsonProperty("端口")] public int Port { get; set; } = 7777;
+		/// <summary>专线地址（可选）：本服连接该目标服时优先尝试，失败回退“地址”</summary>
+		[JsonProperty("专线地址")] public string? DedicatedIP { get; set; }
+		[JsonProperty("专线端口")] public int DedicatedPort { get; set; }
 		[JsonProperty("协议版本")] public int VersionNum { get; set; } = 319;
 		[JsonProperty("共享密钥")] public string Secret { get; set; } = "";
 		[JsonProperty("进服密码(可选)")] public string? Password { get; set; }
+
+		/// <summary>连接端点列表：专线优先（若配置），公网地址兜底</summary>
+		public IEnumerable<(string ip, int port)> GetEndpoints()
+		{
+			if (!string.IsNullOrEmpty(DedicatedIP) && DedicatedPort > 0)
+				yield return (DedicatedIP, DedicatedPort);
+			yield return (IP, Port);
+		}
+	}
+
+	/// <summary>REST 探测目标 DTO（/data/crosstransfer/probe 入参条目）</summary>
+	public class TransferProbeTarget
+	{
+		[JsonProperty("名称")] public string Name { get; set; } = "";
+		[JsonProperty("地址")] public string IP { get; set; } = "";
+		[JsonProperty("端口")] public int Port { get; set; } = 7777;
+		[JsonProperty("专线地址")] public string? DedicatedIP { get; set; }
+		[JsonProperty("专线端口")] public int DedicatedPort { get; set; }
 	}
 
 	/// <summary>跨服传送配置：{TShock.SavePath}/TSWeb/CrossTransfer.json</summary>
 	public class CrossTransferConfig
 	{
+		/// <summary>全局启用开关（false 时 /跨服 命令提示已停用，不影响已建立的桥接）</summary>
+		[JsonProperty("启用")] public bool Enabled { get; set; } = true;
 		[JsonProperty("本服ID")] public string SelfServerId { get; set; } = "server-a";
 		/// <summary>本服密钥：签名时用自己的密钥；其他服在各自配置的对端条目里填这把密钥用于验签</summary>
 		[JsonProperty("本服密钥")] public string SelfSecret { get; set; } = "";
@@ -990,13 +1015,23 @@ namespace TShockData
 			catch { }
 		}
 
-		/// <summary>可达探测：尝试 TCP 连接目标服端口（1500ms 超时）</summary>
+		/// <summary>可达探测：专线优先尝试，失败回退公网地址（每端点 1500ms 超时）</summary>
 		private static bool ProbeReachable(TransferServerInfo server)
+		{
+			foreach (var (ip, port) in server.GetEndpoints())
+			{
+				if (ProbeAddress(ip, port)) return true;
+			}
+			return false;
+		}
+
+		/// <summary>单地址可达探测：TCP 连接尝试（1500ms 超时）</summary>
+		private static bool ProbeAddress(string ip, int port)
 		{
 			try
 			{
 				using var c = new TcpClient();
-				var t = c.ConnectAsync(server.IP, server.Port);
+				var t = c.ConnectAsync(ip, port);
 				return t.Wait(1500) && c.Connected;
 			}
 			catch { return false; }
@@ -1330,10 +1365,16 @@ namespace TShockData
 			var player = args.Player;
 			if (player == null || !player.RealPlayer) return;
 
+			if (!Config.Enabled)
+			{
+				player.SendErrorMessage("[跨服] 跨服传送功能已停用");
+				return;
+			}
+
 			if (args.Parameters.Count == 0)
 			{
 				player.SendInfoMessage($"[跨服] 用法: /跨服 <服务器名> [进服密码]");
-				player.SendInfoMessage($"[跨服] 可用服务器: {string.Join(", ", Config.Servers.Select(s => s.Name))}");
+				player.SendInfoMessage($"[跨服] 可用服务器: {string.Join(", ", Config.Servers.Where(s => s.Enabled).Select(s => s.Name))}");
 				return;
 			}
 
@@ -1356,6 +1397,11 @@ namespace TShockData
 			if (server == null)
 			{
 				player.SendErrorMessage($"[跨服] 未找到目标服: {serverName}");
+				return;
+			}
+			if (!server.Enabled)
+			{
+				player.SendErrorMessage($"[跨服] 目标服务器 {serverName} 已停用");
 				return;
 			}
 			if (string.IsNullOrEmpty(player.UUID))
@@ -1428,6 +1474,76 @@ namespace TShockData
 			}
 
 			player.SendErrorMessage("[跨服] 你当前不在跨服传送状态，无需返回");
+		}
+
+		// ════════════════════════════════════════════
+		//  REST API：前后端整合配置管理（/data/crosstransfer/*）
+		//  返回对象由 Rests 框架用 Newtonsoft 序列化，[JsonProperty] 中文键生效
+		// ════════════════════════════════════════════
+
+		/// <summary>GET /data/crosstransfer/config：返回当前配置（含密钥，供后端下发配对）</summary>
+		public static object GetConfigRest(RestRequestArgs args)
+		{
+			return Config;
+		}
+
+		/// <summary>GET /data/crosstransfer/config/set?config={json}：全量覆盖配置并热应用</summary>
+		public static object SetConfigRest(RestRequestArgs args)
+		{
+			try
+			{
+				var json = args.Parameters["config"];
+				if (string.IsNullOrEmpty(json))
+					return new RestObject("400") { { "error", "缺少 config 参数" } };
+
+				var cfg = JsonConvert.DeserializeObject<CrossTransferConfig>(json);
+				if (cfg == null)
+					return new RestObject("400") { { "error", "配置解析失败" } };
+				if (string.IsNullOrWhiteSpace(cfg.SelfServerId))
+					return new RestObject("400") { { "error", "本服ID不能为空" } };
+
+				Config = cfg;
+				SaveConfig();
+				TShock.Log.ConsoleInfo($"[CrossTransfer] REST 更新跨服传送配置（启用={Config.Enabled}，目标服 {Config.Servers.Count} 个）");
+				return new RestObject { { "response", "配置已保存" } };
+			}
+			catch (Exception ex)
+			{
+				TShock.Log.ConsoleError($"[CrossTransfer] REST 配置保存失败: {ex}");
+				return new RestObject("500") { { "error", ex.Message } };
+			}
+		}
+
+		/// <summary>GET /data/crosstransfer/probe?targets={json}：逐条探测目标服可达性（专线优先）</summary>
+		public static object ProbeRest(RestRequestArgs args)
+		{
+			try
+			{
+				var targetsJson = args.Parameters["targets"];
+				if (string.IsNullOrEmpty(targetsJson))
+					return new RestObject("400") { { "error", "缺少 targets 参数" } };
+
+				var targets = JsonConvert.DeserializeObject<List<TransferProbeTarget>>(targetsJson) ?? new();
+				var results = targets.Select(t => new
+				{
+					名称 = t.Name,
+					地址 = t.IP,
+					端口 = t.Port,
+					专线地址 = t.DedicatedIP ?? "",
+					专线端口 = t.DedicatedPort,
+					公网可达 = ProbeAddress(t.IP, t.Port),
+					专线可达 = !string.IsNullOrEmpty(t.DedicatedIP) && t.DedicatedPort > 0
+						? ProbeAddress(t.DedicatedIP, t.DedicatedPort)
+						: false
+				}).ToList();
+
+				return new RestObject { { "status", "200" }, { "results", results } };
+			}
+			catch (Exception ex)
+			{
+				TShock.Log.ConsoleError($"[CrossTransfer] REST 探测失败: {ex}");
+				return new RestObject("500") { { "error", ex.Message } };
+			}
 		}
 	}
 }

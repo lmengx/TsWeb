@@ -84,6 +84,7 @@ const serverSection = [
   },
   { id: 'files', name: '文件管理', path: '/console/files', adminOnly: true },
   { id: 'settings', name: '插件设置', path: '/console/settings', adminOnly: true },
+  { id: 'crosstransfer', name: '跨服传送', path: '/console/crosstransfer', adminOnly: true },
   {
     id: 'tools', name: '工具', path: '/console/tools', managerOnly: true,
     children: [

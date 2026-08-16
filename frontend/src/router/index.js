@@ -178,6 +178,12 @@ const routes = [
         meta: { requiresAuth: true, requiresAdmin: true }
       },
       {
+        path: 'crosstransfer',
+        name: 'CrossTransfer',
+        component: () => import('../views/console/CrossTransferView.vue'),
+        meta: { requiresAuth: true, requiresAdmin: true, title: '跨服传送' }
+      },
+      {
         path: 'servers',
         name: 'Servers',
         component: () => import('../views/console/ServersView.vue'),
