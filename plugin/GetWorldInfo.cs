@@ -41,6 +41,56 @@ namespace TShockData
             { 9, "南瓜王" }
         };
 
+        /// <summary>Boss 进度顺序表（显式数组保证确定性，Dictionary 枚举序不可依赖）</summary>
+        private static readonly int[] BossOrder =
+        {
+            NPCID.KingSlime,
+            NPCID.EyeofCthulhu,
+            NPCID.EaterofWorldsHead,
+            NPCID.BrainofCthulhu,
+            NPCID.QueenBee,
+            NPCID.Deerclops,
+            NPCID.SkeletronHead,
+            NPCID.WallofFlesh,
+            NPCID.QueenSlimeBoss,
+            NPCID.TheDestroyer,
+            NPCID.SkeletronPrime,
+            NPCID.Retinazer,
+            NPCID.Plantera,
+            NPCID.Golem,
+            NPCID.DukeFishron,
+            NPCID.HallowBoss,
+            NPCID.CultistBoss,
+            NPCID.MoonLordCore
+        };
+
+        /// <summary>
+        /// Boss → 召唤物物品 ID（状态面板 [i:id] 图标提示用）。
+        /// 15 个为真实召唤物（已实证）；3 个无召唤物物品的 boss 用最接近的代表物：
+        ///   骷髅王=服装商巫毒娃娃(1307，老人/服装商关联)、世纪之花=世纪之花幼苗(4806)、拜月教教徒=拜月教邪教徒圣物(4937)
+        /// </summary>
+        private static readonly Dictionary<int, int> BossSpawnItemIds = new Dictionary<int, int>
+        {
+            { NPCID.KingSlime, 560 },
+            { NPCID.EyeofCthulhu, 43 },
+            { NPCID.EaterofWorldsHead, 70 },
+            { NPCID.BrainofCthulhu, 1331 },
+            { NPCID.QueenBee, 1133 },
+            { NPCID.Deerclops, 5120 },
+            { NPCID.SkeletronHead, 1307 },
+            { NPCID.WallofFlesh, 267 },
+            { NPCID.QueenSlimeBoss, 4988 },
+            { NPCID.TheDestroyer, 556 },
+            { NPCID.SkeletronPrime, 557 },
+            { NPCID.Retinazer, 544 },
+            { NPCID.Plantera, 4806 },
+            { NPCID.Golem, 1293 },
+            { NPCID.DukeFishron, 2673 },
+            { NPCID.HallowBoss, 4961 },
+            { NPCID.CultistBoss, 4937 },
+            { NPCID.MoonLordCore, 3601 }
+        };
+
         public static void GetBossInfo(CommandArgs args)
         {
             var player = args.Player;
@@ -184,6 +234,33 @@ namespace TShockData
             }
 
             return false;
+        }
+
+        /// <summary>按进度顺序返回第一个未击杀的 Boss NPCID；全部击杀返回 -1</summary>
+        internal static int GetCurrentProgressBossNpcId()
+        {
+            foreach (var npcId in BossOrder)
+            {
+                if (GetKillCount(npcId) == 0)
+                    return npcId;
+            }
+            return -1;
+        }
+
+        /// <summary>当前开荒进度 Boss 名（第一个未击杀）；全部击杀返回「全部完成」</summary>
+        internal static string GetCurrentProgressBossName()
+        {
+            var npcId = GetCurrentProgressBossNpcId();
+            return npcId < 0 ? "全部完成" : BossNames[npcId];
+        }
+
+        /// <summary>当前开荒进度 Boss 的召唤物物品 ID；无召唤物用代表物；全部击杀返回 0</summary>
+        internal static int GetCurrentProgressBossSpawnItemId()
+        {
+            var npcId = GetCurrentProgressBossNpcId();
+            if (npcId < 0)
+                return 0;
+            return BossSpawnItemIds.TryGetValue(npcId, out var itemId) ? itemId : 0;
         }
 
         internal static int GetKillCount(int npcNetId)

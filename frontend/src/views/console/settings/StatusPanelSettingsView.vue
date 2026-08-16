@@ -28,11 +28,13 @@ const INTERPOLATIONS = [
   { group: '渔夫任务', token: '{AnglerQuestFishingBiome}', label: '钓鱼点', preview: '丛林' },
   { group: '渔夫任务', token: '{AnglerQuestCompleted}', label: '任务完成状态', preview: '未完成' },
   { group: '全服', token: '{AllOnlineCount}', label: '全服在线数', preview: '36' },
-  { group: '时间', token: '{SystemTime}', label: '系统时间（服务器）', preview: '14:30' }
+  { group: '时间', token: '{SystemTime}', label: '系统时间（服务器）', preview: '14:30' },
+  { group: 'BOSS进度', token: '{CurrentBossName}', label: '当前进度BOSS名', preview: '史莱姆王' },
+  { group: 'BOSS进度', token: '{CurrentBossSpawnItemId}', label: '当前进度BOSS召唤物ID', preview: '560' }
   // 注：{RealWorldTime} 与 {SystemTime} 相同（均为服务器本地时间 HH:mm），仅保留代码兼容，不再展示
 ]
 
-const INTERPOLATION_GROUPS = ['玩家', '服务器', '渔夫任务', '全服', '时间']
+const INTERPOLATION_GROUPS = ['玩家', '服务器', '渔夫任务', '全服', '时间', 'BOSS进度']
 
 const DEFAULT_ROWS = () => [
   { text: '[i:757][c/f15642:开荒服]', updateInterval: 600 },

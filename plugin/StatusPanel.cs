@@ -632,6 +632,9 @@ namespace TShockData
                     // ── 主插件新增 ──
                     "{AllOnlineCount}" => AllOnlineDisplay(),
                     "{SystemTime}" => DateTime.Now.ToString("HH:mm"), // 服务器自身时间，精确到分钟
+                    // ── 当前开荒进度 BOSS（第一个未击杀；全打完显示全部完成） ──
+                    "{CurrentBossName}" => BossProgress.GetCurrentProgressBossName(),
+                    "{CurrentBossSpawnItemId}" => BossProgress.GetCurrentProgressBossSpawnItemId().ToString(),
                     _ => m.Value,
                 };
             }
