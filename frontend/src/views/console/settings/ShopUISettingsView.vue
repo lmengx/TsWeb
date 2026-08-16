@@ -90,6 +90,10 @@ const panelClose = () => {
   panelOpen.value = false
   selectedItems.value = new Set()
 }
+// 配置完参数后返回控件面板：收起编辑面板（控件面板自动展开），选中保留 → 商品格高亮仍在，点击可继续编辑
+const returnToControls = () => {
+  panelOpen.value = false
+}
 
 // 移除单选面板中的物品
 const removePanelItem = () => {
@@ -127,22 +131,86 @@ const applyBatch = () => {
   showToast(`已应用到 ${n} 个物品`)
 }
 
-// ═════════ 拖拽放置（拖到哪格就停在哪格，支持空格） ═════════
-const dragFrom = ref(null)
+// ═════════ 拖拽放置（商品 + 控件，拖到哪格就停在哪格，支持空格） ═════════
+// dragState: { type: 'goods', shopIndex, slot } 商品拖动 | { type: 'control', slot } 控件拖动
+const dragState = ref(null)
+const dragOverSlot = ref(-1)
+let suppressClickSlot = -1 // 拖放落点防误触（drop 后浏览器会补发 click）
+
 const onDragStart = (shopIndex, slot, ev) => {
-  dragFrom.value = { shopIndex, slot }
+  dragState.value = { type: 'goods', shopIndex, slot }
   ev.dataTransfer.effectAllowed = 'move'
   if (ev.dataTransfer.setData) ev.dataTransfer.setData('text/plain', '')
 }
-const onDragOver = (ev) => {
+const onControlDragStart = (slot, ev) => {
+  dragState.value = { type: 'control', slot }
+  ev.dataTransfer.effectAllowed = 'move'
+  if (ev.dataTransfer.setData) ev.dataTransfer.setData('text/plain', '')
+}
+const onDragEnd = () => {
+  dragState.value = null
+  dragOverSlot.value = -1
+  setTimeout(() => { suppressClickSlot = -1 }, 80) // 拖放结束后短暂抑制落点 click
+}
+
+// 商店面板格子 dragover：商品→仅非控件格；控件→空格或控件格（不能落在商品格）
+const onCellDragOver = (ev, shopIndex, slot) => {
+  const st = dragState.value
+  if (!st) return
+  const isControlCell = !!controlBySlot(slot)
+  if (st.type === 'goods' && isControlCell) return
+  if (st.type === 'control' && !isControlCell && goodsItem(config.value.shops[shopIndex], slot)) return
   ev.preventDefault()
   if (ev.dataTransfer) ev.dataTransfer.dropEffect = 'move'
+  dragOverSlot.value = slot
 }
-const onDrop = (targetShopIndex, targetSlot, ev) => {
+// 控件面板格子 dragover：仅控件拖动可落
+const onControlCellDragOver = (ev, slot) => {
+  const st = dragState.value
+  if (!st || st.type !== 'control') return
   ev.preventDefault()
-  const from = dragFrom.value
-  dragFrom.value = null
-  if (!from) return
+  if (ev.dataTransfer) ev.dataTransfer.dropEffect = 'move'
+  dragOverSlot.value = slot
+}
+
+// 控件落格：目标有控件→交换 slot；空格→移动；商店面板商品格在 drop 前置检查
+const dropControl = (fromSlot, targetSlot) => {
+  if (fromSlot === targetSlot) return
+  const src = controlBySlot(fromSlot)
+  if (!src) return
+  const dst = controlBySlot(targetSlot)
+  if (dst && dst !== src) dst.slot = fromSlot
+  src.slot = targetSlot
+  suppressClickSlot = targetSlot
+}
+
+// 商店面板格子 drop：按拖拽类型分发
+const onCellDrop = (ev, targetShopIndex, targetSlot) => {
+  ev.preventDefault()
+  const st = dragState.value
+  dragState.value = null
+  dragOverSlot.value = -1
+  if (!st) return
+  if (st.type === 'control') {
+    // 控件落在商品格 → 拒绝（dragover 已阻止，双保险）
+    if (goodsItem(config.value.shops[targetShopIndex], targetSlot)) return
+    dropControl(st.slot, targetSlot)
+    return
+  }
+  moveGoods(st, targetShopIndex, targetSlot)
+}
+// 控件面板格子 drop：仅控件
+const onControlCellDrop = (ev, targetSlot) => {
+  ev.preventDefault()
+  const st = dragState.value
+  dragState.value = null
+  dragOverSlot.value = -1
+  if (!st || st.type !== 'control') return
+  dropControl(st.slot, targetSlot)
+}
+
+// 商品移动/交换（同商店：空→移动 / 有→交换；跨商店：空→搬移 / 有→双方对调）
+const moveGoods = (from, targetShopIndex, targetSlot) => {
   if (from.shopIndex === targetShopIndex && from.slot === targetSlot) return
   const srcShop = config.value.shops[from.shopIndex]
   const dstShop = config.value.shops[targetShopIndex]
@@ -172,6 +240,7 @@ const onDrop = (targetShopIndex, targetSlot, ev) => {
     srcItem.slot = targetSlot
     dstShop.items.push(srcItem)
   }
+  suppressClickSlot = targetSlot
 }
 
 // ═════════ 物品辅助 ═════════
@@ -325,6 +394,7 @@ const modalControl = computed(() =>
   controlModal.value !== null ? controlBySlot(controlModal.value) : null)
 
 const onControlCellClick = (slot) => {
+  if (suppressClickSlot === slot) return // 刚拖放到该格 → 抑制误触
   if (controlBySlot(slot)) controlModal.value = slot
   else openSearch({ type: 'control-add', slot })
 }
@@ -335,14 +405,15 @@ const removeControl = () => {
   if (idx >= 0) config.value.statueControls.splice(idx, 1)
   controlModal.value = null
 }
-// 商店网格里的控件格：提示去左侧面板编辑
-const onLockedControlClick = () => {
-  success.value = '控件格由全局配置锁定，请到左侧「控件」面板编辑'
-  setTimeout(() => { success.value = '' }, 2000)
+// 商店网格里的控件格：直接打开控件编辑（与左侧控件面板行为一致）
+const onLockedControlClick = (slot) => {
+  if (suppressClickSlot === slot) return // 刚拖放到该格 → 抑制误触
+  controlModal.value = slot
 }
 
 // ═════════ 格子交互 ═════════
 const onGoodsCellClick = (shopIndex, slot) => {
+  if (suppressClickSlot === slot) return // 刚拖放到该格 → 抑制误触
   const item = goodsItem(config.value.shops[shopIndex], slot)
   if (item) {
     selectSingle(item)
@@ -353,9 +424,9 @@ const onGoodsCellClick = (shopIndex, slot) => {
 }
 const cellTitle = (shop, slot) => {
   const c = controlBySlot(slot)
-  if (c) return '控件：' + getItemName(c.statueItemId) + '（左侧控件面板编辑）'
+  if (c) return '控件：' + getItemName(c.statueItemId) + '（点击编辑，拖动可换位）'
   const item = goodsItem(shop, slot)
-  return item ? getItemName(item.itemId) + '（点击编辑，拖动可排序）' : '点击选择物品添加商品'
+  return item ? getItemName(item.itemId) + '（点击编辑，拖动可排序）' : '点击选择物品添加商品（控件可拖到此格）'
 }
 
 // ═════════ 商店操作 ═════════
@@ -483,7 +554,7 @@ onMounted(() => {
         <div class="overview-row">
           <div class="overview-info">
             <h3>虚拟商店</h3>
-            <p class="section-desc">40 格面板（10×4）可视化配置：点击物品在右侧编辑，拖动排序，勾选可批量赋值；保存后即时生效</p>
+            <p class="section-desc">40 格面板（10×4）可视化配置：点击物品在右侧编辑，商品/控件均可拖动换位，勾选可批量赋值；编辑完点「← 返回」回到商店配置；保存后即时生效</p>
           </div>
           <div class="overview-actions">
             <span class="toggle-label">启用</span>
@@ -522,16 +593,25 @@ onMounted(() => {
           <h3>控件（商店切换按钮）<span class="count">{{ config.statueControls.length }}</span></h3>
         </div>
         <p class="section-desc">
-          点击格子 → 选择物品即成为控件。控件优先占格：占用格在<strong>所有商店中锁定</strong>，剩余 {{ goodsSlots.length }} 格才是商品区。选中商品编辑时本面板自动向左滑出。
+          点击格子 → 选择物品即成为控件；<strong>拖动</strong>控件可换位/交换（控件格在所有商店中锁定，剩余 {{ goodsSlots.length }} 格才是商品区）。选中商品编辑时本面板自动向左滑出，点「← 返回」可回到商店配置。
         </p>
         <div class="goods-grid">
           <div
             v-for="slot in slots40"
             :key="'c' + slot"
             class="cell"
-            :class="{ 'cell-control': controlBySlot(slot), 'cell-empty': !controlBySlot(slot) }"
+            :class="{
+              'cell-control': controlBySlot(slot),
+              'cell-empty': !controlBySlot(slot),
+              'cell-drag-over': dragOverSlot === slot
+            }"
+            :draggable="!!controlBySlot(slot)"
             @click="onControlCellClick(slot)"
-            :title="controlBySlot(slot) ? getItemName(controlBySlot(slot).statueItemId) : '点击设为控件'"
+            @dragstart="controlBySlot(slot) && onControlDragStart(slot, $event)"
+            @dragover="onControlCellDragOver($event, slot)"
+            @drop="onControlCellDrop($event, slot)"
+            @dragend="onDragEnd"
+            :title="controlBySlot(slot) ? getItemName(controlBySlot(slot).statueItemId) + '（点击编辑，拖动可换位）' : '点击设为控件（控件可从左侧或商店面板拖动换位）'"
           >
             <template v-if="controlBySlot(slot)">
               <img
@@ -553,12 +633,15 @@ onMounted(() => {
       <div class="layout-left">
       <div class="section-card">
         <div class="card-head">
-          <h3>商店内容<span class="count">{{ config.shops.length }}</span></h3>
+          <div class="card-head-left">
+            <button v-if="panelOpen" class="panel-back-btn" @click="returnToControls" title="返回商店配置（收起物品配置，选中保留）">← 返回</button>
+            <h3>商店内容<span class="count">{{ config.shops.length }}</span></h3>
+          </div>
           <button class="ghost-btn accent" @click="addShop">+ 添加商店</button>
         </div>
         <p class="section-desc">
-          紫色格子为控件（全局锁定，不可编辑）；其余 {{ goodsSlots.length }} 格为商品区，<strong>可随意留空格</strong>、不强制排序。
-          <strong>点击</strong>空格添加 / 物品编辑 · <strong>拖动</strong>物品放到任意格（撞到物品则交换）· <strong>勾选</strong>后批量赋值。
+          紫色格子为控件（全局锁定，可<strong>拖动换位</strong>）；其余 {{ goodsSlots.length }} 格为商品区，<strong>可随意留空格</strong>、不强制排序。
+          <strong>点击</strong>空格添加 / 物品编辑 · <strong>拖动</strong>物品或控件放到任意格（撞到同类型则交换）· <strong>勾选</strong>后批量赋值。
         </p>
 
         <div v-for="(shop, shopIndex) in config.shops" :key="shopIndex" class="shop-card">
@@ -580,13 +663,15 @@ onMounted(() => {
               :class="{
                 'cell-control': controlBySlot(slot),
                 'cell-empty': !controlBySlot(slot) && !goodsItem(shop, slot),
-                'cell-selected': goodsItem(shop, slot) && isSelected(goodsItem(shop, slot))
+                'cell-selected': goodsItem(shop, slot) && isSelected(goodsItem(shop, slot)),
+                'cell-drag-over': dragOverSlot === slot
               }"
-              :draggable="!controlBySlot(slot) && !!goodsItem(shop, slot)"
-              @click="controlBySlot(slot) ? onLockedControlClick() : onGoodsCellClick(shopIndex, slot)"
-              @dragstart="!controlBySlot(slot) && goodsItem(shop, slot) && onDragStart(shopIndex, slot, $event)"
-              @dragover="!controlBySlot(slot) && onDragOver($event)"
-              @drop="!controlBySlot(slot) && onDrop(shopIndex, slot, $event)"
+              :draggable="!!controlBySlot(slot) || !!goodsItem(shop, slot)"
+              @click="controlBySlot(slot) ? onLockedControlClick(slot) : onGoodsCellClick(shopIndex, slot)"
+              @dragstart="controlBySlot(slot) ? onControlDragStart(slot, $event) : (goodsItem(shop, slot) && onDragStart(shopIndex, slot, $event))"
+              @dragover="onCellDragOver($event, shopIndex, slot)"
+              @drop="onCellDrop($event, shopIndex, slot)"
+              @dragend="onDragEnd"
               :title="cellTitle(shop, slot)"
             >
               <template v-if="controlBySlot(slot)">
@@ -628,8 +713,10 @@ onMounted(() => {
       <Transition name="panel-slide">
         <div v-if="panelOpen" class="edit-panel">
           <div class="panel-head">
-            <span class="panel-title">{{ panelTitle }}</span>
-            <button class="mini-btn" @click="panelClose" title="关闭">×</button>
+            <div class="panel-head-left">
+              <span class="panel-title">{{ panelTitle }}</span>
+            </div>
+            <button class="panel-back-btn" @click="returnToControls" title="返回商店配置（选中保留，点击商品可继续编辑）">← 返回</button>
           </div>
           <div class="panel-body">
             <!-- 单选：物品参数编辑 -->
@@ -902,6 +989,21 @@ onMounted(() => {
   border-bottom: 1px solid var(--border-light);
   flex-shrink: 0;
 }
+.panel-head-left { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.panel-head-left .panel-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.panel-back-btn {
+  background: transparent;
+  border: 1px solid var(--border-color);
+  border-radius: 7px;
+  color: var(--accent-primary);
+  font-size: 0.78rem;
+  padding: 3px 9px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: all 0.2s ease;
+}
+.panel-back-btn:hover { border-color: var(--accent-primary); background: rgba(99, 102, 241, 0.08); }
 .panel-title { font-size: 0.95rem; font-weight: 600; color: var(--accent-primary); }
 .panel-body { padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; }
 .panel-foot {
@@ -910,6 +1012,8 @@ onMounted(() => {
 }
 
 .card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.card-head-left { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.card-head-left h3 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .count {
   font-size: 0.75rem; font-weight: 600; color: var(--accent-primary);
   background: rgba(99, 102, 241, 0.12); border-radius: 999px; padding: 2px 9px; margin-left: 6px;
@@ -964,6 +1068,11 @@ onMounted(() => {
 .cell-control { background: rgba(139, 92, 246, 0.1); border-color: rgba(139, 92, 246, 0.5); cursor: not-allowed; }
 .cell-control:hover { border-color: #8b5cf6; }
 .cell-selected {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.25);
+}
+/* 拖放目标高亮 */
+.cell-drag-over {
   border-color: var(--accent-primary);
   box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.25);
 }
