@@ -132,6 +132,12 @@ const routes = [
             name: 'Permissions',
             component: () => import('../views/console/PermissionView.vue'),
             meta: { requiresAuth: true, requiresAdmin: true }
+          },
+          {
+            path: 'crosstransfer',
+            name: 'CrossTransfer',
+            component: () => import('../views/console/CrossTransferView.vue'),
+            meta: { requiresAuth: true, requiresAdmin: true }
           }
         ]
       },
@@ -176,12 +182,6 @@ const routes = [
         name: 'ServerSettings',
         component: () => import('../views/console/ServerSettingsView.vue'),
         meta: { requiresAuth: true, requiresAdmin: true }
-      },
-      {
-        path: 'crosstransfer',
-        name: 'CrossTransfer',
-        component: () => import('../views/console/CrossTransferView.vue'),
-        meta: { requiresAuth: true, requiresAdmin: true, title: '跨服传送' }
       },
       {
         path: 'servers',
