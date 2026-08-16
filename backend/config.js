@@ -169,14 +169,7 @@ export async function addServer(data) {
     crossChat: data.crossChat === true,
     // 前缀初始颜色 = 随机鲜艳色（高饱和+高明度），后续可自定义
     crossChatPrefix: (data.crossChatPrefix || '').trim() || `[c/${randomVividHex()}:{serverName}]`,
-    crossChatColor: (data.crossChatColor || '').trim() || '#FFFFFF',
-    // 跨服传送：配置权威源（servers[i].crossTransfer），前端编辑 → 后端构建插件格式下发给插件端
-    crossTransfer: {
-      enabled: false,
-      selfServerId: (data.name || '').trim() || '',
-      selfSecret: '',
-      targets: []
-    }
+    crossChatColor: (data.crossChatColor || '').trim() || '#FFFFFF'
   }
   cfg.servers.push(server)
   await persistConfig(cfg)
@@ -191,14 +184,13 @@ export async function updateServer(id, patch) {
 
   const s = cfg.servers[idx]
   const allowed = ['name', 'host', 'port', 'apiKey', 'enabled', 'note', 'syncQQAccounts', 'syncUUID',
-    'crossChat', 'crossChatPrefix', 'crossChatColor', 'crossTransfer']
+    'crossChat', 'crossChatPrefix', 'crossChatColor']
   for (const key of allowed) {
     if (patch[key] !== undefined) {
       if (key === 'port') s[key] = parseInt(patch[key]) || s[key]
       else if (key === 'enabled' || key === 'syncQQAccounts' || key === 'syncUUID' || key === 'crossChat') s[key] = !!patch[key]
       else if (key === 'crossChatPrefix') s[key] = String(patch[key]).trim() || '[c/4DABF7:{serverName}]'
       else if (key === 'crossChatColor') s[key] = String(patch[key]).trim() || '#FFFFFF'
-      else if (key === 'crossTransfer') s[key] = patch[key] || { enabled: false, selfServerId: '', selfSecret: '', targets: [] }
       else s[key] = String(patch[key]).trim()
     }
   }
@@ -214,23 +206,6 @@ export async function deleteServer(id) {
   if (cfg.servers.length === before) return false
   await persistConfig(cfg)
   return true
-}
-
-/** 获取指定服务器的跨服传送配置（无则 null） */
-export async function getServerCrossTransfer(id) {
-  const server = await getServerById(id)
-  return server?.crossTransfer || null
-}
-
-/** 保存指定服务器的跨服传送配置（整对象覆盖，前端编辑表单提交） */
-export async function setServerCrossTransfer(id, data) {
-  const cfg = await loadConfig()
-  if (!cfg || !Array.isArray(cfg.servers)) return null
-  const s = cfg.servers.find(x => x.id === id)
-  if (!s) return null
-  s.crossTransfer = data || { enabled: false, selfServerId: '', selfSecret: '', targets: [] }
-  await persistConfig(cfg)
-  return s.crossTransfer
 }
 
 async function persistConfig(cfg) {

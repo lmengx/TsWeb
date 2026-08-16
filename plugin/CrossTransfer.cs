@@ -27,20 +27,9 @@ namespace TShockData
 		[JsonProperty("启用")] public bool Enabled { get; set; } = true;
 		[JsonProperty("地址")] public string IP { get; set; } = "127.0.0.1";
 		[JsonProperty("端口")] public int Port { get; set; } = 7777;
-		/// <summary>专线地址（可选）：本服连接该目标服时优先尝试，失败回退“地址”</summary>
-		[JsonProperty("专线地址")] public string? DedicatedIP { get; set; }
-		[JsonProperty("专线端口")] public int DedicatedPort { get; set; }
 		[JsonProperty("协议版本")] public int VersionNum { get; set; } = 319;
 		[JsonProperty("共享密钥")] public string Secret { get; set; } = "";
 		[JsonProperty("进服密码(可选)")] public string? Password { get; set; }
-
-		/// <summary>连接端点列表：专线优先（若配置），公网地址兜底</summary>
-		public IEnumerable<(string ip, int port)> GetEndpoints()
-		{
-			if (!string.IsNullOrEmpty(DedicatedIP) && DedicatedPort > 0)
-				yield return (DedicatedIP, DedicatedPort);
-			yield return (IP, Port);
-		}
 	}
 
 	/// <summary>REST 探测目标 DTO（/data/crosstransfer/probe 入参条目）</summary>
@@ -49,8 +38,6 @@ namespace TShockData
 		[JsonProperty("名称")] public string Name { get; set; } = "";
 		[JsonProperty("地址")] public string IP { get; set; } = "";
 		[JsonProperty("端口")] public int Port { get; set; } = 7777;
-		[JsonProperty("专线地址")] public string? DedicatedIP { get; set; }
-		[JsonProperty("专线端口")] public int DedicatedPort { get; set; }
 	}
 
 	/// <summary>跨服传送配置：{TShock.SavePath}/TSWeb/CrossTransfer.json</summary>
@@ -1015,14 +1002,10 @@ namespace TShockData
 			catch { }
 		}
 
-		/// <summary>可达探测：专线优先尝试，失败回退公网地址（每端点 1500ms 超时）</summary>
+		/// <summary>可达探测：尝试 TCP 连接目标服端口（1500ms 超时）</summary>
 		private static bool ProbeReachable(TransferServerInfo server)
 		{
-			foreach (var (ip, port) in server.GetEndpoints())
-			{
-				if (ProbeAddress(ip, port)) return true;
-			}
-			return false;
+			return ProbeAddress(server.IP, server.Port);
 		}
 
 		/// <summary>单地址可达探测：TCP 连接尝试（1500ms 超时）</summary>
@@ -1514,7 +1497,7 @@ namespace TShockData
 			}
 		}
 
-		/// <summary>GET /data/crosstransfer/probe?targets={json}：逐条探测目标服可达性（专线优先）</summary>
+		/// <summary>GET /data/crosstransfer/probe?targets={json}：逐条探测目标服可达性</summary>
 		public static object ProbeRest(RestRequestArgs args)
 		{
 			try
@@ -1529,15 +1512,12 @@ namespace TShockData
 					名称 = t.Name,
 					地址 = t.IP,
 					端口 = t.Port,
-					专线地址 = t.DedicatedIP ?? "",
-					专线端口 = t.DedicatedPort,
-					公网可达 = ProbeAddress(t.IP, t.Port),
-					专线可达 = !string.IsNullOrEmpty(t.DedicatedIP) && t.DedicatedPort > 0
-						? ProbeAddress(t.DedicatedIP, t.DedicatedPort)
-						: false
+					可达 = ProbeAddress(t.IP, t.Port)
 				}).ToList();
 
-				return new RestObject { { "status", "200" }, { "results", results } };
+				// ⚠️ RestObject 构造器已内置 "status" 键，collection initializer 再 Add "status"
+				// 会抛 "an item with the same key has already been added"，只能用默认 status=200
+				return new RestObject { { "results", results } };
 			}
 			catch (Exception ex)
 			{

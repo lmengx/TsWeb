@@ -6,28 +6,6 @@ import { getServerInstance, testConnectionWith } from '../services/tshockService
 import { activateServer, deactivateServer } from '../services/serverActivation.js'
 import { refreshStatusPanelPush } from '../services/statusPanelService.js'
 
-/** 脱敏：跨服传送配置（selfSecret / targets[].secret 只回传是否已设置，明文经 /api/crosstransfer/reveal） */
-function sanitizeCrossTransfer(ct) {
-  if (!ct) return null
-  return {
-    enabled: !!ct.enabled,
-    selfServerId: ct.selfServerId || '',
-    hasSelfSecret: !!(ct.selfSecret && ct.selfSecret.length > 0),
-    targets: (ct.targets || []).map(t => ({
-      serverId: t.serverId || '',
-      name: t.name || '',
-      enabled: t.enabled !== false,
-      host: t.host || '',
-      port: t.port || 7777,
-      dedicatedHost: t.dedicatedHost || '',
-      dedicatedPort: t.dedicatedPort || 0,
-      version: t.version || 319,
-      hasSecret: !!(t.secret && t.secret.length > 0),
-      password: t.password || ''
-    }))
-  }
-}
-
 /** 脱敏：apiKey / pushSecret 只返回是否已设置，不返回明文；同时附上实时在线状态 */
 function sanitize(server) {
   if (!server) return null
@@ -47,9 +25,7 @@ function sanitize(server) {
     // 跨服聊天（前端编辑弹窗回显）
     crossChat: server.crossChat === true,
     crossChatPrefix: server.crossChatPrefix || '[c/4DABF7:{serverName}]',
-    crossChatColor: server.crossChatColor || '#FFFFFF',
-    // 跨服传送（脱敏）
-    crossTransfer: sanitizeCrossTransfer(server.crossTransfer)
+    crossChatColor: server.crossChatColor || '#FFFFFF'
   }
 }
 

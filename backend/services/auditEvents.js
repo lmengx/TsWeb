@@ -108,22 +108,14 @@ export const AUDIT_EVENTS = {
     fields: ['serverId', 'actor'], ip: false, sensitive: []
   },
 
-  // ═══ cross_transfer 类 — 跨服传送配置 ═══
+  // ═══ cross_transfer 类 — 跨服传送配置（单服直连，读/写插件端）═══
   'crossTransfer.save': {
-    level: 'info', category: 'cross_transfer', title: '保存跨服传送草稿',
-    fields: ['serverId', 'enabled', 'targets', 'actor'], ip: false, sensitive: []
-  },
-  'crossTransfer.apply': {
-    level: 'warn', category: 'cross_transfer', title: '下发跨服传送配置到插件端',
+    level: 'warn', category: 'cross_transfer', title: '保存跨服传送配置到插件端',
     fields: ['serverId', 'enabled', 'targets', 'actor'], ip: false, sensitive: []
   },
   'crossTransfer.probe': {
     level: 'info', category: 'cross_transfer', title: '探测跨服目标可达性',
     fields: ['serverId', 'count', 'actor'], ip: false, sensitive: []
-  },
-  'crossTransfer.reveal': {
-    level: 'warn', category: 'cross_transfer', title: '显示本服跨服密钥',
-    fields: ['serverId', 'actor'], ip: false, sensitive: ['selfSecret']
   },
 
   // ═══ backup 类 — 自动备份 ═══

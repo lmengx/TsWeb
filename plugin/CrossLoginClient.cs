@@ -76,33 +76,7 @@ namespace TShockData
 			try
 			{
 				using var cts = new CancellationTokenSource(timeoutMs);
-				// 专线优先：依次尝试 [专线地址:端口 → 地址:端口]，每个端点 1500ms 超时；
-				// 失败即换新 TcpClient 继续（旧 socket 不可复用）。总超时受 timeoutMs 兜底。
-				var endpoints = server.GetEndpoints().ToList();
-				string? lastErr = null;
-				foreach (var (ip, port) in endpoints)
-				{
-					try
-					{
-						using var ec = CancellationTokenSource.CreateLinkedTokenSource(cts.Token);
-						ec.CancelAfter(1500);
-						await client.ConnectAsync(ip, port, ec.Token);
-						lastErr = null;
-						break;
-					}
-					catch (Exception ex)
-					{
-						lastErr = ex.Message;
-						client.Dispose();
-						client = new TcpClient();
-					}
-				}
-				if (lastErr != null)
-				{
-					client.Dispose();
-					var eps = string.Join(" / ", endpoints.Select(e => $"{e.ip}:{e.port}"));
-					return new HandshakeResult { Ok = false, Reason = $"无法连接 {server.Name}（{eps}）: {lastErr}" };
-				}
+				await client.ConnectAsync(server.IP, server.Port, cts.Token);
 			}
 			catch (Exception ex)
 			{
