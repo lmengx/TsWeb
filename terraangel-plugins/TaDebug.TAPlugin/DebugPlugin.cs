@@ -21,18 +21,24 @@ public sealed class DebugPlugin : Plugin
 {
     public override string Name => "TaDebug";
 
+    private PasswordBruteWindow? _bruteWindow;
+
     public DebugPlugin(string path) : base(path)
     {
     }
 
-    /// <summary>加载时调用一次：注册控制台命令与工具面板。</summary>
+    /// <summary>加载时调用一次：注册控制台命令、工具面板与独立窗口。</summary>
     public override void Load()
     {
         ClientLoader.Console.WriteLine($"[{Name}] 已加载，dll 路径: {PluginPath}");
         ClientLoader.Console.WriteLine($"[{Name}] 程序集: {PluginAssembly.FullName}");
 
-        // 注册 NPC 召唤面板（主窗口出现 NPC Summoner 标签页）
+        // 注册 NPC 召唤面板（主窗口出现 NPC Summoner 标签页，仅游戏内可见）
         ToolManager.AddTool<NPCSummonerTool>();
+
+        // 注册进服密码爆破窗口（ClientWindow：主菜单/游戏内均可见，与 Tool 不同）
+        _bruteWindow = new PasswordBruteWindow();
+        ClientLoader.MainRenderer?.AddWindow(_bruteWindow);
 
         ClientLoader.Console.AddCommand("hi",
             x =>
@@ -61,6 +67,17 @@ public sealed class DebugPlugin : Plugin
             ToolManager.RemoveTool<NPCSummonerTool>();
         }
         catch { }
+        try
+        {
+            if (_bruteWindow != null)
+            {
+                ClientLoader.MainRenderer?.RemoveWindow(_bruteWindow);
+                _bruteWindow = null;
+            }
+        }
+        catch { }
+        // 强制停止可能仍在跑的爆破线程（避免热重载后后台线程泄漏）
+        PasswordBruteWindow.StopAll();
         ClientLoader.Console.WriteLine($"[{Name}] 已卸载");
     }
 }

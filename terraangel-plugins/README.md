@@ -31,6 +31,30 @@ terraangel-plugins/
 3. 创建类继承 `TerraAngel.Plugin.Plugin`，实现 `Name`、构造函数（`string path`）、`Load/Update/Unload`
 4. 编译输出 `bin/Release/net10.0/xxx.TAPlugin.dll`
 
+# TaDebug 内置工具/窗口
+
+| 工具 | 位置 | 可见范围 | 说明 |
+|---|---|---|---|
+| NPC Summoner | 主窗口「NPC Summoner」标签页 | 仅游戏内（Tool） | 搜索 + 分类生物召唤面板，多人走 FishOutNPC(130) 包（服务端无白名单检查） |
+| 进服密码爆破 | 独立窗口「进服密码爆破」（默认自动打开） | **主菜单 + 游戏内均可**（ClientWindow） | 迷你客户端并发握手，逐个尝试 ServerPassword（安全测试用途：验证服务器抗暴力破解能力，反哺 TSWeb 反作弊） |
+
+## 进服密码爆破工具（PasswordBruteWindow）
+
+- **用途**：对自己/授权的 TShock 服务器做进服密码抗爆破能力测试（错误密码立即被踢 = 无重试机会；但无连接级限速）
+- **显示**：用 `ClientWindow`（非 Tool）——Tool 的 DrawUI 只在 MainWindow 的「游戏内」分支渲染（`MainWindow.cs:31 if (!Main.gameMenu && ...)`），主菜单看不到；ClientWindow 渲染循环只看 `IsEnabled`（`ClientRenderer.cs:309`），主菜单同样可显示，且右上角可关闭/全局开关可恢复
+- **输入**：目标 IP、端口、并发数（1-200）、版本串（留空自动取当前客户端）
+- **密码来源三种模式**：
+  - 自动生成（默认）：字符集（数字/小写/大写/符号复选）+ 长度范围 1~12，程序按长度递增索引穷举（O(1) 内存，进度显示总空间）
+  - 手动字典：多行文本，每行一个，`#` 开头为注释
+  - **导入字典文件**（手动模式内）：「导入字典文件」按钮 → SDL3 原生文件对话框（与 TerraAngel WorldEditPixelArt 同款）→ 选 txt 等文本文件，每行视作一个密码，追加到手动字典文本框
+- **日志**：内置「复制日志」「清空日志」按钮
+- **Kick 包完整解析**：NetworkText mode 0(Literal)/1(Formattable)/2(Localized) 递归解析，TShock 踢人用的 `Kicked: {0}` 是 mode 1，旧版解析不出原因——现可看到真实被拒原因（如 Outdated version / Bounced）
+- **判定**：收到 WorldData(7) = 密码正确；发 SendPassword(38) 后收到 Kick(2)/断开 = 失败
+- **协议基准**：Terraria 1.4.5 / TShock 6.x，帧格式 `[ushort 总长含头][type][body]`（与插件端 CrossLoginClient / TransferProtocol 同款，源码实证）
+  - 握手：ClientHello(1) → ClientUUID(68) → 等 LoadPlayer(3) → PlayerInfo(4) + ContinueConnecting2(6) → 等 RequestPassword(37) → SendPassword(38) → 结果
+  - 找到密码后自动停止全部并发；目标无密码时提示并停止
+- **代码**：`TaDebug.TAPlugin/PasswordBruteWindow.cs`（DebugPlugin.Load 经 `ClientLoader.MainRenderer.AddWindow` 注册，Unload 经 RemoveWindow 移除并强制停线程）
+
 ## 安装与使用（客户端侧）
 
 1. 将插件 dll 放入客户端插件目录：`{Terraria 存档}/TerraAngel/Plugins/`
