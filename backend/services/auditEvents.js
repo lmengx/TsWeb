@@ -232,6 +232,12 @@ export const AUDIT_EVENTS = {
     fields: ['cleaned', 'serverId', 'actor'], ip: false, sensitive: []
   },
 
+  // ═══ worldmodify 类 — 世界修改器（单服直连，读/写插件端 /data/worldmodify/*）═══
+  'worldModify.apply': {
+    level: 'warn', category: 'worldmodify', title: '修改世界参数（已击败标记/时间/天气等）',
+    fields: ['serverId', 'fields', 'applied', 'actor'], ip: false, sensitive: []
+  },
+
   // ═══ system 类 ═══
   'system.start': {
     level: 'info', category: 'system', title: '后端启动',

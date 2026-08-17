@@ -133,6 +133,10 @@ namespace TShockData
             TShock.RestApi.Register(new SecureRestCommand("/data/statuspanel/config", StatusPanel.GetConfigJson, "data.rest.invsee"));
             TShock.RestApi.Register(new SecureRestCommand("/data/statuspanel/config/set", StatusPanel.SetConfigJson, "data.rest.invsee"));
 
+            // ═══ 简易世界修改器（REST 版，移植自 WorldModify 字段能力；权限沿用原插件指令权限：查看 worldinfo / 修改 worldmodify）═══
+            TShock.RestApi.Register(new SecureRestCommand("/data/worldmodify/status", WorldModify.GetStatusRest, "worldinfo"));
+            TShock.RestApi.Register(new SecureRestCommand("/data/worldmodify/apply", WorldModify.ApplyRest, "worldmodify"));
+
             // ═══ 个人独立权限（快速/批量签发 + 到期自动失效 + 多维排序查看）═══
             PersonalPermissionManager.Initialize(this);
             TShock.RestApi.Register(new SecureRestCommand("/data/permissions/summary", PersonalPermissionManager.SummaryApi, "data.rest.invsee"));
@@ -395,6 +399,8 @@ namespace TShockData
                 "/data/promotion/config/set",
                 "/data/statuspanel/config",
                 "/data/statuspanel/config/set",
+                "/data/worldmodify/status",
+                "/data/worldmodify/apply",
                 "/data/permissions/summary",
                 "/data/permissions/list",
                 "/data/permissions/grant",

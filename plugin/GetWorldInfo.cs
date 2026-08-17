@@ -3,6 +3,7 @@ using Terraria;
 using Terraria.ID;
 using Rests;
 using Newtonsoft.Json;
+using System;
 using System.Collections.Generic;
 
 namespace TShockData
@@ -91,6 +92,45 @@ namespace TShockData
             { NPCID.MoonLordCore, 3601 }
         };
 
+        /// <summary>
+        /// Boss NPCID → downed 击败标记读取（世界进度页悬浮窗修改用，字段键与 /data/worldmodify 一致）。
+        /// 血肉墙对应 hardMode（困难模式开关）。
+        /// </summary>
+        private static readonly Dictionary<int, Func<bool>> BossDownedGetters = new Dictionary<int, Func<bool>>
+        {
+            { NPCID.KingSlime, () => NPC.downedSlimeKing },
+            { NPCID.EyeofCthulhu, () => NPC.downedBoss1 },
+            { NPCID.EaterofWorldsHead, () => NPC.downedBoss2 },
+            { NPCID.BrainofCthulhu, () => NPC.downedBoss2 },
+            { NPCID.QueenBee, () => NPC.downedQueenBee },
+            { NPCID.Deerclops, () => NPC.downedDeerclops },
+            { NPCID.SkeletronHead, () => NPC.downedBoss3 },
+            { NPCID.WallofFlesh, () => Main.hardMode },
+            { NPCID.QueenSlimeBoss, () => NPC.downedQueenSlime },
+            { NPCID.TheDestroyer, () => NPC.downedMechBoss1 },
+            { NPCID.SkeletronPrime, () => NPC.downedMechBoss3 },
+            { NPCID.Retinazer, () => NPC.downedMechBoss2 },
+            { NPCID.Plantera, () => NPC.downedPlantBoss },
+            { NPCID.Golem, () => NPC.downedGolemBoss },
+            { NPCID.DukeFishron, () => NPC.downedFishron },
+            { NPCID.HallowBoss, () => NPC.downedEmpressOfLight },
+            { NPCID.CultistBoss, () => NPC.downedAncientCultist },
+            { NPCID.MoonLordCore, () => NPC.downedMoonlord }
+        };
+
+        /// <summary>
+        /// 事件 EventID → downed 击败标记读取。日食(4)无独立 downed 字段，以蛾怪击杀记录判定（只读，不可修改）。
+        /// </summary>
+        private static readonly Dictionary<int, Func<bool>> EventDownedGetters = new Dictionary<int, Func<bool>>
+        {
+            { 0, () => NPC.downedGoblins },
+            { 2, () => NPC.downedPirates },
+            { 3, () => NPC.downedMartians },
+            { 4, () => IsEventCompleted(4) },
+            { 8, () => NPC.downedChristmasIceQueen },
+            { 9, () => NPC.downedHalloweenKing }
+        };
+
         public static void GetBossInfo(CommandArgs args)
         {
             var player = args.Player;
@@ -157,16 +197,22 @@ namespace TShockData
         {
             var bossList = new List<object>();
             int killedCount = 0;
+            int downedCount = 0;
             int totalBossCount = BossNames.Count;
 
             foreach (var boss in BossNames)
             {
                 int killCount = GetKillCount(boss.Key);
                 bool isKilled = killCount > 0;
+                bool downed = BossDownedGetters.TryGetValue(boss.Key, out var dg) && dg();
                 
                 if (isKilled)
                 {
                     killedCount++;
+                }
+                if (downed)
+                {
+                    downedCount++;
                 }
 
                 bossList.Add(new
@@ -174,28 +220,36 @@ namespace TShockData
                     Name = boss.Value,
                     NPCID = boss.Key,
                     KillCount = killCount,
-                    IsKilled = isKilled
+                    IsKilled = isKilled,
+                    Downed = downed
                 });
             }
 
             var eventList = new List<object>();
             int completedEventCount = 0;
+            int downedEventCount = 0;
             int totalEventCount = EventNames.Count;
 
             foreach (var evt in EventNames)
             {
                 bool isCompleted = IsEventCompleted(evt.Key);
+                bool downed = EventDownedGetters.TryGetValue(evt.Key, out var eg) && eg();
                 
                 if (isCompleted)
                 {
                     completedEventCount++;
+                }
+                if (downed)
+                {
+                    downedEventCount++;
                 }
 
                 eventList.Add(new
                 {
                     Name = evt.Value,
                     EventID = evt.Key,
-                    IsCompleted = isCompleted
+                    IsCompleted = isCompleted,
+                    Downed = downed
                 });
             }
 
@@ -203,11 +257,15 @@ namespace TShockData
             {
                 TotalBossCount = totalBossCount,
                 KilledCount = killedCount,
+                DownedBossCount = downedCount,
                 BossProgressPercent = (int)(killedCount * 100.0 / totalBossCount),
+                DownedBossPercent = totalBossCount == 0 ? 0 : (int)(downedCount * 100.0 / totalBossCount),
                 Bosses = bossList,
                 TotalEventCount = totalEventCount,
                 CompletedEventCount = completedEventCount,
+                DownedEventCount = downedEventCount,
                 EventProgressPercent = (int)(completedEventCount * 100.0 / totalEventCount),
+                DownedEventPercent = totalEventCount == 0 ? 0 : (int)(downedEventCount * 100.0 / totalEventCount),
                 Events = eventList
             };
         }

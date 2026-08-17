@@ -69,7 +69,7 @@ const onMediaChange = (e) => { isMobile.value = e.matches }
 const serverSection = [
   { id: 'online', name: '服务器总览', path: '/console/online', managerOnly: true, icon: '📊' },
   { id: 'terminal', name: '控制台', path: '/console/terminal', managerOnly: true, icon: '💻' },
-  { id: 'progress', name: '世界进度', path: '/console/progress', managerOnly: true },
+  { id: 'progress', name: '世界信息', path: '/console/progress', managerOnly: true },
   { id: 'players', name: '玩家管理', path: '/console/players', managerOnly: true, icon: '👥' },
   { id: 'groups', name: '组管理', path: '/console/groups', managerOnly: true },
   { id: 'houses', name: '房屋与建筑', path: '/console/houses', managerOnly: true, icon: '🏠' },
@@ -141,7 +141,7 @@ const mainTabs = computed(() => {
     ]
   } else {
     return [
-      { id: 'progress', name: '世界进度', path: '/console/progress' },
+      { id: 'progress', name: '世界信息', path: '/console/progress' },
       { id: 'tools', name: '工具', isTools: true },
     ]
   }
