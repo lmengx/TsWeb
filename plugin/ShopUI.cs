@@ -73,6 +73,23 @@ namespace TShockData
 		/// <summary>WorldGen.UnspawnTravelNPC 原始委托（public static，无参）</summary>
 		private delegate void OrigUnspawnTravelNPC();
 
+		/// <summary>MonoMod detour：WorldGen.SpawnTravelNPC。
+		/// 原版生成真旅商前会遍历检查"已存在 active 的 368 → 直接 return"（WorldGen.cs SpawnTravelNPC 开头），
+		/// 虚拟旅商也是 368 → 真旅商永远无法生成。detour 临时隐藏虚拟旅商，让存在性检查通过。</summary>
+		private static Hook? _spawnTravelHook;
+
+		/// <summary>WorldGen.SpawnTravelNPC 原始委托（public static，无参）</summary>
+		private delegate void OrigSpawnTravelNPC();
+
+		/// <summary>MonoMod detour：NPC.UpdateNPC。
+		/// 虚拟旅商(368)每帧 UpdateNPC 会把全局 NPC.travelNPC 置 true（NPC.cs: type==368→travelNPC=true），
+		/// 而 Main.cs 只在 travelNPC==false 时才走"随机生成真旅商"分支 → 虚拟旅商在场期间真旅商永不生成。
+		/// detour 在虚拟旅商更新后复位该标志（场上无真旅商时），解除生成入口抑制。</summary>
+		private static Hook? _updateNpcHook;
+
+		/// <summary>NPC.UpdateNPC 原始委托（public 实例方法，第一参 self）</summary>
+		private delegate void OrigUpdateNPC(NPC self, int i);
+
 		private static bool _initialized;
 		private static TerrariaPlugin? _plugin;
 
@@ -117,6 +134,42 @@ namespace TShockData
 			{
 				TShock.Log.ConsoleError($"[ShopUI] UnspawnTravelNPC detour 注册失败: {ex.Message}");
 			}
+
+			// 8. 真旅商生成解禁：MonoMod detour WorldGen.SpawnTravelNPC（跳过虚拟旅商的 368 存在性检查）
+			try
+			{
+				var method = typeof(WorldGen).GetMethod("SpawnTravelNPC", BindingFlags.Public | BindingFlags.Static);
+				if (method == null)
+				{
+					TShock.Log.ConsoleError("[ShopUI] 未找到 WorldGen.SpawnTravelNPC，真旅商生成解禁未启用");
+				}
+				else
+				{
+					_spawnTravelHook = new Hook(method, OnSpawnTravelNPC);
+				}
+			}
+			catch (Exception ex)
+			{
+				TShock.Log.ConsoleError($"[ShopUI] SpawnTravelNPC detour 注册失败: {ex.Message}");
+			}
+
+			// 9. travelNPC 标志解禁：MonoMod detour NPC.UpdateNPC（虚拟旅商更新后复位全局 travelNPC）
+			try
+			{
+				var method = typeof(NPC).GetMethod("UpdateNPC", new[] { typeof(int) });
+				if (method == null)
+				{
+					TShock.Log.ConsoleError("[ShopUI] 未找到 NPC.UpdateNPC，travelNPC 标志解禁未启用");
+				}
+				else
+				{
+					_updateNpcHook = new Hook(method, OnUpdateNPC);
+				}
+			}
+			catch (Exception ex)
+			{
+				TShock.Log.ConsoleError($"[ShopUI] UpdateNPC detour 注册失败: {ex.Message}");
+			}
 		}
 
 		public static void Dispose()
@@ -133,6 +186,10 @@ namespace TShockData
 			ServerApi.Hooks.GameUpdate.Deregister(_plugin, OnGameUpdate);
 			try { _unspawnTravelHook?.Dispose(); } catch { }
 			_unspawnTravelHook = null;
+			try { _spawnTravelHook?.Dispose(); } catch { }
+			_spawnTravelHook = null;
+			try { _updateNpcHook?.Dispose(); } catch { }
+			_updateNpcHook = null;
 
 			foreach (int who in _active.Keys.ToList())
 			{
@@ -377,6 +434,72 @@ namespace TShockData
 						Main.npc[idx].active = true;
 					}
 				}
+			}
+		}
+
+		// ═══════════════════ 真旅商生成解禁（travelNPC 标志 + SpawnTravelNPC 存在性检查） ═══════════════════
+
+		/// <summary>场上是否存在真实旅商（type==368 且不是本插件创建的虚拟旅商）</summary>
+		private static bool HasRealTravelMerchant()
+		{
+			foreach (var npc in Main.npc)
+			{
+				if (npc.active && npc.type == TravelingMerchantType && !_active.ContainsValue(npc.whoAmI))
+				{
+					return true;
+				}
+			}
+			return false;
+		}
+
+		/// <summary>
+		/// detour：临时把虚拟旅商 active 置 false → 原版 SpawnTravelNPC 的"已存在 active 368 → return"检查跳过虚拟旅商
+		/// → 真旅商正常生成 → 恢复。与 UnspawnTravelNPC detour 配对，实现"虚拟旅商与真旅商可共存"。
+		/// </summary>
+		private static void OnSpawnTravelNPC(OrigSpawnTravelNPC orig)
+		{
+			var hidden = new List<int>();
+			foreach (var kvp in _active)
+			{
+				int idx = kvp.Value;
+				if (idx >= 0 && idx < Main.maxNPCs && Main.npc[idx].active && Main.npc[idx].type == TravelingMerchantType)
+				{
+					hidden.Add(idx);
+					Main.npc[idx].active = false; // 临时隐藏：让原逻辑的存在性检查通过
+				}
+			}
+			try
+			{
+				orig();
+			}
+			finally
+			{
+				foreach (int idx in hidden)
+				{
+					// 恢复 active；若槽内已不是旅商（极端复用）则不动
+					if (idx >= 0 && idx < Main.maxNPCs && Main.npc[idx].type == TravelingMerchantType)
+					{
+						Main.npc[idx].active = true;
+					}
+				}
+			}
+		}
+
+		/// <summary>
+		/// detour：虚拟旅商每帧 UpdateNPC 会把全局 NPC.travelNPC 置 true（NPC.cs: type==368→travelNPC=true），
+		/// 而 Main.cs 生成分支只在 travelNPC==false 时进入 → 虚拟旅商在场期间真旅商永不生成。
+		/// orig 后：若刚更新的 368 是本插件的虚拟旅商且场上无真旅商，则复位 travelNPC=false，解除生成入口抑制。
+		/// 场上存在真旅商时保持 true（真旅商在场 = "今日旅商已来"，符合原版语义，天黑照常离开）。
+		/// 性能：快速路径先查 type，仅 368 实体做字典查找；无虚拟旅商时零开销。</summary>
+		private static void OnUpdateNPC(OrigUpdateNPC orig, NPC self, int i)
+		{
+			orig(self, i);
+			if (_active.Count == 0) return; // 无虚拟旅商 → 完全原版行为
+			if (self == null || self.type != TravelingMerchantType) return; // 仅关心 368
+			if (!_active.ContainsValue(i)) return; // 真旅商（非本插件创建的 368）→ 不动标志
+			if (!HasRealTravelMerchant())
+			{
+				NPC.travelNPC = false; // 场上只有虚拟旅商 → 复位，恢复真旅商生成入口
 			}
 		}
 
