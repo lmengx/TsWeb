@@ -174,10 +174,15 @@ namespace TShockData
                 return;
             }
 
-            // 禁止不足1小时玩家发言/命令（查缓存，无缓存则静默放行避免阻断正常玩家）
-            if (Config.BlockUnder1hChat && _playtimeCache.TryGetValue(who, out var cachedMinutes))
+            // 禁止不足1小时玩家发言/命令
+            // 任一禁言开关开启时，未登录玩家也不准发言
+            if (Config.BlockUnder1hChat)
             {
-                if (cachedMinutes < 60)
+                if (!player.IsLoggedIn)
+                {
+                    args.Handled = true;
+                }
+                else if (_playtimeCache.TryGetValue(who, out var cachedMinutes) && cachedMinutes < 60)
                 {
                     args.Handled = true;
                     // 静默丢弃，不发送提示
