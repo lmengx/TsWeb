@@ -138,6 +138,12 @@ const routes = [
             name: 'CrossTransfer',
             component: () => import('../views/console/CrossTransferView.vue'),
             meta: { requiresAuth: true, requiresAdmin: true }
+          },
+          {
+            path: 'risk-control',
+            name: 'RiskControl',
+            component: () => import('../views/console/settings/RiskControlSettingsView.vue'),
+            meta: { requiresAuth: true, requiresAdmin: true }
           }
         ]
       },

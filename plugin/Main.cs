@@ -49,6 +49,12 @@ namespace TShockData
             // ═══ 跨服传送（纯插件：Unused15 自定义包通道 + Auth 密钥鉴权 + 前置握手）═══
             CrossTransfer.Initialize(this);
 
+            // ═══ 实时风控（进服/发言/命令拦截 + 一键踢出）═══
+            RiskControl.Initialize(this);
+            TShock.RestApi.Register(new SecureRestCommand("/data/riskcontrol/config",       RiskControl.GetConfigJson, ""));
+            TShock.RestApi.Register(new SecureRestCommand("/data/riskcontrol/config/set",   RiskControl.SetConfigJson, "data.rest.invsee"));
+            TShock.RestApi.Register(new SecureRestCommand("/data/riskcontrol/action",       RiskControl.ExecuteAction, "data.rest.invsee"));
+
             // ═══ 跨服传送配置管理（前后端整合：后端下发 / 连通性探测）═══
             TShock.RestApi.Register(new SecureRestCommand("/data/crosstransfer/config", CrossTransfer.GetConfigRest, "tshock.admin"));
             TShock.RestApi.Register(new SecureRestCommand("/data/crosstransfer/config/set", CrossTransfer.SetConfigRest, "tshock.admin"));
@@ -250,6 +256,7 @@ namespace TShockData
             ItemDetection.StartAutoScan();
             PromotionManager.LoadConfig();
             EmoteCommandManager.LoadConfig();
+            RiskControl.LoadConfig();
             TaskScheduler.Reload();
             AutoBackup.LoadConfig();
             ShopUIConfigManager.LoadConfig();
@@ -281,6 +288,7 @@ namespace TShockData
                 AccountSync.Dispose(this);
                 CrossChat.Dispose();
                 CrossTransfer.Dispose();
+                RiskControl.Dispose();
                 BypassHelper.UnregisterPermissionHook();
 				PvPLockManager.Dispose();
 				TeamLockManager.Dispose();
@@ -430,6 +438,9 @@ namespace TShockData
                 "/data/crosstransfer/config",
                 "/data/crosstransfer/config/set",
                 "/data/crosstransfer/probe",
+                "/data/riskcontrol/config",
+                "/data/riskcontrol/config/set",
+                "/data/riskcontrol/action",
 			};
 
 			try

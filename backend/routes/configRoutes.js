@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { getConfigFile, saveConfigFile, getTsWebConfig, setTsWebConfig, getBossConfig, setBossConfig, getBackupConfig, setBackupConfig, postLicenseClose, getBossLimitStatus, getPromotionConfig, setPromotionConfig, getListenConfig, saveListenConfig, getSingleLoginConfig, setSingleLoginConfig, getStatusPanelConfig, setStatusPanelConfig, getShopUIConfig, setShopUIConfig } from '../controllers/configController.js'
+import { getConfigFile, saveConfigFile, getTsWebConfig, setTsWebConfig, getBossConfig, setBossConfig, getBackupConfig, setBackupConfig, postLicenseClose, getBossLimitStatus, getPromotionConfig, setPromotionConfig, getListenConfig, saveListenConfig, getSingleLoginConfig, setSingleLoginConfig, getStatusPanelConfig, setStatusPanelConfig, getShopUIConfig, setShopUIConfig, getRiskControlConfig, setRiskControlConfig, riskControlAction } from '../controllers/configController.js'
 import { verifyToken, requireRole, requireAdmin, requireManager } from '../middlewares/authMiddleware.js'
 
 const router = Router()
@@ -28,5 +28,9 @@ router.get('/statuspanel', verifyToken, requireManager, getStatusPanelConfig)
 router.post('/statuspanel', verifyToken, requireManager, setStatusPanelConfig)
 router.get('/shopui', verifyToken, requireManager, getShopUIConfig)
 router.post('/shopui', verifyToken, requireManager, setShopUIConfig)
+// 实时风控：admin + subadmin
+router.get('/risk-control', verifyToken, requireManager, getRiskControlConfig)
+router.post('/risk-control', verifyToken, requireManager, setRiskControlConfig)
+router.post('/risk-control/action', verifyToken, requireManager, riskControlAction)
 
 export default router

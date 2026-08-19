@@ -1713,6 +1713,45 @@ export class TShockService {
     }
   }
 
+  // ===== 实时风控 =====
+
+  async getRiskControlConfig() {
+    if (!this.baseUrl) await this.init()
+    const url = `${this.baseUrl}/data/riskcontrol/config${this.apiKey ? `?token=${encodeURIComponent(this.apiKey)}` : ''}`
+    console.log(`[OUTGOING] GET ${url}`)
+    try {
+      const response = await fetch(url, { method: 'GET', headers: { 'Accept': 'application/json' } })
+      return await response.json()
+    } catch (error) {
+      return { status: '500', error: error.message }
+    }
+  }
+
+  async setRiskControlConfig(params) {
+    if (!this.baseUrl) await this.init()
+    const query = Object.entries(params).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&')
+    const url = `${this.baseUrl}/data/riskcontrol/config/set?${query}${this.apiKey ? `&token=${encodeURIComponent(this.apiKey)}` : ''}`
+    console.log(`[OUTGOING] POST ${url}`)
+    try {
+      const response = await fetch(url, { method: 'POST', headers: { 'Accept': 'application/json' } })
+      return await response.json()
+    } catch (error) {
+      return { status: '500', error: error.message }
+    }
+  }
+
+  async riskControlAction(action) {
+    if (!this.baseUrl) await this.init()
+    const url = `${this.baseUrl}/data/riskcontrol/action?action=${encodeURIComponent(action)}${this.apiKey ? `&token=${encodeURIComponent(this.apiKey)}` : ''}`
+    console.log(`[OUTGOING] GET ${url}`)
+    try {
+      const response = await fetch(url, { method: 'GET', headers: { 'Accept': 'application/json' } })
+      return await response.json()
+    } catch (error) {
+      return { status: '500', error: error.message }
+    }
+  }
+
   // ===== 通用数据代理：/data/tasks/* 等自定义端点 =====
 
   async proxyDataRequest(subPath, method = 'GET', params = {}) {

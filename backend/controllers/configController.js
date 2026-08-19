@@ -247,3 +247,34 @@ export const setStatusPanelConfig = async (req, res) => {
     res.status(500).json({ status: '500', error: error.message })
   }
 }
+
+// ═══ 实时风控 ═══
+
+export const getRiskControlConfig = async (req, res) => {
+  try {
+    const result = await tshockService.getRiskControlConfig()
+    res.json(result)
+  } catch (error) {
+    res.status(500).json({ status: '500', error: error.message })
+  }
+}
+
+export const setRiskControlConfig = async (req, res) => {
+  try {
+    const result = await tshockService.setRiskControlConfig(req.body)
+    res.json(result)
+  } catch (error) {
+    res.status(500).json({ status: '500', error: error.message })
+  }
+}
+
+export const riskControlAction = async (req, res) => {
+  try {
+    const { action } = req.body
+    if (!action) return res.status(400).json({ status: '400', error: 'Missing action parameter' })
+    const result = await tshockService.riskControlAction(action)
+    res.json(result)
+  } catch (error) {
+    res.status(500).json({ status: '500', error: error.message })
+  }
+}
