@@ -68,8 +68,12 @@ const fetchConfig = async () => {
 
 const executeKick = async (action, label) => {
   if (!confirm(`确定要${label}吗？此操作不可撤销。`)) return
+  const kickRef = action === 'kick-all' ? kickingAll : kickingUnder1h
+  kickRef.value = true
+  error.value = ''
+  success.value = ''
   try {
-    const res = await post('/api/risk-control/action', { action })
+    const res = await post('/api/config/risk-control/action', { action })
     const data = await res.json()
     if (data.status === '200') {
       success.value = `已执行：${label}（${data.kicked ?? '未知'} 人）`
@@ -79,6 +83,8 @@ const executeKick = async (action, label) => {
     }
   } catch (err) {
     error.value = `${label}失败: ` + err.message
+  } finally {
+    kickRef.value = false
   }
 }
 

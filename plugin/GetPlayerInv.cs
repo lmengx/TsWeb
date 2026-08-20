@@ -199,6 +199,10 @@ namespace TShockData
                 var item = player.TPlayer.inventory[54 + i];
                 result[54 + i] = new InventoryData(item.type, item.prefix, item.stack, 54 + i, item.favorited);
             }
+
+            // 手持栏（NetItem.InventorySlots=59 → 索引 58）
+            var heldItem = player.TPlayer.inventory[58];
+            result[58] = new InventoryData(heldItem.type, heldItem.prefix, heldItem.stack, 58, heldItem.favorited);
             
             for (int i = 0; i < 10; i++)
             {
@@ -257,61 +261,64 @@ namespace TShockData
                 result[220 + i] = new InventoryData(item.type, item.prefix, item.stack, 220 + i, item.favorited);
             }
             
+            // 装备方案 1（Loadout1Armor=260-279 + Loadout1Dye=280-289）
             for (int i = 0; i < 10; i++)
             {
                 var item = player.TPlayer.Loadouts[0].Armor[i];
-                result[289 + i] = new InventoryData(item.type, item.prefix, item.stack, 289 + i, item.favorited);
+                result[260 + i] = new InventoryData(item.type, item.prefix, item.stack, 260 + i, item.favorited);
             }
             
             for (int i = 0; i < 10; i++)
             {
                 var item = player.TPlayer.Loadouts[0].Armor[10 + i];
-                result[299 + i] = new InventoryData(item.type, item.prefix, item.stack, 299 + i, item.favorited);
+                result[270 + i] = new InventoryData(item.type, item.prefix, item.stack, 270 + i, item.favorited);
             }
             
             for (int i = 0; i < NetItem.LoadoutDyeSlots; i++)
             {
                 var item = player.TPlayer.Loadouts[0].Dye[i];
-                result[309 + i] = new InventoryData(item.type, item.prefix, item.stack, 309 + i, item.favorited);
+                result[280 + i] = new InventoryData(item.type, item.prefix, item.stack, 280 + i, item.favorited);
             }
             
+            // 装备方案 2（Loadout2Armor=290-309 + Loadout2Dye=310-319）
             for (int i = 0; i < 10; i++)
             {
                 var item = player.TPlayer.Loadouts[1].Armor[i];
-                result[319 + i] = new InventoryData(item.type, item.prefix, item.stack, 319 + i, item.favorited);
+                result[290 + i] = new InventoryData(item.type, item.prefix, item.stack, 290 + i, item.favorited);
             }
             
             for (int i = 0; i < 10; i++)
             {
                 var item = player.TPlayer.Loadouts[1].Armor[10 + i];
-                result[329 + i] = new InventoryData(item.type, item.prefix, item.stack, 329 + i, item.favorited);
+                result[300 + i] = new InventoryData(item.type, item.prefix, item.stack, 300 + i, item.favorited);
             }
             
             for (int i = 0; i < NetItem.LoadoutDyeSlots; i++)
             {
                 var item = player.TPlayer.Loadouts[1].Dye[i];
-                result[339 + i] = new InventoryData(item.type, item.prefix, item.stack, 339 + i, item.favorited);
+                result[310 + i] = new InventoryData(item.type, item.prefix, item.stack, 310 + i, item.favorited);
             }
             
+            // 装备方案 3（Loadout3Armor=320-339 + Loadout3Dye=340-349）
             for (int i = 0; i < 10; i++)
             {
                 var item = player.TPlayer.Loadouts[2].Armor[i];
-                result[349 + i] = new InventoryData(item.type, item.prefix, item.stack, 349 + i, item.favorited);
+                result[320 + i] = new InventoryData(item.type, item.prefix, item.stack, 320 + i, item.favorited);
             }
             
             for (int i = 0; i < 10; i++)
             {
                 var item = player.TPlayer.Loadouts[2].Armor[10 + i];
-                result[359 + i] = new InventoryData(item.type, item.prefix, item.stack, 359 + i, item.favorited);
+                result[330 + i] = new InventoryData(item.type, item.prefix, item.stack, 330 + i, item.favorited);
             }
             
             for (int i = 0; i < NetItem.LoadoutDyeSlots; i++)
             {
                 var item = player.TPlayer.Loadouts[2].Dye[i];
-                result[369 + i] = new InventoryData(item.type, item.prefix, item.stack, 369 + i, item.favorited);
+                result[340 + i] = new InventoryData(item.type, item.prefix, item.stack, 340 + i, item.favorited);
             }
             
-            for (int i = 0; i <= 378; i++)
+            for (int i = 0; i < NetItem.MaxInventory; i++)
             {
                 if (result.TryGetValue(i, out var data))
                 {
@@ -353,6 +360,10 @@ namespace TShockData
                 var item = data.inventory[54 + i];
                 result[54 + i] = new InventoryData(item.NetId, item.PrefixId, item.Stack, 54 + i, item.Favorited);
             }
+
+            // 手持栏（NetItem.InventorySlots=59 → 索引 58）
+            var heldItem = data.inventory[58];
+            result[58] = new InventoryData(heldItem.NetId, heldItem.PrefixId, heldItem.Stack, 58, heldItem.Favorited);
             
             for (int i = 0; i < 10; i++)
             {
@@ -411,62 +422,65 @@ namespace TShockData
                 result[220 + i] = new InventoryData(item.NetId, item.PrefixId, item.Stack, 220 + i, item.Favorited);
             }
             
+            // 装备方案 1（Loadout1Armor=260-279 + Loadout1Dye=280-289）
             for (int i = 0; i < 10; i++)
             {
                 var item = data.inventory[260 + i];
-                result[289 + i] = new InventoryData(item.NetId, item.PrefixId, item.Stack, 289 + i, item.Favorited);
+                result[260 + i] = new InventoryData(item.NetId, item.PrefixId, item.Stack, 260 + i, item.Favorited);
             }
             
             for (int i = 0; i < 10; i++)
             {
                 var item = data.inventory[270 + i];
-                result[299 + i] = new InventoryData(item.NetId, item.PrefixId, item.Stack, 299 + i, item.Favorited);
+                result[270 + i] = new InventoryData(item.NetId, item.PrefixId, item.Stack, 270 + i, item.Favorited);
             }
             
             for (int i = 0; i < NetItem.LoadoutDyeSlots; i++)
             {
                 var item = data.inventory[280 + i];
-                result[309 + i] = new InventoryData(item.NetId, item.PrefixId, item.Stack, 309 + i, item.Favorited);
+                result[280 + i] = new InventoryData(item.NetId, item.PrefixId, item.Stack, 280 + i, item.Favorited);
             }
             
+            // 装备方案 2（Loadout2Armor=290-309 + Loadout2Dye=310-319）
             for (int i = 0; i < 10; i++)
             {
                 var item = data.inventory[290 + i];
-                result[319 + i] = new InventoryData(item.NetId, item.PrefixId, item.Stack, 319 + i, item.Favorited);
+                result[290 + i] = new InventoryData(item.NetId, item.PrefixId, item.Stack, 290 + i, item.Favorited);
             }
             
             for (int i = 0; i < 10; i++)
             {
                 var item = data.inventory[300 + i];
-                result[329 + i] = new InventoryData(item.NetId, item.PrefixId, item.Stack, 329 + i, item.Favorited);
+                result[300 + i] = new InventoryData(item.NetId, item.PrefixId, item.Stack, 300 + i, item.Favorited);
             }
             
             for (int i = 0; i < NetItem.LoadoutDyeSlots; i++)
             {
                 var item = data.inventory[310 + i];
-                result[339 + i] = new InventoryData(item.NetId, item.PrefixId, item.Stack, 339 + i, item.Favorited);
+                result[310 + i] = new InventoryData(item.NetId, item.PrefixId, item.Stack, 310 + i, item.Favorited);
             }
             
+            // 装备方案 3（Loadout3Armor=320-339 + Loadout3Dye=340-349）
             for (int i = 0; i < 10; i++)
             {
                 var item = data.inventory[320 + i];
-                result[349 + i] = new InventoryData(item.NetId, item.PrefixId, item.Stack, 349 + i, item.Favorited);
+                result[320 + i] = new InventoryData(item.NetId, item.PrefixId, item.Stack, 320 + i, item.Favorited);
             }
             
             for (int i = 0; i < 10; i++)
             {
                 var item = data.inventory[330 + i];
-                result[359 + i] = new InventoryData(item.NetId, item.PrefixId, item.Stack, 359 + i, item.Favorited);
+                result[330 + i] = new InventoryData(item.NetId, item.PrefixId, item.Stack, 330 + i, item.Favorited);
             }
             
             for (int i = 0; i < NetItem.LoadoutDyeSlots; i++)
             {
                 var item = data.inventory[340 + i];
-                result[369 + i] = new InventoryData(item.NetId, item.PrefixId, item.Stack, 369 + i, item.Favorited);
+                result[340 + i] = new InventoryData(item.NetId, item.PrefixId, item.Stack, 340 + i, item.Favorited);
             }
             
             List<InventoryData> offlineInvList = new List<InventoryData>();
-            for (int i = 0; i <= 378; i++)
+            for (int i = 0; i < NetItem.MaxInventory; i++)
             {
                 if (result.TryGetValue(i, out var invData))
                 {
