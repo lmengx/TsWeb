@@ -87,21 +87,14 @@
 - **改完 `QTRHacker.Core` / `QHackLib` / `QTRHacker.Patches` 必须自己跑构建验证编译通过，禁止只交代码不验证**；
   `dotnet build` 对含 C++ 的 solution 不可靠，必须用 MSBuild 2022。
 
-### 4. QTRHacker 与游戏版本（GameRefs）——版本不匹配是最大坑
-- **GameRefs = 编译期游戏引用快照**（`参考源码/QTRHacker/GameRefs/`），放着目标游戏版本的完整程序集
-  （`Terraria.exe` + ReLogic.dll 等）。`QTRHacker.Patches` 编译时引用它写游戏类型访问代码，
-  **补丁一编译就与放进 GameRefs 的那个游戏版本绑定**。
-- **版本锚点**：主程序 `src/QTRHacker/MainWindow.xaml.cs` 里 `GameVersion` 常量必须与 GameRefs 的 Terraria 版本一致。
-- **症状（版本不匹配）**：
-  - 主程序诊断 `methods_dump.txt` / `LoadAssemblyAsBytes.diag.txt` 里 `Terraria.Main` 方法名几乎全是 null、
-    `Method 'Update' not found` → SOSDac 按名字解析失败；
-  - 游戏目录 `QTRHacker.Patches.boot.log` 出现 `HarmonyLib.HarmonyException: Patching exception in method ...`
-    → 补丁按旧版本编译，打进新版本进程后 Harmony 打补丁崩。
-- **升级到新游戏版本流程**：① 把官方 `Terraria.exe`（新版本）复制覆盖 `GameRefs/Terraria.exe`；
-  ② 同步改 `GameVersion`；③ 重新构建整个 sln；④ 用 `readFile` 读游戏目录 `bin/Release` 下
-  `LoadAssemblyAsBytes.diag.txt`、游戏安装目录的 `QTRHacker.Patches.boot.log` 验证。
-- **本次实证（2026-08-24）**：QTRHacker 原配 GameRefs = 1.4.5.2，玩家原版 = 1.4.5.8 → 注入/PatchAll 全失败；
-  已将 GameRefs 更新为 1.4.5.8（来源 `C:\Program Files (x86)\Steam\steamapps\common\Terraria\Terraria.exe`），
-  重编译后零错误。
-- 注入钩子目标：主程序用 `Terraria.Main.Update`，已支持失败时降级到 `DoUpdate`（`GameContext.GetUpdateFunctionAddress`）。
-  Boot.cs 日志已增强为记录完整 InnerException 链（写入 `./QTRHacker.Patches.boot.log`）。
+### 4. 如何正确使用工具
+
+**工具选型优先级（从快到强，按需递进）**：
+1. **文件读写类工具**（readFile / writeFile / editFile / listFiles / glob / codeSearch）：项目内文件一律优先，中文路径直接可用，零额外开销
+2. **bash 工具（cmd.exe）**：仅限无参数/全英文的简单命令（dir、tasklist、dotnet --version 等）；涉及中文路径、引号、复杂逻辑一律改用 PowerShell -File 脚本（写法见上文第 2 节）
+3. **Python（可访问全盘文件）**：本地已安装 Python，可用 `python -c "..."` 或临时脚本访问全盘文件——包括 C:\Games、Steam 目录、中文路径、跨目录批量遍历、大文件/二进制/编码分析等文件读写类工具覆盖不到的场景。此授权仅限「文件访问/分析」类用途，不得用于创建 CI/CD、构建、部署、拷贝等辅助脚本（核心原则不变）；临时分析脚本用后即删
+
+**提问工具（不明确先问，不擅自假设）**：
+- 需求目标、删除/修改范围、文件归属、权限边界等任何不明确之处，先调用 askUserQuestions 提问确认后再动手，禁止凭猜测直接改
+- 提问时给出带选项的候选方案（2~5 个选项），减少来回沟通
+- 例：上文中「删掉 6」在文档无字面编号，即应先提问确认删除目标，而非自行推断
