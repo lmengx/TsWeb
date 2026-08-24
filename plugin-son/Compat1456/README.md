@@ -16,7 +16,17 @@ MonoMod RuntimeDetour.Hook 三个钩子：
 
 ⚠️ **v1.2 关键修复（跨版本坑）**：`NetMessage.SendPacket` 在 1.4.5.6 是 `private`，在 1.4.5.7（OTAPI3 打包）是 `public static`（hook 包装）。用 `NonPublic` 找 1.4.5.7 会失败（日志“未找到 NetMessage.SendPacket 方法”）→ **出站翻译全部失效** → 旧客户端收未翻译新格式包 → 卡图格/闪退。必须 `Public | NonPublic` 都找。
 
-兼容客户端识别：ConnectRequest 版本串为 `Terraria319` 时自动登记，断开（ServerLeave）自动清理。
+兼容客户端识别：ConnectRequest 版本串为 `Terraria319` 时自动登记（翻译），断开（ServerLeave）自动清理。
+
+**放行策略（服务器协议 325）**：
+
+| 客户端协议 | 处理 |
+|-----------|------|
+| `Terraria325` | 原生直进，不干预 |
+| `Terraria326` | 仅改写版本串→`Terraria325` 通过校验，**不翻译**（包格式与 325 完全一致） |
+| `Terraria319` | 改写版本串 + 登记翻译（17/23/27/29/82/162 等） |
+
+**动态协议号**：服务器期望版本串不硬编码，反射读取 `Main.curRelease`（`"Terraria" + curRelease`；编译期 const 会内联 325 所以必须反射）。插件启动时打印服务器协议号，每次握手打印客户端上报协议号 vs 服务器期望协议号。
 
 ## 翻译表（v1.1，反编译实证）
 

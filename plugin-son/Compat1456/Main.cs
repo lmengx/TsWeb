@@ -79,15 +79,22 @@ namespace Compat1456
     public class Compat1456Plugin : TerrariaPlugin
     {
         public override string Author => "lmx12330";
-        public override string Description => "反向跨版本兼容：1.4.5.6(Terraria319) 客户端进 1.4.5.7(Terraria325) 服务器（分批交付 v1）";
+        public override string Description => "跨版本兼容：325/326 原生放行，319(Terraria319) 翻译后进 1.4.5.7(Terraria325) 服务器";
         public override string Name => "Compat1456";
         public override Version Version => new Version(1, 0, 0, 0);
 
-        /// <summary>服务器期望的版本字符串（1.4.5.7，ConnectRequest 版本检查字段）</summary>
-        private const string ServerVersion = "Terraria325";
+        /// <summary>服务器期望的版本字符串（ConnectRequest 版本检查字段）——动态获取，见 GetServerVersion()。
+        /// 1.4.5.7 = "Terraria325"；1.4.5.8 若只改双端逻辑不改网络，期望值大概率仍为 Terraria325。
+        /// ⚠️ 编译期直接引用 Main.curRelease 会因 const 内联成 325，故必须反射运行时读取，
+        ///    这样 1.4.5.8 即便改了协议号也能自动跟随（仅需刷新日志核对）。</summary>
+        private const string FallbackServerVersion = "Terraria325";
 
         /// <summary>需要强行认同的旧客户端版本字符串（1.4.5.6）</summary>
         private const string ClientVersion = "Terraria319";
+
+        /// <summary>协议与服务器完全一致的透传客户端版本字符串（1.4.5.7 变体构建）：
+        /// 包格式与 325 完全相同，仅改写版本串通过校验即可，无需任何翻译。</summary>
+        private const string PassthroughVersion = "Terraria326";
 
         /// <summary>
         /// 旧(1.4.5.6)表中与新版一致的 NetModule ID 上界（Liquid0/Text1/Ping2/Ambience3/Bestiary4；
@@ -99,6 +106,12 @@ namespace Compat1456
 
         /// <summary>已识别为 1.4.5.6 兼容客户端的连接索引（网络线程访问，lock 保护）</summary>
         private static readonly HashSet<int> _compatClients = new HashSet<int>();
+
+        /// <summary>运行时读取的 Main.curRelease（服务器当前协议号；读取失败为 null）</summary>
+        private static int? _serverCurRelease;
+
+        /// <summary>缓存：服务器期望协议版本串（"Terraria" + curRelease）</summary>
+        private static string? _serverVersion;
         private static readonly object SyncLock = new object();
 
         private static Hook? _getDataHook;
@@ -119,7 +132,8 @@ namespace Compat1456
             ServerApi.Hooks.ServerLeave.Register(this, OnServerLeave);
 
             _initialized = true;
-            TShock.Log.ConsoleInfo($"[Compat1456] 已启用（v1 分批交付）：认同旧客户端 {ClientVersion} → 服务器 {ServerVersion}；出站翻译 17/23/27/29/82/162，入站丢弃 27/29、翻译 82");
+            TShock.Log.ConsoleInfo($"[Compat1456] 已启用：服务器协议 {GetServerVersion()}（Main.curRelease={_serverCurRelease?.ToString() ?? "<反射失败>"}，游戏 {Main.versionNumber}）");
+            TShock.Log.ConsoleInfo($"[Compat1456] 放行策略：325 原生直进｜326({PassthroughVersion}) 仅改版本串放行、不翻译｜319({ClientVersion}) 改版本串+登记翻译（17/23/27/29/82/162）");
         }
 
         // ════════════════════════════════════════════════
@@ -164,6 +178,11 @@ namespace Compat1456
                 try
                 {
                     var version = TryReadVersion(self.readBuffer, start);
+                    if (version != null)
+                    {
+                        // 进服前（握手阶段）打印协议号：客户端上报的版本串 + 服务器当前期望的版本串
+                        TShock.Log.ConsoleInfo($"[Compat1456] 进服前握手：客户端 #{self.whoAmI} 上报协议 {version}，服务器期望协议 {GetServerVersion()}（Main.curRelease={_serverCurRelease?.ToString() ?? "<反射失败>"}）");
+                    }
                     if (version == ClientVersion)
                     {
                         RewriteVersion(self.readBuffer, start);
@@ -171,7 +190,13 @@ namespace Compat1456
                         {
                             _compatClients.Add(self.whoAmI);
                         }
-                        TShock.Log.ConsoleInfo($"[Compat1456] 客户端 #{self.whoAmI} 版本 {ClientVersion} → 认同 {ServerVersion} 并登记反向兼容");
+                        TShock.Log.ConsoleInfo($"[Compat1456] 客户端 #{self.whoAmI} 协议 {version} → 已改写为服务器期望 {GetServerVersion()} 并登记反向兼容（翻译）");
+                    }
+                    else if (version == PassthroughVersion)
+                    {
+                        // 326 与服务器协议(325)完全一致：仅改写版本串通过校验，不登记翻译（不做任何包翻译）
+                        RewriteVersion(self.readBuffer, start);
+                        TShock.Log.ConsoleInfo($"[Compat1456] 客户端 #{self.whoAmI} 协议 {version} → 已改写为服务器期望 {GetServerVersion()} 放行（协议一致，无需翻译）");
                     }
                 }
                 catch (Exception ex)
@@ -958,12 +983,49 @@ namespace Compat1456
             }
         }
 
-        /// <summary>等长改写版本串（Terraria319 → Terraria325，长度前缀无需变动）</summary>
+        /// <summary>
+        /// 动态获取服务器期望协议版本串（"Terraria" + Main.curRelease）。
+        /// Main.curRelease 是 public const int，编译期引用会被内联成 325；改用反射运行时读取，
+        /// 使 1.4.5.8（乃至后续版本）修改协议号时本插件自动跟随，无需改代码重编译。
+        /// </summary>
+        private static string GetServerVersion()
+        {
+            if (_serverVersion != null)
+                return _serverVersion;
+
+            try
+            {
+                var f = typeof(Main).GetField("curRelease", BindingFlags.Public | BindingFlags.Static);
+                if (f != null && f.GetValue(null) is int cur)
+                {
+                    _serverCurRelease = cur;
+                    _serverVersion = "Terraria" + cur;
+                }
+            }
+            catch (Exception ex)
+            {
+                TShock.Log.ConsoleError($"[Compat1456] 反射读取 Main.curRelease 失败: {ex.Message}");
+            }
+
+            _serverVersion ??= FallbackServerVersion;
+            return _serverVersion;
+        }
+
+        /// <summary>改写版本串为服务器期望值（1.4.5.x 全系协议号 3 位、版本串等长 11 字符，长度前缀不动）</summary>
         private static void RewriteVersion(byte[] buf, int start)
         {
+            string serverVersion = GetServerVersion();
+
+            // 防御：若未来协议号位数变化导致版本串长度不一致，同步调整长度前缀并告警（Hello 通常为缓冲首包）
+            if (start + 1 < buf.Length && serverVersion.Length != buf[start + 1])
+            {
+                TShock.Log.ConsoleWarn($"[Compat1456] 版本串长度 {buf[start + 1]} → {serverVersion.Length}（非等长改写，需人工核对流对齐）");
+                buf[start + 1] = (byte)serverVersion.Length;
+            }
+
             int content = start + 2;
-            for (int i = 0; i < ServerVersion.Length; i++)
-                buf[content + i] = (byte)ServerVersion[i];
+            for (int i = 0; i < serverVersion.Length && content + i < buf.Length; i++)
+                buf[content + i] = (byte)serverVersion[i];
         }
     }
 }
