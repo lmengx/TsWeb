@@ -1729,9 +1729,28 @@ export class TShockService {
 
   async setRiskControlConfig(params) {
     if (!this.baseUrl) await this.init()
-    const query = Object.entries(params).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&')
+    // 扁平化 v2 嵌套配置为插件端可读的 query 参数（数组用逗号分隔）
+    const q = []
+    const push = (k, v) => q.push(`${k}=${encodeURIComponent(v)}`)
+    if (params.blockEnter) {
+      push('blockEnterEnabled', params.blockEnter.enabled ? 'true' : 'false')
+      push('blockEnterTargets', (params.blockEnter.targets || []).join(','))
+    }
+    if (params.blockChat) {
+      push('blockChatEnabled', params.blockChat.enabled ? 'true' : 'false')
+      push('blockChatTargets', (params.blockChat.targets || []).join(','))
+    }
+    if (params.qqBindExempt !== undefined) push('qqBindExempt', params.qqBindExempt ? 'true' : 'false')
+    if (params.exemptGroups) push('exemptGroups', (params.exemptGroups || []).join(','))
+    if (params.proxy) {
+      push('proxyEnabled', params.proxy.enabled ? 'true' : 'false')
+      if (params.proxy.cacheTtlHours !== undefined) push('proxyCacheTtlHours', params.proxy.cacheTtlHours)
+      if (params.proxy.allowIsps) push('proxyAllowIsps', (params.proxy.allowIsps || []).join(','))
+      if (params.proxy.proxyKeywords) push('proxyProxyKeywords', (params.proxy.proxyKeywords || []).join(','))
+    }
+    const query = q.join('&')
     const url = `${this.baseUrl}/data/riskcontrol/config/set?${query}${this.apiKey ? `&token=${encodeURIComponent(this.apiKey)}` : ''}`
-    console.log(`[OUTGOING] POST ${url}`)
+    console.log(`[OUTGOING] POST ${url.substring(0, 600)}`)
     try {
       const response = await fetch(url, { method: 'POST', headers: { 'Accept': 'application/json' } })
       return await response.json()
@@ -1740,12 +1759,38 @@ export class TShockService {
     }
   }
 
-  async riskControlAction(action) {
+  async riskControlAction(action, targets) {
     if (!this.baseUrl) await this.init()
-    const url = `${this.baseUrl}/data/riskcontrol/action?action=${encodeURIComponent(action)}${this.apiKey ? `&token=${encodeURIComponent(this.apiKey)}` : ''}`
+    const query = `action=${encodeURIComponent(action)}${targets && targets.length ? `&targets=${encodeURIComponent(targets.join(','))}` : ''}`
+    const url = `${this.baseUrl}/data/riskcontrol/action?${query}${this.apiKey ? `&token=${encodeURIComponent(this.apiKey)}` : ''}`
     console.log(`[OUTGOING] GET ${url}`)
     try {
       const response = await fetch(url, { method: 'GET', headers: { 'Accept': 'application/json' } })
+      return await response.json()
+    } catch (error) {
+      return { status: '500', error: error.message }
+    }
+  }
+
+  async getRiskPlayers() {
+    if (!this.baseUrl) await this.init()
+    const url = `${this.baseUrl}/data/riskcontrol/players${this.apiKey ? `?token=${encodeURIComponent(this.apiKey)}` : ''}`
+    console.log(`[OUTGOING] GET ${url}`)
+    try {
+      const response = await fetch(url, { method: 'GET', headers: { 'Accept': 'application/json' } })
+      return await response.json()
+    } catch (error) {
+      return { status: '500', error: error.message }
+    }
+  }
+
+  async refreshRiskProxy(ip = '') {
+    if (!this.baseUrl) await this.init()
+    const query = ip ? `ip=${encodeURIComponent(ip)}` : ''
+    const url = `${this.baseUrl}/data/riskcontrol/proxy/refresh${query ? `?${query}` : ''}${this.apiKey ? `${query ? '&' : '?'}token=${encodeURIComponent(this.apiKey)}` : ''}`
+    console.log(`[OUTGOING] POST ${url}`)
+    try {
+      const response = await fetch(url, { method: 'POST', headers: { 'Accept': 'application/json' } })
       return await response.json()
     } catch (error) {
       return { status: '500', error: error.message }

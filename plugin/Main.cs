@@ -54,6 +54,8 @@ namespace TShockData
             TShock.RestApi.Register(new SecureRestCommand("/data/riskcontrol/config",       RiskControl.GetConfigJson, ""));
             TShock.RestApi.Register(new SecureRestCommand("/data/riskcontrol/config/set",   RiskControl.SetConfigJson, "data.rest.invsee"));
             TShock.RestApi.Register(new SecureRestCommand("/data/riskcontrol/action",       RiskControl.ExecuteAction, "data.rest.invsee"));
+            TShock.RestApi.Register(new SecureRestCommand("/data/riskcontrol/players",      RiskControl.GetPlayersRest, "data.rest.invsee"));
+            TShock.RestApi.Register(new SecureRestCommand("/data/riskcontrol/proxy/refresh", RiskControl.RefreshProxyRest, "data.rest.invsee"));
 
             // ═══ 跨服传送配置管理（前后端整合：后端下发 / 连通性探测）═══
             TShock.RestApi.Register(new SecureRestCommand("/data/crosstransfer/config", CrossTransfer.GetConfigRest, "tshock.admin"));
@@ -441,6 +443,8 @@ namespace TShockData
                 "/data/riskcontrol/config",
                 "/data/riskcontrol/config/set",
                 "/data/riskcontrol/action",
+                "/data/riskcontrol/players",
+                "/data/riskcontrol/proxy/refresh",
 			};
 
 			try

@@ -270,9 +270,28 @@ export const setRiskControlConfig = async (req, res) => {
 
 export const riskControlAction = async (req, res) => {
   try {
-    const { action } = req.body
+    const { action, targets } = req.body
     if (!action) return res.status(400).json({ status: '400', error: 'Missing action parameter' })
-    const result = await tshockService.riskControlAction(action)
+    const result = await tshockService.riskControlAction(action, targets)
+    res.json(result)
+  } catch (error) {
+    res.status(500).json({ status: '500', error: error.message })
+  }
+}
+
+export const riskControlPlayers = async (req, res) => {
+  try {
+    const result = await tshockService.getRiskPlayers()
+    res.json(result)
+  } catch (error) {
+    res.status(500).json({ status: '500', error: error.message })
+  }
+}
+
+export const riskControlProxyRefresh = async (req, res) => {
+  try {
+    const { ip } = req.body
+    const result = await tshockService.refreshRiskProxy(ip || '')
     res.json(result)
   } catch (error) {
     res.status(500).json({ status: '500', error: error.message })

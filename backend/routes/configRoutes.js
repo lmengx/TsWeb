@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { getConfigFile, saveConfigFile, getTsWebConfig, setTsWebConfig, getBossConfig, setBossConfig, getBackupConfig, setBackupConfig, postLicenseClose, getBossLimitStatus, getPromotionConfig, setPromotionConfig, getListenConfig, saveListenConfig, getSingleLoginConfig, setSingleLoginConfig, getStatusPanelConfig, setStatusPanelConfig, getShopUIConfig, setShopUIConfig, getRiskControlConfig, setRiskControlConfig, riskControlAction } from '../controllers/configController.js'
+import { getConfigFile, saveConfigFile, getTsWebConfig, setTsWebConfig, getBossConfig, setBossConfig, getBackupConfig, setBackupConfig, postLicenseClose, getBossLimitStatus, getPromotionConfig, setPromotionConfig, getListenConfig, saveListenConfig, getSingleLoginConfig, setSingleLoginConfig, getStatusPanelConfig, setStatusPanelConfig, getShopUIConfig, setShopUIConfig, getRiskControlConfig, setRiskControlConfig, riskControlAction, riskControlPlayers, riskControlProxyRefresh } from '../controllers/configController.js'
 import { verifyToken, requireRole, requireAdmin, requireManager } from '../middlewares/authMiddleware.js'
 
 const router = Router()
@@ -32,5 +32,9 @@ router.post('/shopui', verifyToken, requireManager, setShopUIConfig)
 router.get('/risk-control', verifyToken, requireManager, getRiskControlConfig)
 router.post('/risk-control', verifyToken, requireManager, setRiskControlConfig)
 router.post('/risk-control/action', verifyToken, requireManager, riskControlAction)
+// 风控：在线玩家特征（群体命中计算 + 代理判定列表）
+router.get('/risk-control/players', verifyToken, requireManager, riskControlPlayers)
+// 风控：强制刷新代理检测缓存（ip 可选，缺省清空全部）
+router.post('/risk-control/proxy/refresh', verifyToken, requireManager, riskControlProxyRefresh)
 
 export default router
