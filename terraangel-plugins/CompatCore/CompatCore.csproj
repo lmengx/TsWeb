@@ -1,0 +1,44 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    CompatCore —— 协议翻译核心库（v2.0 稳定架构）
+    ==============================================
+    ⚠️ 关键设计：本程序集被插件通过 Assembly.Load(bytes) 加载到【默认 ALC】，
+    其生命周期与客户端进程一致，不随插件 ALC（PluginLoader 的 isCollectible ALC）卸载。
+
+    为什么必须这样：
+    - TerraAngel 客户端 #reload = UnloadPlugins()（同步 Unload + ALC.Unload + 重建重载），
+      插件 ALC 会被卸载；而 Harmony/MonoMod 在 .NET 5+ 的 patch 都是 native detour
+      （写原生机器码跳板，HarmonyLib.Memory.WriteJump → DetourHelper.Native 实证）。
+    - 卸载 native detour（写回原机器码）时若网络线程正在执行目标方法（GetData /
+      SendPacketToServer 高频热路径）→ 进程级卡死/崩溃（实测三连）。
+    - 因此：patch 一次安装、永不卸载（native 跳板从不写回）；prefix 委托在本程序集
+      （默认 ALC，永不卸载）；#reload 只切换 Translator 实例（纯托管状态），彻底安全。
+
+    - AssemblyName 故意不以 .TAPlugin 结尾：PluginLoader 只识别 .TAPlugin.dll，
+      本 dll 放 Plugins/ 目录也不会被当作插件加载。
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>CompatCore</AssemblyName>
+    <RootNamespace>CompatCore1457</RootNamespace>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+
+    <!-- ⚠️ 直接输出到共享目录 client-build/：插件用 Reference HintPath 引用，
+         避免 ProjectReference 的 NuGet 还原图（project.assets.json）缺失导致的构建失败 -->
+    <OutputPath>..\client-build\</OutputPath>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Harmony 运行时：v2.3.5（2024），修复了 2.2.x 在 .NET 8+/10 的 detour 兼容问题。
+         需要 NuGet 还原（联网或缓存）；构建产物 0Harmony.dll 输出到 client-build/ 供插件部署。 -->
+    <PackageReference Include="Lib.Harmony" Version="2.3.5" />
+  </ItemGroup>
+
+</Project>

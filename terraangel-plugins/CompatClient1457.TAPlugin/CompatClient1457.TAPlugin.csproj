@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    CompatClient1457 —— TerraAngel 客户端侧跨版本翻译插件（1.4.5.6 → 1.4.5.7）
+    v2.0 稳定架构：
+    - 全部翻译逻辑 + Harmony prefix 委托在 CompatCore.dll（Assembly.Load 到【默认 ALC】，永不卸载）
+    - 本插件只负责：装配 0Harmony/CompatCore 到默认 ALC + 首帧安装补丁 + #reload 切换翻译器
+    - patch 一次安装、永不卸载 → 彻底规避 TerraAngel #reload 卸载 native detour 的进程级卡死
+    - AssemblyName 必须以 .TAPlugin 结尾（PluginLoader 只识别 .TAPlugin.dll）
+    - 引用统一由上级 Directory.Build.props 提供（Terraria.dll / TerraAngel.PluginAPI.dll）
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>CompatClient1457.TAPlugin</AssemblyName>
+    <RootNamespace>CompatClient1457</RootNamespace>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <EnableDefaultCompileItems>true</EnableDefaultCompileItems>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- 翻译核心（默认 ALC 常驻）：CompatCore 工程输出到 ..\client-build\，
+         本工程用 Reference 引用；构建前由下方 BuildCompatCoreDependency 目标自动构建。 -->
+    <Reference Include="CompatCore">
+      <HintPath>..\client-build\CompatCore.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+
+    <!-- 确保 0Harmony.dll 也进入插件输出目录（插件本身不直接引用它，但部署需要） -->
+    <None Include="..\client-build\0Harmony.dll" CopyToOutputDirectory="PreserveNewest" Link="0Harmony.dll" />
+  </ItemGroup>
+
+  <Target Name="BuildCompatCoreDependency" BeforeTargets="ResolveAssemblyReferences">
+    <!-- 自动先构建 CompatCore（输出到 client-build/），单命令构建插件即可；
+         不用 ProjectReference（避免依赖项目还原图缺失导致的构建失败） -->
+    <MSBuild Projects="$(MSBuildThisFileDirectory)..\CompatCore\CompatCore.csproj"
+             Targets="Restore;Build"
+             Properties="Configuration=$(Configuration)" />
+  </Target>
+
+</Project>

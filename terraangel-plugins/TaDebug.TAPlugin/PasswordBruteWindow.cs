@@ -310,7 +310,7 @@ public sealed class PasswordBruteWindow : ClientWindow
         var list = new List<string>();
         while (*ptr != null)
         {
-            list.Add(Marshal.PtrToStringUTF8(*ptr) ?? "");
+            list.Add(Marshal.PtrToStringUTF8(new IntPtr(*ptr)) ?? "");
             ptr++;
         }
         callback(list);
