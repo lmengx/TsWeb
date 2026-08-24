@@ -48,3 +48,63 @@
 | **查源码先于提问** | 遇到问题先查阅本地源码资料，而非直接询问 |
 | **datasets 仅作知识库语料** | `datasets/` 目录文档仅用于构建知识库（如 Dify），不作为开发参考依据 |
 | **禁止私自写脚本** | 未经授权不得主动创建 CI/CD、构建、部署、拷贝等辅助脚本，项目已有 `start.bat` 等工具。永远禁止taskkill掉用户能操作的已有进程，开用户无法操作的进程来验证更新 |
+
+---
+
+## 工具使用与路径约定（Windows 中文环境，必读）
+
+本机为 Windows + 中文目录名（如 `参考源码`），命令工具有严格使用约束：
+
+### 1. 文件读写类工具（readFile / writeFile / editFile / listFiles / glob / codeSearch）
+- **可直接使用中文路径**（UTF-8，工具内部处理编码），不受 cmd 乱码影响。
+- 例：`readFile` 路径 `C:/Users/lyt/Documents/GitHub/TsWeb/参考源码/QTRHacker/src/QTRHacker.Patches/Boot.cs` 正常可用。
+
+### 2. bash 工具（实为 Windows cmd.exe）
+- **命令行中出现中文路径会乱码**（UTF-8→GBK 转换错误，报"文件名、目录名或卷标语法不正确"）。
+- `ls`/`cat` 等类 Unix 命令不存在，用 cmd 原生命令（`dir`、`type`）。
+- **规避方法（按优先级）**：
+  1. 路径避开中文（英文路径如 `C:\Games\TerraAngelv1.4.5.6`、`backend/`、`plugin/` 直接可用）；
+  2. **PowerShell -File 脚本**（最可靠，推荐）：用 writeFile 写一个**全 ASCII** 的 .ps1 脚本到英文路径
+     （内容用 `Get-ChildItem -Recurse` 递归查找目标，避免中文字面量），再执行
+     `powershell -NoProfile -ExecutionPolicy Bypass -File <无空格绝对路径>`（**不要加引号**）。
+  3. 8.3 短路径（`dir /x` 查短名，注意：纯中文目录名通常**没有**短名，仅对英文名有效）。
+- **bash 工具的坑（试错实证）**：
+  - `%d`（cmd for 变量）会被吞成空 → **`for /d` 遍历中文目录无效**（会"假成功"：命令没执行却 exit 0）；
+  - `$_` / `$var` 会被吞（`$_` 变 `.`）→ PowerShell `-Command` 内联复杂脚本不可用；
+  - 命令行内嵌引号会被破坏（`\"` 转义问题）→ 带引号的路径/参数不可靠；
+  - 简单命令（`dir`、`dotnet --version`、`tasklist`）无参数/全英文时可用。
+- 示例——构建 QTRHacker（中文目录 `参考源码` 下的 sln）：先 writeFile 写 `build_qtr.ps1`（全 ASCII）：
+  ```powershell
+  $msbuild = "C:\PROGRA~1\MICROS~4\2022\Community\MSBuild\Current\Bin\MSBuild.exe"
+  $sln = Get-ChildItem -Path "C:\Users\lyt\Documents\GitHub\TsWeb" -Recurse -Filter "QTRHacker.sln" -File -ErrorAction SilentlyContinue | Select-Object -First 1
+  & $msbuild $sln.FullName -p:Configuration=Release -p:Platform=x86 -p:PlatformToolset=v143 -v:m -nologo
+  exit $LASTEXITCODE
+  ```
+  再执行（无引号、无空格路径）：`powershell -NoProfile -ExecutionPolicy Bypass -File C:\Users\lyt\Documents\GitHub\TsWeb\build_qtr.ps1`
+  （2026-08-24 实证：MSBUILD_EXIT=0，全工程编译通过，零错误。）
+
+### 3. 构建 QTRHacker（本地现成工具，改完必须自测）
+- 编译器：VS2022 Community 的 MSBuild → `C:\PROGRA~1\MICROS~4\2022\Community\MSBuild\Current\Bin\MSBuild.exe`
+- 工程：`参考源码/QTRHacker/QTRHacker.sln`（SDK 风格 + C++ QHackCLR）；现成命令在 `参考源码/QTRHacker/build.bat`
+- 产物：`参考源码/QTRHacker/bin/Release/`（含 `QTRHacker.Patches.dll`、`QTRHacker.Core.dll`、`QHackLib.dll`）
+- **改完 `QTRHacker.Core` / `QHackLib` / `QTRHacker.Patches` 必须自己跑构建验证编译通过，禁止只交代码不验证**；
+  `dotnet build` 对含 C++ 的 solution 不可靠，必须用 MSBuild 2022。
+
+### 4. QTRHacker 与游戏版本（GameRefs）——版本不匹配是最大坑
+- **GameRefs = 编译期游戏引用快照**（`参考源码/QTRHacker/GameRefs/`），放着目标游戏版本的完整程序集
+  （`Terraria.exe` + ReLogic.dll 等）。`QTRHacker.Patches` 编译时引用它写游戏类型访问代码，
+  **补丁一编译就与放进 GameRefs 的那个游戏版本绑定**。
+- **版本锚点**：主程序 `src/QTRHacker/MainWindow.xaml.cs` 里 `GameVersion` 常量必须与 GameRefs 的 Terraria 版本一致。
+- **症状（版本不匹配）**：
+  - 主程序诊断 `methods_dump.txt` / `LoadAssemblyAsBytes.diag.txt` 里 `Terraria.Main` 方法名几乎全是 null、
+    `Method 'Update' not found` → SOSDac 按名字解析失败；
+  - 游戏目录 `QTRHacker.Patches.boot.log` 出现 `HarmonyLib.HarmonyException: Patching exception in method ...`
+    → 补丁按旧版本编译，打进新版本进程后 Harmony 打补丁崩。
+- **升级到新游戏版本流程**：① 把官方 `Terraria.exe`（新版本）复制覆盖 `GameRefs/Terraria.exe`；
+  ② 同步改 `GameVersion`；③ 重新构建整个 sln；④ 用 `readFile` 读游戏目录 `bin/Release` 下
+  `LoadAssemblyAsBytes.diag.txt`、游戏安装目录的 `QTRHacker.Patches.boot.log` 验证。
+- **本次实证（2026-08-24）**：QTRHacker 原配 GameRefs = 1.4.5.2，玩家原版 = 1.4.5.8 → 注入/PatchAll 全失败；
+  已将 GameRefs 更新为 1.4.5.8（来源 `C:\Program Files (x86)\Steam\steamapps\common\Terraria\Terraria.exe`），
+  重编译后零错误。
+- 注入钩子目标：主程序用 `Terraria.Main.Update`，已支持失败时降级到 `DoUpdate`（`GameContext.GetUpdateFunctionAddress`）。
+  Boot.cs 日志已增强为记录完整 InnerException 链（写入 `./QTRHacker.Patches.boot.log`）。
