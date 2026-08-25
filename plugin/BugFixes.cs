@@ -297,25 +297,23 @@ namespace TShockData
                     ms.ReadInt16();  // y
                     var nameLen = ms.ReadByte();
 
-                    // 关闭箱子(-1) 与随行容器(-5..-2)：仅在不携带名称时合法
-                    if ((id == -1 || (id < 0 && id >= -5)) && nameLen == 0)
+                    // 无名字：打开/关闭(-1)/切换箱子，核心逻辑安全，放行
+                    if (nameLen == 0)
                         return;
 
-                    // 负 ID 携带名称 → 核心 case 33 访问 Main.chest[player.chest](默认-1) → 越界崩服
-                    if (id < 0)
+                    // 带名字 = 改名操作。
+                    // 服务端核心 case 33 改名时用 Main.player[whoAmI].chest（玩家当前打开的箱子）定位，
+                    // 完全忽略包内 id —— 原版客户端"仅改名不换箱子"时发送 id=-1 + 名字 是正常行为。
+                    // 真实攻击面：玩家未打开任何箱子却发改名包 → 核心访问 Main.chest[-1] 越界崩服。
+                    var playerChest = Main.player[e.Msg.whoAmI].chest;
+                    if (playerChest < 0 || playerChest >= Main.chest.Length || Main.chest[playerChest] == null)
                     {
-                        AuditAndKick(plr, "ChestOpen", "负ID携带名称", $"id={id} nameLen={nameLen}", raw);
+                        AuditAndKick(plr, "ChestOpen", "未打开箱子发送改名包", $"player.chest={playerChest} id={id} nameLen={nameLen}", raw);
                         e.Handled = true;
                         return;
                     }
 
-                    if (id >= Main.chest.Length || Main.chest[id] == null)
-                    {
-                        AuditAndKick(plr, "ChestOpen", "无效宝箱ID", $"id={id}", raw);
-                        e.Handled = true;
-                        plr.SendData(PacketTypes.ChestOpen, "", -1);
-                        return;
-                    }
+                    // 已打开有效箱子 → 正常改名，放行（包 id 仅用于关闭/切换箱子，由核心处理）
                 }
                 catch (Exception ex)
                 {
