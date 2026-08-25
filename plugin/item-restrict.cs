@@ -440,9 +440,9 @@ namespace TShockData
             {
                 foreach (var matchedItem in matchedItems)
                 {
-                    // 阻止物品掉落
-                    e.Handled = true;
-                    Main.item[e.ID].TurnToAir();
+					// 阻止物品掉落
+					e.Handled = true;
+					Main.item[e.ID].TurnToAir();
                     NetMessage.SendData(21, -1, -1, null, e.ID, 0, 0);
 
                     TShock.Log.ConsoleError($"[TSWeb] 阻止丢出违禁物品! 玩家: {e.Player.Name}, 物品ID: {e.Type}, 数量: {e.Stacks}, 限制: {matchedItem.Stack}, 处理: {matchedItem.Method}");

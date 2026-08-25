@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿using System;
+﻿﻿﻿﻿﻿﻿using System;
 using Terraria;
 using TerrariaApi.Server;
 using TShockAPI;
@@ -25,8 +25,7 @@ namespace TShockData
             {
                 short type = args.Type;
                 short damage = args.Damage;
-                byte owner = args.Owner;
-                short identity = args.Identity;
+                byte owner = args.Owner; // ProjectileKey.Spawner
 
                 //TShock.Log.ConsoleInfo($"[RuntimeHooks] 检测弹幕创建 - Type:{type}, Damage:{damage}, Owner:{owner}");
 
@@ -57,7 +56,7 @@ namespace TShockData
                     
                     if (owner >= 0 && owner < Main.maxPlayers && TShock.Players[owner] != null)
                     {
-                        TShock.Players[owner].RemoveProjectile(identity, owner);
+                        TShock.Players[owner].RemoveProjectile(args.ProjectileKey);
                     }
                 }
             }

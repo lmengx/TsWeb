@@ -1,12 +1,14 @@
 using Microsoft.Xna.Framework;
-using On.Terraria.GameContent;
 using OTAPI;
 using System.Timers;
 using Terraria;
 using Terraria.ID;
 using TerrariaApi.Server;
 using TShockAPI;
-using Hooks = On.OTAPI.Hooks;
+using Hooks = OTAPI.Hooks;
+#if LEGACY_ON_API
+using On.Terraria.GameContent;
+#endif
 
 namespace HouseRegion;
 
@@ -90,13 +92,17 @@ public class HouseCore
         if (!Main.gameMenu)
             PostInitialize(EventArgs.Empty);
         OTAPI.Hooks.Chest.QuickStack += ChestOnQuickStack;
-        CraftingRequests.CanCraftFromChest += CraftingRequestsOnCanCraftFromChest;
+#if LEGACY_ON_API
+        // 1.4.5.7+ OTAPI.Hooks.MessageBuffer 无 InvokeGetData 事件（HookGen 专属），TShock 已自动分发 HandlerGetData
         Hooks.MessageBuffer.InvokeGetData -= MessageBufferOnInvokeGetData;
         Hooks.MessageBuffer.InvokeGetData += MessageBufferOnInvokeGetData;
+        // 1.4.5.7+ OTAPI 已移除 HookGen On.* API，以下钩子仅在旧 API 环境启用
+        CraftingRequests.CanCraftFromChest += CraftingRequestsOnCanCraftFromChest;
         On.Terraria.Projectile.Kill -= OnProjectileKill;
         On.Terraria.Projectile.Kill += OnProjectileKill;
         On.Terraria.WorldGen.KillTile -= OnWorldGenKillTile;
         On.Terraria.WorldGen.KillTile += OnWorldGenKillTile;
+#endif
         _hooksRegistered = true;
     }
 
@@ -116,10 +122,12 @@ public class HouseCore
         // OTAPI/MonoMod 钩子（先减后加由 Initialize 保证，Dispose 中无需重复 -= ）
         // 但主动减一次也无害，保留以兼容非热重载的正常卸载
         OTAPI.Hooks.Chest.QuickStack -= ChestOnQuickStack;
-        CraftingRequests.CanCraftFromChest -= CraftingRequestsOnCanCraftFromChest;
+#if LEGACY_ON_API
         Hooks.MessageBuffer.InvokeGetData -= MessageBufferOnInvokeGetData;
+        CraftingRequests.CanCraftFromChest -= CraftingRequestsOnCanCraftFromChest;
         On.Terraria.Projectile.Kill -= OnProjectileKill;
         On.Terraria.WorldGen.KillTile -= OnWorldGenKillTile;
+#endif
         _hooksRegistered = false;
     }
 
@@ -154,9 +162,10 @@ public class HouseCore
     }
 
     // ══════════════════════════════════════════════════════════
-    //  数据包拦截入口
+    //  数据包拦截入口（1.4.5.7+ 无 InvokeGetData 事件，条件编译）
     // ══════════════════════════════════════════════════════════
 
+#if LEGACY_ON_API
     private static bool MessageBufferOnInvokeGetData(
         Hooks.MessageBuffer.orig_InvokeGetData orig, MessageBuffer instance,
         ref byte packetId, ref int readOffset, ref int start, ref int length,
@@ -178,11 +187,13 @@ public class HouseCore
         return orig.Invoke(instance, ref packetId, ref readOffset, ref start, ref length,
             ref messageType, maxPackets);
     }
+#endif
 
     // ══════════════════════════════════════════════════════════
-    //  OTAPI 钩子：箱子合成、快速堆叠
+    //  OTAPI 钩子：快速堆叠（箱子合成权限需 HookGen On API，见下方条件编译）
     // ══════════════════════════════════════════════════════════
 
+#if LEGACY_ON_API
     private static bool CraftingRequestsOnCanCraftFromChest(
         CraftingRequests.orig_CanCraftFromChest orig, Chest chest, int whoAmI)
     {
@@ -196,6 +207,7 @@ public class HouseCore
         plr.Disable("无权使用被房子保护的地区箱子合成物品!");
         return false;
     }
+#endif
 
     private static void ChestOnQuickStack(object? sender, OTAPI.Hooks.Chest.QuickStackEventArgs e)
     {
@@ -211,9 +223,10 @@ public class HouseCore
     }
 
     // ══════════════════════════════════════════════════════════
-    //  On.Terraria 钩子：弹幕、方块破坏
+    //  On.Terraria 钩子：弹幕、方块破坏（1.4.5.7+ 已移除 HookGen On API，条件编译）
     // ══════════════════════════════════════════════════════════
 
+#if LEGACY_ON_API
     private void OnProjectileKill(On.Terraria.Projectile.orig_Kill orig, Projectile self)
     {
         // 土炸弹/液体炸弹
@@ -274,6 +287,7 @@ public class HouseCore
         }
         orig(i, j, fail, effectOnly, noItem);
     }
+#endif
 
     // ══════════════════════════════════════════════════════════
     //  定时器：进入/离开检测 + 边框自动显示

@@ -227,7 +227,8 @@ public static class TsbBuilder
                             for (var slot = 0; slot < 40; slot++)
                             {
                                 var it = chest.item[slot];
-                                if (it != null && it.active && it.type > 0)
+                                // 1.4.5.7+ 无 item.active：空槽 type == 0
+                                if (it != null && it.type > 0)
                                 {
                                     TrackItem(it.type);
                                     items.Add(new TsbItem { Slot = slot, Id = it.type, Stack = it.stack, Prefix = it.prefix });
@@ -359,7 +360,8 @@ public static class TsbBuilder
     /// <summary>文本归一化：\r\n / 单独 \r 统一为 \n（标牌多行），避免导入校验被 \r 误判为控制字符</summary>
     private static string NormalizeText(string s) => s.Replace("\r\n", "\n").Replace('\r', '\n');
 
-    private static bool HasItem(Item item) => item != null && item.active && item.type > 0;
+    // 1.4.5.7+ Item 重构移除 active 字段：容器内物品存在性以 type > 0 判断
+    private static bool HasItem(Item item) => item != null && item.type > 0;
     private static TsbItem? ToTsbItem(Item item) =>
         HasItem(item) ? new TsbItem { Id = item.type, Stack = item.stack, Prefix = item.prefix } : null;
 
@@ -370,7 +372,8 @@ public static class TsbBuilder
         for (var slot = 0; slot < arr.Length && slot < capacity; slot++)
         {
             var it = arr[slot];
-            if (it == null || !it.active || it.type <= 0) continue;
+            // 1.4.5.7+ 无 item.active：空槽 type == 0
+            if (it == null || it.type <= 0) continue;
             track(it.type);
             list.Add(new TsbItem { Slot = slot, Id = it.type, Stack = it.stack, Prefix = it.prefix });
         }

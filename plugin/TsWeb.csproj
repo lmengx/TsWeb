@@ -6,13 +6,29 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <!-- TSWeb 直接使用的第三方依赖（原由 TShock NuGet 包传递提供） -->
   <ItemGroup>
-    <PackageReference Include="TShock" Version="6.1.0" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.0" />
+    <PackageReference Include="MonoMod.RuntimeDetour" Version="25.2.3" />
   </ItemGroup>
 
+  <!-- 服务器同版 API（plugin/api） -->
   <ItemGroup>
+    <Reference Include="TShockAPI">
+      <HintPath>api\TShockAPI.dll</HintPath>
+    </Reference>
+    <Reference Include="OTAPI">
+      <HintPath>api\OTAPI.dll</HintPath>
+    </Reference>
+    <Reference Include="TerrariaServer">
+      <HintPath>api\TerrariaServer.dll</HintPath>
+    </Reference>
     <Reference Include="HttpServer">
-      <HintPath>bin\Release\net9.0\HttpServer.dll</HintPath>
+      <HintPath>api\HttpServer.dll</HintPath>
+    </Reference>
+    <Reference Include="ModFramework">
+      <HintPath>api\ModFramework.dll</HintPath>
     </Reference>
   </ItemGroup>
 

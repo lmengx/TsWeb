@@ -158,7 +158,7 @@ public static class BossLimitQuit
         var player = args.Player;
         if (player == null || !player.RealPlayer) return;
 
-        short npcIndex = args.ID;
+        int npcIndex = args.Index;
         if (npcIndex < 0 || npcIndex >= Main.maxNPCs) return;
 
         var npc = Main.npc[npcIndex];
