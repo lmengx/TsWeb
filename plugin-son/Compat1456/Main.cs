@@ -452,9 +452,17 @@ namespace Compat1456
                             case (byte)MessageID.DamageNPC: // 28
                                 // 新 byte npc + byte gen → 旧 short npc（低字节=npc）。gen 字节清零，
                                 // 否则旧客户端读 short npc = npc + gen*256 > 255 → 越界崩溃（PE 打到怪闪退）
-                                if (data.Length > 4)
+                                // ⚠️ 必须复制数组再改：广播时 SendData 循环复用同一 writeBuffer 发给所有客户端
+                                //   （1.4.5.7 反编译实证），原地改会污染排在后面的原生 325 客户端
+                                //   → 部分玩家看怪状态不一致。gen==0 时无需翻译，直接放行不复制。
+                                if (data.Length > 4 && data[4] != 0)
                                 {
-                                    data[4] = 0; // data[3]=npc, data[4]=gen
+                                    byte[] nd = new byte[data.Length];
+                                    Array.Copy(data, nd, data.Length);
+                                    nd[4] = 0; // nd[3]=npc, nd[4]=gen
+                                    TShock.Log.ConsoleDebug($"[Compat1456] 发给 #{remoteClient} 的 DamageNPC(28) 已翻译（复制+gen清零）");
+                                    orig(nd, remoteClient);
+                                    return;
                                 }
                                 break;
 
@@ -783,15 +791,24 @@ namespace Compat1456
                 return;
             }
 
-            // 1) gen 清零：data[3]=npc(低), data[4]=gen(高) → 旧 short npc = npc
-            data[4] = 0;
+            // ⚠️ 必须复制数组再翻译！广播时 SendData 循环复用同一 buffer[num].writeBuffer 发给所有客户端
+            //   （1.4.5.7 反编译实证：SendData default 分支 for num22 → SendPacket(writeBuffer, num22)）。
+            //   原地改写会把污染传给排在兼容客户端后面的原生 1.4.5.7 客户端：
+            //     - gen 被清 0 → 原生客户端槽位/校验状态异常
+            //     - position 被减一次 Size*SyncAnchor → 原生客户端解析时再减一次 → 双重偏移
+            //   → 同一只怪不同玩家看到不同位置（"只有部分玩家能看得见的怪物"根因）。
+            byte[] nd = new byte[data.Length];
+            Array.Copy(data, nd, data.Length);
+
+            // 1) gen 清零：nd[3]=npc(低), nd[4]=gen(高) → 旧 short npc = npc
+            nd[4] = 0;
 
             // 2) position 还原（同步点 → 左上角）
             try
             {
-                // 布局：data[3]=npc data[4]=gen data[5..12]=pos data[13..20]=vel
-                //       data[21..22]=target data[23]=flags1 data[24]=flags2 data[25..]=ai
-                byte flags1 = data[23];
+                // 布局：nd[3]=npc nd[4]=gen nd[5..12]=pos nd[13..20]=vel
+                //       nd[21..22]=target nd[23]=flags1 nd[24]=flags2 nd[25..]=ai
+                byte flags1 = nd[23];
                 int aiOffset = 25;
                 for (int i = 0; i < NPC.maxAI; i++)
                 {
@@ -799,19 +816,19 @@ namespace Compat1456
                         aiOffset += 4;
                 }
 
-                if (aiOffset + 2 <= data.Length)
+                if (aiOffset + 2 <= nd.Length)
                 {
-                    int netType = (short)(data[aiOffset] | (data[aiOffset + 1] << 8));
+                    int netType = (short)(nd[aiOffset] | (nd[aiOffset + 1] << 8));
                     Vector2 anchor = GetSyncAnchor(netType);
                     if (anchor != Vector2.Zero)
                     {
                         Vector2 size = GetNpcSize(netType);
                         Vector2 syncPos = new Vector2(
-                            BitConverter.ToSingle(data, 5),
-                            BitConverter.ToSingle(data, 9));
+                            BitConverter.ToSingle(nd, 5),
+                            BitConverter.ToSingle(nd, 9));
                         Vector2 oldPos = syncPos - size * anchor;
-                        BitConverter.GetBytes(oldPos.X).CopyTo(data, 5);
-                        BitConverter.GetBytes(oldPos.Y).CopyTo(data, 9);
+                        BitConverter.GetBytes(oldPos.X).CopyTo(nd, 5);
+                        BitConverter.GetBytes(oldPos.Y).CopyTo(nd, 9);
                         TShock.Log.ConsoleDebug($"[Compat1456] 发给 #{remoteClient} 的 SyncNPC(23) 已还原 position（type={netType}, anchor={anchor}）");
                     }
                 }
@@ -821,7 +838,7 @@ namespace Compat1456
                 TShock.Log.ConsoleDebug($"[Compat1456] SyncNPC(23) position 还原异常（gen 已清零，原样发送）: {ex.Message}");
             }
 
-            orig(data, remoteClient);
+            orig(nd, remoteClient);
         }
 
         private static Vector2[] _syncAnchor;
