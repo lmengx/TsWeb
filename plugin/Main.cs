@@ -166,7 +166,7 @@ namespace TShockData
             ItemConfigHandler.LoadItemConfig();
             ItemDetection.Initialize();
 
-			// ═══ 粒子防线：拦截客户端伪造粒子请求（82 + NetParticlesModule）═══
+            // ═══ 粒子防线：拦截客户端伪造粒子请求（82 + NetParticlesModule）═══
             ParticleGuard.Initialize(this);
 
             OnlineData.Initialize(this);
@@ -286,7 +286,7 @@ namespace TShockData
 				RuntimeHooks.Dispose();
 				BossLimit.Dispose();
 				ItemDetection.StopAutoScan();
-                ParticleGuard.Dispose();
+				ParticleGuard.Dispose();
                 AccountSync.Dispose(this);
                 CrossChat.Dispose();
                 CrossTransfer.Dispose();

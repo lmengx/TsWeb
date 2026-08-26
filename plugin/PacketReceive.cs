@@ -620,21 +620,34 @@ public static class GetDataHandlers
     private static void CreateProjectile(TSPlayer ts, int tileX, int tileY, int projType)
     {
         var pos = new Vector2((tileX * 16) + 8, (tileY * 16) + 8);
-        int identity = Projectile.NewProjectile(null, pos.X, pos.Y, 0f, 0f, projType, 0, 0f, ts.Index);
+        // 服务器端创建无主边框弹幕：owner 必须 == Main.myPlayer(255)（专用服务器无本地玩家），
+        // 否则 1.4.5.7 Projectile.NewProjectile 触发 Invariant（"owner (x) != myPlayer (255)"）返回哨兵 1000，
+        // 1000 又经 SendData(27) 序列化未初始化槽 1000（owner=255/type=0/key=default）触发第二条
+        // "SyncProjectile owner (255) must match spawner (0)" —— 后台成对刷屏的根因。
+        // owner=255 时 NewProjectileSetup 默认 key.Spawner=myPlayer=255，发送断言 owner==Spawner 通过。
+        int identity = Projectile.NewProjectile(null, pos.X, pos.Y, 0f, 0f, projType, 0, 0f, 255);
         if (identity > -1 && identity < Main.projectile.Length)
         {
+            var proj = Main.projectile[identity];
+            if (proj != null)
+            {
+                // 归属标记：owner 已是 255（无主），用 ai[0] 记录查看玩家索引供清理匹配
+                // （TopazBolt 静止弹幕 AI 不使用 ai[0]；即使被覆盖，残留弹幕也会在 timeLeft 结束后自然消失）
+                proj.ai[0] = ts.Index;
+                proj.netUpdate = true;
+            }
             NetMessage.SendData((int)PacketTypes.ProjectileNew, ts.Index, -1, null, identity);
         }
     }
 
-    /// <summary>清除某玩家所有 TopazBolt 边框弹幕（不按位置匹配，专治漂移）</summary>
+    /// <summary>清除某玩家所有 TopazBolt 边框弹幕（owner=255 无主 + ai[0] 归属标记匹配；不按位置匹配，专治漂移）</summary>
     internal static void ClearPlayerBorderProjectiles(TSPlayer player)
     {
         if (player == null || player.Index < 0) return;
         for (var i = 0; i < Main.projectile.Length; i++)
         {
             var proj = Main.projectile[i];
-            if (proj is { active: true, type: ProjectileID.TopazBolt, owner: not 255 } && proj.owner == player.Index)
+            if (proj is { active: true, type: ProjectileID.TopazBolt, owner: 255 } && proj.ai[0] == player.Index)
             {
                 proj.Kill();
                 NetMessage.SendData((int)PacketTypes.ProjectileDestroy, player.Index, -1, null, i);
