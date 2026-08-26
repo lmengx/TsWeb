@@ -1,6 +1,6 @@
 # Compat1456 插件
 
-反向跨版本兼容插件（**v1.5**）：让 **1.4.5.6 客户端（协议 Terraria319）** 进入 **1.4.5.7 服务器（协议 Terraria325）**。
+反向跨版本兼容插件（**v1.6**）：让 **1.4.5.6 客户端（协议 Terraria319）** 进入 **1.4.5.7 服务器（协议 Terraria325）**。
 
 与 `plugin-son/ForceVersion`（新客户端→旧服务器）方向相反：本插件跑在 **1.4.5.7（新）服务器** 上，把服务器发出的**新格式包翻译成旧格式**发给旧客户端，并把旧客户端上行按服务器可接受的方式处理。
 
@@ -68,6 +68,11 @@ MonoMod RuntimeDetour.Hook 三个钩子：
 | 旧版创建的弹幕其他人看不见 | ✅ 已修（v1.4 待实测） | 入站 27/29 语义级重放：解析旧格式→反射 `ProjectileKey.NewProjectileSetup`+`FinalizeProjectile`+`TrySendData(27)` 广播；`key.Index=identity` 使旧客户端匹配本地弹幕 |
 | 看别人/服务器的弹幕错乱 | ✅ 已修（v1.4） | **ProjectileKey 位布局反编译实证修正**：`bits&0xFF=Spawner`、`(bits>>8)&0x3FF=Index`、`(bits>>18)&0x3FFF=Gen`（原推断 Spawner 高位全错） |
 | 只有部分玩家能看到怪物 | ✅ 已修（v1.5） | **出站 23/28 原地改写共享 writeBuffer 污染广播**：SendData 广播循环复用同一数组（反编译实证），轮到兼容客户端时原地改数组 → 排在后面的原生 325 客户端收到被翻译数据 → position 双重偏移/gen 清零。改为**复制数组再翻译**（23/28 与 17/21/22/27/29 一致），原生客户端永远收到原始数组 |
+| 看不到别人的弹幕/怪、被看不见的怪打 | ✅ 已修（v1.6） | **入站 39 越界多读**：1.4.5.6 发 `[type][Int16 itemIndex]`（3B），1.4.5.7 服务器 case 39 读 `Int16+Boolean` → 越界吞掉下一包类型字节 → **整条连接字节错位**（捡自己物品后所有实体同步失效的根因）。改为拦截语义级处理（复刻服务器 case 39：WorldItem 认领+FindOwner+广播 22） |
+| 大怪/Boss 位置偏移 | ✅ 已修（v1.6） | **GetNpcSize 反射类型错**：`ContentSamples.NpcsByNetId` 是 `Dictionary<int,NPC>` 不是 `NPC[]`，原 `as NPC[]` 恒为 null → 23 号 position 还原失效 → anchor≠0 的怪（史莱姆王等）位置偏移 → 看不到怪/被看不见的怪打。改为 `Dictionary.TryGetValue` |
+| 特定弹幕（NeedsUUID）解析错位 | ✅ 已修（v1.6） | **入站 27 未跳过 projUUID 尾**：1.4.5.6 发包 case 27 对 `ProjectileID.Sets.NeedsUUID` 弹幕带 2B UUID，1.4.5.7 无此字段 → ai2 错位。解析时 `flags&128` 跳过 2B |
+| 142 追踪引用错乱 | ✅ 已修（v1.6） | 出站 142（SyncProjectileTrackers）1.4.5.7 序列化 ProjectileKey(4B)、1.4.5.6 用 identity 格式 → **过滤**（小猪银行/虚空袋追踪弹幕不显示但不崩溃） |
+| 入站 28 打怪错位 | ✅ 已修（v1.6） | 旧 short npc 高字节非 0（槽>255）→ 1.4.5.7 byte npc 无法表达 → 丢弃该打击防打错怪 |
 
 ## 已知边界
 

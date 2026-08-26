@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq.Expressions;
 using System.Reflection;
 using System.Text;
 using Microsoft.Xna.Framework;
@@ -106,6 +107,44 @@ namespace Compat1456
 
         /// <summary>已识别为 1.4.5.6 兼容客户端的连接索引（网络线程访问，lock 保护）</summary>
         private static readonly HashSet<int> _compatClients = new HashSet<int>();
+
+        // ═══ 入站弹幕创建限流（复刻 TShock Bouncer ProjectileThreshold 语义，防 flood 阻塞网络主循环）═══
+        // 根因：语义级重放绕过了 Bouncer.OnNewProjectile 的 200/周期限流，高并发 27 flood 会让
+        // 服务器单线程网络主循环被反射+实体创建+全服广播阻塞 → 所有玩家（含新进服）卡住。
+        // 超限策略：静默丢弃（用户确认），不打断玩家。
+        private sealed class ProjRateState
+        {
+            public int Count;
+            public long WindowStart; // DateTime.UtcNow.Ticks
+        }
+
+        private static readonly Dictionary<int, ProjRateState> _projRate = new Dictionary<int, ProjRateState>();
+        private const int MaxProjectilesPerWindow = 200;   // 对齐 TShock 默认 ProjectileThreshold
+        private const long RateWindowTicks = TimeSpan.TicksPerSecond;
+
+        /// <summary>入站 27 弹幕创建限流：true=放行，false=超限丢弃（静默，不调 orig、不重放、不广播）</summary>
+        private static bool AllowProjectile(int whoAmI)
+        {
+            long now = DateTime.UtcNow.Ticks;
+            lock (SyncLock)
+            {
+                if (!_projRate.TryGetValue(whoAmI, out var st))
+                {
+                    st = new ProjRateState { WindowStart = now };
+                    _projRate[whoAmI] = st;
+                }
+                else if (now - st.WindowStart >= RateWindowTicks)
+                {
+                    st.Count = 0;
+                    st.WindowStart = now;
+                }
+
+                if (st.Count >= MaxProjectilesPerWindow)
+                    return false;
+                st.Count++;
+                return true;
+            }
+        }
 
         /// <summary>运行时读取的 Main.curRelease（服务器当前协议号；读取失败为 null）</summary>
         private static int? _serverCurRelease;
@@ -225,7 +264,6 @@ namespace Compat1456
                         ushort newModuleId = (ushort)(moduleId + 1);
                         self.readBuffer[start + 1] = (byte)newModuleId;
                         self.readBuffer[start + 2] = (byte)(newModuleId >> 8);
-                        TShock.Log.ConsoleDebug($"[Compat1456] 入站 NetModule 模块 {moduleId} → {newModuleId}（旧→新位移）");
                     }
                 }
 
@@ -235,19 +273,37 @@ namespace Compat1456
                 if (type == MessageID.DamageNPC && start + 3 < self.readBuffer.Length)
                 {
                     byte npc = self.readBuffer[start + 1];
+                    // 旧 short npc 高字节非 0 → 槽位 > 255，1.4.5.7 byte npc 无法表达 → 丢弃该打击（防打错怪）
+                    if (self.readBuffer[start + 2] != 0)
+                    {
+                        messageType = type;
+                        return;
+                    }
                     if (npc < Main.npc.Length && Main.npc[npc] != null)
                     {
                         byte gen = GetNpcGeneration(Main.npc[npc]);
                         self.readBuffer[start + 2] = gen;
-                        TShock.Log.ConsoleDebug($"[Compat1456] 入站 DamageNPC(28) gen 补全 → {gen}");
                     }
+                }
+
+                // ItemOwner 认领(39)：1.4.5.6 旧格式 = [type][Int16 itemIndex]（3B 包）；
+                // 1.4.5.7 服务器 case 39 读 Int16 + Boolean(forceAssignToServer) → 越界多读 1B，吞掉下一包类型字节
+                // → 整条连接字节错位（捡自己物品后“看不到别人弹幕/怪、被看不见的怪打”的共同根因）
+                // → 拦截语义级处理（复刻服务器 case 39），不调 orig 避免越界
+                if (type == 39)
+                {
+                    HandleInboundItemOwnership(self, start);
+                    messageType = type;
+                    return;
                 }
 
                 // 弹幕 27/29：旧格式→新格式需增长包体，readBuffer 内无法安全插入
                 // → 语义级重放：解析旧格式，调用服务器弹幕 API（Projectile.NewProjectileSetup 等）创建/灭除并广播
                 if (type == MessageID.SyncProjectile) // 27 创建弹幕
                 {
-                    HandleInboundProjectileNew(self, start);
+                    // 限流：超限静默丢弃（不重放、不广播），防 flood 阻塞单线程网络主循环 → 所有人卡进服
+                    if (AllowProjectile(self.whoAmI))
+                        HandleInboundProjectileNew(self, start);
                     messageType = type;
                     return;
                 }
@@ -311,7 +367,6 @@ namespace Compat1456
                         if (moduleId == 5)
                         {
                             // CreativeUnlocks 是 1.4.5.7 新恢复的模块，旧客户端不存在 → 过滤
-                            TShock.Log.ConsoleDebug($"[Compat1456] 跳过发给 #{playerId} 的 NetModule 模块 5(CreativeUnlocks)（旧客户端不存在）");
                             try { packet.Recycle(); }
                             catch { }
                             return;
@@ -321,7 +376,6 @@ namespace Compat1456
                             ushort oldModuleId = (ushort)(moduleId - 1);
                             packet.Buffer.Data[3] = (byte)oldModuleId;
                             packet.Buffer.Data[4] = (byte)(oldModuleId >> 8);
-                            TShock.Log.ConsoleDebug($"[Compat1456] 发给 #{playerId} 的 NetModule 模块 {moduleId} → {oldModuleId}（新→旧位移）");
                         }
                     }
                 }
@@ -400,7 +454,6 @@ namespace Compat1456
                                     byte[] nd = new byte[11];
                                     nd[0] = 11; nd[1] = 0;
                                     Array.Copy(data, 2, nd, 2, 9); // 类型 + 前 8B body
-                                    TShock.Log.ConsoleDebug($"[Compat1456] 发给 #{remoteClient} 的 Tile(17) 已裁第 9 字节（9→8）");
                                     orig(nd, remoteClient);
                                     return;
                                 }
@@ -418,7 +471,6 @@ namespace Compat1456
                                     nd[0] = (byte)oldLen; nd[1] = 0; nd[2] = 21;
                                     Array.Copy(data, 3, nd, 3, 24);   // 完整 24B body
                                     nd[3 + 21] = 0;                   // flags(body offset 21) 置 0
-                                    TShock.Log.ConsoleDebug($"[Compat1456] 发给 #{remoteClient} 的 SyncItem(21) 已翻译（去尾+flags清0）");
                                     orig(nd, remoteClient);
                                     return;
                                 }
@@ -435,7 +487,6 @@ namespace Compat1456
                                     nd[0] = (byte)oldLen; nd[1] = 0; nd[2] = 22;
                                     Array.Copy(data, 3, nd, 3, 3);                 // index(2)+owner(1)
                                     Array.Copy(data, data.Length - 8, nd, 3 + 3, 8); // position(8)
-                                    TShock.Log.ConsoleDebug($"[Compat1456] 发给 #{remoteClient} 的 ItemOwner(22) 已截断（新→旧 头3+尾8）");
                                     orig(nd, remoteClient);
                                     return;
                                 }
@@ -460,7 +511,6 @@ namespace Compat1456
                                     byte[] nd = new byte[data.Length];
                                     Array.Copy(data, nd, data.Length);
                                     nd[4] = 0; // nd[3]=npc, nd[4]=gen
-                                    TShock.Log.ConsoleDebug($"[Compat1456] 发给 #{remoteClient} 的 DamageNPC(28) 已翻译（复制+gen清零）");
                                     orig(nd, remoteClient);
                                     return;
                                 }
@@ -470,8 +520,10 @@ namespace Compat1456
                                 TranslateSyncNPC(data, remoteClient, orig);
                                 return;
 
+                            case 142: // SyncProjectileTrackers —— 1.4.5.7 追踪引用序列化 ProjectileKey(4B)，1.4.5.6 用 identity 格式（长度/语义均不同）→ 过滤防错位
+                                return;
+
                             case 162: // DamageNPCAck —— 1.4.5.7 新增，旧客户端 MessageID 只到 161
-                                TShock.Log.ConsoleDebug($"[Compat1456] 跳过发给 #{remoteClient} 的 DamageNPCAck(162)（旧客户端不识别）");
                                 return;
                         }
                     }
@@ -552,7 +604,6 @@ namespace Compat1456
             if (restLen > 0)
                 Array.Copy(data, 3 + restStart, nd, 25, restLen);
 
-            TShock.Log.ConsoleDebug($"[Compat1456] 发给 #{remoteClient} 的 SyncProjectile(27) 已翻译 key→identity/owner");
             orig(nd, remoteClient);
         }
 
@@ -579,7 +630,6 @@ namespace Compat1456
             nd[4] = (byte)((index >> 8) & 0xFF);
             nd[5] = spawner;
 
-            TShock.Log.ConsoleDebug($"[Compat1456] 发给 #{remoteClient} 的 KillProjectile(29) 已翻译 key→identity/owner");
             orig(nd, remoteClient);
         }
 
@@ -594,6 +644,13 @@ namespace Compat1456
         private static MethodInfo? _projNewSetup;       // Projectile NewProjectileSetup(ProjectileKey)
         private static MethodInfo? _projFinalize;       // void FinalizeProjectile()
         private static bool _projReflectInit;
+
+        // ═══ 编译委托（性能：替代每发弹幕多次反射 Invoke；编译失败自动回退反射，功能不受影响）═══
+        private delegate bool TryGetProjectileDelegate(object key, out Projectile proj);
+        private static Func<int, int, int, object>? _projKeyFactory;    // ProjectileKey ctor
+        private static TryGetProjectileDelegate? _projTryGetCompiled;   // ProjectileKey.TryGet
+        private static Func<object, Projectile>? _projNewSetupCompiled; // Projectile.NewProjectileSetup
+        private static Action<Projectile>? _projFinalizeCompiled;       // Projectile.FinalizeProjectile
 
         /// <summary>懒加载弹幕反射（仅在收到旧客户端 27/29 时执行一次）</summary>
         private static void InitProjectileReflection()
@@ -615,6 +672,45 @@ namespace Compat1456
                     BindingFlags.Public | BindingFlags.Static, null, new[] { _projKeyType }, null);
                 _projFinalize = typeof(Projectile).GetMethod("FinalizeProjectile",
                     BindingFlags.Public | BindingFlags.Instance);
+
+                // 编译委托（各自 try/catch：任一失败仅该委托回退反射，不影响整体功能）
+                try
+                {
+                    var p1 = Expression.Parameter(typeof(int), "a");
+                    var p2 = Expression.Parameter(typeof(int), "b");
+                    var p3 = Expression.Parameter(typeof(int), "c");
+                    _projKeyFactory = Expression.Lambda<Func<int, int, int, object>>(
+                        Expression.Convert(Expression.New(_projKeyCtor, p1, p2, p3), typeof(object)),
+                        p1, p2, p3).Compile();
+                }
+                catch { }
+                try
+                {
+                    var kp = Expression.Parameter(typeof(object), "key");
+                    var pp = Expression.Parameter(typeof(Projectile).MakeByRefType(), "proj");
+                    var kv = Expression.Variable(_projKeyType);
+                    _projTryGetCompiled = Expression.Lambda<TryGetProjectileDelegate>(
+                        Expression.Block(new[] { kv },
+                            Expression.Assign(kv, Expression.Convert(kp, _projKeyType)),
+                            Expression.Call(kv, _projKeyTryGet, pp)),
+                        kp, pp).Compile();
+                }
+                catch { }
+                try
+                {
+                    var kp2 = Expression.Parameter(typeof(object), "key");
+                    _projNewSetupCompiled = Expression.Lambda<Func<object, Projectile>>(
+                        Expression.Call(_projNewSetup, Expression.Convert(kp2, _projKeyType)),
+                        kp2).Compile();
+                }
+                catch { }
+                try
+                {
+                    var pr = Expression.Parameter(typeof(Projectile), "proj");
+                    _projFinalizeCompiled = Expression.Lambda<Action<Projectile>>(
+                        Expression.Call(pr, _projFinalize), pr).Compile();
+                }
+                catch { }
             }
             catch (Exception ex)
             {
@@ -624,12 +720,25 @@ namespace Compat1456
 
         private static object CreateProjectileKey(int spawner, int index, int generation)
         {
+            if (_projKeyFactory != null)
+                return _projKeyFactory(spawner, index, generation);
             return _projKeyCtor!.Invoke(new object[] { spawner, index, generation });
         }
 
         private static bool ProjectileTryGet(object key, out Projectile? proj)
         {
             proj = null;
+            if (_projTryGetCompiled != null)
+            {
+                try
+                {
+                    Projectile found = null!;
+                    bool ok = _projTryGetCompiled(key, out found);
+                    proj = found;
+                    return ok && found != null;
+                }
+                catch { return false; }
+            }
             try
             {
                 var args = new object[] { null! };
@@ -642,12 +751,23 @@ namespace Compat1456
 
         private static Projectile? ProjectileNewSetup(object key)
         {
+            if (_projNewSetupCompiled != null)
+            {
+                try { return _projNewSetupCompiled(key); }
+                catch { return null; }
+            }
             try { return (Projectile?)_projNewSetup!.Invoke(null, new object[] { key }); }
             catch { return null; }
         }
 
         private static void ProjectileFinalize(Projectile proj)
         {
+            if (_projFinalizeCompiled != null)
+            {
+                try { _projFinalizeCompiled(proj); }
+                catch { }
+                return;
+            }
             try { _projFinalize!.Invoke(proj, null); }
             catch { }
         }
@@ -664,7 +784,10 @@ namespace Compat1456
             {
                 InitProjectileReflection();
                 if (_projKeyCtor == null || _projNewSetup == null)
+                {
+                    TShock.Log.ConsoleError("[Compat1456] 弹幕反射不可用（ProjectileKey ctor / NewProjectileSetup 未找到），入站 27 重放失败 → 1.4.5.6 玩家弹幕不会广播给其他人");
                     return;
+                }
 
                 byte[] buf = self.readBuffer;
                 if (buf == null) return;
@@ -692,6 +815,8 @@ namespace Compat1456
                 if ((flags & 16) != 0 && o + 2 <= buf.Length) { dmg = (short)(buf[o] | (buf[o + 1] << 8)); o += 2; }
                 if ((flags & 32) != 0 && o + 4 <= buf.Length) { kb = BitConverter.ToSingle(buf, o); o += 4; }
                 if ((flags & 64) != 0 && o + 2 <= buf.Length) { origDmg = (short)(buf[o] | (buf[o + 1] << 8)); o += 2; }
+                // ⚠️ 1.4.5.6 发包 case 27 对 NeedsUUID 弹幕带 2B projUUID 尾（NetMessage 源码实证）；1.4.5.7 无此字段 → 必须跳过，否则 ai2 错位
+                if ((flags & 128) != 0 && o + 2 <= buf.Length) { o += 2; }
                 if ((flags2 & 1) != 0 && o + 4 <= buf.Length) { ai2 = BitConverter.ToSingle(buf, o); }
 
                 // 安全校验（复刻服务器 case 27 拒绝逻辑）：敌对弹拒绝 / 只能创建自己的弹幕
@@ -769,6 +894,157 @@ namespace Compat1456
         }
 
         // ════════════════════════════════════════════════
+        //  入站 ItemOwner 认领(39) 语义级处理（旧格式仅 itemIndex）
+        // ════════════════════════════════════════════════
+
+        private static MethodInfo? _worldItemFindOwner;
+
+        // ═══ 入站 39 反射缓存 + 编译委托（性能：原实现每包 typeof(Main).GetField + 多次 GetValue/SetValue）═══
+        private static Func<System.Collections.IList>? _mainItemGetter; // Main.item 静态字段 getter
+        private static Func<object, int>? _reservedGetter;             // Item.playerIndexTheItemIsReservedFor
+        private static Action<object, int>? _reservedSetter;
+        private static Action<object, int>? _timeSinceSetter;          // Item.timeSinceTheItemHasBeenReservedForSomeone
+        private static bool _itemReflectInit;
+
+        /// <summary>惰性初始化入站 39 的反射成员并编译委托（任一步失败仅该委托回退为不可用，不抛异常）</summary>
+        private static void InitItemReflection()
+        {
+            if (_itemReflectInit)
+                return;
+            _itemReflectInit = true;
+
+            try
+            {
+                var itemField = typeof(Main).GetField("item", BindingFlags.Public | BindingFlags.Static);
+                if (itemField != null)
+                {
+                    _mainItemGetter = Expression.Lambda<Func<System.Collections.IList>>(
+                        Expression.Convert(Expression.Field(null, itemField), typeof(System.Collections.IList))).Compile();
+                }
+            }
+            catch { }
+
+            // 从 Main.item 数组元素类型推导 Item 类型（避免编译期绑定跨版本类型）
+            Type itemType = null!;
+            try
+            {
+                var f = typeof(Main).GetField("item", BindingFlags.Public | BindingFlags.Static);
+                itemType = f?.GetValue(null)?.GetType().GetElementType()!;
+            }
+            catch { }
+            if (itemType == null)
+                return;
+
+            try
+            {
+                MemberInfo? reservedMember = itemType.GetProperty("playerIndexTheItemIsReservedFor", BindingFlags.Public | BindingFlags.Instance);
+                if (reservedMember == null)
+                    reservedMember = itemType.GetField("playerIndexTheItemIsReservedFor", BindingFlags.Public | BindingFlags.Instance);
+                if (reservedMember != null)
+                {
+                    var p = Expression.Parameter(typeof(object), "item");
+                    var v = Expression.Parameter(typeof(int), "v");
+                    var inst = Expression.Convert(p, itemType);
+                    if (reservedMember is PropertyInfo pi)
+                    {
+                        _reservedGetter = Expression.Lambda<Func<object, int>>(
+                            Expression.Convert(Expression.Property(inst, pi), typeof(int)), p).Compile();
+                        _reservedSetter = Expression.Lambda<Action<object, int>>(
+                            Expression.Assign(Expression.Property(inst, pi), Expression.Convert(v, pi.PropertyType)), p, v).Compile();
+                    }
+                    else
+                    {
+                        var fi = (FieldInfo)reservedMember;
+                        _reservedGetter = Expression.Lambda<Func<object, int>>(
+                            Expression.Convert(Expression.Field(inst, fi), typeof(int)), p).Compile();
+                        _reservedSetter = Expression.Lambda<Action<object, int>>(
+                            Expression.Assign(Expression.Field(inst, fi), Expression.Convert(v, fi.FieldType)), p, v).Compile();
+                    }
+                }
+            }
+            catch { }
+
+            try
+            {
+                var tf = itemType.GetField("timeSinceTheItemHasBeenReservedForSomeone", BindingFlags.Public | BindingFlags.Instance);
+                if (tf != null)
+                {
+                    var p = Expression.Parameter(typeof(object), "item");
+                    var v = Expression.Parameter(typeof(int), "v");
+                    _timeSinceSetter = Expression.Lambda<Action<object, int>>(
+                        Expression.Assign(Expression.Field(Expression.Convert(p, itemType), tf), Expression.Convert(v, tf.FieldType)), p, v).Compile();
+                }
+            }
+            catch { }
+        }
+
+        /// <summary>反射调用 WorldItem.FindOwner（1.4.5.7 带 bool 参数；兼容无参重载）</summary>
+        private static void CallFindOwner(object item, bool forceAssignToServer)
+        {
+            if (_worldItemFindOwner == null)
+            {
+                try
+                {
+                    _worldItemFindOwner = item.GetType().GetMethod("FindOwner", new[] { typeof(bool) });
+                    if (_worldItemFindOwner == null)
+                        _worldItemFindOwner = item.GetType().GetMethod("FindOwner", Type.EmptyTypes);
+                }
+                catch { }
+            }
+            try
+            {
+                if (_worldItemFindOwner != null)
+                {
+                    if (_worldItemFindOwner.GetParameters().Length == 1)
+                        _worldItemFindOwner.Invoke(item, new object[] { forceAssignToServer });
+                    else
+                        _worldItemFindOwner.Invoke(item, null);
+                }
+            }
+            catch (Exception ex)
+            {
+                TShock.Log.ConsoleDebug($"[Compat1456] WorldItem.FindOwner 反射调用异常: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 入站 39（1.4.5.6 旧格式 = [type][Int16 itemIndex]，3B）语义级处理：复刻 1.4.5.7 服务器 case 39。
+        /// ⚠️ 不拦截则服务器读 Int16+Boolean 越界 1B → 吞下一包类型字节 → 连接持续错位（实体不同步的根因之一）。
+        /// </summary>
+        private static void HandleInboundItemOwnership(MessageBuffer self, int start)
+        {
+            try
+            {
+                byte[] buf = self.readBuffer;
+                if (buf == null || start + 3 > buf.Length) return;
+                int itemIndex = (short)(buf[start + 1] | (buf[start + 2] << 8));
+
+                InitItemReflection();
+                if (_mainItemGetter == null || _reservedGetter == null || _reservedSetter == null) return;
+                var items = _mainItemGetter();
+                if (items == null || itemIndex < 0 || itemIndex >= items.Count) return;
+
+                object item = items[itemIndex]!;
+
+                if (_reservedGetter(item) != self.whoAmI) return;   // 仅处理预留给该玩家的认领（复刻服务器校验）
+
+                // timeSinceTheItemHasBeenReservedForSomeone = 0（尽力而为）
+                try { _timeSinceSetter?.Invoke(item, 0); }
+                catch { }
+
+                _reservedSetter(item, 255);
+                CallFindOwner(item, forceAssignToServer: false);
+
+                if (_reservedGetter(item) == 255)
+                    NetMessage.TrySendData(22, -1, self.whoAmI, null, itemIndex);   // 同步所有权（与服务器 case 39 一致）
+            }
+            catch (Exception ex)
+            {
+                TShock.Log.ConsoleDebug($"[Compat1456] 入站 39 处理异常: {ex.Message}");
+            }
+        }
+
+        // ════════════════════════════════════════════════
         //  NPC 翻译：SyncNPC(23) —— gen 清零 + position 还原
         // ════════════════════════════════════════════════
 
@@ -829,7 +1105,6 @@ namespace Compat1456
                         Vector2 oldPos = syncPos - size * anchor;
                         BitConverter.GetBytes(oldPos.X).CopyTo(nd, 5);
                         BitConverter.GetBytes(oldPos.Y).CopyTo(nd, 9);
-                        TShock.Log.ConsoleDebug($"[Compat1456] 发给 #{remoteClient} 的 SyncNPC(23) 已还原 position（type={netType}, anchor={anchor}）");
                     }
                 }
             }
@@ -843,7 +1118,7 @@ namespace Compat1456
 
         private static Vector2[] _syncAnchor;
         private static bool _syncAnchorLoaded;
-        private static NPC[] _npcByNetId;
+        private static Dictionary<int, NPC>? _npcByNetId;   // ⚠️ NpcsByNetId 是 Dictionary<int,NPC> 不是数组（1.4.5.6 源码 ID/ContentSamples.cs 实证）
         private static bool _npcByNetIdLoaded;
 
         /// <summary>反射读取 NPCID.Sets.SyncAnchor（1.4.5.7 新增，编译期引用可能没有；运行时存在）</summary>
@@ -865,8 +1140,10 @@ namespace Compat1456
         }
 
         /// <summary>反射读取 ContentSamples.NpcsByNetId 获取该 netID 的默认 NPC 尺寸（用于 Size*SyncAnchor）。
-        /// ⚠️ ContentSamples 命名空间跨版本变化：1.4.5.6=Terraria.ContentSamples，1.4.5.7=Terraria.ID.ContentSamples，
-        ///    必须用字符串反射+程序集扫描，避免编译期 typeof 绑定到错误命名空间导致运行时 TypeLoadException。</summary>
+        /// ⚠️ ContentSamples 命名空间跨版本变化：1.4.5.6=Terraria.ID.ContentSamples（源码实证），1.4.5.7=Terraria.ID.ContentSamples；
+        ///    必须用字符串反射+程序集扫描，避免编译期 typeof 绑定到错误命名空间导致运行时 TypeLoadException。
+        /// ⚠️⚠️ NpcsByNetId 是 Dictionary<int,NPC>（原实现 as NPC[] 永远返回 null）→ Size*SyncAnchor 还原失效
+        ///    → anchor≠0 的怪（大怪/Boss）位置偏移 → “看不到其他人眼里的怪 / 被看不见的怪打”。</summary>
         private static Vector2 GetNpcSize(int netType)
         {
             if (!_npcByNetIdLoaded)
@@ -876,12 +1153,12 @@ namespace Compat1456
                 {
                     var t = FindType("Terraria.ID.ContentSamples") ?? FindType("Terraria.ContentSamples");
                     var f = t?.GetField("NpcsByNetId", BindingFlags.Public | BindingFlags.Static);
-                    _npcByNetId = f?.GetValue(null) as NPC[];
+                    _npcByNetId = f?.GetValue(null) as Dictionary<int, NPC>;
                 }
                 catch { }
             }
-            if (_npcByNetId != null && netType >= 0 && netType < _npcByNetId.Length && _npcByNetId[netType] != null)
-                return _npcByNetId[netType].Size;
+            if (_npcByNetId != null && _npcByNetId.TryGetValue(netType, out var npc) && npc != null)
+                return npc.Size;
             return Vector2.Zero;
         }
 
@@ -903,6 +1180,7 @@ namespace Compat1456
 
         private static PropertyInfo? _npcGenerationProp;
         private static FieldInfo? _npcGenerationField;
+        private static Func<NPC, byte>? _npcGenGetter;   // 编译委托（性能：入站 28 每包调用，替代 PropertyInfo.GetValue）
 
         /// <summary>反射读取 NPC.generation（1.4.5.7 新增；编译期 TShock 6.1.0 的 NPC 没有该成员，必须反射）</summary>
         private static byte GetNpcGeneration(NPC npc)
@@ -913,9 +1191,28 @@ namespace Compat1456
                 catch { }
                 try { _npcGenerationField = typeof(NPC).GetField("generation", BindingFlags.Public | BindingFlags.Instance); }
                 catch { }
+
+                // 编译委托（失败回退反射取值）
+                try
+                {
+                    var p = Expression.Parameter(typeof(NPC), "npc");
+                    if (_npcGenerationProp != null)
+                    {
+                        _npcGenGetter = Expression.Lambda<Func<NPC, byte>>(
+                            Expression.Convert(Expression.Property(p, _npcGenerationProp), typeof(byte)), p).Compile();
+                    }
+                    else if (_npcGenerationField != null)
+                    {
+                        _npcGenGetter = Expression.Lambda<Func<NPC, byte>>(
+                            Expression.Convert(Expression.Field(p, _npcGenerationField), typeof(byte)), p).Compile();
+                    }
+                }
+                catch { }
             }
             try
             {
+                if (_npcGenGetter != null)
+                    return _npcGenGetter(npc);
                 if (_npcGenerationProp != null)
                     return (byte)_npcGenerationProp.GetValue(npc);
                 if (_npcGenerationField != null)
@@ -937,6 +1234,7 @@ namespace Compat1456
                 {
                     TShock.Log.ConsoleInfo($"[Compat1456] 兼容客户端 #{args.Who} 已离开，清理登记");
                 }
+                _projRate.Remove(args.Who);
             }
         }
 
@@ -960,6 +1258,7 @@ namespace Compat1456
                 lock (SyncLock)
                 {
                     _compatClients.Clear();
+                    _projRate.Clear();
                 }
                 _initialized = false;
                 TShock.Log.ConsoleInfo("[Compat1456] 已卸载");
