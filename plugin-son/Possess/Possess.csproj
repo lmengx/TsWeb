@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>Possess</AssemblyName>
+    <RootNamespace>Possess</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="TShock" Version="6.1.0" />
+  </ItemGroup>
+
+  <!-- 1.4.5.7 update otapi（OTAPI3 重打包）：TShock NuGet 仅含 TerrariaServer.dll 引用桩（127KB），
+       真实类型（含 OTAPI.Hooks.MessageBuffer）在 OTAPI.dll —— 与本机主 plugin 同版（plugin/api/OTAPI.dll） -->
+  <ItemGroup>
+    <Reference Include="OTAPI">
+      <HintPath>..\..\plugin\api\OTAPI.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+</Project>
