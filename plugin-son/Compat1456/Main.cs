@@ -122,6 +122,50 @@ namespace Compat1456
         private const int MaxProjectilesPerWindow = 200;   // 对齐 TShock 默认 ProjectileThreshold
         private const long RateWindowTicks = TimeSpan.TicksPerSecond;
 
+        /// <summary>
+        /// 重放弹幕的 (owner,identity) → 当前 generation。
+        /// ⚠️ 1.4.5.8 反编译实证（Projectile.NewProjectileSetup）：自然分配 key = (Main.myPlayer, 槽位, ++slotGenerations[槽位])，
+        /// 即 Generation 是“同 (spawner,index) 被复用次数”语义，从 1 起递增，0 是保留值；
+        /// TryLookup 用 keyToIndex[spawner,index] 定位后【整个 key 含 gen 精确比较】。
+        /// 1.4.5.6 客户端没有 gen 概念，identity 复用即“新弹幕”。此前重放恒用 gen=0 会导致：
+        /// a) 死弹幕（同 key）被下一次 27 hit 命中 → 广播 inactive 弹幕 → 全服幽灵弹幕；
+        /// b) gen=0 违反自然分配语义（0 永不出现），客户端/服务器弹幕表状态错乱。
+        /// 修复：按 (owner,identity) 维护递增 gen，模拟原版 gen++ 语义。
+        /// </summary>
+        private static readonly Dictionary<long, ushort> _replayGen = new Dictionary<long, ushort>();
+
+        private static long ReplayGenKey(int owner, int identity)
+            => ((long)owner << 16) | (uint)(identity & 0xFFFF);
+
+        /// <summary>读取当前 gen（无记录返回 0——首次必然 miss 触发新建并递增到 1）</summary>
+        private static ushort PeekReplayGeneration(int owner, int identity)
+        {
+            lock (SyncLock)
+            {
+                return _replayGen.TryGetValue(ReplayGenKey(owner, identity), out var g) ? g : (ushort)0;
+            }
+        }
+
+        /// <summary>递增并返回新 gen（跳过 0，对齐 slotGenerations 的 ++ 前缀语义）</summary>
+        private static ushort NextReplayGeneration(int owner, int identity)
+        {
+            lock (SyncLock)
+            {
+                long k = ReplayGenKey(owner, identity);
+                _replayGen.TryGetValue(k, out var g);
+                g = (ushort)(g + 1);
+                if (g == 0)
+                    g = 1;
+                _replayGen[k] = g;
+                return g;
+            }
+        }
+
+        /// <summary>按 ProjectileKey.Pack 位布局手算 key 的 int 位形式（Spawner 低 8 位 | Index 中 10 位 | Gen 高 14 位），
+        /// 用于 TrySendData(29,...) 的 number 参数（原版传 projectileKey 隐式转 int）</summary>
+        private static int PackProjectileKeyBits(int spawner, int index, int generation)
+            => (spawner & 0xFF) | ((index & 0x3FF) << 8) | ((generation & 0x3FFF) << 18);
+
         /// <summary>入站 27 弹幕创建限流：true=放行，false=超限丢弃（静默，不调 orig、不重放、不广播）</summary>
         private static bool AllowProjectile(int whoAmI)
         {
@@ -824,13 +868,22 @@ namespace Compat1456
                 if (Main.projHostile[type]) return;
                 if (owner != self.whoAmI) return;
 
-                // 构造 key：Spawner=owner, Index=identity（旧客户端 identity 匹配）, Generation=0
-                object key = CreateProjectileKey(owner, identity, 0);
+                // 构造 key：Spawner=owner, Index=identity（旧客户端 identity 匹配）。
+                // ⚠️ gen 不能恒 0：1.4.5.8 自然分配 gen≥1（++slotGenerations），0 是保留值；
+                //    TryLookup 按 (spawner,index) 定位后整 key 含 gen 精确比较，gen 恒 0 会让“已死亡弹幕”
+                //    被后续 27 hit 复活并广播 → 全服幽灵弹幕/弹幕打怪伤害错乱。改为：先按当前 gen 查找，
+                //    无存活弹幕（miss 或 inactive）则 gen++ 分配新 key，模拟原版复用语义
+                ushort curGen = PeekReplayGeneration(owner, identity);
+                object key = CreateProjectileKey(owner, identity, curGen);
 
                 bool isNew = false;
                 Projectile? proj;
-                if (!ProjectileTryGet(key, out proj) || proj == null)
+                if (!ProjectileTryGet(key, out proj) || proj == null || !proj.active)
                 {
+                    // 当前 key 下无存活弹幕 → 这是一次“新建”（319 客户端复用 identity）→ gen 递增，
+                    // 与原版 TryLookup miss → NewProjectileSetup(key) 的路径完全一致
+                    ushort newGen = NextReplayGeneration(owner, identity);
+                    key = CreateProjectileKey(owner, identity, newGen);
                     isNew = true;
                     proj = ProjectileNewSetup(key);
                     if (proj == null) return;
@@ -865,7 +918,14 @@ namespace Compat1456
             }
         }
 
-        /// <summary>入站 29（旧客户端灭弹）语义级重放：旧 identity+owner → key → TryGet → active=false</summary>
+        /// <summary>
+        /// 入站 29（旧客户端灭弹）语义级重放：旧 identity+owner → key → proj.Kill()。
+        /// ⚠️ 必须对齐原版服务器 case 29（1.4.5.8 反编译实证）：
+        ///   if (TryGet && active) { pos 有效 → position=pos + proj.Kill(); 否则 active=false; }
+        ///   NetMessage.TrySendData(29, -1, whoAmI, null, key, posX, posY);  // ← 无条件广播！
+        /// 此前实现只置 active=false 且【不广播】→ 其他客户端（1.4.5.8）永远收不到“319 弹幕已死”，
+        /// 本地僵尸弹幕继续跑 AI/碰撞预测 → 全服幽灵弹幕 + 伤害预测回滚（“打怪没伤害”的直接根因）。
+        /// </summary>
         private static void HandleInboundProjectileKill(MessageBuffer self, int start)
         {
             try
@@ -881,11 +941,21 @@ namespace Compat1456
                 short identity = (short)(buf[o] | (buf[o + 1] << 8)); o += 2;
                 byte owner = buf[o];
 
-                object key = CreateProjectileKey(owner, identity, 0);
-                if (ProjectileTryGet(key, out var proj) && proj != null)
+                // 旧 29 包体无死亡坐标（新包 deathPos 是 1.4.5.7+ 新增）。
+                // 优先用服务器弹幕当前位置作为死亡坐标；查不到则传 NaN（原版语义：客户端走 active=false 清理）
+                ushort gen = PeekReplayGeneration(owner, identity);
+                int keyBits = PackProjectileKeyBits(owner, identity, gen);
+                float deathX = float.NaN, deathY = float.NaN;
+
+                if (gen != 0 && ProjectileTryGet(CreateProjectileKey(owner, identity, gen), out var proj) && proj != null && proj.active)
                 {
-                    proj.active = false;
+                    deathX = proj.position.X;
+                    deathY = proj.position.Y;
+                    proj.Kill();   // 原版语义：Kill 触发死亡 AI/特效，而非裸 active=false
                 }
+
+                // 无条件广播灭弹（对齐原版：客户端按 key 清理本地记录，即使服务器已无此弹幕）
+                NetMessage.TrySendData(29, -1, self.whoAmI, null, keyBits, deathX, deathY);
             }
             catch (Exception ex)
             {
@@ -1235,6 +1305,18 @@ namespace Compat1456
                     TShock.Log.ConsoleInfo($"[Compat1456] 兼容客户端 #{args.Who} 已离开，清理登记");
                 }
                 _projRate.Remove(args.Who);
+                // 清理该玩家的重放 gen 记录（弹幕 key 的 gen 递增状态跟随玩家生命周期）
+                long ownerPrefix = (long)args.Who << 16;
+                List<long> staleGenKeys = new List<long>();
+                foreach (long k in _replayGen.Keys)
+                {
+                    if ((k & 0xFFFF0000) == ownerPrefix)
+                        staleGenKeys.Add(k);
+                }
+                foreach (long k in staleGenKeys)
+                {
+                    _replayGen.Remove(k);
+                }
             }
         }
 
@@ -1259,6 +1341,7 @@ namespace Compat1456
                 {
                     _compatClients.Clear();
                     _projRate.Clear();
+                    _replayGen.Clear();
                 }
                 _initialized = false;
                 TShock.Log.ConsoleInfo("[Compat1456] 已卸载");

@@ -158,7 +158,8 @@ public static class BossLimitQuit
         var player = args.Player;
         if (player == null || !player.RealPlayer) return;
 
-        int npcIndex = args.Index;
+        // 1.4.5.8 API：NPCStrikeEventArgs.Index 已改名为 ID（short）
+        int npcIndex = args.ID;
         if (npcIndex < 0 || npcIndex >= Main.maxNPCs) return;
 
         var npc = Main.npc[npcIndex];

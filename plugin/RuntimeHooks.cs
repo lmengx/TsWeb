@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿using System;
+﻿﻿﻿﻿﻿using System;
 using Terraria;
 using TerrariaApi.Server;
 using TShockAPI;
@@ -56,7 +56,9 @@ namespace TShockData
                     
                     if (owner >= 0 && owner < Main.maxPlayers && TShock.Players[owner] != null)
                     {
-                        TShock.Players[owner].RemoveProjectile(args.ProjectileKey);
+                        // 1.4.5.8 API：NewProjectileEventArgs.ProjectileKey 已移除，
+                        // TSPlayer.RemoveProjectile(ProjectileKey) 改为 RemoveProjectile(int index, int owner)
+                        TShock.Players[owner].RemoveProjectile(args.Index, args.Owner);
                     }
                 }
             }
