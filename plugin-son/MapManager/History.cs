@@ -1472,7 +1472,10 @@ public class MapManager : TerrariaPlugin
 
     void QueueCallback(object t)
     {
-        while (!Netplay.Disconnect)
+        // 注意：不要在此处读取 Netplay.Disconnect —— 该字段在 Terraria 1.4.5.8 已被删除，
+        // 线程 JIT 时会抛 MissingFieldException（ConnectionGuard 同坑，已改反射安全读取）。
+        // 线程退出由 TryTake 的 CancellationToken 覆盖：Dispose -> Cancel.Cancel() -> OperationCanceledException -> return。
+        while (true)
         {
             try
             {
