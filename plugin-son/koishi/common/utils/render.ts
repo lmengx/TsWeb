@@ -1,6 +1,7 @@
 import { chromium } from 'playwright'
 import { readFileSync, existsSync } from 'fs'
 import { join } from 'path'
+import { HELP_SECTIONS } from './help-data'
 
 let _browser: import('playwright').Browser | null = null
 
@@ -903,6 +904,93 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC",sans
   </div>
   <div class="vd-options">${optionRows}</div>
   <div class="vs-rules"><b>每用户可投 ${Number(r.maxVotesPerUser ?? 1)} 票</b> · ${ruleLine}</div>
+</div>
+</body>
+</html>`
+}
+
+// ══════════════════════════════════════════════════════════
+//  机器人指令卡片（help，浅色，无 emoji）
+//  指令元数据统一在 ./help-data（HELP_SECTIONS），此处只负责渲染
+//  静态内容，插件加载时渲染一次并缓存到内存；发送 help 直接复用
+// ══════════════════════════════════════════════════════════
+
+const CHANNEL_CLS: Record<string, string> = {
+  '群聊': 'ch-group',
+  '私聊': 'ch-private',
+  '@': 'ch-at',
+}
+
+/** 机器人指令卡片 HTML（浅色，功能分组 + 渠道徽标） */
+export function helpCard(): string {
+  const sectionsHtml = HELP_SECTIONS.map(sec => {
+    const rows = sec.items.map(it => {
+      const cls = CHANNEL_CLS[it.channel] || 'ch-group'
+      return `<div class="row">
+        <code>${escapeHtml(it.cmd)}</code>
+        <span class="desc">${escapeHtml(it.desc)}</span>
+        <span class="ch ${cls}">${escapeHtml(it.channel)}</span>
+      </div>`
+    }).join('\n')
+    return `<div class="sec ${sec.private ? 'sec-private' : ''}">
+      <div class="sec-title">${escapeHtml(sec.title)}</div>
+      ${rows}
+    </div>`
+  }).join('\n')
+
+  return `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC",sans-serif;
+  background:#eef2f7;min-height:100vh;padding:20px
+}
+.wrap{
+  width:560px;margin:0 auto;background:#fff;
+  border:1px solid #e2e8f0;border-radius:16px;
+  padding:24px 24px 18px;box-shadow:0 12px 32px rgba(15,23,42,0.08)
+}
+.head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:16px;
+  padding-bottom:12px;border-bottom:2px solid #2563eb}
+.head-title{font-size:20px;font-weight:800;color:#1e293b;letter-spacing:0.5px}
+.head-sub{font-size:12px;color:#94a3b8;letter-spacing:1px}
+.sec{margin-bottom:14px}
+.sec-title{
+  font-size:13px;font-weight:800;color:#2563eb;
+  padding:4px 0 4px 10px;margin-bottom:4px;
+  border-left:3px solid #2563eb;background:#eff6ff;border-radius:0 6px 6px 0
+}
+.sec-private .sec-title{
+  color:#7c3aed;border-left-color:#7c3aed;background:#f5f3ff
+}
+.sec-private .row{background:#faf9ff;border-radius:6px}
+.row{display:flex;align-items:center;gap:10px;padding:5px 0 5px 10px}
+code{
+  font-family:"JetBrains Mono","Consolas","Courier New",monospace;
+  font-size:13px;font-weight:700;color:#1d4ed8;
+  background:#eef2ff;border:1px solid #e0e7ff;
+  padding:1px 8px;border-radius:6px;white-space:nowrap
+}
+.desc{flex:1;font-size:12px;color:#64748b;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ch{flex-shrink:0;font-size:10px;font-weight:700;padding:1px 8px;border-radius:10px;white-space:nowrap}
+.ch-group{background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe}
+.ch-private{background:#f5f3ff;color:#7c3aed;border:1px solid #ddd6fe}
+.ch-at{background:#ecfdf5;color:#059669;border:1px solid #a7f3d0}
+.foot{margin-top:6px;padding-top:10px;border-top:1px solid #e2e8f0;
+  text-align:center;font-size:12px;color:#94a3b8}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="head">
+    <div class="head-title">机器人指令</div>
+    <div class="head-sub">BOT COMMANDS</div>
+  </div>
+  ${sectionsHtml}
+  <div class="foot">发送 help 查看本卡片</div>
 </div>
 </body>
 </html>`
