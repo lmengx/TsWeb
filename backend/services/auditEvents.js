@@ -13,6 +13,14 @@ export const AUDIT_EVENTS = {
     level: 'warn', category: 'auth', title: '登录失败（密码错误）',
     fields: ['username', 'reason'], ip: true, sensitive: []
   },
+  'player.login': {
+    level: 'info', category: 'auth', title: '玩家登录（QQ 台账）',
+    fields: ['username', 'qq', 'via'], ip: true, sensitive: []
+  },
+  'player.login_failed': {
+    level: 'warn', category: 'auth', title: '玩家登录失败',
+    fields: ['username', 'reason'], ip: true, sensitive: []
+  },
   'auth.setup_login': {
     level: 'info', category: 'auth', title: 'Setup Token 登录',
     fields: ['username', 'via'], ip: true, sensitive: []

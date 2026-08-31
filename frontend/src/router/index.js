@@ -51,6 +51,13 @@ const routes = [
     component: Login
   },
   {
+    path: '/vote',
+    name: 'Vote',
+    // 玩家（QQ 台账）投票中心：登录表单 + 我的信息门户；不挂 requiresAuth（未登录显示登录表单）
+    // 玩家 token 存 user_player，与管理端 'user' 完全隔离，天然进不了 /console 管理路由
+    component: () => import('../views/VoteView.vue')
+  },
+  {
     path: '/change-password',
     name: 'ChangePassword',
     component: () => import('../views/ChangePasswordView.vue'),

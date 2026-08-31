@@ -33,6 +33,12 @@ export async function loadConfig() {
   if (config.bot.pollIntervalMinutes === undefined) { config.bot.pollIntervalMinutes = 10; migrated = true }
   // 禁止多服登录（全局）：启用后，玩家在某服登录 → 踢掉其他启用 syncUUID 的服上的同名在线角色
   if (config.singleLogin === undefined) { config.singleLogin = { enabled: false }; migrated = true }
+  // 玩家（QQ 登录）JWT 有效期：独立于管理端 security.tokenExpire
+  if (!config.security || typeof config.security !== 'object') { config.security = {}; migrated = true }
+  if (!config.security.playerTokenExpire) { config.security.playerTokenExpire = '7d'; migrated = true }
+  // 投票权重阈值：base 1 票 + 累计时长 ≥ 阈值(小时) 加成 1 票（每轮可覆盖，此处为全局默认）
+  if (!config.vote || typeof config.vote !== 'object') { config.vote = {}; migrated = true }
+  if (config.vote.weightThresholdHours === undefined) { config.vote.weightThresholdHours = 50; migrated = true }
   if (migrated) {
     try { await fs.writeFile(CONFIG_PATH, JSON.stringify(config, null, 2), 'utf8') } catch { /* 忽略写失败 */ }
   }
@@ -61,7 +67,13 @@ export async function saveNewConfig() {
     security: {
       jwtSecret: generateSecret(),
       tokenExpire: '24h',
+      // 玩家（QQ 登录）JWT 有效期：投票跨周，独立于管理端
+      playerTokenExpire: '7d',
       challengeExpire: 120000
+    },
+    // 投票权重规则：base 1 票 + 累计时长 ≥ weightThresholdHours 加成 1 票
+    vote: {
+      weightThresholdHours: 50
     },
     // QQ 账号台账同步：机器人/前端管理入口的鉴权 token
     bot: {

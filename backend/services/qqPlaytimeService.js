@@ -13,29 +13,30 @@ const PLAYTIME_PATH = path.join(__dirname, '..', 'data', 'qq_playtime.json')
 //   后端定时向各启用服拉取 player_daily_stat 全量累计（历史累计，非逐时快照），
 //   合并落盘本文件；qq 字段随 QQ 台账（qq_accounts.json）同步刷新。
 //   用途：前端 QQ 绑定列表、机器人「我的信息」的多服游玩时长。
+//
+// ⚠️ 实时读文件（不缓存）：与 qq_accounts.json 同一策略，外部写入立即可见，无需重启。
 // ═══════════════════════════════════════════════════════════
 
-let _loaded = false
-let _data = null // { records: {...} }
-
 async function load() {
-  if (_loaded) return _data
   try {
     const content = await fs.readFile(PLAYTIME_PATH, 'utf8')
-    _data = JSON.parse(content)
+    const data = JSON.parse(content)
+    if (!data || typeof data !== 'object') return { records: {} }
+    if (!data.records || typeof data.records !== 'object') data.records = {}
+    return data
   } catch {
-    _data = { records: {} }
+    return { records: {} }
   }
-  if (!_data || typeof _data !== 'object') _data = { records: {} }
-  if (!_data.records || typeof _data.records !== 'object') _data.records = {}
-  _loaded = true
-  return _data
 }
 
-async function persist() {
+async function persist(data) {
+  // 防御：若误传裸 records（无 records 外壳），自动包回 { records: ... }，杜绝外壳丢失写坏文件
+  const payload = (data && typeof data === 'object' && data.records)
+    ? data
+    : { records: (data && typeof data === 'object') ? data : {} }
   try {
     await fs.mkdir(path.dirname(PLAYTIME_PATH), { recursive: true })
-    await fs.writeFile(PLAYTIME_PATH, JSON.stringify(_data, null, 2), 'utf8')
+    await fs.writeFile(PLAYTIME_PATH, JSON.stringify(payload, null, 2), 'utf8')
   } catch (err) {
     console.error('[QQ时长] 保存失败:', err.message)
   }
@@ -91,7 +92,8 @@ export async function aggregateAll() {
     stats: await fetchServerStats(s)
   })))
 
-  const records = await getPlaytimeRecords()
+  const data = await load()
+  const records = data.records
   let ok = 0
 
   for (const r of results) {
@@ -118,7 +120,7 @@ export async function aggregateAll() {
     rec.updatedAt = now
   }
 
-  await persist()
+  await persist(data)
   if (ok !== servers.length) {
     console.warn(`[QQ时长] 聚合完成: ${ok}/${servers.length}`)
   } else {

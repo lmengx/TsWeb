@@ -68,6 +68,28 @@ export const requireManager = (req, res, next) => {
 }
 
 /**
+ * 仅玩家（QQ 台账登录）：投票等玩家端接口
+ * 实时校验台账存在性：解绑后旧 JWT 立即失效（投票资格语义）——
+ * 即使不引入 tokenVersion，资格层面也必须实时查账（改密不失效，解绑必须失效）
+ */
+export const requirePlayer = async (req, res, next) => {
+  const roles = getRoles(req)
+  if (!roles.includes('player')) {
+    return res.status(403).json({ error: 'Forbidden: Requires player role' })
+  }
+  try {
+    const { getAccountByUsernameCI } = await import('../services/qqAccountService.js')
+    const account = await getAccountByUsernameCI(req.user?.username)
+    if (!account) {
+      return res.status(401).json({ error: '账号不存在或已解绑' })
+    }
+    next()
+  } catch (error) {
+    res.status(500).json({ error: error.message })
+  }
+}
+
+/**
  * 兼容旧签名：requireRole('admin') → 视为管理员
  * 新代码请使用 requireAdmin / requireManager 明确语义
  */

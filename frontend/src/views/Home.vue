@@ -46,6 +46,7 @@ const fetchStatus = async () => {
 const goHome = () => router.push('/')
 const goLogin = () => router.push('/login')
 const goToConsole = () => router.push('/console')
+const goVote = () => router.push('/vote')
 const toggleUserMenu = () => { showUserMenu.value = !showUserMenu.value }
 
 const handleMouseEnter = () => {
@@ -254,6 +255,13 @@ onUnmounted(() => {
         <h1 class="hero-title">TShock Web 管理面板</h1>
         <p class="hero-desc">基于 Web 的 TShock 服务器管理工具，提供玩家管理、反作弊、在线统计、<br>QQ 绑定、Boss 限制等全方位功能。</p>
         <div class="hero-actions">
+          <button @click="goVote" class="hero-btn secondary">
+            玩家投票入口
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="12 5 19 12 12 19"></polyline>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+          </button>
           <button v-if="!isLoggedIn" @click="goLogin" class="hero-btn primary">
             登录管理面板
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -453,6 +461,13 @@ onUnmounted(() => {
 .hero-btn.primary { background: linear-gradient(135deg,#6366f1,#4f46e5); color: white; box-shadow: 0 4px 16px rgba(99,102,241,0.25); }
 .hero-btn.primary:hover { transform: translateY(-3px) scale(1.03); box-shadow: 0 8px 28px rgba(99,102,241,0.4); }
 .hero-btn.primary:active { transform: translateY(0) scale(0.97); }
+.hero-btn.secondary {
+  background: var(--btn-bg);
+  color: var(--accent-primary);
+  border: 1.5px solid rgba(99, 102, 241, 0.35);
+}
+.hero-btn.secondary:hover { transform: translateY(-3px) scale(1.03); border-color: var(--accent-primary); box-shadow: 0 8px 24px rgba(99,102,241,0.15); }
+.hero-btn.secondary:active { transform: translateY(0) scale(0.97); }
 
 /* 项目进度（分栏 + 3D 滚动） */
 .progress-section { display: flex; gap: 40px; align-items: center; margin-bottom: 48px; }

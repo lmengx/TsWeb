@@ -1,7 +1,10 @@
 import jwt from 'jsonwebtoken'
 import forge from 'node-forge'
+import bcrypt from 'bcrypt'
 import { getConfig } from '../config.js'
 import audit from '../services/auditLogger.js'
+import { getAccountByQq, getAccountByUsernameCI } from '../services/qqAccountService.js'
+import { getPlaytimeRecords } from '../services/qqPlaytimeService.js'
 import {
   verifyAccount, createAccount, listAccounts, deleteAccount,
   changePassword as serviceChangePassword, resetPassword, updateRole, hasAnyAccount,
@@ -273,6 +276,136 @@ export const changeAccountRole = async (req, res) => {
     res.json({ success: true })
   } catch (err) {
     res.status(400).json({ error: err.message })
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// 玩家登录（QQ 台账体系，独立于管理端 accounts.json）
+//
+// JWT payload: { username, qq, usergroup: 'player' }
+//   - usergroup='player' 复用现有角色体系：requireAdmin/requireManager 自动拒绝，
+//     前端 authHelper isAdmin/isManager 自动拒绝管理页面（零改动隔离）
+//   - 有效期 security.playerTokenExpire（默认 7d），独立于管理端 tokenExpire
+//   - 密码哈希 = qq_accounts.json.passwordHash（与游戏内 TShock 账号同一哈希，后端权威）
+//   - 只查后端本地台账，不经过插件端
+// ═══════════════════════════════════════════════════════════
+
+async function getPlayerTokenExpire() {
+  const config = await getConfig()
+  return config?.security?.playerTokenExpire || '7d'
+}
+
+/**
+ * 实时计算玩家投票权重（不进 JWT：时长每 10 分钟聚合刷新，必须实时查）
+ * 规则：base 1 票 + 累计时长 ≥ 阈值(小时，config.vote.weightThresholdHours，默认 50) 加成 1 票
+ */
+async function calcPlayerWeight(username) {
+  const config = await getConfig()
+  const thresholdHours = Number(config?.vote?.weightThresholdHours ?? 50) || 50
+  const records = await getPlaytimeRecords()
+  let total = 0
+  for (const [name, rec] of Object.entries(records)) {
+    if (String(name).toLowerCase() === String(username).toLowerCase()) {
+      total = Number(rec?.total || 0)
+      break
+    }
+  }
+  const hours = total / 60
+  return {
+    playtimeMinutes: total,
+    playtimeHours: Math.round(hours * 10) / 10,
+    weight: 1 + (hours >= thresholdHours ? 1 : 0),
+    thresholdHours
+  }
+}
+
+/**
+ * 玩家登录：POST /api/auth/player-login
+ * body: { keyId, encryptedPassword, clientPublicKeyPem, account }
+ *   account = QQ 号（5-15 位数字）或角色名；只查后端本地 qq_accounts.json
+ * 与 admin login 同构：RSA-OAEP 挑战 → 本地 bcrypt 比对 → 签发 JWT（前端公钥加密回传）
+ */
+export const playerLogin = async (req, res) => {
+  const { keyId, encryptedPassword, clientPublicKeyPem, account } = req.body
+
+  if (!keyId || !encryptedPassword || !clientPublicKeyPem || !account) {
+    return res.status(400).json({ error: 'Missing required fields' })
+  }
+
+  const serverKeyPair = serverKeyPairs.get(keyId)
+  if (!serverKeyPair || Date.now() > serverKeyPair.expiresAt) {
+    return res.status(400).json({ error: 'Invalid or expired server key' })
+  }
+
+  serverKeyPairs.delete(keyId)
+
+  try {
+    const encryptedBytes = forge.util.decode64(encryptedPassword)
+    const decryptedPassword = serverKeyPair.privateKey.decrypt(encryptedBytes, 'RSA-OAEP')
+
+    const ident = String(account || '').trim()
+    // QQ 号（纯数字 5-15 位）优先按 QQ 精确匹配；否则按角色名大小写不敏感匹配
+    let rec = /^\d{5,15}$/.test(ident) ? await getAccountByQq(ident) : null
+    if (!rec) rec = await getAccountByUsernameCI(ident)
+
+    if (!rec || !rec.passwordHash) {
+      // 统一失败语义：账号不存在/密码错误同为 401，不泄露账号存在性
+      audit.record('player.login_failed', { username: ident, reason: 'invalid_credentials', ip: req.ip })
+      await new Promise(r => setTimeout(r, 500))
+      return res.status(401).json({ error: '账号或密码错误' })
+    }
+
+    const ok = await bcrypt.compare(String(decryptedPassword), rec.passwordHash)
+    if (!ok) {
+      audit.record('player.login_failed', { username: rec.username, reason: 'invalid_credentials', ip: req.ip })
+      await new Promise(r => setTimeout(r, 500))
+      return res.status(401).json({ error: '账号或密码错误' })
+    }
+
+    const secret = await getJwtSecret()
+    const expire = await getPlayerTokenExpire()
+    const token = jwt.sign(
+      { username: rec.username, qq: String(rec.qq || ''), usergroup: 'player' },
+      secret,
+      { expiresIn: expire }
+    )
+
+    audit.record('player.login', { username: rec.username, qq: rec.qq, via: 'password', ip: req.ip })
+
+    const player = await calcPlayerWeight(rec.username)
+    const payload = {
+      username: rec.username,
+      qq: String(rec.qq || ''),
+      ...player
+    }
+
+    try {
+      const clientPublicKey = forge.pki.publicKeyFromPem(clientPublicKeyPem)
+      const encryptedToken = forge.util.encode64(clientPublicKey.encrypt(token, 'RSA-OAEP'))
+      res.json({ success: true, encryptedToken, userGroup: 'player', player: payload })
+    } catch (e) {
+      res.json({ success: true, token, userGroup: 'player', player: payload })
+    }
+  } catch (error) {
+    console.error('Player login error:', error)
+    return res.status(500).json({ error: 'Server error' })
+  }
+}
+
+/**
+ * 玩家自身信息：GET /api/auth/player/me（requirePlayer 已实时校验台账存在性）
+ * 返回：username / qq / 累计时长 / 实时权重 / 阈值
+ */
+export const playerMe = async (req, res) => {
+  try {
+    const rec = await getAccountByUsernameCI(req.user?.username)
+    if (!rec) {
+      return res.status(401).json({ error: '账号不存在或已解绑' })
+    }
+    const player = await calcPlayerWeight(rec.username)
+    res.json({ username: rec.username, qq: String(rec.qq || ''), ...player })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
   }
 }
 

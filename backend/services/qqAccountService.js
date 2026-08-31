@@ -13,29 +13,32 @@ const ACCOUNTS_PATH = path.join(__dirname, '..', 'data', 'qq_accounts.json')
 //   仅存 QQ号 + 密码哈希（注册/绑定/改密维护）。
 //   UUID 不再存储于台账：账号登录设备由「登录上报 → 后端转发 → 各服落盘」实时同步，
 //   各服数据库 Users.UUID 字段即真值，TShock 原生免密直接命中。
+//
+// ⚠️ 实时读文件（不缓存）：任何进程/脚本对 data/qq_accounts.json 的修改立即生效，无需重启。
+//    文件规模（<1000 用户）下单次读 + JSON.parse 为毫秒级，远小于 bcrypt 校验成本（~300ms），
+//    无性能顾虑；代价是磁盘 IO，换来「外部写入立即可见」的正确性。
 // ═══════════════════════════════════════════════════════════
 
-let _loaded = false
-let _accounts = null // { records: {...} }
-
 async function load() {
-  if (_loaded) return _accounts
   try {
     const content = await fs.readFile(ACCOUNTS_PATH, 'utf8')
-    _accounts = JSON.parse(content)
+    const data = JSON.parse(content)
+    if (!data || typeof data !== 'object') return { records: {} }
+    if (!data.records || typeof data.records !== 'object') data.records = {}
+    return data
   } catch {
-    _accounts = { records: {} }
+    return { records: {} }
   }
-  if (!_accounts || typeof _accounts !== 'object') _accounts = { records: {} }
-  if (!_accounts.records || typeof _accounts.records !== 'object') _accounts.records = {}
-  _loaded = true
-  return _accounts
 }
 
-async function persist() {
+async function persist(data) {
+  // 防御：若误传裸 records（无 records 外壳），自动包回 { records: ... }，杜绝外壳丢失写坏文件
+  const payload = (data && typeof data === 'object' && data.records)
+    ? data
+    : { records: (data && typeof data === 'object') ? data : {} }
   try {
     await fs.mkdir(path.dirname(ACCOUNTS_PATH), { recursive: true })
-    await fs.writeFile(ACCOUNTS_PATH, JSON.stringify(_accounts, null, 2), 'utf8')
+    await fs.writeFile(ACCOUNTS_PATH, JSON.stringify(payload, null, 2), 'utf8')
   } catch (err) {
     console.error('[QQ台账] 保存失败:', err.message)
   }
@@ -49,6 +52,18 @@ export async function getAccounts() {
 export async function getAccountByUsername(username) {
   const records = await getAccounts()
   return records[username] || null
+}
+
+/** 大小写不敏感按角色名查台账（玩家登录 / requirePlayer 中间件用），返回 { username, ...rec } */
+export async function getAccountByUsernameCI(username) {
+  if (!username) return null
+  const target = String(username).trim().toLowerCase()
+  if (!target) return null
+  const records = await getAccounts()
+  for (const [name, rec] of Object.entries(records)) {
+    if (String(name).toLowerCase() === target) return { username: name, ...rec }
+  }
+  return null
 }
 
 export async function getAccountByQq(qq) {
@@ -65,7 +80,8 @@ export async function getAccountByQq(qq) {
  * @returns {{ changed: boolean, existed: boolean }}
  */
 export async function upsertAccount({ username, qq = '', passwordHash = '', updatedAt }) {
-  const records = await getAccounts()
+  const data = await load()
+  const records = data.records
   const existing = records[username]
   const existed = !!existing
   const changed = !existing
@@ -77,16 +93,17 @@ export async function upsertAccount({ username, qq = '', passwordHash = '', upda
     passwordHash: String(passwordHash || ''),
     updatedAt: updatedAt || new Date().toISOString()
   }
-  await persist()
+  await persist(data)
   return { changed, existed }
 }
 
 /** 移除台账记录（暂未接入删号同步，预留） */
 export async function removeAccount(username) {
-  const records = await getAccounts()
+  const data = await load()
+  const records = data.records
   if (!records[username]) return false
   delete records[username]
-  await persist()
+  await persist(data)
   return true
 }
 
@@ -212,4 +229,4 @@ export async function pushFullIfEnabled(server) {
   return postToServer(server, payload)
 }
 
-export default { getAccounts, upsertAccount, removeAccount, broadcastFullAll, broadcastUuid, pushFullIfEnabled }
+export default { getAccounts, getAccountByUsername, getAccountByUsernameCI, getAccountByQq, upsertAccount, removeAccount, broadcastFullAll, broadcastUuid, pushFullIfEnabled }
