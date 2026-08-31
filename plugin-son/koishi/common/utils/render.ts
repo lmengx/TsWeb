@@ -751,7 +751,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC",sans
 .vo-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .vo-text{font-size:14px;font-weight:600;color:rgba(255,255,255,0.92);flex:1;min-width:0;word-break:break-word}
 .vo-tag{font-size:10px;font-weight:600;padding:2px 8px;border-radius:8px;
-  background:rgba(59,130,246,0.18);color:#93c5fd;border:1px solid rgba(59,130,246,0.3);white-space:nowrap}
+  background:rgba(139,92,246,0.2);color:#c4b5fd;border:1px solid rgba(139,92,246,0.35);white-space:nowrap}
 .vo-tag.anon{background:rgba(107,114,128,0.2);color:rgba(255,255,255,0.6);border-color:rgba(107,114,128,0.3)}
 .vo-score{font-size:12px;color:#93c5fd;font-weight:700;white-space:nowrap}
 .vo-bar{margin-top:6px;height:8px;background:rgba(255,255,255,0.08);border-radius:4px;overflow:hidden}
@@ -819,8 +819,8 @@ export function voteStateCard(data: VoteStateData): string {
     let tag = ''
     if (o.type === 'custom') {
       tag = o.anonymous
-        ? '<span class="vs-tag anon">匿名提案</span>'
-        : `<span class="vs-tag">${escapeHtml(o.proposer || '')} 提案</span>`
+        ? '<span class="vo-tag anon">匿名提案</span>'
+        : `<span class="vo-tag">${escapeHtml(o.proposer || '')} 提案</span>`
     }
     return `<div class="vo ${voted ? 'voted' : ''}">
       <div class="vo-head">
@@ -877,7 +877,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC",sans
 .vo-text{font-size:14px;font-weight:600;color:rgba(255,255,255,0.92);flex:1;min-width:0;word-break:break-word}
 .vo.voted .vo-text{color:#6ee7b7}
 .vo-tag{font-size:10px;font-weight:600;padding:2px 8px;border-radius:8px;
-  background:rgba(59,130,246,0.18);color:#93c5fd;border:1px solid rgba(59,130,246,0.3);white-space:nowrap}
+  background:rgba(139,92,246,0.2);color:#c4b5fd;border:1px solid rgba(139,92,246,0.35);white-space:nowrap}
 .vo-tag.anon{background:rgba(107,114,128,0.2);color:rgba(255,255,255,0.6);border-color:rgba(107,114,128,0.3)}
 .vo-score{font-size:12px;color:#93c5fd;font-weight:700;white-space:nowrap}
 .vo-bar{margin-top:6px;height:8px;background:rgba(255,255,255,0.08);border-radius:4px;overflow:hidden}
