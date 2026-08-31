@@ -377,6 +377,176 @@ export const votes = async (req, res) => {
 }
 
 // ═══════════════════════════════════════════════════════════
+// 参与投票 / 提案：POST /api/bot/vote-cast、/api/bot/vote-propose
+// 身份：绑定玩家 → 台账角色名；未绑定玩家 → qq:{qq}（基础权重 + 默认可投次数）
+// 配额与防重：一律按 qq 维度（绑定前后共享），轮次 allowUnbound=false 时未绑定拒绝
+// 目标轮次：参数可含轮次名（「轮次名 选项」），缺省 = 第一个进行中轮次
+// 选项：编号（1-based）或名称（精确 → 唯一包含）
+// ═══════════════════════════════════════════════════════════
+
+/** 轮次解析：关键字为空 → 第一个进行中；否则精确 → 唯一包含 */
+function resolveRoundByKeyword(rounds, keyword) {
+  if (!keyword) return rounds.find(r => r.status === 'open') || null
+  const exact = rounds.find(r => r.title === keyword)
+  if (exact) return exact
+  const fuzzy = rounds.filter(r => r.title.includes(keyword) || keyword.includes(r.title))
+  return fuzzy.length === 1 ? fuzzy[0] : null
+}
+
+/** 选项解析：编号（1-based）→ 精确文本 → 唯一包含文本 */
+function resolveOption(round, optText) {
+  const opts = round.options || []
+  if (/^\d+$/.test(optText)) {
+    const n = parseInt(optText, 10)
+    if (n >= 1 && n <= opts.length) return opts[n - 1]
+    return null
+  }
+  const exact = opts.find(o => o.text === optText)
+  if (exact) return exact
+  const fuzzy = opts.filter(o => o.text.includes(optText) || optText.includes(o.text))
+  return fuzzy.length === 1 ? fuzzy[0] : null
+}
+
+/**
+ * 参与投票参数解析：
+ *   单参数 → 整体作为选项名匹配默认轮次（优先）；
+ *   失败且 ≥2 词 → 首词尝试轮次名，剩余整体作为选项名
+ * @returns {{ round, option } | { error: string }}
+ */
+function parseCastArgs(rounds, args) {
+  if (!args) return { error: '缺少选项' }
+  const defaultRound = rounds.find(r => r.status === 'open')
+  if (defaultRound) {
+    const o = resolveOption(defaultRound, args)
+    if (o) return { round: defaultRound, option: o }
+  }
+  const parts = args.split(/\s+/)
+  if (parts.length >= 2) {
+    const round = resolveRoundByKeyword(rounds, parts[0])
+    if (round) {
+      const rest = args.slice(parts[0].length).trim()
+      const o = resolveOption(round, rest)
+      if (o) return { round, option: o }
+      return { error: `轮次「${round.title}」中未找到选项「${rest}」` }
+    }
+  }
+  return { error: defaultRound ? `未找到选项「${args}」，发送「投票」查看选项` : '当前没有进行中的投票' }
+}
+
+/**
+ * 提案参数解析：首词匹配轮次名则「轮次名 文本」，否则缺省轮次 + 整串为文本
+ * @returns {{ round, text } | { error: string }}
+ */
+function parseProposeArgs(rounds, args) {
+  if (!args) return { error: '缺少提案内容' }
+  const defaultRound = rounds.find(r => r.status === 'open')
+  const parts = args.split(/\s+/)
+  if (parts.length >= 2) {
+    const round = resolveRoundByKeyword(rounds, parts[0])
+    if (round) {
+      const rest = args.slice(parts[0].length).trim()
+      if (rest) return { round, text: rest }
+    }
+  }
+  if (defaultRound) return { round: defaultRound, text: args }
+  return { error: '当前没有进行中的投票' }
+}
+
+/** 机器人渠道身份判定：返回 { username, unbound } */
+async function botVoterIdentity(qq) {
+  const account = await getAccountByQq(qq)
+  return account
+    ? { username: account.username, unbound: false }
+    : { username: `qq:${qq}`, unbound: true }
+}
+
+/** 参与投票：POST /api/bot/vote-cast { qq, option: '选项名|编号' | '轮次名 选项名|编号' } */
+export const voteCast = async (req, res) => {
+  try {
+    const qq = String(req.body?.qq || '').trim()
+    const args = String(req.body?.option || '').trim()
+    if (!qq) return res.status(400).json({ error: '缺少参数: qq' })
+    if (!/^\d{5,15}$/.test(qq)) return res.status(400).json({ error: 'QQ 号格式不正确' })
+    if (!args) return res.status(400).json({ error: '缺少选项，用法：参与投票 <选项名/编号> 或 参与投票 <轮次名> <选项名/编号>' })
+
+    const { username, unbound } = await botVoterIdentity(qq)
+    const rounds = await voteService.listRounds({ includeClosed: true, excludeArchived: true })
+    const parsed = parseCastArgs(rounds, args)
+    if (parsed.error) return res.status(400).json({ error: parsed.error })
+    const { round, option } = parsed
+
+    if (unbound && round.allowUnbound === false) {
+      return res.status(403).json({ error: `轮次「${round.title}」未开启未绑定参与，请先私聊机器人「绑定 角色名」` })
+    }
+
+    const { vote } = await voteService.castVoteForQq(round, qq, username, option.id)
+    const roundState = await voteService.roundWithQqState(round.id, qq, username)
+    res.json({
+      status: 'ok',
+      mode: 'voted',
+      qq,
+      username,
+      unbound,
+      weight: vote.weight,
+      round: roundState
+    })
+  } catch (err) {
+    console.error('[QQ机器人] 参与投票失败:', err.message)
+    res.status(400).json({ error: err.message })
+  }
+}
+
+/** 投票提案：POST /api/bot/vote-propose { qq, text: '提案文本' | '轮次名 提案文本' } */
+export const votePropose = async (req, res) => {
+  try {
+    const qq = String(req.body?.qq || '').trim()
+    const text = String(req.body?.text || '').trim()
+    if (!qq) return res.status(400).json({ error: '缺少参数: qq' })
+    if (!/^\d{5,15}$/.test(qq)) return res.status(400).json({ error: 'QQ 号格式不正确' })
+    if (!text) return res.status(400).json({ error: '缺少提案内容，用法：投票提案 <提案文本> 或 投票提案 <轮次名> <提案文本>' })
+
+    const { username, unbound } = await botVoterIdentity(qq)
+    const rounds = await voteService.listRounds({ includeClosed: true, excludeArchived: true })
+    const parsed = parseProposeArgs(rounds, text)
+    if (parsed.error) return res.status(400).json({ error: parsed.error })
+    const { round, text: clean } = parsed
+
+    if (unbound && round.allowUnbound === false) {
+      return res.status(403).json({ error: `轮次「${round.title}」未开启未绑定参与，请先私聊机器人「绑定 角色名」` })
+    }
+
+    // 同文本已存在 → 放行由 propose 返回 existing（不占新配额）；否则按 QQ 维度预检配额
+    const lowerClean = clean.toLowerCase()
+    const sameText = (round.options || []).find(o => o.text.toLowerCase() === lowerClean)
+    if (!sameText) {
+      const myCount = round.options.filter(o => o.type === 'custom' && (
+        String(o.proposer || '').toLowerCase() === String(username).toLowerCase() ||
+        String(o.proposer || '') === 'qq:' + qq
+      )).length
+      if (myCount >= (round.maxProposalsPerUser ?? 1)) {
+        return res.status(400).json({ error: `每用户最多提案 ${round.maxProposalsPerUser} 个，已达上限` })
+      }
+    }
+
+    const result = await voteService.propose(round, username, clean, false)
+    const roundState = await voteService.roundWithQqState(round.id, qq, username)
+    res.json({
+      status: 'ok',
+      mode: 'proposed',
+      qq,
+      username,
+      unbound,
+      existing: !!result.existing,
+      option: result.option,
+      round: roundState
+    })
+  } catch (err) {
+    console.error('[QQ机器人] 投票提案失败:', err.message)
+    res.status(400).json({ error: err.message })
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
 // 管理接口（仅 admin，前端 QQ 配置页使用）
 // ═══════════════════════════════════════════════════════════
 

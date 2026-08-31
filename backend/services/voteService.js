@@ -46,6 +46,7 @@ async function load() {
     for (const r of data.rounds) {
       if (r && r.archived === undefined) r.archived = false
       if (r && r.description === undefined) r.description = ''
+      if (r && r.allowUnbound === undefined) r.allowUnbound = true   // 旧数据默认允许未绑定参与
     }
     return data
   } catch {
@@ -166,6 +167,7 @@ export async function createRound(p) {
     allowProposals: !!p.allowProposals,
     maxProposalsPerUser: Math.max(1, parseInt(p.maxProposalsPerUser) || 1),
     weightRules: Array.isArray(p.weightRules) ? p.weightRules : [],
+    allowUnbound: p.allowUnbound !== false,   // 是否允许未绑定玩家（QQ机器人渠道）参与，默认允许
     options: options.map(text => ({ id: genId('o'), text, type: 'preset' }))
   }
 
@@ -350,6 +352,76 @@ export async function castVote(round, username, qq, optionId) {
   return { vote, state: myState(round, data.votes, username), option }
 }
 
+// ═══════════════════════════════════════════════════════════
+// QQ 机器人渠道（QQ 维度身份与防重）
+//  绑定玩家：username=台账角色名；未绑定玩家：username=`qq:{qq}`
+//  ⚠️ 配额与去重一律按 qq 维度（绑定前后共享），防止“未绑定投一次+绑定后再投一次”双投
+// ═══════════════════════════════════════════════════════════
+
+/** 某轮内该 QQ 的全部投票记录（含未绑定 qq:xxx 与绑定角色名两种身份） */
+function votesByQq(votes, roundId, qq) {
+  return votes.filter(v => v.roundId === roundId && String(v.qq) === String(qq))
+}
+
+/** QQ 维度个人状态（已投选项按 qq 汇总；提案归属 = username 或历史 qq:xxx 身份） */
+export async function qqState(round, votes, qq, username) {
+  const mine = votesByQq(votes, round.id, qq)
+  const myProposals = round.options.filter(o => o.type === 'custom' && (
+    String(o.proposer || '').toLowerCase() === String(username).toLowerCase() ||
+    String(o.proposer || '') === 'qq:' + qq
+  ))
+  const weight = await calcUserWeight(round, username)
+  return {
+    votedOptions: mine.map(v => v.optionId),
+    votesLeft: Math.max(0, (round.maxVotesPerUser ?? 1) - mine.length),
+    myProposals: myProposals.length,
+    proposalsLeft: Math.max(0, (round.maxProposalsPerUser ?? 1) - myProposals.length),
+    weight,
+    baseWeight: Number(round.baseWeight ?? 1),
+    weightRules: Array.isArray(round.weightRules) ? round.weightRules : []
+  }
+}
+
+/**
+ * 机器人渠道投票：QQ 维度防重 + 防超限，按当前身份落库
+ * @returns { vote, option }
+ */
+export async function castVoteForQq(round, qq, username, optionId) {
+  if (roundStatus(round) !== 'open') throw new Error('该轮投票已结束')
+  const option = round.options.find(o => o.id === optionId)
+  if (!option) throw new Error('投票选项不存在')
+
+  const data = await load()
+  const mine = votesByQq(data.votes, round.id, qq)
+  if (mine.some(v => v.optionId === optionId)) throw new Error('不能重复投同一个选项')
+  if (mine.length >= (round.maxVotesPerUser ?? 1)) {
+    throw new Error(`每用户最多投 ${round.maxVotesPerUser} 个不同选项，已达上限`)
+  }
+
+  const weight = await calcUserWeight(round, username)
+  const vote = {
+    roundId: round.id,
+    username,
+    qq: String(qq),
+    optionId,
+    weight,
+    at: new Date().toISOString()
+  }
+  data.votes.push(vote)
+  await persist(data)
+  return { vote, option }
+}
+
+/** 轮次 + QQ 维度个人状态（供机器人渲染状态结果图） */
+export async function roundWithQqState(roundId, qq, username) {
+  const data = await load()
+  const round = data.rounds.find(r => r.id === roundId)
+  if (!round) return null
+  const item = { ...round, status: roundStatus(round), options: tally(round, data.votes) }
+  item.my = await qqState(round, data.votes, qq, username)
+  return item
+}
+
 /**
  * 提交自定义提案（立即上架）
  * @returns { option } 新提案选项（若同轮同文本已存在则复用返回 existing: true）
@@ -395,4 +467,4 @@ export async function propose(round, username, text, anonymous = false) {
   return { option, existing: false }
 }
 
-export default { roundStatus, calcUserWeight, tally, createRound, updateRound, closeRound, deleteRound, archiveRound, unarchiveRound, listRounds, getRound, getRoundDetail, castVote, propose }
+export default { roundStatus, calcUserWeight, tally, createRound, updateRound, closeRound, deleteRound, archiveRound, unarchiveRound, listRounds, getRound, getRoundDetail, castVote, castVoteForQq, qqState, roundWithQqState, propose }

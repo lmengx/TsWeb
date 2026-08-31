@@ -21,6 +21,7 @@ const form = ref({
   baseWeight: 1,
   allowProposals: false,
   maxProposalsPerUser: 1,
+  allowUnbound: true,
   weightRules: [{ field: 'playtime_hours', op: '>', threshold: 50, weight: 0.5 }],
   endAt: ''
 })
@@ -104,6 +105,7 @@ const resetForm = () => {
     baseWeight: 1,
     allowProposals: false,
     maxProposalsPerUser: 1,
+    allowUnbound: true,
     weightRules: [{ field: 'playtime_hours', op: '>', threshold: 50, weight: 0.5 }],
     endAt: ''
   }
@@ -125,6 +127,7 @@ const createRound = async () => {
       baseWeight: Number(form.value.baseWeight) || 1,
       allowProposals: form.value.allowProposals,
       maxProposalsPerUser: parseInt(form.value.maxProposalsPerUser) || 1,
+      allowUnbound: form.value.allowUnbound,
       weightRules: form.value.weightRules
         .filter(r => r && (Number(r.threshold) !== undefined) && (Number(r.weight) !== 0))
         .map(r => ({ field: r.field, op: r.op, threshold: Number(r.threshold), weight: Number(r.weight) })),
@@ -322,6 +325,12 @@ onMounted(loadRounds)
             <label class="form-label">初始权重（每次投票分值，可小数）</label>
             <input v-model.number="form.baseWeight" type="number" min="0" step="0.1" class="form-input" />
           </div>
+        </div>
+        <div class="form-row">
+          <label class="form-label switch-label">
+            <input v-model="form.allowUnbound" type="checkbox" class="checkbox" />
+            允许未绑定玩家参与（QQ机器人渠道，取基础权重与默认可投次数）
+          </label>
         </div>
       </div>
 

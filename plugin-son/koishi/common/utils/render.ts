@@ -772,3 +772,139 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC",sans
 </html>`
 }
 
+// ══════════════════════════════════════════════════════════
+//  投票结果状态卡片（参与投票 / 提案后返回：个人状态 + 已投勾选）
+//  后端 /api/bot/vote-cast、/api/bot/vote-propose 返回结构
+// ══════════════════════════════════════════════════════════
+
+interface VoteStateData {
+  mode: 'voted' | 'proposed'
+  qq: string
+  username: string
+  unbound?: boolean
+  weight?: number
+  existing?: boolean
+  option?: { text: string }
+  round: VoteRoundData & {
+    my?: {
+      votedOptions?: string[]
+      votesLeft?: number
+      myProposals?: number
+      proposalsLeft?: number
+      weight?: number
+      baseWeight?: number
+      weightRules?: { field?: string; op?: string; threshold?: number; weight?: number }[]
+    }
+  }
+}
+
+/** 投票/提案后的个人状态结果卡片：顶部状态条 + 选项计票（已投带勾选） */
+export function voteStateCard(data: VoteStateData): string {
+  const r = data.round || {}
+  const my = r.my || {}
+  const opts = r.options || []
+  const totalScore = opts.reduce((s, o) => s + (Number(o.score) || 0), 0)
+  const votedIds: string[] = my.votedOptions || []
+  const identity = data.unbound
+    ? `<span class="vs-ident">未绑定 QQ ${escapeHtml(data.qq)}</span><span class="vs-ident-tag unbound">未绑定 · 基础权重</span>`
+    : `<span class="vs-ident">${escapeHtml(data.username)}</span><span class="vs-ident-tag">已绑定</span>`
+
+  const banner = data.mode === 'proposed'
+    ? `<div class="vs-banner ok">${data.existing ? '提案已存在，已为你定位' : '提案已提交'}：${escapeHtml(data.option?.text || '')}</div>`
+    : `<div class="vs-banner ok">投票成功 · 本次权重 ${Number(data.weight ?? 0)} 分</div>`
+
+  const optionRows = opts.map(o => {
+    const voted = votedIds.includes(o.id)
+    const pct = totalScore > 0 ? Math.round((Number(o.score || 0) / totalScore) * 1000) / 10 : 0
+    let tag = ''
+    if (o.type === 'custom') {
+      tag = o.anonymous
+        ? '<span class="vs-tag anon">匿名提案</span>'
+        : `<span class="vs-tag">${escapeHtml(o.proposer || '')} 提案</span>`
+    }
+    return `<div class="vo ${voted ? 'voted' : ''}">
+      <div class="vo-head">
+        ${voted ? '<span class="vo-check">✓</span>' : ''}
+        <span class="vo-text">${escapeHtml(o.text)}</span>
+        ${tag}
+        <span class="vo-score">${Number(o.score || 0)} 分 · ${Number(o.votes || 0)} 票</span>
+      </div>
+      <div class="vo-bar"><div class="vo-fill" style="width:${pct}%"></div></div>
+    </div>`
+  }).join('\n')
+
+  const ruleDesc = (r.weightRules || [])
+    .filter(x => x && x.field)
+    .map(x => `游玩时长 ${x.op} ${x.threshold}h 加 ${x.weight} 分`)
+    .join('，')
+  const ruleLine = ruleDesc
+    ? `基础 ${Number(r.baseWeight ?? 1)} 分 · ${ruleDesc}`
+    : `基础 ${Number(r.baseWeight ?? 1)} 分`
+
+  return `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC",sans-serif;
+  background:linear-gradient(135deg,#0f0c29,#302b63,#24243e);min-height:100vh;padding:20px}
+.wrap{width:520px;margin:0 auto;background:rgba(255,255,255,0.06);
+  border:1px solid rgba(255,255,255,0.1);border-radius:18px;padding:22px 20px;
+  box-shadow:0 25px 50px -12px rgba(0,0,0,0.6)}
+.vs-top{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px}
+.vs-title{font-size:18px;font-weight:700;color:#fff}
+.vs-ident-row{display:flex;align-items:center;gap:8px}
+.vs-ident{font-size:13px;font-weight:700;color:#93c5fd}
+.vs-ident-tag{font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;
+  background:rgba(16,185,129,0.18);color:#34d399;border:1px solid rgba(16,185,129,0.35)}
+.vs-ident-tag.unbound{background:rgba(251,191,36,0.15);color:#fbbf24;border-color:rgba(251,191,36,0.3)}
+.vs-banner{margin:10px 0 12px;padding:10px 12px;border-radius:8px;
+  background:rgba(16,185,129,0.12);border:1px solid rgba(16,185,129,0.3);
+  color:#6ee7b7;font-size:13px;font-weight:600;word-break:break-word}
+.vs-stats{display:flex;margin-bottom:14px;background:rgba(59,130,246,0.08);
+  border:1px solid rgba(59,130,246,0.2);border-radius:12px;padding:10px 0}
+.vs-stat{flex:1;text-align:center}
+.vs-stat + .vs-stat{border-left:1px solid rgba(59,130,246,0.15)}
+.vs-num{font-size:20px;font-weight:800;color:#93c5fd;line-height:1.1}
+.vs-label{font-size:11px;color:rgba(255,255,255,0.45);margin-top:2px}
+.vd-options{margin-top:12px;display:flex;flex-direction:column;gap:14px}
+.vo-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.vo-check{flex-shrink:0;width:20px;height:20px;border-radius:50%;
+  background:linear-gradient(135deg,#10b981,#059669);color:#fff;
+  font-size:12px;font-weight:800;display:flex;align-items:center;justify-content:center;
+  box-shadow:0 2px 6px rgba(16,185,129,0.4)}
+.vo-text{font-size:14px;font-weight:600;color:rgba(255,255,255,0.92);flex:1;min-width:0;word-break:break-word}
+.vo.voted .vo-text{color:#6ee7b7}
+.vo-tag{font-size:10px;font-weight:600;padding:2px 8px;border-radius:8px;
+  background:rgba(59,130,246,0.18);color:#93c5fd;border:1px solid rgba(59,130,246,0.3);white-space:nowrap}
+.vo-tag.anon{background:rgba(107,114,128,0.2);color:rgba(255,255,255,0.6);border-color:rgba(107,114,128,0.3)}
+.vo-score{font-size:12px;color:#93c5fd;font-weight:700;white-space:nowrap}
+.vo-bar{margin-top:6px;height:8px;background:rgba(255,255,255,0.08);border-radius:4px;overflow:hidden}
+.vo-fill{height:100%;border-radius:4px;background:linear-gradient(90deg,#3b82f6,#60a5fa);transition:width .4s}
+.vo.voted .vo-fill{background:linear-gradient(90deg,#10b981,#34d399)}
+.vs-rules{margin-top:12px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.08);
+  font-size:12px;color:rgba(255,255,255,0.45)}
+.vs-rules b{color:#60a5fa;font-weight:600}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="vs-top">
+    <div class="vs-title">${escapeHtml(r.title || '')}</div>
+    <div class="vs-ident-row">${identity}</div>
+  </div>
+  ${banner}
+  <div class="vs-stats">
+    <div class="vs-stat"><div class="vs-num">${Number(my.votesLeft ?? 0)}</div><div class="vs-label">还可投</div></div>
+    <div class="vs-stat"><div class="vs-num">${(my.votedOptions || []).length}</div><div class="vs-label">已投</div></div>
+    <div class="vs-stat"><div class="vs-num">${Number(my.weight ?? 0)}</div><div class="vs-label">权重 分/票</div></div>
+    <div class="vs-stat"><div class="vs-num">${Number(my.proposalsLeft ?? 0)}</div><div class="vs-label">可提案</div></div>
+  </div>
+  <div class="vd-options">${optionRows}</div>
+  <div class="vs-rules"><b>每用户可投 ${Number(r.maxVotesPerUser ?? 1)} 票</b> · ${ruleLine}</div>
+</div>
+</body>
+</html>`
+}
+

@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import {
   register, changePassword, bind, listServers, requireBotToken,
-  playerInfo, online, bossProgress, votes,
+  playerInfo, online, bossProgress, votes, voteCast, votePropose,
   qqList, qqUnbind, qqRebind, getBotSettings, setBotSettings, refreshPlaytime
 } from '../controllers/botController.js'
 import { verifyToken, requireAdmin } from '../middlewares/authMiddleware.js'
@@ -59,5 +59,11 @@ router.get('/boss-progress', bossProgress)
 
 // 投票（机器人「投票」命令，可带 ?name=投票标题）：GET /api/bot/votes
 router.get('/votes', votes)
+
+// 参与投票（机器人「参与投票」命令）：POST /api/bot/vote-cast { qq, option }
+router.post('/vote-cast', voteCast)
+
+// 投票提案（机器人「投票提案」命令）：POST /api/bot/vote-propose { qq, text }
+router.post('/vote-propose', votePropose)
 
 export default router

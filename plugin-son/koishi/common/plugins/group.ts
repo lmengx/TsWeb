@@ -1,7 +1,7 @@
 import { Context, Session, h } from 'koishi'
 import type { Config } from '../utils/config'
 import { safeHttpGet, safeHttpPost } from '../utils/config'
-import { renderHtml, playerInfoCard, bossProgressCard, onlineListCard, multiOnlineCard, voteListCard, voteDetailCard } from '../utils/render'
+import { renderHtml, playerInfoCard, bossProgressCard, onlineListCard, multiOnlineCard, voteListCard, voteDetailCard, voteStateCard } from '../utils/render'
 
 export const name = 'tshock-group'
 
@@ -179,6 +179,75 @@ export function apply(ctx: Context, config: Config) {
             : `· ${s.name}: ${s.online}/${s.max}`
         )
         await session.send(`━━━ 在线列表 ━━━\n${servers.join('\n') || '当前无人在线'}`)
+      }
+      return
+    }
+
+    // — 参与投票（走后端；「参与投票 选项」「参与投票 轮次名 选项」） —
+    if (content.startsWith('参与投票')) {
+      ctx.logger.info('[参与投票] QQ:', senderQQ)
+      if (!backendReady()) {
+        await session.send('机器人后端地址未配置，请联系管理员')
+        return
+      }
+      const rest = content.replace('参与投票', '').trim()
+      if (!rest) {
+        await session.send(h('at', { id: senderQQ }) + ' 用法：参与投票 <选项名/编号>，如「参与投票 2」；多个轮次时「参与投票 轮次名 选项」')
+        return
+      }
+      const res = await safeHttpPost(ctx, `http://${config.后端地址}/api/bot/vote-cast`, {
+        token: config.机器人密钥
+      }, { qq: senderQQ, option: rest })
+      if (!res.ok) {
+        await session.send(h('at', { id: senderQQ }) + ' ' + res.msg)
+        return
+      }
+      try {
+        const html = voteStateCard(res.data)
+        const buf = await renderHtml(html, 2, '.wrap')
+        await session.send(h('image', { url: `base64://${buf.toString('base64')}` }))
+      } catch (err: any) {
+        ctx.logger.error('[参与投票] 截图失败:', err.message)
+        const r = res.data.round || {}
+        const mine = ((r.my?.votedOptions) || []).map((id: string) => r.options?.find((o: any) => o.id === id)?.text || id)
+        await session.send(
+          `✅ 投票成功（权重 ${res.data.weight} 分）\n` +
+          `已投：${mine.join('、') || '-'}\n` +
+          `剩余可投：${r.my?.votesLeft ?? 0}`
+        )
+      }
+      return
+    }
+
+    // — 投票提案（走后端；「投票提案 文本」「投票提案 轮次名 文本」） —
+    if (content.startsWith('投票提案')) {
+      ctx.logger.info('[投票提案] QQ:', senderQQ)
+      if (!backendReady()) {
+        await session.send('机器人后端地址未配置，请联系管理员')
+        return
+      }
+      const rest = content.replace('投票提案', '').trim()
+      if (!rest) {
+        await session.send(h('at', { id: senderQQ }) + ' 用法：投票提案 <提案文本>，如「投票提案 周末开活动」；多个轮次时「投票提案 轮次名 提案文本」')
+        return
+      }
+      const res = await safeHttpPost(ctx, `http://${config.后端地址}/api/bot/vote-propose`, {
+        token: config.机器人密钥
+      }, { qq: senderQQ, text: rest })
+      if (!res.ok) {
+        await session.send(h('at', { id: senderQQ }) + ' ' + res.msg)
+        return
+      }
+      try {
+        const html = voteStateCard(res.data)
+        const buf = await renderHtml(html, 2, '.wrap')
+        await session.send(h('image', { url: `base64://${buf.toString('base64')}` }))
+      } catch (err: any) {
+        ctx.logger.error('[投票提案] 截图失败:', err.message)
+        await session.send(
+          (res.data.existing ? '该提案已存在：' : '✅ 提案已提交：') + (res.data.option?.text || '') +
+          `\n剩余可提案：${res.data.round?.my?.proposalsLeft ?? 0}`
+        )
       }
       return
     }
