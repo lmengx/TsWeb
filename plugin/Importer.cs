@@ -51,11 +51,13 @@ public static class HouseImporter
         var outcome = new ImportOutcome { Success = false, FileName = Path.GetFileName(fileName) };
         try
         {
-            // ── 1. 读文件（防路径穿越：仅取文件名 + 强制 .tsb 扩展名）──
+            // ── 1. 读文件（防路径穿越：仅取文件名 + 强制 .tsb/.trb 扩展名。
+            //    .trb = Hero 客户端画作（与 tsweb-building v1 同契约），导入逻辑完全共用）──
             var safeName = Path.GetFileName(fileName);
-            if (!safeName.EndsWith(".tsb", StringComparison.OrdinalIgnoreCase))
+            if (!safeName.EndsWith(".tsb", StringComparison.OrdinalIgnoreCase)
+                && !safeName.EndsWith(".trb", StringComparison.OrdinalIgnoreCase))
             {
-                outcome.Error = "仅支持 .tsb 文件。";
+                outcome.Error = "仅支持 .tsb/.trb 文件。";
                 return outcome;
             }
 
@@ -219,12 +221,14 @@ public static class HouseImporter
             && p.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
     }
 
-    /// <summary>列出可用 .tsb 文件</summary>
+    /// <summary>列出可用 .tsb/.trb 文件</summary>
     public static List<string> ListFiles()
     {
         if (!Directory.Exists(ImportDir))
             return new List<string>();
-        return Directory.GetFiles(ImportDir, "*.tsb").Select(Path.GetFileName).ToList()!;
+        return Directory.GetFiles(ImportDir, "*.tsb")
+            .Concat(Directory.GetFiles(ImportDir, "*.trb"))
+            .Select(Path.GetFileName).ToList()!;
     }
 
     // ══════════════════════════════════════════════════════════
