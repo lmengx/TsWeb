@@ -594,3 +594,181 @@ body{
 </body>
 </html>`
 }
+
+// ══════════════════════════════════════════════════════════
+//  投票卡片（列表 / 详情）
+//  后端 /api/bot/votes 返回结构：
+//    mode:'list'   → rounds[]（含 options 计票 votes/score）
+//    mode:'single' → round
+// ══════════════════════════════════════════════════════════
+
+function fmtDateTime(t?: string | null): string {
+  if (!t) return '长期有效'
+  const d = new Date(t)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getMonth() + 1}月${d.getDate()}日 ${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+interface VoteOptionData {
+  id: string
+  text: string
+  type?: string
+  proposer?: string
+  anonymous?: boolean
+  votes?: number
+  score?: number
+}
+
+interface VoteRoundData {
+  id: string
+  title: string
+  description?: string
+  status?: string
+  createdAt?: string
+  endAt?: string | null
+  closedAt?: string | null
+  maxVotesPerUser?: number
+  baseWeight?: number
+  weightRules?: { field?: string; op?: string; threshold?: number; weight?: number }[]
+  options?: VoteOptionData[]
+}
+
+/** 投票列表卡片：多个轮次 → 标题+状态+选项数/票数 + 底部小字指定提示 */
+export function voteListCard(rounds: VoteRoundData[]): string {
+  const rows = rounds.map((r, i) => {
+    const opts = r.options || []
+    const totalVotes = opts.reduce((s, o) => s + (Number(o.votes) || 0), 0)
+    const open = r.status === 'open'
+    const badge = `<span class="rv-badge ${open ? 'open' : 'closed'}">${open ? '进行中' : '已结束'}</span>`
+    return `<div class="rv">
+      <div class="rv-num">${i + 1}</div>
+      <div class="rv-main">
+        <div class="rv-title">${escapeHtml(r.title)} ${badge}</div>
+        <div class="rv-meta">${opts.length} 个选项 · ${totalVotes} 票 · 截止 ${escapeHtml(fmtDateTime(r.endAt))}</div>
+      </div>
+    </div>`
+  }).join('\n')
+
+  return `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC",sans-serif;
+  background:linear-gradient(135deg,#0f0c29,#302b63,#24243e);min-height:100vh;padding:20px}
+.wrap{width:520px;margin:0 auto;display:flex;flex-direction:column;gap:10px}
+.head{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px}
+.head-title{font-size:22px;font-weight:700;color:#fff;letter-spacing:0.5px}
+.head-sub{color:rgba(255,255,255,0.45);font-size:12px;margin-top:2px;letter-spacing:1px}
+.rv{background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);
+  border-radius:14px;padding:14px 16px;display:flex;gap:12px;align-items:flex-start}
+.rv-num{flex-shrink:0;width:26px;height:26px;border-radius:50%;
+  background:rgba(59,130,246,0.25);border:1px solid rgba(59,130,246,0.4);
+  color:#93c5fd;font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.rv-main{flex:1;min-width:0}
+.rv-title{font-size:15px;font-weight:700;color:#fff;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.rv-badge{font-size:11px;font-weight:700;padding:2px 10px;border-radius:20px}
+.rv-badge.open{background:rgba(16,185,129,0.18);color:#34d399;border:1px solid rgba(16,185,129,0.35)}
+.rv-badge.closed{background:rgba(239,68,68,0.15);color:#f87171;border:1px solid rgba(239,68,68,0.3)}
+.rv-meta{font-size:12px;color:rgba(255,255,255,0.45);margin-top:5px}
+.tip{text-align:center;color:rgba(255,255,255,0.4);font-size:12px;padding:6px 0 2px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="head"><div><div class="head-title">投票列表</div><div class="head-sub">VOTE LIST</div></div></div>
+  ${rows}
+  <div class="tip">发送「投票 名称」查看指定投票详情</div>
+</div>
+</body>
+</html>`
+}
+
+/** 投票详情卡片：单轮次 → 状态/标题/说明/时间 + 选项计票进度条 + 规则说明 */
+export function voteDetailCard(round: VoteRoundData): string {
+  const open = round.status === 'open'
+  const opts = round.options || []
+  const totalScore = opts.reduce((s, o) => s + (Number(o.score) || 0), 0)
+  const optionRows = opts.map(o => {
+    const pct = totalScore > 0 ? Math.round((Number(o.score || 0) / totalScore) * 1000) / 10 : 0
+    let tag = ''
+    if (o.type === 'custom') {
+      tag = o.anonymous
+        ? '<span class="vo-tag anon">匿名提案</span>'
+        : `<span class="vo-tag">${escapeHtml(o.proposer || '')} 提案</span>`
+    }
+    return `<div class="vo">
+      <div class="vo-head">
+        <span class="vo-text">${escapeHtml(o.text)}</span>
+        ${tag}
+        <span class="vo-score">${Number(o.score || 0)} 分 · ${Number(o.votes || 0)} 票</span>
+      </div>
+      <div class="vo-bar"><div class="vo-fill" style="width:${pct}%"></div></div>
+      <div class="vo-pct">${pct}%</div>
+    </div>`
+  }).join('\n')
+
+  const ruleDesc = (round.weightRules || [])
+    .filter(r => r && r.field)
+    .map(r => `游玩时长 ${r.op} ${r.threshold}h 加 ${r.weight} 分`)
+    .join('，')
+  const ruleLine = ruleDesc
+    ? `基础 ${Number(round.baseWeight ?? 1)} 分 · ${ruleDesc}`
+    : `基础 ${Number(round.baseWeight ?? 1)} 分`
+
+  const badge = `<span class="vd-badge ${open ? 'open' : 'closed'}">${open ? '进行中' : '已结束'}</span>`
+  const timeLine = open
+    ? `<div class="vd-meta"><b>截止</b> ${escapeHtml(fmtDateTime(round.endAt))}</div>`
+    : round.closedAt
+      ? `<div class="vd-meta"><b>已结束于</b> ${escapeHtml(fmtDateTime(round.closedAt))}</div>`
+      : '<div class="vd-meta"><b>已结束</b></div>'
+
+  return `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC",sans-serif;
+  background:linear-gradient(135deg,#0f0c29,#302b63,#24243e);min-height:100vh;padding:20px}
+.wrap{width:520px;margin:0 auto;background:rgba(255,255,255,0.06);
+  border:1px solid rgba(255,255,255,0.1);border-radius:18px;padding:22px 20px;
+  box-shadow:0 25px 50px -12px rgba(0,0,0,0.6)}
+.vd-top{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.vd-badge{font-size:11px;font-weight:700;padding:3px 12px;border-radius:20px;letter-spacing:0.5px}
+.vd-badge.open{background:rgba(16,185,129,0.18);color:#34d399;border:1px solid rgba(16,185,129,0.35)}
+.vd-badge.closed{background:rgba(239,68,68,0.15);color:#f87171;border:1px solid rgba(239,68,68,0.3)}
+.vd-title{font-size:20px;font-weight:700;color:#fff;line-height:1.4;word-break:break-word}
+.vd-desc{margin-top:8px;padding:10px 12px;background:rgba(59,130,246,0.1);
+  border-left:3px solid #3b82f6;border-radius:0 8px 8px 0;
+  color:rgba(255,255,255,0.75);font-size:13px;line-height:1.7;white-space:pre-wrap;word-break:break-word}
+.vd-meta{font-size:12px;color:rgba(255,255,255,0.45);margin-top:8px}
+.vd-meta b{color:#60a5fa;font-weight:600}
+.vd-rules{margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.08);
+  font-size:12px;color:rgba(255,255,255,0.45)}
+.vd-options{margin-top:12px;display:flex;flex-direction:column;gap:14px}
+.vo-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.vo-text{font-size:14px;font-weight:600;color:rgba(255,255,255,0.92);flex:1;min-width:0;word-break:break-word}
+.vo-tag{font-size:10px;font-weight:600;padding:2px 8px;border-radius:8px;
+  background:rgba(59,130,246,0.18);color:#93c5fd;border:1px solid rgba(59,130,246,0.3);white-space:nowrap}
+.vo-tag.anon{background:rgba(107,114,128,0.2);color:rgba(255,255,255,0.6);border-color:rgba(107,114,128,0.3)}
+.vo-score{font-size:12px;color:#93c5fd;font-weight:700;white-space:nowrap}
+.vo-bar{margin-top:6px;height:8px;background:rgba(255,255,255,0.08);border-radius:4px;overflow:hidden}
+.vo-fill{height:100%;border-radius:4px;background:linear-gradient(90deg,#3b82f6,#60a5fa);transition:width .4s}
+.vo-pct{font-size:11px;color:rgba(255,255,255,0.4);text-align:right;margin-top:2px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="vd-top">${badge}<span style="font-size:12px;color:rgba(255,255,255,0.35)">${escapeHtml(fmtDateTime(round.createdAt))} 发起</span></div>
+  <div class="vd-title">${escapeHtml(round.title)}</div>
+  ${round.description ? `<div class="vd-desc">${escapeHtml(round.description)}</div>` : ''}
+  ${timeLine}
+  <div class="vd-rules">每用户可投 ${Number(round.maxVotesPerUser ?? 1)} 票 · ${ruleLine}</div>
+  <div class="vd-options">${optionRows}</div>
+</div>
+</body>
+</html>`
+}
+

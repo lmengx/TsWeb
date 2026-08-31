@@ -4,6 +4,7 @@ import { getConfig, getServers, updateBotSettings } from '../config.js'
 import { upsertAccount, getAccountByQq, getAccountByUsername, removeAccount, broadcastFullAll, getAccounts } from '../services/qqAccountService.js'
 import { getPlaytime, getPlaytimeRecords, aggregateAll, startAggregation, stopAggregation } from '../services/qqPlaytimeService.js'
 import audit from '../services/auditLogger.js'
+import voteService from '../services/voteService.js'
 
 // ═══════════════════════════════════════════════════════════
 // QQ 机器人管理接口（/api/bot/*）
@@ -346,6 +347,31 @@ export const bossProgress = async (req, res) => {
     res.json({ server: { id: target.id, name: target.name }, ...data })
   } catch (err) {
     console.error('[QQ机器人] 进度查询失败:', err.message)
+    res.status(500).json({ error: err.message })
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// 投票：GET /api/bot/votes[?name=投票标题]
+// 无 name → 全部活跃（未归档）轮次列表（含计票，语义与玩家页一致）
+// 有 name → 精确匹配优先，其次标题包含；唯一命中返回单轮，多候选返回候选列表
+// ═══════════════════════════════════════════════════════════
+
+export const votes = async (req, res) => {
+  try {
+    const name = String(req.query.name || '').trim()
+    const rounds = await voteService.listRounds({ includeClosed: true, excludeArchived: true })
+    if (!name) {
+      return res.json({ mode: 'list', rounds })
+    }
+    const exact = rounds.filter(r => r.title === name)
+    if (exact.length === 1) return res.json({ mode: 'single', round: exact[0] })
+    const fuzzy = rounds.filter(r => r.title.includes(name) || name.includes(r.title))
+    if (fuzzy.length === 1) return res.json({ mode: 'single', round: fuzzy[0] })
+    if (fuzzy.length > 1) return res.json({ mode: 'list', rounds: fuzzy })
+    return res.status(404).json({ error: `未找到投票「${name}」，发送「投票」查看全部` })
+  } catch (err) {
+    console.error('[QQ机器人] 投票查询失败:', err.message)
     res.status(500).json({ error: err.message })
   }
 }

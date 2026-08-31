@@ -1,7 +1,7 @@
 import { Context, Session, h } from 'koishi'
 import type { Config } from '../utils/config'
 import { safeHttpGet, safeHttpPost } from '../utils/config'
-import { renderHtml, playerInfoCard, bossProgressCard, onlineListCard, multiOnlineCard } from '../utils/render'
+import { renderHtml, playerInfoCard, bossProgressCard, onlineListCard, multiOnlineCard, voteListCard, voteDetailCard } from '../utils/render'
 
 export const name = 'tshock-group'
 
@@ -179,6 +179,60 @@ export function apply(ctx: Context, config: Config) {
             : `· ${s.name}: ${s.online}/${s.max}`
         )
         await session.send(`━━━ 在线列表 ━━━\n${servers.join('\n') || '当前无人在线'}`)
+      }
+      return
+    }
+
+    // — 投票（走后端；「投票」查全部/单轮，「投票 名称」指定轮次） —
+    if (content === '投票' || content.startsWith('投票 ')) {
+      ctx.logger.info('[投票] QQ:', senderQQ)
+      if (!backendReady()) {
+        await session.send('机器人后端地址未配置，请联系管理员')
+        return
+      }
+      const rest = content.replace('投票', '').trim()
+      const params: any = { token: config.机器人密钥 }
+      if (rest) params.name = rest
+
+      const res = await safeHttpGet(ctx, `http://${config.后端地址}/api/bot/votes`, params)
+
+      if (!res.ok) {
+        await session.send(h('at', { id: senderQQ }) + ' ' + res.msg)
+        return
+      }
+
+      const round: any = res.data.round || null
+      const rounds: any[] = res.data.rounds || []
+
+      try {
+        let html: string
+        if (round) {
+          html = voteDetailCard(round)
+        } else if (rounds.length === 1) {
+          html = voteDetailCard(rounds[0])
+        } else if (rounds.length > 1) {
+          html = voteListCard(rounds)
+        } else {
+          await session.send(h('at', { id: senderQQ }) + ' 当前没有进行中的投票')
+          return
+        }
+        const buf = await renderHtml(html, 2, '.wrap')
+        await session.send(h('image', { url: `base64://${buf.toString('base64')}` }))
+      } catch (err: any) {
+        ctx.logger.error('[投票] 截图失败:', err.message)
+        // 文本兜底
+        if (round) {
+          const statusText = round.status === 'open' ? '进行中' : '已结束'
+          const lines = (round.options || []).map((o: any) => `· ${o.text} — ${o.score} 分 (${o.votes} 票)`)
+          await session.send(
+            `━━━ 投票：${round.title}（${statusText}）━━━\n` +
+            (round.description ? round.description + '\n' : '') +
+            lines.join('\n')
+          )
+        } else if (rounds.length) {
+          const list = rounds.map((r: any) => `· ${r.title}（${r.status === 'open' ? '进行中' : '已结束'}）`).join('\n')
+          await session.send(`━━━ 投票列表 ━━━\n${list}\n发送「投票 名称」查看指定投票详情`)
+        }
       }
       return
     }

@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import {
   register, changePassword, bind, listServers, requireBotToken,
-  playerInfo, online, bossProgress,
+  playerInfo, online, bossProgress, votes,
   qqList, qqUnbind, qqRebind, getBotSettings, setBotSettings, refreshPlaytime
 } from '../controllers/botController.js'
 import { verifyToken, requireAdmin } from '../middlewares/authMiddleware.js'
@@ -56,5 +56,8 @@ router.get('/online', online)
 
 // 进度（机器人「进度」命令，可带 ?server=服名）：GET /api/bot/boss-progress
 router.get('/boss-progress', bossProgress)
+
+// 投票（机器人「投票」命令，可带 ?name=投票标题）：GET /api/bot/votes
+router.get('/votes', votes)
 
 export default router
