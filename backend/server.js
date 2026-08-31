@@ -23,6 +23,7 @@ import botRoutes from './routes/botRoutes.js'
 import permissionRoutes from './routes/permissionRoutes.js'
 import crossTransferRoutes from './routes/crossTransferRoutes.js'
 import worldModifyRoutes from './routes/worldModifyRoutes.js'
+import voteRoutes from './routes/voteRoutes.js'
 import tshockService, { registerServer, runWithServer, getServicesStatus } from './services/tshockService.js'
 import { connectAll as connectAllSse } from './services/sseConnection.js'
 import { startAggregation } from './services/qqPlaytimeService.js'
@@ -124,6 +125,7 @@ app.use('/api/bot', botRoutes)
 app.use('/api/permissions', permissionRoutes)
 app.use('/api/crosstransfer', crossTransferRoutes)
 app.use('/api/worldmodify', worldModifyRoutes)
+app.use('/api/vote', voteRoutes)
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: Date.now() })

@@ -218,6 +218,40 @@ export const AUDIT_EVENTS = {
     fields: ['changedKeys', 'actor'], ip: false, sensitive: []
   },
 
+  // ═══ vote 类 — 投票轮次/投票/提案 ═══
+  'vote.round.create': {
+    level: 'info', category: 'vote', title: '创建投票轮次',
+    fields: ['id', 'title', 'actor'], ip: false, sensitive: []
+  },
+  'vote.round.close': {
+    level: 'warn', category: 'vote', title: '结束投票轮次',
+    fields: ['id', 'title', 'actor'], ip: false, sensitive: []
+  },
+  'vote.round.archive': {
+    level: 'warn', category: 'vote', title: '归档投票轮次',
+    fields: ['id', 'title', 'actor'], ip: false, sensitive: []
+  },
+  'vote.round.unarchive': {
+    level: 'info', category: 'vote', title: '取消归档投票轮次',
+    fields: ['id', 'title', 'actor'], ip: false, sensitive: []
+  },
+  'vote.round.update': {
+    level: 'warn', category: 'vote', title: '编辑投票轮次',
+    fields: ['id', 'title', 'changedKeys', 'actor'], ip: false, sensitive: []
+  },
+  'vote.round.delete': {
+    level: 'error', category: 'vote', title: '删除投票轮次',
+    fields: ['id', 'actor'], ip: false, sensitive: []
+  },
+  'vote.cast': {
+    level: 'info', category: 'vote', title: '玩家投票',
+    fields: ['roundId', 'username', 'optionId', 'weight'], ip: false, sensitive: []
+  },
+  'vote.propose': {
+    level: 'info', category: 'vote', title: '玩家提交自定义提案',
+    fields: ['roundId', 'username', 'optionId', 'anonymous'], ip: false, sensitive: []
+  },
+
   // ═══ permission 类 — 个人独立权限签发/回收 ═══
   'permission.grant': {
     level: 'info', category: 'permission', title: '签发个人权限',

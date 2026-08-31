@@ -5,6 +5,7 @@ import { getConfig } from '../config.js'
 import audit from '../services/auditLogger.js'
 import { getAccountByQq, getAccountByUsernameCI } from '../services/qqAccountService.js'
 import { getPlaytimeRecords } from '../services/qqPlaytimeService.js'
+import { listRounds, calcUserWeight } from '../services/voteService.js'
 import {
   verifyAccount, createAccount, listAccounts, deleteAccount,
   changePassword as serviceChangePassword, resetPassword, updateRole, hasAnyAccount,
@@ -297,11 +298,9 @@ async function getPlayerTokenExpire() {
 
 /**
  * 实时计算玩家投票权重（不进 JWT：时长每 10 分钟聚合刷新，必须实时查）
- * 规则：base 1 票 + 累计时长 ≥ 阈值(小时，config.vote.weightThresholdHours，默认 50) 加成 1 票
+ * 以当前进行中轮次的加权规则为准（与投票接口同源权威）；无进行中轮次 → 基础权重 1
  */
 async function calcPlayerWeight(username) {
-  const config = await getConfig()
-  const thresholdHours = Number(config?.vote?.weightThresholdHours ?? 50) || 50
   const records = await getPlaytimeRecords()
   let total = 0
   for (const [name, rec] of Object.entries(records)) {
@@ -311,11 +310,23 @@ async function calcPlayerWeight(username) {
     }
   }
   const hours = total / 60
+  let weight = 1
+  let weightRules = []
+  let baseWeight = 1
+  try {
+    const openRounds = await listRounds({ includeClosed: false })
+    if (openRounds.length > 0) {
+      weight = await calcUserWeight(openRounds[0], username)
+      weightRules = openRounds[0].weightRules || []
+      baseWeight = Number(openRounds[0].baseWeight ?? 1)
+    }
+  } catch { /* 投票服务异常不影响登录 */ }
   return {
     playtimeMinutes: total,
     playtimeHours: Math.round(hours * 10) / 10,
-    weight: 1 + (hours >= thresholdHours ? 1 : 0),
-    thresholdHours
+    weight,
+    weightRules,
+    baseWeight
   }
 }
 

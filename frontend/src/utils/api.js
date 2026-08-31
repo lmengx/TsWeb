@@ -65,6 +65,13 @@ export const put = async (url, data = {}) => {
   })
 }
 
+export const patch = async (url, data = {}) => {
+  return apiRequest(url, {
+    method: 'PATCH',
+    body: JSON.stringify(data)
+  })
+}
+
 export const del = async (url) => {
   return apiRequest(url, {
     method: 'DELETE'

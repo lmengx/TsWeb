@@ -221,6 +221,13 @@ const routes = [
         meta: { requiresAuth: true, requiresAdmin: true }
       },
       {
+        path: 'vote',
+        name: 'VoteAdmin',
+        // 投票管理：直属后端（数据在后端本地 votes.json，独立于任何服务器）
+        component: () => import('../views/console/VoteSettingsView.vue'),
+        meta: { requiresAuth: true, requiresAdmin: true }
+      },
+      {
         path: 'tools',
         name: 'Tools',
         redirect: '/console/tools/home',
