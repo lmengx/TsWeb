@@ -272,6 +272,31 @@ const cast = async (roundId, optionId) => {
   }
 }
 
+/**
+ * 本地乐观更新：提案成功后立即把新选项插入列表（秒出 + 播进入动画），避免等全量刷新
+ * @param {string} roundId   目标轮次 id
+ * @param {object} option    后端返回的选项对象 { id, text, type, proposer, anonymous }
+ * @param {boolean} existing 后端同文本去重是否复用了已有选项（为 true 时不重复插入）
+ */
+const applyLocalProposal = (roundId, option, existing) => {
+  const r = rounds.value.find(x => x.id === roundId) || currentRound.value
+  if (!r) return
+  // ⚠️ existing: 同轮同文本已存在（后端复用），本地不再插入，避免出现两个同文本选项与后端不一致
+  // （justProposedId 已指向该已有选项 → 高亮脉冲照常播放，仅无进入动画）
+  if (!existing) {
+    r.options.push({
+      ...option,
+      votes: 0,
+      score: 0
+    })
+  }
+  // 同步提案额度：myProposals +1 / proposalsLeft -1（额度用尽后提案栏带离开动画收起）
+  if (r.my) {
+    r.my.myProposals = (r.my.myProposals || 0) + 1
+    r.my.proposalsLeft = Math.max(0, (r.my.proposalsLeft ?? 1) - 1)
+  }
+}
+
 const submitProposal = async (roundId) => {
   voteError.value = ''
   if (!proposalText.value.trim()) { voteError.value = '请输入提案内容'; return }
@@ -290,6 +315,8 @@ const submitProposal = async (roundId) => {
       if (justProposedTimer) clearTimeout(justProposedTimer)
       justProposedTimer = setTimeout(() => { justProposedId.value = null }, 2800)
     }
+    // 立即本地插入（新选项秒出 + 播进入动画），再静默校准（不显示 loading）——与投票 applyLocalVote 同模式
+    applyLocalProposal(roundId, data.option, data.existing)
     await loadRounds({ silent: true })
   } catch (e) {
     voteError.value = '提案失败: ' + e.message
