@@ -802,6 +802,18 @@ namespace TShockData
 		{
 			var config = ShopUIConfigManager.GetConfig();
 			if (config.shops.Count == 0) return; // 没有商店配置 → 不召唤
+
+			// 召唤解锁条件：指定进度完成前不出现，仅提示触发玩家（条件类型与商品上架一致：always/hardmode/boss/kill/never）
+			if (!ShopUIConfigManager.EvalCondition(config.unlockCondition))
+			{
+				var desc = ShopUIConfigManager.DescribeCondition(config.unlockCondition);
+				var msg = string.IsNullOrEmpty(desc)
+					? "[ShopUI] 虚拟旅商已被管理员禁用"
+					: $"[ShopUI] 当前还没有完成{desc}，暂不能使用虚拟旅商";
+				TShock.Players[who]?.SendInfoMessage(msg);
+				return;
+			}
+
 			var tp = Main.player[who];
 			if (tp == null || !tp.active) return;
 

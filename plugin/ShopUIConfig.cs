@@ -78,6 +78,10 @@ namespace TShockData
 		/// <summary>召唤物物品 ID（默认锡斧 3500）</summary>
 		public int summonItemId { get; set; } = ItemID.TinAxe;
 
+		/// <summary>召唤解锁条件：指定进度完成前虚拟旅商不出现，仅提示玩家（always = 无限制）。
+		/// 类型与商品上架条件一致：always / hardmode / boss / kill / never</summary>
+		public ShopItemCondition unlockCondition { get; set; } = new();
+
 		/// <summary>雕像控件（目录）→ 跳转映射，最多 4 个（对应槽 36-39），不足发空槽</summary>
 		public List<StatueControl> statueControls { get; set; } = new();
 
@@ -292,6 +296,76 @@ namespace TShockData
 		}
 
 		// ═══════════════════════════════════════════════
+		// 条件可读描述（用于召唤限制提示："当前还没有完成xxx，暂不能使用虚拟旅商"）
+		// ═══════════════════════════════════════════════
+
+		/// <summary>条件的人类可读进度描述（always/never 返回空串由调用方特判）</summary>
+		public static string DescribeCondition(ShopItemCondition c)
+		{
+			if (c == null) return "";
+			switch (c.type)
+			{
+				case "hardmode": return "击败血肉墙（肉山后）";
+				case "boss": return "击败" + BossFlagName(c.flag);
+				case "kill": return "击败" + KillNpcName(c);
+				case "never":
+				case "always":
+				default:
+					return "";
+			}
+		}
+
+		/// <summary>Boss downed flag → 中文名（与 EvalBossFlag 支持列表对应；未知 flag 原样返回便于排查）</summary>
+		private static string BossFlagName(string flag)
+		{
+			switch (flag)
+			{
+				case "downedSlimeKing": return "史莱姆王";
+				case "downedBoss1": return "克眼";
+				case "downedQueenBee": return "蜂后";
+				case "downedBoss3": return "骷髅王";
+				case "downedMechBoss1": return "毁灭者";
+				case "downedMechBoss2": return "双子魔眼";
+				case "downedMechBoss3": return "机械骷髅王";
+				case "downedPlantBoss": return "世纪之花";
+				case "downedGolemBoss": return "石巨人";
+				case "downedFishron": return "猪鲨";
+				case "downedMoonlord": return "月总";
+				case "downedQueenSlime": return "史莱姆皇后";
+				case "downedEmpressOfLight": return "光之女皇";
+				case "downedDeerclops": return "鹿角怪";
+				case "hardMode": return "击败血肉墙（肉山后）";
+				default: return flag;
+			}
+		}
+
+		/// <summary>kill 条件 → 怪物名：世界吞噬者三部件特判为整体；其余取首个 NPC type 的游戏内名字</summary>
+		private static string KillNpcName(ShopItemCondition c)
+		{
+			var ids = new List<int>();
+			if (c.npcIds != null && c.npcIds.Count > 0) ids.AddRange(c.npcIds);
+			else if (c.npcId > 0) ids.Add(c.npcId);
+			if (ids.Count == 0) return "对应怪物";
+
+			// 世界吞噬者（头 13 / 身 14 / 尾 15）→ 整体名
+			if (ids.Contains(NPCID.EaterofWorldsHead)
+				&& ids.Contains(NPCID.EaterofWorldsBody)
+				&& ids.Contains(NPCID.EaterofWorldsTail))
+			{
+				return "世界吞噬者";
+			}
+
+			try
+			{
+				return Lang.GetNPCNameValue(ids[0]).ToString();
+			}
+			catch
+			{
+				return $"NPC {ids[0]}";
+			}
+		}
+
+		// ═══════════════════════════════════════════════
 		// REST API
 		// ═══════════════════════════════════════════════
 
@@ -312,6 +386,10 @@ namespace TShockData
 				var incoming = JsonConvert.DeserializeObject<ShopUIConfig>(json);
 				if (incoming == null)
 					return new { status = 400, error = "Invalid config format" };
+
+				// 召唤解锁条件缺失（旧配置/前端未传）→ 默认无限制
+				if (incoming.unlockCondition == null)
+					incoming.unlockCondition = new ShopItemCondition { type = "always" };
 
 				// 基本校验：召唤物 ID 必须 >0；控件 slot 钳制 0-39 且去重（同 slot 保留第一个）；价格/数量钳制合法范围
 				// （商品/控件数量不限，超出 40 格物理限制由显示层截断）
@@ -368,6 +446,7 @@ namespace TShockData
 			{
 				enabled = true,
 				summonItemId = ItemID.TinAxe, // 3500
+				unlockCondition = Always(), // 默认无召唤限制
 				statueControls = new List<StatueControl>
 				{
 					new StatueControl { slot = 36, statueItemId = ItemID.ChestStatue,   targetShopIndex = 0, name = "宝藏袋商店" },

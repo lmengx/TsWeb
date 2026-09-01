@@ -15,6 +15,7 @@ const imageErrorIds = ref(new Set())
 const config = ref({
   enabled: true,
   summonItemId: 3500,
+  unlockCondition: { type: 'always', flag: '', npcId: 0, npcIds: [] }, // 召唤限制（未满足时玩家无法召唤）
   statueControls: [], // [{ slot, statueItemId, targetShopIndex, name }]（控件由配置保留，前端仅锁定显示）
   shops: []          // [{ name, items: [{ itemId, price, stack, condition }] }]
 })
@@ -356,6 +357,35 @@ const conditionTypes = [
   { value: 'never', name: '永不上架' }
 ]
 
+// 召唤限制条件选项（与商品条件同类型，语义为"出现条件"）
+const summonConditionTypes = [
+  { value: 'always', name: '无限制（总是出现）' },
+  { value: 'hardmode', name: '仅肉山后' },
+  { value: 'boss', name: '击杀 Boss' },
+  { value: 'kill', name: '图鉴击杀数>0' },
+  { value: 'never', name: '从不出现（禁用）' }
+]
+
+// 召唤限制当前效果概要（管理员速览：未满足时玩家收到的提示）
+const unlockTip = computed(() => {
+  const c = config.value.unlockCondition
+  if (!c) return '未设置'
+  switch (c.type) {
+    case 'always': return '无限制'
+    case 'hardmode': return '未达成时提示「击败血肉墙」'
+    case 'boss': {
+      const b = bossFlags.find(x => x.flag === c.flag)
+      return '未达成时提示「击败' + (b ? b.name : c.flag) + '」'
+    }
+    case 'kill': {
+      const ids = (c.npcIds && c.npcIds.length > 0) ? c.npcIds : (c.npcId ? [c.npcId] : [])
+      return '未达成时提示「击败 NPC ' + (ids.join(',') || '?') + '」'
+    }
+    case 'never': return '玩家无法召唤（已禁用）'
+    default: return c.type
+  }
+})
+
 // 商店序号渐变色（循环）
 const shopAccents = ['#6366f1', '#8b5cf6', '#06b6d4', '#10b981', '#f59e0b', '#ec4899']
 const shopAccent = (index) => shopAccents[index % shopAccents.length]
@@ -531,6 +561,12 @@ const fetchData = async () => {
 const normalizeConfig = (cfg) => ({
   enabled: cfg.enabled !== false,
   summonItemId: cfg.summonItemId || 3500,
+  unlockCondition: {
+    type: cfg.unlockCondition?.type || 'always',
+    flag: cfg.unlockCondition?.flag || '',
+    npcId: cfg.unlockCondition?.npcId || 0,
+    npcIds: cfg.unlockCondition?.npcIds || []
+  },
   statueControls: Array.isArray(cfg.statueControls) ? cfg.statueControls.map((s, i, arr) => ({
     slot: (s.slot !== undefined && s.slot !== null) ? s.slot : (40 - arr.length + i),
     statueItemId: s.statueItemId || 1,
@@ -642,6 +678,22 @@ onMounted(() => {
             <button @click="openSearch({ type: 'summon' })" class="ghost-btn accent">
               选择物品
             </button>
+          </div>
+          <div class="summon-row summon-limit-row">
+            <span class="toggle-label">召唤限制</span>
+            <select v-model="config.unlockCondition.type" class="form-select cond-select">
+              <option v-for="t in summonConditionTypes" :key="t.value" :value="t.value">{{ t.name }}</option>
+            </select>
+            <select v-if="config.unlockCondition.type === 'boss'" v-model="config.unlockCondition.flag" class="form-select cond-select">
+              <option v-for="b in bossFlags" :key="b.flag" :value="b.flag">{{ b.name }}</option>
+            </select>
+            <input
+              v-else-if="config.unlockCondition.type === 'kill'"
+              :value="getCondNpcText(config.unlockCondition)"
+              @input="setCondNpcText(config.unlockCondition, $event.target.value)"
+              class="form-input cond-input" placeholder="NPC ID，如 266 / 13,14,15"
+            />
+            <span class="summon-name summon-limit-tip">{{ unlockTip }}</span>
           </div>
         </div>
       </div>
@@ -1125,6 +1177,8 @@ onMounted(() => {
 .toggle-label { color: var(--text-primary); font-weight: 500; font-size: 0.9rem; }
 .overview-sub { margin-top: 14px; border-top: 1px solid var(--border-light); padding-top: 12px; }
 .summon-row { display: flex; align-items: center; gap: 10px; }
+.summon-limit-row { margin-top: 10px; flex-wrap: wrap; }
+.summon-limit-tip { color: var(--text-muted); font-size: 0.8rem; }
 .summon-name { font-size: 0.88rem; color: var(--text-primary); font-weight: 500; flex: 1; }
 
 /* ═══════ 开关 ═══════ */
