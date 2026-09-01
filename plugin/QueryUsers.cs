@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using Rests;
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using Rests;
 using System;
 using System.Collections.Generic;
 using System.Data;
@@ -33,15 +33,33 @@ namespace TShockData
                 string query;
                 object[] parameters;
                 
-        if (!string.IsNullOrEmpty(username))
-        {
-            query = "SELECT u.*, q.QQ as QQ FROM Users u LEFT JOIN qq_bind q ON u.ID = q.UserId WHERE u.Username = @0";
-            parameters = new object[] { username };
-        }
+                if (!string.IsNullOrEmpty(username))
+                {
+                    query = "SELECT u.*, q.QQ as QQ FROM Users u LEFT JOIN qq_bind q ON u.ID = q.UserId WHERE u.Username = @0";
+                    parameters = new object[] { username };
+                }
                 else
                 {
                     query = "SELECT u.*, q.QQ as QQ FROM Users u LEFT JOIN qq_bind q ON u.ID = q.UserId";
                     parameters = new object[] { };
+                }
+                
+                // 有 SSC 角色数据的账号集合（tsCharacter 表，Account = Users.ID，一个账号可多行）
+                // 用于 HasCharacter 标记：玩家管理页可筛选"仅有角色数据的玩家"
+                HashSet<int> characterAccounts = new HashSet<int>();
+                try
+                {
+                    using (QueryResult cr = db.QueryReader("SELECT DISTINCT Account FROM tsCharacter"))
+                    {
+                        while (cr.Read())
+                        {
+                            characterAccounts.Add(cr.Get<int>("Account"));
+                        }
+                    }
+                }
+                catch
+                {
+                    // tsCharacter 表不存在/查询失败时降级为全部无角色数据，不影响用户列表主流程
                 }
                 
                 using (QueryResult res = db.QueryReader(query, parameters))
@@ -71,6 +89,7 @@ namespace TShockData
                             }
                         }
                         user.Add("IsOnline", isOnline);
+                        user.Add("HasCharacter", characterAccounts.Contains(res.Get<int>("ID")));
                         
                         users.Add(user);
                     }

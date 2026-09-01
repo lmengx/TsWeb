@@ -28,6 +28,7 @@ const props = defineProps({
 const emit = defineEmits(['refresh', 'goToUserDetail', 'goToUnverified'])
 
 const searchQuery = ref('')
+const showWithCharacter = ref(false)
 
 // 创建用户模态框
 const showCreateModal = ref(false)
@@ -190,13 +191,15 @@ const sortedUsers = computed(() => {
 })
 
 const filteredUsers = computed(() => {
-  if (!searchQuery.value.trim()) {
-    return sortedUsers.value
+  let list = sortedUsers.value
+  if (showWithCharacter.value) {
+    list = list.filter(user => user.hasCharacter)
   }
-  const query = searchQuery.value.toLowerCase()
-  return sortedUsers.value.filter(user => 
-    user.name.toLowerCase().includes(query)
-  )
+  if (searchQuery.value.trim()) {
+    const query = searchQuery.value.toLowerCase()
+    list = list.filter(user => user.name.toLowerCase().includes(query))
+  }
+  return list
 })
 
 const handleRowClick = (user) => {
@@ -227,6 +230,10 @@ const handleRowClick = (user) => {
         placeholder="搜索用户名..."
         class="search-input"
       />
+      <label class="char-filter" title="只显示在 tsCharacter 表中有角色数据的玩家">
+        <input type="checkbox" v-model="showWithCharacter" />
+        <span>仅显示有角色数据的玩家</span>
+      </label>
       <button @click="openCreateModal" class="create-user-btn">+ 创建用户</button>
       <button @click="openClearAllDataModal" class="clear-all-data-btn">清空全部角色</button>
     </div>
@@ -259,7 +266,7 @@ const handleRowClick = (user) => {
     </div>
 
     <div v-else-if="filteredUsers.length === 0" class="empty-state">
-      <p>{{ searchQuery ? '未找到匹配的用户' : '暂无用户' }}</p>
+      <p>{{ searchQuery ? '未找到匹配的用户' : (showWithCharacter ? '没有有角色数据的玩家' : '暂无用户') }}</p>
     </div>
 
     <div v-else class="users-table-container">
@@ -497,6 +504,34 @@ const handleRowClick = (user) => {
 
 .search-input::placeholder {
   color: var(--text-muted);
+}
+
+.char-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: var(--bg-tertiary);
+  border: 2px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  color: var(--text-secondary);
+  font-size: 0.88rem;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+  transition: all 0.25s ease;
+}
+
+.char-filter:hover {
+  border-color: var(--accent-primary);
+}
+
+.char-filter input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--accent-primary);
+  cursor: pointer;
 }
 
 .loading-state,

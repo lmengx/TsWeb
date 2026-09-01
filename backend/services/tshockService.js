@@ -208,7 +208,10 @@ export class TShockService {
       'Accept': 'application/json'
     }
 
-    let url = `${this.baseUrl}/v2/users/list`
+    // 数据源从官方 /v2/users/list 切换到插件自研 /data/users/query_detail：
+    // 后者额外返回 HasCharacter（是否有 SSC 角色数据），供玩家管理页"仅显示有角色数据的玩家"筛选。
+    // 返回前做字段映射（ID→id、Username→name、Usergroup→group），保持前端 id/name/group 不变。
+    let url = `${this.baseUrl}/data/users/query_detail`
     if (this.apiKey) {
       url += `?token=${encodeURIComponent(this.apiKey)}`
     }
@@ -226,7 +229,25 @@ export class TShockService {
       console.log(`[RESPONSE] Body: ${text}`)
 
       try {
-        return JSON.parse(text)
+        const data = JSON.parse(text)
+        if (!data || !Array.isArray(data.users)) {
+          return data || { error: 'Invalid JSON', rawResponse: text }
+        }
+        const users = data.users.map(u => ({
+          id: u.ID,
+          name: u.Username,
+          group: u.Usergroup,
+          registered: u.Registered,
+          lastAccessed: u.LastAccessed,
+          qq: u.QQ,
+          uuid: u.UUID,
+          knownIPs: u.KnownIPs,
+          isOnline: u.IsOnline,
+          hasCharacter: !!u.HasCharacter
+        }))
+        const result = { users }
+        if (data.response) result.response = data.response
+        return result
       } catch {
         return { error: 'Invalid JSON', rawResponse: text }
       }
