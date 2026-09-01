@@ -258,7 +258,7 @@ namespace TShockData
 
                         if (!hasPermission)
                         {
-                            ViolationExecutor.ExecuteViolation(player, matchedItem.Method, itemId: item.netID, itemName: AntiCheat.GetItemName(item.netID));
+                            ViolationExecutor.ExecuteViolation(player, matchedItem.Method, itemId: item.netID, itemName: AntiCheat.GetItemName(item.netID), stack: item.stack, allowedStack: matchedItem.Stack);
                         }
                     }
                 }
@@ -295,7 +295,7 @@ namespace TShockData
                             System.Threading.Tasks.Task.Run(() =>
                             {
                                 System.Threading.Thread.Sleep(new Random().Next(200, 500));
-                                ViolationExecutor.ExecuteViolation(playerName, matchedItem.Method, itemId: item.netID, itemName: AntiCheat.GetItemName(item.netID));
+                                ViolationExecutor.ExecuteViolation(playerName, matchedItem.Method, itemId: item.netID, itemName: AntiCheat.GetItemName(item.netID), stack: item.stack, allowedStack: matchedItem.Stack);
                             });
                         }
 
@@ -450,7 +450,9 @@ namespace TShockData
                     ViolationExecutor.ExecuteViolation(e.Player, matchedItem.Method,
                         playerName: e.Player.Name,
                         itemId: e.Type,
-                        itemName: AntiCheat.GetItemName(e.Type));
+                        itemName: AntiCheat.GetItemName(e.Type),
+                        stack: e.Stacks,
+                        allowedStack: matchedItem.Stack);
                 }
             }
         }
@@ -492,7 +494,9 @@ namespace TShockData
                     ViolationExecutor.ExecuteViolation(e.Player, matchedItem.Method,
                         playerName: e.Player.Name,
                         itemId: e.Type,
-                        itemName: AntiCheat.GetItemName(e.Type));
+                        itemName: AntiCheat.GetItemName(e.Type),
+                        stack: e.Stacks,
+                        allowedStack: matchedItem.Stack);
                 }
             }
         }

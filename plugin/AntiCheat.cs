@@ -1,9 +1,10 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System;
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System;
 using System.Collections.Generic;
 using System.Data;
 using System.IO;
 using System.Linq;
 using Newtonsoft.Json;
+using Microsoft.Xna.Framework;
 using Terraria;
 using TShockAPI;
 using TShockAPI.DB;
@@ -413,7 +414,7 @@ namespace TShockData
 
     public static class ViolationExecutor
     {
-        public static void ExecuteViolation(TSPlayer player, string method, string playerName = null, int itemId = 0, string itemName = null, int projId = 0)
+        public static void ExecuteViolation(TSPlayer player, string method, string playerName = null, int itemId = 0, string itemName = null, int projId = 0, int stack = 0, int allowedStack = 0)
         {
             string name = playerName ?? player?.Name ?? "未知";
             string captureMethod = method;
@@ -422,7 +423,7 @@ namespace TShockData
             {
                 try
                 {
-                    string reason = BuildReason(name, itemId, itemName, projId);
+                    string reason = BuildReason(name, itemId, itemName, projId, stack, allowedStack);
 
                     switch (captureMethod?.ToLower())
                     {
@@ -437,7 +438,10 @@ namespace TShockData
                         case "kick":
                             if (player != null)
                             {
-                                ExecuteKick(player, name, reason);
+                                // 完整踢出播报：玩家名 + 违禁描述 + 已踢出（被踢玩家踢出界面 + 全服公告）
+                                string kickReport = $"{name}{reason}，已踢出";
+                                ExecuteKick(player, name, kickReport);
+                                TShock.Utils.Broadcast($"[反作弊] {kickReport}", Color.Red);
                                 TShock.Log.ConsoleError($"[反作弊] 已踢出玩家: {name}, 原因: {reason}");
                             }
                             else
@@ -462,7 +466,7 @@ namespace TShockData
             });
         }
 
-        public static void ExecuteViolation(string playerName, string method, int itemId = 0, string itemName = null, int projId = 0)
+        public static void ExecuteViolation(string playerName, string method, int itemId = 0, string itemName = null, int projId = 0, int stack = 0, int allowedStack = 0)
         {
             string captureMethod = method;
 
@@ -470,7 +474,7 @@ namespace TShockData
             {
                 try
                 {
-                    string reason = BuildReason(playerName, itemId, itemName, projId);
+                    string reason = BuildReason(playerName, itemId, itemName, projId, stack, allowedStack);
 
                     switch (captureMethod?.ToLower())
                     {
@@ -498,7 +502,7 @@ namespace TShockData
             });
         }
 
-        private static string BuildReason(string playerName, int itemId, string itemName, int projId)
+        private static string BuildReason(string playerName, int itemId, string itemName, int projId, int stack = 0, int allowedStack = 0)
         {
             if (projId > 0)
             {
@@ -506,8 +510,14 @@ namespace TShockData
             }
             if (itemId > 0)
             {
-                string name = !string.IsNullOrEmpty(itemName) ? $"({itemName})" : "";
-                return $"持有违禁物品(ID:{itemId}{name})";
+                string name = !string.IsNullOrEmpty(itemName) ? itemName : $"Item_{itemId}";
+                // 限制 1 个 = 持有即违规（持有就踢）
+                if (allowedStack <= 1)
+                {
+                    return $"持有违禁品{name}";
+                }
+                // 超过当前阶段合法值（不显示阈值具体数量）
+                return $"持有的{name}共{stack}个，超过了当前阶段合法值";
             }
             return "检测到作弊行为";
         }
