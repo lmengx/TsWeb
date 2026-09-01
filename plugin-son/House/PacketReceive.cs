@@ -30,14 +30,16 @@ public static class GetDataHandlers
     internal static readonly string AdminHouse = "house.admin";
     private static Dictionary<PacketTypes, GetDataHandlerDelegate> GetDataHandlerDelegates = null!;
     internal static readonly Dictionary<int, List<Rectangle>> PlayerActiveHouses = new();
-    private static readonly Dictionary<int, bool> PlayerRefreshFlags = new();
-    private const int RefreshIntervalSeconds = 2;
+    /// <summary>玩家 → 显示代次：每次 Show 递增，作废旧的一次性计时协程（瞬态提示）</summary>
+    private static readonly Dictionary<int, int> PlayerDisplayEpoch = new();
+    /// <summary>边框显示时长（秒）：显示一次后到时自动消失，不再循环刷新</summary>
+    private const int DisplayDurationSeconds = 2;
 
     /// <summary>热重载时重置静态状态</summary>
     internal static void ResetState()
     {
         PlayerActiveHouses.Clear();
-        PlayerRefreshFlags.Clear();
+        PlayerDisplayEpoch.Clear();
     }
     private static readonly HashSet<int> PlantTiles = new()
     {
@@ -209,6 +211,8 @@ public static class GetDataHandlers
                     Math.Min(p1.X, p2.X), Math.Min(p1.Y, p2.Y),
                     Math.Abs(p2.X - p1.X), Math.Abs(p2.Y - p1.Y));
                 ShowRegion(args.Player, previewRect);
+                // 圈地预览：2 秒后自动消失
+                Main.DelayedProcesses.Add(ClearPreviewEnumerator(args.Player.Index, previewRect));
             }
 
             args.Player.SendTileSquareCentered(x, y);
@@ -528,12 +532,15 @@ public static class GetDataHandlers
         {
             list = new List<Rectangle>();
             PlayerActiveHouses[player.Index] = list;
-            StartRefreshCycle(player.Index);
         }
         if (!list.Contains(house.HouseArea))
         {
             list.Add(house.HouseArea);
             ShowRegion(player, house.HouseArea);
+            // 瞬态提示：显示 2 秒后自动消失。代次 +1 作废旧计时器，新计时从此刻起算
+            var epoch = PlayerDisplayEpoch.TryGetValue(player.Index, out var e) ? e + 1 : 1;
+            PlayerDisplayEpoch[player.Index] = epoch;
+            Main.DelayedProcesses.Add(GetDisplayEnumerator(player.Index, epoch));
         }
     }
 
@@ -541,10 +548,12 @@ public static class GetDataHandlers
     {
         if (PlayerActiveHouses.TryGetValue(player.Index, out var list))
         {
-            if (list.Remove(house.HouseArea) && list.Count == 0)
+            if (list.Remove(house.HouseArea))
             {
-                ClearPlayerBorderProjectiles(player);
-                PlayerRefreshFlags.Remove(player.Index);
+                // 立即精确清除该玩家该区域的边框弹幕（多房屋/离开重进均不残留）
+                ClearBorderProjectiles(player, house.HouseArea);
+                // 作废显示计时器；若玩家随后重进，将以新代次重新计时
+                PlayerDisplayEpoch.Remove(player.Index);
             }
         }
     }
@@ -563,39 +572,45 @@ public static class GetDataHandlers
         }
     }
 
-    private static void StartRefreshCycle(int playerIndex)
-    {
-        if (PlayerRefreshFlags.ContainsKey(playerIndex) && PlayerRefreshFlags[playerIndex]) return;
-        PlayerRefreshFlags[playerIndex] = true;
-        Main.DelayedProcesses.Add(GetRefreshEnumerator(playerIndex));
-    }
-
-    private static IEnumerator GetRefreshEnumerator(int playerIndex)
+    /// <summary>一次性显示计时：等待 2 秒后清除该玩家全部边框弹幕（瞬态提示，不再循环重画）</summary>
+    private static IEnumerator GetDisplayEnumerator(int playerIndex, int epoch)
     {
         try
         {
-            while (PlayerActiveHouses.ContainsKey(playerIndex) && PlayerRefreshFlags.ContainsKey(playerIndex) && PlayerRefreshFlags[playerIndex])
+            var player = TShock.Players[playerIndex];
+            if (player is not { ConnectionAlive: true }) yield break;
+            for (var i = 0; i < 60 * DisplayDurationSeconds; i++)
             {
-                var player = TShock.Players[playerIndex];
-                if (player is not { ConnectionAlive: true }) yield break;
-                for (var i = 0; i < 60 * RefreshIntervalSeconds; i++)
-                {
-                    yield return null;
-                    player = TShock.Players[playerIndex];
-                    if (player == null || !player.ConnectionAlive) yield break;
-                }
-                if (PlayerActiveHouses.TryGetValue(playerIndex, out var list))
-                {
-                    // 快照遍历，避免枚举期间 list 被 ShowHouseDisplay/HideHouseDisplay 修改而崩溃
-                    var snapshot = list.ToList();
-                    foreach (var rect in snapshot)
-                    {
-                        ShowRegion(player, rect);
-                    }
-                }
+                yield return null;
+                player = TShock.Players[playerIndex];
+                if (player == null || !player.ConnectionAlive) yield break;
+                // 玩家已离开/重进（代次变更）→ 本计时作废，由新代次接管
+                if (!PlayerDisplayEpoch.TryGetValue(playerIndex, out var cur) || cur != epoch) yield break;
             }
+            // 2 秒到：清除该玩家全部边框弹幕（同一玩家同一时刻最多一个活动区域）
+            ClearPlayerBorderProjectiles(player);
+            PlayerActiveHouses.Remove(playerIndex);
         }
-        finally { PlayerRefreshFlags.Remove(playerIndex); }
+        finally
+        {
+            // 仅当仍是最新代次才清理，避免误删新代次的状态
+            if (PlayerDisplayEpoch.TryGetValue(playerIndex, out var cur) && cur == epoch)
+                PlayerDisplayEpoch.Remove(playerIndex);
+        }
+    }
+
+    /// <summary>圈地预览：2 秒后自动清除指定区域的边框弹幕</summary>
+    private static IEnumerator ClearPreviewEnumerator(int playerIndex, Rectangle area)
+    {
+        var player = TShock.Players[playerIndex];
+        if (player is not { ConnectionAlive: true }) yield break;
+        for (var i = 0; i < 60 * DisplayDurationSeconds; i++)
+        {
+            yield return null;
+            player = TShock.Players[playerIndex];
+            if (player == null || !player.ConnectionAlive) yield break;
+        }
+        ClearBorderProjectiles(player, area);
     }
 
     // ── 边框显示方法 ──
@@ -607,17 +622,17 @@ public static class GetDataHandlers
         int projType = ProjectileID.TopazBolt;
         for (var x = rect.Left; x <= rect.Right; x += step)
         {
-            CreateProjectile(ts, x, rect.Top, projType);
-            CreateProjectile(ts, x, rect.Bottom, projType);
+            CreateProjectile(ts, x, rect.Top, projType, rect);
+            CreateProjectile(ts, x, rect.Bottom, projType, rect);
         }
         for (var y = rect.Top + step; y <= rect.Bottom - step; y += step)
         {
-            CreateProjectile(ts, rect.Left, y, projType);
-            CreateProjectile(ts, rect.Right, y, projType);
+            CreateProjectile(ts, rect.Left, y, projType, rect);
+            CreateProjectile(ts, rect.Right, y, projType, rect);
         }
     }
 
-    private static void CreateProjectile(TSPlayer ts, int tileX, int tileY, int projType)
+    private static void CreateProjectile(TSPlayer ts, int tileX, int tileY, int projType, Rectangle area)
     {
         var pos = new Vector2((tileX * 16) + 8, (tileY * 16) + 8);
         // 服务器端创建无主边框弹幕：owner 必须 == Main.myPlayer(255)（专用服务器无本地玩家），
@@ -631,16 +646,18 @@ public static class GetDataHandlers
             var proj = Main.projectile[identity];
             if (proj != null)
             {
-                // 归属标记：owner 已是 255（无主），用 ai[0] 记录查看玩家索引供清理匹配
-                // （TopazBolt 静止弹幕 AI 不使用 ai[0]；即使被覆盖，残留弹幕也会在 timeLeft 结束后自然消失）
+                // 归属/区域标记：owner 已是 255（无主），ai[0]=查看玩家索引、ai[1]=区域 Left、ai[2]=区域 Top
+                // （TopazBolt 静止弹幕 AI 不使用 ai 字段；世界坐标 < 2^24，float 精确表示，供清理精确匹配）
                 proj.ai[0] = ts.Index;
+                proj.ai[1] = area.Left;
+                proj.ai[2] = area.Top;
                 proj.netUpdate = true;
             }
             NetMessage.SendData((int)PacketTypes.ProjectileNew, ts.Index, -1, null, identity);
         }
     }
 
-    /// <summary>清除某玩家所有 TopazBolt 边框弹幕（owner=255 无主 + ai[0] 归属标记匹配；不按位置匹配，专治漂移）</summary>
+    /// <summary>清除某玩家所有 TopazBolt 边框弹幕（owner=255 无主 + ai[0] 归属标记匹配）</summary>
     internal static void ClearPlayerBorderProjectiles(TSPlayer player)
     {
         if (player == null || player.Index < 0) return;
@@ -655,10 +672,35 @@ public static class GetDataHandlers
         }
     }
 
+    /// <summary>精确清除某玩家指定区域的 TopazBolt 边框弹幕（ai[0]=玩家 + ai[1]/ai[2]=区域左上角 匹配）</summary>
+    internal static void ClearBorderProjectiles(TSPlayer player, Rectangle area)
+    {
+        if (player == null || player.Index < 0) return;
+        for (var i = 0; i < Main.projectile.Length; i++)
+        {
+            var proj = Main.projectile[i];
+            if (proj is { active: true, type: ProjectileID.TopazBolt, owner: 255 }
+                && proj.ai[0] == player.Index
+                && proj.ai[1] == area.Left
+                && proj.ai[2] == area.Top)
+            {
+                proj.Kill();
+                NetMessage.SendData((int)PacketTypes.ProjectileDestroy, player.Index, -1, null, i);
+            }
+        }
+    }
+
     internal static void ClearPlayerDisplays(int playerIndex)
     {
+        // 掉线：服务器端 Kill 该玩家的边框弹幕（客户端已断开无需发包），并清理状态
+        for (var i = 0; i < Main.projectile.Length; i++)
+        {
+            var proj = Main.projectile[i];
+            if (proj is { active: true, type: ProjectileID.TopazBolt, owner: 255 } && proj.ai[0] == playerIndex)
+                proj.Kill();
+        }
         PlayerActiveHouses.Remove(playerIndex);
-        PlayerRefreshFlags.Remove(playerIndex);
+        PlayerDisplayEpoch.Remove(playerIndex);
     }
 
     // ══════════════════════════════════════════════════════════
