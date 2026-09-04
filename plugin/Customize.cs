@@ -17,6 +17,13 @@ public class LPlayer
     /// </summary>
     public string? CurrentHouseName { get; set; }
 
+    /// <summary>
+    /// 爆炸弹幕 fuse 标记：玩家创建爆炸弹幕时记为 Main.GameUpdateCount + 10（10 tick 窗口，
+    /// 参考 TShock Bouncer 的 RecentFuse 机制）。窗口内到达的 TileEdit/LiquidSet 包视为
+    /// 「爆炸引起」（客户端本地模拟爆炸后补发包），用于区分手动挖 vs 爆炸破坏。
+    /// </summary>
+    public long ExplosionFuseTick { get; set; }
+
     public LPlayer(int who, int lasttileX, int lasttileY)
     {
         Who = who;
@@ -24,6 +31,7 @@ public class LPlayer
         TileY = lasttileY;
         Look = false;
         CurrentHouseName = null; // 初始未知 → 首帧若在房内即判定进入
+        ExplosionFuseTick = 0;
     }
 }
 
@@ -51,6 +59,14 @@ public class House
     public int AllowTP { get; set; }
     public int AllowPlace { get; set; }
     public int AllowBreak { get; set; }
+
+    /// <summary>
+    /// 爆炸物破坏（1=允许，0=禁止）。
+    /// 叠加在基本操作之上：爆炸破坏方块放行 = AllowBreak==1 && AllowExplosion==1；
+    /// 爆炸产生/移除液体放行 = AllowLiquid==1 && AllowExplosion==1。
+    /// 基本操作不放行时，即使本项为 1 也不允许爆炸破坏。
+    /// </summary>
+    public int AllowExplosion { get; set; }
     public int AllowLiquid { get; set; }
     public int AllowChest { get; set; }
     public int AllowPlant { get; set; }
@@ -66,7 +82,7 @@ public class House
                  int? expelX, int? expelY, int expelOnViolate,
                  int notifyBreakPlace, int notifyEnter,
                  int allowEntry, int allowTP,
-                 int allowPlace, int allowBreak, int allowLiquid, int allowChest,
+                 int allowPlace, int allowBreak, int allowExplosion, int allowLiquid, int allowChest,
                  int allowPlant, int allowSpawn, int allowGrave,
                  int allowSwitch, int allowDoor, int allowFragile)
     {
@@ -86,6 +102,7 @@ public class House
         AllowTP = allowTP;
         AllowPlace = allowPlace;
         AllowBreak = allowBreak;
+        AllowExplosion = allowExplosion;
         AllowLiquid = allowLiquid;
         AllowChest = allowChest;
         AllowPlant = allowPlant;

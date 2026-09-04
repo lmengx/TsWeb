@@ -85,6 +85,7 @@ public static class HouseApi
             ["permissions"] = new Dictionary<string, object?>
             {
                 ["entry"] = h.AllowEntry, ["tp"] = h.AllowTP, ["place"] = h.AllowPlace, ["break"] = h.AllowBreak,
+                ["explosion"] = h.AllowExplosion,
                 ["liquid"] = h.AllowLiquid, ["chest"] = h.AllowChest, ["plant"] = h.AllowPlant, ["spawn"] = h.AllowSpawn,
                 ["grave"] = h.AllowGrave, ["switch"] = h.AllowSwitch, ["door"] = h.AllowDoor, ["fragile"] = h.AllowFragile
             }

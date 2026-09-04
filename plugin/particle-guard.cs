@@ -33,9 +33,10 @@ namespace TShockData
 	///   4. 除恶意类型外，所有超限请求一律「仅丢弃 + 记日志」，绝不踢出 ——
 	///      合法特效（弹幕持续粒子、换装、武器剑气）被插件批量弹幕放大频率是正常现象，踢出会造成大规模误伤
 	///
-	/// 实现：MonoMod RuntimeDetour 挂钩 NetManager.Read（82 号包服务端分发总入口）。
-	///   - 只捕获客户端 → 服务端的 82 号包（服务端 Broadcast 直接写 socket，不经 Read）
-	///   - moduleId != Particles(8) 的模块（Text/Ping/Liquid 等）原样放行
+	/// 实现：MonoMod RuntimeDetour 挂钩 NetParticlesModule.Deserialize（引擎在 NetManager.Read 中
+	///   按 moduleId 分派到粒子模块后的唯一消费入口）。
+	///   - 只捕获客户端 → 服务端的粒子包（服务端 Broadcast 直接写 socket，不经 Deserialize）
+	///   - 不依赖 NetworkInitializer 模块注册时序（曾因插件加载早于注册、GetId 返回 0 而静默失效，见下）
 	///
 	/// /lightning 指令：持续劈闪模式 —— 用户自定义时长（秒 s / 帧 f）与每帧数量，
 	///   自动每帧发送指定数量，直到时长结束。默认仅目标玩家可见（self）。
@@ -82,7 +83,6 @@ namespace TShockData
 
 		private static Hook? _hook;
 		private static bool _initialized;
-		private static ushort _particlesModuleId = ushort.MaxValue;
 		private static TerrariaPlugin? _plugin;
 
 		// 玩家索引 → 最近 1 秒内的粒子请求时间戳（普通类型）
@@ -91,8 +91,8 @@ namespace TShockData
 		private static readonly Dictionary<int, List<DateTime>> _highFreqTimestamps = new Dictionary<int, List<DateTime>>();
 		private static readonly object SyncLock = new object();
 
-		/// <summary>NetManager.Read(BinaryReader, int, int) 原始委托签名（实例方法，首个参数为 this）</summary>
-		private delegate void OrigNetManagerRead(NetManager self, BinaryReader reader, int userId, int readLength);
+		/// <summary>NetParticlesModule.Deserialize(BinaryReader, int) 原始委托签名（override 虚方法，首个参数为 this）</summary>
+		private delegate bool OrigNetParticlesDeserialize(NetParticlesModule self, BinaryReader reader, int userId);
 
 		// ════════════════════════════════════════════
 		//  持续劈闪配置
@@ -138,31 +138,25 @@ namespace TShockData
 
 			_plugin = plugin;
 
-			// 模块 ID 在 NetworkInitializer 中按注册顺序分配（Particles = 8），运行时取最稳
-			try
-			{
-				_particlesModuleId = NetManager.Instance.GetId<NetParticlesModule>();
-			}
-			catch
-			{
-				_particlesModuleId = 8;
-			}
-
-			var method = typeof(NetManager).GetMethod("Read",
+			// 拦截点：NetParticlesModule.Deserialize。
+			// 引擎在 NetManager.Read 中按 moduleId 分派，任何客户端粒子包必然走到此 override ——
+			// 不依赖 NetworkInitializer 模块注册时序（1.4.5.8 曾因插件加载早于模块注册、
+			// GetId<NetParticlesModule>() 返回 0 且不抛异常、fallback 永不触发而静默失效）。
+			var method = typeof(NetParticlesModule).GetMethod("Deserialize",
 				BindingFlags.Public | BindingFlags.Instance,
 				null,
-				new[] { typeof(BinaryReader), typeof(int), typeof(int) },
+				new[] { typeof(BinaryReader), typeof(int) },
 				null);
 
 			if (method == null)
 			{
-				TShock.Log.ConsoleError("[ParticleGuard] 未找到 NetManager.Read 方法，粒子防线未启用");
+				TShock.Log.ConsoleError("[ParticleGuard] 未找到 NetParticlesModule.Deserialize 方法，粒子防线未启用");
 				return;
 			}
 
 			try
 			{
-				_hook = new Hook(method, OnNetManagerRead);
+				_hook = new Hook(method, OnNetParticlesDeserialize);
 			}
 			catch (Exception ex)
 			{
@@ -174,7 +168,7 @@ namespace TShockData
 			ServerApi.Hooks.GameUpdate.Register(plugin, OnGameUpdate);
 
 			_initialized = true;
-			TShock.Log.ConsoleInfo($"[ParticleGuard] 粒子防线已启用（NetParticlesModule ID={_particlesModuleId}）");
+			TShock.Log.ConsoleInfo("[ParticleGuard] 粒子防线已启用（拦截点: NetParticlesModule.Deserialize）");
 		}
 
 		public static void Dispose()
@@ -208,25 +202,36 @@ namespace TShockData
 		//  拦截逻辑
 		// ════════════════════════════════════════════
 
-		private static void OnNetManagerRead(OrigNetManagerRead orig, NetManager self, BinaryReader reader, int userId, int readLength)
+		private static void OnNetParticlesDeserialize(OrigNetParticlesDeserialize orig, NetParticlesModule self, BinaryReader reader, int userId)
 		{
+			// 引擎已在 NetManager.Read 内消费 moduleId，此处 reader 位置恰为粒子类型字节
 			long start = reader.BaseStream.Position;
-			ushort moduleId = reader.ReadUInt16();
 
-			// 非粒子模块 / 防线关闭 → 原样放行
-			if (!Enabled || moduleId != _particlesModuleId)
+			// 防线关闭 → 原样放行
+			if (!Enabled)
 			{
 				reader.BaseStream.Position = start;
-				orig(self, reader, userId, readLength);
+				orig(self, reader, userId);
 				return;
 			}
 
-			// 粒子模块：读取粒子类型（moduleId 之后 1 字节）
-			byte particleType = reader.ReadByte();
+			// 读取粒子类型（载荷首字节）
+			byte particleType;
+			try
+			{
+				particleType = reader.ReadByte();
+			}
+			catch
+			{
+				// 畸形包：复位交回原逻辑，保持与原版一致的行为
+				reader.BaseStream.Position = start;
+				orig(self, reader, userId);
+				return;
+			}
 			bool isMalicious = MaliciousTypes.Contains(particleType);
 			bool isHighFrequency = !isMalicious && HighFrequencyTypes.Contains(particleType);
 
-			// ═══ 恶意类型：100% 恶意 → 丢弃并立即踢出 ═══
+			// ═══ 恶意类型：100% 恶意 → 丢弃并立即踢出（不调 orig → 不广播）═══
 			if (isMalicious)
 			{
 				HandleViolation(userId, particleType);
@@ -260,7 +265,7 @@ namespace TShockData
 				}
 
 				reader.BaseStream.Position = start;
-				orig(self, reader, userId, readLength);
+				orig(self, reader, userId);
 				return;
 			}
 
@@ -284,7 +289,7 @@ namespace TShockData
 			if (!shouldBlock)
 			{
 				reader.BaseStream.Position = start;
-				orig(self, reader, userId, readLength);
+				orig(self, reader, userId);
 				return;
 			}
 

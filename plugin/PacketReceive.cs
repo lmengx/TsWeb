@@ -63,6 +63,56 @@ public static class GetDataHandlers
         TileID.CrimsonGrass,
     };
 
+    // 徒手可破坏的方块（无需工具，参考 TShock GetDataHandlers.breakableTiles）
+    private static readonly HashSet<int> BreakableTiles = new()
+    {
+        TileID.Books,
+        TileID.Bottles,
+        TileID.BreakableIce,
+        TileID.Candles,
+        TileID.CorruptGrass,
+        TileID.Dirt,
+        TileID.CrimsonGrass,
+        TileID.Grass,
+        TileID.HallowedGrass,
+        TileID.MagicalIceBlock,
+        TileID.Mannequin,
+        TileID.Torches,
+        TileID.WaterCandle,
+        TileID.Womannequin,
+    };
+
+    /// <summary>
+    /// Bouncer 同款工具校验：判断玩家手持物品是否足以破坏该方块。
+    /// 斧头类方块需斧头；锤子类方块需锤子；其他实心方块需镐（或掘墓铲/钻头坐骑/挖掘鼹鼠矿车）。
+    /// </summary>
+    private static bool HasProperTool(TSPlayer player, int tileType, Item selectedItem)
+    {
+        if (selectedItem == null) return false;
+        bool isDrill = player.TPlayer.mount.Type == MountID.Drill;
+        bool isMole = player.TPlayer.mount.Type == MountID.DiggingMoleMinecart;
+
+        // 斧头类方块 → 需要斧头（或钻头坐骑）
+        if (Main.tileAxe[tileType])
+            return selectedItem.axe > 0 || isDrill;
+
+        // 锤子类方块 → 需要锤子（或钻头坐骑）
+        if (Main.tileHammer[tileType])
+            return selectedItem.hammer > 0 || isDrill;
+
+        // 豁免：物品展示框 / 骷髅罐 / 蛇绳 / 放置时可打破的方块
+        if (tileType == TileID.ItemFrame ||
+            tileType == TileID.DeadCellsDisplayJar ||
+            tileType == TileID.MysticSnakeRope ||
+            TileID.Sets.BreakableWhenPlacing[tileType])
+            return true;
+
+        // 普通实心方块 → 需要镐（或掘墓铲/钻头坐骑/挖掘鼹鼠矿车）
+        return selectedItem.pick > 0 ||
+               selectedItem.type == ItemID.GravediggerShovel ||
+               isDrill || isMole;
+    }
+
     public static void InitGetDataHandler()
     {
         GetDataHandlerDelegates = new Dictionary<PacketTypes, GetDataHandlerDelegate>
@@ -233,6 +283,36 @@ public static class GetDataHandlers
         // action: 0=破坏, 1-4=放置
         if (action == 0)
         {
+            var selectedItem = args.Player.SelectedItem;
+
+            // ═══ 爆炸破坏判定（可靠：手持爆炸物 → 爆炸破坏）═══
+            // 玩家手持炸弹/雷管/火箭筒等爆炸物（物品 ID 在爆炸物集合，或物品 shoot 是爆炸弹幕类型）
+            // → 该破坏是爆炸引起，放行需 AllowBreak==1 && AllowExplosion==1。
+            // 这是比弹幕位置更可靠的判定：不依赖 fuse 时间窗/弹幕存活，直接看玩家手持物品。
+            // 补充：投掷爆炸弹幕后极短窗口（ExplosionFuseTick）与目标附近弹幕记录，兜底持物已切换的场景。
+            bool isExplosion = HouseCore.IsExplosiveItem(selectedItem) ||
+                               (lplayer != null && (Main.GameUpdateCount < lplayer.ExplosionFuseTick ||
+                                                     HouseCore.IsRecentExplosionNear(args.Player, x, y)));
+            if (isExplosion)
+            {
+                if (house.AllowBreak == 1 && house.AllowExplosion == 1)
+                    return false;
+                args.Player.SendTileSquareCentered(x, y);
+                return Deny(args, house, "无权用爆炸物破坏被房子保护的地区。");
+            }
+
+            // ═══ 工具校验（Bouncer 同款：不挥动正确工具就无法破坏）═══
+            // 植物/墓碑/易碎品是徒手可采集的，不在此校验范围内（各自有 AllowPlant/AllowGrave/AllowFragile）。
+            if (!PlantTiles.Contains(tileType) && tileType != TileID.Tombstones && !FragileTiles.Contains(tileType))
+            {
+				bool hasProperTool = HasProperTool(args.Player, tileType, selectedItem);
+                if (!hasProperTool)
+                {
+                    args.Player.SendTileSquareCentered(x, y);
+                    return Deny(args, house, "没有正确的工具无法破坏被房子保护的地区。");
+                }
+            }
+
             // 植物
             if (PlantTiles.Contains(tileType))
             {
@@ -352,6 +432,20 @@ public static class GetDataHandlers
         var house = Utils.InAreaHouse(x, y);
         if (house == null) return false;
         if (IsHouseAuthorized(args.Player, house)) return false;
+
+        // 液体炸弹/液体火箭爆炸产生的液体（客户端本地模拟后补发 LiquidSet 包）：
+        // 判定 = 目标坐标附近存在产生/移除液体的爆炸弹幕，参考 TShock Bouncer OnLiquidSet 的
+        // wasThereABombNearby 机制（RecentlyCreatedProjectiles × projectileCreatesLiquid × 距离<5）。
+        // 补充：统一爆炸位置记录（HouseCore.IsRecentExplosionNear）同样覆盖液体爆炸弹幕。
+        // 放行 = AllowLiquid==1 && AllowExplosion==1（AllowExplosion 叠加在基本液体操作之上）。
+        if (IsExplosionLiquidNearby(args.Player, x, y) || HouseCore.IsRecentExplosionNear(args.Player, x, y))
+        {
+            if (house.AllowLiquid == 1 && house.AllowExplosion == 1)
+                return false;
+            args.Player.SendTileSquareCentered(x, y);
+            return Deny(args, house, "无权用爆炸物修改被房子保护的地区的液体。");
+        }
+
         if (house.AllowLiquid == 1) return false;
         args.Player.SendTileSquareCentered(x, y);
         return Deny(args, house, "无权修改被房子保护的地区的液体。");
@@ -520,6 +614,40 @@ public static class GetDataHandlers
         if (IsHouseAuthorized(args.Player, house)) return false;
         if (house.AllowPlace == 1) return false;
         return Deny(args, house, "无权修改被房子保护的地区的物品。");
+    }
+
+    /// <summary>会产生/移除液体的爆炸弹幕（与 TShock GetDataHandlers.projectileCreatesLiquid 一致）</summary>
+    private static readonly HashSet<int> ExplosionLiquidProjectiles = new()
+    {
+        ProjectileID.LavaBomb, ProjectileID.LavaRocket, ProjectileID.LavaGrenade, ProjectileID.LavaMine,
+        ProjectileID.WetBomb, ProjectileID.WetRocket, ProjectileID.WetGrenade, ProjectileID.WetMine,
+        ProjectileID.HoneyBomb, ProjectileID.HoneyRocket, ProjectileID.HoneyGrenade, ProjectileID.HoneyMine,
+        ProjectileID.DryBomb, ProjectileID.DryRocket, ProjectileID.DryGrenade, ProjectileID.DryMine,
+    };
+
+    /// <summary>
+    /// 判定目标坐标附近是否存在「产生/移除液体」的爆炸弹幕。
+    /// 参考 TShock Bouncer OnLiquidSet 的 wasThereABombNearby：
+    /// 遍历 TSPlayer.RecentlyCreatedProjectiles，类型 ∈ projectileCreatesLiquid 且距离 < BombExplosionRadius(=5)。
+    /// </summary>
+    private static bool IsExplosionLiquidNearby(TSPlayer player, int tileX, int tileY)
+    {
+        const int radius = 5; // TShock.Config.Settings.BombExplosionRadius 默认值
+        lock (player.RecentlyCreatedProjectiles)
+        {
+            foreach (var p in player.RecentlyCreatedProjectiles)
+            {
+                if (!ExplosionLiquidProjectiles.Contains(p.Type)) continue;
+                if (p.Index < 0 || p.Index >= Main.projectile.Length) continue;
+                var proj = Main.projectile[p.Index];
+                if (proj == null || !proj.active) continue;
+                var px = (int)(proj.position.X / 16f);
+                var py = (int)(proj.position.Y / 16f);
+                if (Math.Abs(tileX - px) < radius && Math.Abs(tileY - py) < radius)
+                    return true;
+            }
+        }
+        return false;
     }
 
     // ══════════════════════════════════════════════════════════

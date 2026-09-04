@@ -45,6 +45,7 @@ public static class Database
                 AllowTP      INTEGER DEFAULT 0,
                 AllowPlace   INTEGER DEFAULT 0,
                 AllowBreak   INTEGER DEFAULT 0,
+                AllowExplosion INTEGER DEFAULT 0,
                 AllowLiquid  INTEGER DEFAULT 0,
                 AllowChest   INTEGER DEFAULT 0,
                 AllowPlant   INTEGER DEFAULT 0,
@@ -56,5 +57,7 @@ public static class Database
             );
         ";
         cmd.ExecuteNonQuery();
+        // 不做 ALTER TABLE 迁移：旧表结构缺列时，读取路径（Utils.ReadHouse 的 SafeGetInt）
+        // 自动兜底为默认值 0，保证任何时刻、任何历史表结构下插件都能正常加载。
     }
 }

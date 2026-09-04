@@ -345,6 +345,7 @@ public static class HouseManager
             SafeGetInt(reader, "AllowTP"),
             SafeGetInt(reader, "AllowPlace"),
             SafeGetInt(reader, "AllowBreak"),
+            SafeGetInt(reader, "AllowExplosion"),
             SafeGetInt(reader, "AllowLiquid"),
             SafeGetInt(reader, "AllowChest"),
             SafeGetInt(reader, "AllowPlant"),
@@ -383,13 +384,29 @@ public static class HouseManager
 
     private static int SafeGetInt(SqliteDataReader reader, string col)
     {
-        var ord = reader.GetOrdinal(col);
-        return reader.IsDBNull(ord) ? 0 : reader.GetInt32(ord);
+        try
+        {
+            var ord = reader.GetOrdinal(col);
+            return reader.IsDBNull(ord) ? 0 : reader.GetInt32(ord);
+        }
+        catch
+        {
+            // 列不存在（旧表结构未迁移）→ 视为默认值 0，保证旧库/新库任何时刻都能正常加载
+            return 0;
+        }
     }
 
     private static int? SafeGetNullableInt(SqliteDataReader reader, string col)
     {
-        var ord = reader.GetOrdinal(col);
-        return reader.IsDBNull(ord) ? null : reader.GetInt32(ord);
+        try
+        {
+            var ord = reader.GetOrdinal(col);
+            return reader.IsDBNull(ord) ? null : reader.GetInt32(ord);
+        }
+        catch
+        {
+            // 列不存在（旧表结构）→ null
+            return null;
+        }
     }
 }

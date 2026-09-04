@@ -1,4 +1,5 @@
 using Microsoft.Xna.Framework;
+using MonoMod.RuntimeDetour;
 using OTAPI;
 using System.Timers;
 using Terraria;
@@ -24,6 +25,65 @@ public class HouseCore
     private static bool _hooksRegistered;
     private TerrariaPlugin? _plugin;
 
+    // 玩家最近创建的爆炸弹幕（服务器端弹幕 index + 创建 tick），供 HandleTile 判定「爆炸破坏」。
+    // 服务器端炸弹 fuse 结束不调用 Kill（AI_016_Bombs 仅 owner==Main.myPlayer 时 Kill），爆炸破坏
+    // 全部由客户端本地模拟后发送 TileEdit 包；客户端先发弹幕销毁包(NetMessage 29) 再发破坏包，
+    // 因此破坏包到达时弹幕已 active=false——但 Main.projectile[index] 对象仍保留且 position 为
+    // 爆炸中心（TShock wasThereABombNearby 同款：直接读 position，不检查 active）。
+    private static readonly Dictionary<int, List<(int Index, long Tick)>> PlayerExplosiveProjectiles = new();
+    private static readonly object ExplosionLock = new();
+
+    /// <summary>
+    /// 玩家最近 5 秒内创建的爆炸弹幕中，是否有弹幕（含已销毁、position 即爆炸中心）位于 (tileX, tileY)
+    /// 附近（8 格内）。供 PacketReceive.HandleTile 区分「爆炸破坏 vs 手动挖掘」。
+    /// </summary>
+    public static bool IsRecentExplosionNear(TSPlayer player, int tileX, int tileY)
+    {
+        if (player == null) return false;
+        lock (ExplosionLock)
+        {
+            if (!PlayerExplosiveProjectiles.TryGetValue(player.Index, out var list)) return false;
+            foreach (var (index, tick) in list)
+            {
+                // 5 秒窗口（≈300 tick，覆盖炸弹 fuse 数秒 + 客户端模拟延迟）
+                if (Main.GameUpdateCount - tick > 300) continue;
+                if (index < 0 || index >= Main.projectile.Length) continue;
+                var proj = Main.projectile[index];
+                if (proj == null) continue;
+                // 防御：index 可能被复用为其它弹幕（销毁后槽位被新弹幕占用）
+                if (!ExplosiveTypes.Contains(proj.type) && !LiquidBombTypes.Contains(proj.type)) continue;
+                var px = (int)(proj.position.X / 16f);
+                var py = (int)(proj.position.Y / 16f);
+                if (Math.Abs(tileX - px) <= 8 && Math.Abs(tileY - py) <= 8) return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>清理过期爆炸弹幕记录（OnUpdate 调用）</summary>
+    private static void CleanupExplosions()
+    {
+        lock (ExplosionLock)
+        {
+            foreach (var key in PlayerExplosiveProjectiles.Keys.ToList())
+            {
+                PlayerExplosiveProjectiles[key].RemoveAll(e => Main.GameUpdateCount - e.Tick > 300);
+                if (PlayerExplosiveProjectiles[key].Count == 0)
+                    PlayerExplosiveProjectiles.Remove(key);
+            }
+        }
+    }
+
+    // 服务器端权威爆炸拦截（MonoMod detour，1.4.5.7+ 无 HookGen On API 的替代）
+    private static Hook? _killTileHook;
+    private static Hook? _projectileKillHook;
+
+    /// <summary>WorldGen.KillTile 原始委托（public static，五参重载）</summary>
+    private delegate void OrigKillTile(int i, int j, bool fail, bool effectOnly, bool noItem);
+
+    /// <summary>Projectile.Kill 原始委托（public 实例方法，无参）</summary>
+    private delegate void OrigProjectileKill(Projectile self);
+
     // 命令缓存（用于热重载时准确移除）
     private Command? _houseCmd, _hCmd, _htpCmd;
 
@@ -40,6 +100,8 @@ public class HouseCore
         ProjectileID.DrySnowmanRocket, ProjectileID.WetSnowmanRocket,
         ProjectileID.LavaSnowmanRocket, ProjectileID.HoneySnowmanRocket,
         ProjectileID.HappyBomb,
+        ProjectileID.BombFish, ProjectileID.ScarabBomb,
+        ProjectileID.WetMine, ProjectileID.LavaMine, ProjectileID.HoneyMine, ProjectileID.DryMine,
     };
 
     private static readonly HashSet<int> LiquidBombTypes = new()
@@ -53,6 +115,33 @@ public class HouseCore
         ProjectileID.WetRocket, ProjectileID.DryRocket,
         ProjectileID.LavaRocket, ProjectileID.HoneyRocket,
     };
+
+    /// <summary>供 PacketReceive 判断手持物品是否爆炸物（shoot 为爆炸弹幕）。</summary>
+    public static bool IsExplosiveShoot(int shoot)
+    {
+        return shoot >= 0 && (ExplosiveTypes.Contains(shoot) || LiquidBombTypes.Contains(shoot));
+    }
+
+    /// <summary>供 PacketReceive：手持物品是否在爆炸物物品 ID 集合（投掷类炸弹物品）。</summary>
+    private static readonly HashSet<int> ExplosiveItemIds = new()
+    {
+        ItemID.Bomb, ItemID.StickyBomb, ItemID.BouncyBomb,
+        ItemID.Dynamite, ItemID.BouncyDynamite, ItemID.StickyDynamite,
+        ItemID.Grenade, ItemID.StickyGrenade, ItemID.BouncyGrenade,
+        ItemID.Explosives,
+        ItemID.RocketLauncher, ItemID.GrenadeLauncher, ItemID.SnowmanCannon, ItemID.ProximityMineLauncher,
+        ItemID.BombFish, ItemID.ScarabBomb,
+        ItemID.DirtBomb, ItemID.DirtStickyBomb,
+        ItemID.WetBomb, ItemID.LavaBomb, ItemID.HoneyBomb, ItemID.DryBomb,
+        ItemID.WetRocket, ItemID.LavaRocket, ItemID.HoneyRocket, ItemID.DryRocket,
+    };
+
+    /// <summary>手持物品是否爆炸物（物品 ID 在爆炸物集合，或 shoot 是爆炸弹幕）。</summary>
+    public static bool IsExplosiveItem(Item? item)
+    {
+        if (item == null) return false;
+        return ExplosiveItemIds.Contains(item.type) || IsExplosiveShoot(item.shoot);
+    }
 
     // ══════════════════════════════════════════════════════════
     //  初始化
@@ -91,7 +180,48 @@ public class HouseCore
         ServerApi.Hooks.GamePostInitialize.Register(plugin, PostInitialize);
         if (!Main.gameMenu)
             PostInitialize(EventArgs.Empty);
+        // ═══ 数据包拦截入口（关键）═══
+        // 主插件版（LEGACY_ON_API 未定义）编译不到 MessageBufferOnInvokeGetData，
+        // 房屋的 21 个包拦截 handler（HandleTile/HandleLiquidSet/...）必须显式接入，
+        // 否则破坏/放置/箱子/液体等全部保护失效。用 ServerApi.Hooks.NetGetData 最高优先级
+        // （先于 TShock.OnGetData 处理，符合原 LEGACY 版在 OTAPI 层先拦截的语义；
+        //  返回 true 则 args.Handled=true → TShock 跳过该包）。
+        ServerApi.Hooks.NetGetData.Deregister(plugin, OnHouseNetGetData);
+        ServerApi.Hooks.NetGetData.Register(plugin, OnHouseNetGetData, int.MaxValue);
         OTAPI.Hooks.Chest.QuickStack += ChestOnQuickStack;
+        // 爆炸弹幕标记（区分手动挖 vs 爆炸破坏，参考 TShock Bouncer RecentFuse 机制）
+        // 注：显式限定 TShockAPI.GetDataHandlers——HouseRegion 命名空间自身有 GetDataHandlers 类（PacketReceive.cs）会遮蔽
+        // 热重载幂等：先注销旧的再注册
+        TShockAPI.GetDataHandlers.NewProjectile.UnRegister(OnNewProjectile);
+        TShockAPI.GetDataHandlers.NewProjectile.Register(OnNewProjectile);
+
+        // 服务器端权威爆炸拦截（1.4.5.7+ 无 HookGen On API；爆炸破坏由服务器端 WorldGen.KillTile 权威执行，
+        // 客户端不发 TileEdit 包 → 包级拦截拦不到。照原 HouseRegion LEGACY 版 OnProjectileKill/OnWorldGenKillTile
+        // 移植为 MonoMod detour，particle-guard 同款可靠模式）
+        try { _killTileHook?.Dispose(); } catch { }
+        _killTileHook = null;
+        try
+        {
+            var killTile = typeof(WorldGen).GetMethod("KillTile",
+                new[] { typeof(int), typeof(int), typeof(bool), typeof(bool), typeof(bool) });
+            if (killTile == null)
+                TShock.Log.ConsoleError("[房屋] 未找到 WorldGen.KillTile，爆炸破坏拦截未启用");
+            else
+                _killTileHook = new Hook(killTile, OnKillTile);
+        }
+        catch (Exception ex) { TShock.Log.ConsoleError("[房屋] KillTile detour 注册失败: " + ex.Message); }
+
+        try { _projectileKillHook?.Dispose(); } catch { }
+        _projectileKillHook = null;
+        try
+        {
+            var kill = typeof(Projectile).GetMethod("Kill", Type.EmptyTypes);
+            if (kill == null)
+                TShock.Log.ConsoleError("[房屋] 未找到 Projectile.Kill，爆炸来源追踪未启用");
+            else
+                _projectileKillHook = new Hook(kill, OnProjectileKill);
+        }
+        catch (Exception ex) { TShock.Log.ConsoleError("[房屋] Projectile.Kill detour 注册失败: " + ex.Message); }
 #if LEGACY_ON_API
         // 1.4.5.7+ OTAPI.Hooks.MessageBuffer 无 InvokeGetData 事件（HookGen 专属），TShock 已自动分发 HandlerGetData
         Hooks.MessageBuffer.InvokeGetData -= MessageBufferOnInvokeGetData;
@@ -116,8 +246,16 @@ public class HouseCore
         ServerApi.Hooks.NetGreetPlayer.Deregister(_plugin!, OnGreetPlayer);
         ServerApi.Hooks.ServerLeave.Deregister(_plugin!, OnLeave);
         ServerApi.Hooks.GamePostInitialize.Deregister(_plugin!, PostInitialize);
+        ServerApi.Hooks.NetGetData.Deregister(_plugin!, OnHouseNetGetData);
         Update.Elapsed -= OnUpdate;
         Update.Stop();
+        // 爆炸弹幕标记注销
+        TShockAPI.GetDataHandlers.NewProjectile.UnRegister(OnNewProjectile);
+        // 服务器端爆炸拦截 detour 注销
+        try { _killTileHook?.Dispose(); } catch { }
+        _killTileHook = null;
+        try { _projectileKillHook?.Dispose(); } catch { }
+        _projectileKillHook = null;
 
         // OTAPI/MonoMod 钩子（先减后加由 Initialize 保证，Dispose 中无需重复 -= ）
         // 但主动减一次也无害，保留以兼容非热重载的正常卸载
@@ -137,6 +275,114 @@ public class HouseCore
         ShowPrefManager.Load();
         Update.Elapsed += OnUpdate;
         Update.Start();
+    }
+
+    // ══════════════════════════════════════════════════════════
+    //  爆炸弹幕标记：玩家创建爆炸弹幕 → fuse 窗口（10 tick）
+    //  窗口内到达的 TileEdit/LiquidSet 包视为爆炸引起（客户端本地模拟爆炸后补发包），
+    //  供 PacketReceive.GetDataHandlers.HandleTile/HandleLiquidSet 区分手动挖 vs 爆炸破坏。
+    //  覆盖全集（ExplosiveTypes ∪ LiquidBombTypes，含火箭/手雷/液体炸弹/地雷/鱼雷等），
+    //  比 TShock Bouncer 的 7 种核心爆炸物更宽。
+    // ══════════════════════════════════════════════════════════
+
+    private void OnNewProjectile(object? sender, TShockAPI.GetDataHandlers.NewProjectileEventArgs args)
+    {
+        try
+        {
+            if (!ExplosiveTypes.Contains(args.Type) && !LiquidBombTypes.Contains(args.Type))
+                return;
+            if (args.Owner >= 0 && args.Owner < LPlayers.Length && LPlayers[args.Owner] != null)
+            {
+                // 10 tick 窗口（≈167ms，与 Bouncer RecentFuse=10 一致），用 GameUpdateCount 时间戳无需递减
+                LPlayers[args.Owner]!.ExplosionFuseTick = Main.GameUpdateCount + 10;
+                // 记录服务器端弹幕 index：客户端先发 TileEdit 破坏包、后发弹幕销毁包，
+                // 破坏包到达时弹幕仍存活，HandleTile 用位置距离判定爆炸破坏。
+                if (args.Index >= 0)
+                {
+                    lock (ExplosionLock)
+                    {
+                        if (!PlayerExplosiveProjectiles.TryGetValue(args.Owner, out var list))
+                            PlayerExplosiveProjectiles[args.Owner] = list = new();
+                        list.Add((args.Index, Main.GameUpdateCount));
+                    }
+                }
+            }
+        }
+        catch { /* 标记失败不影响主流程 */ }
+    }
+
+    // ══════════════════════════════════════════════════════════
+    //  服务器端权威爆炸拦截（MonoMod detour）
+    //  Projectile.Kill detour：爆炸弹幕销毁时记录来源玩家（_explosionOwner）；
+    //  KillTile detour：爆炸破坏方块时校验 AllowBreak==1 && AllowExplosion==1。
+    //  手动挖（_explosionOwner==null）放行，由 HandleTile 包拦截负责。
+    // ══════════════════════════════════════════════════════════
+
+    private static void OnProjectileKill(OrigProjectileKill orig, Projectile self)
+    {
+        try
+        {
+            if (ExplosiveTypes.Contains(self.type) || LiquidBombTypes.Contains(self.type))
+            {
+                // 保留服务器端权威拦截（OnKillTile）：某些爆炸类型可能在服务器端直接调用 KillTile，
+                // 此时记录 _explosionOwner 供 OnKillTile 校验。注意服务器端炸弹 fuse 结束不通过 Kill()
+                // 爆炸（AI_016_Bombs 仅 owner==Main.myPlayer 时 Kill），普通炸弹主要靠 HandleTile 包级拦截。
+                _explosionOwner = self.owner >= 0 && self.owner < Main.maxPlayers ? TShock.Players[self.owner] : null;
+                try { orig(self); }
+                finally { _explosionOwner = null; }
+                return;
+            }
+        }
+        catch { }
+        orig(self);
+    }
+
+    private static void OnKillTile(OrigKillTile orig, int i, int j, bool fail, bool effectOnly, bool noItem)
+    {
+        // 非爆炸破坏 → 原样放行（手动挖由 HandleTile 包拦截负责）
+        if (_explosionOwner == null || fail || effectOnly)
+        {
+            orig(i, j, fail, effectOnly, noItem);
+            return;
+        }
+        var house = Utils.InAreaHouse(i, j);
+        if (house == null || Utils.IsAuthorized(_explosionOwner, house) ||
+            (house.AllowBreak == 1 && house.AllowExplosion == 1))
+        {
+            orig(i, j, fail, effectOnly, noItem);
+            return;
+        }
+        _explosionOwner.SendErrorMessage("无权用爆炸物破坏被房子保护的方块!");
+        // 不调用 orig → 方块不被破坏（服务器权威），客户端由后续 TileSquare 同步纠正
+    }
+
+    // ══════════════════════════════════════════════════════════
+    //  数据包拦截入口（主插件版）
+    //  NetGetData 事件在 OTAPI InvokeGetData 中按优先级触发，int.MaxValue = 先于
+    //  TShock.OnGetData（TShock.cs:1713）。数据流构造照抄 TShock 自身：
+    //  length = e.Length - 1（e.Length 含包类型字节，e.Index 已是数据起始）。
+    // ══════════════════════════════════════════════════════════
+
+    private void OnHouseNetGetData(GetDataEventArgs args)
+    {
+        try
+        {
+            if (args.Handled)
+                return;
+            var player = TShock.Players[args.Msg.whoAmI];
+            if (player == null || !player.ConnectionAlive)
+                return;
+            int length = Math.Max(args.Length - 1, 0);
+            using (var data = new MemoryStream(args.Msg.readBuffer, args.Index, length))
+            {
+                if (GetDataHandlers.HandlerGetData(args.MsgID, player, data))
+                    args.Handled = true;
+            }
+        }
+        catch (Exception ex)
+        {
+            TShock.Log.Error("房屋插件包处理错误:" + ex);
+        }
     }
 
     // ══════════════════════════════════════════════════════════
@@ -295,6 +541,7 @@ public class HouseCore
 
     private void OnUpdate(object? sender, ElapsedEventArgs e)
     {
+        CleanupExplosions();
         lock (LPlayers)
         {
             for (var i = 0; i < LPlayers.Length; i++)
@@ -650,7 +897,7 @@ public class HouseCore
         plr.SendMessage(
             PermItem("进入", house.AllowEntry) + "    " + PermItem("传送", house.AllowTP), green);
         plr.SendMessage(
-            PermItem("放置", house.AllowPlace) + "    " + PermItem("破坏", house.AllowBreak) + "    " + PermItem("液体", house.AllowLiquid) +
+            PermItem("放置", house.AllowPlace) + "    " + PermItem("破坏", house.AllowBreak) + "    " + PermItem("爆炸物", house.AllowExplosion) + "    " + PermItem("液体", house.AllowLiquid) +
             "    " + PermItem("箱子", house.AllowChest) + "    " + PermItem("开关", house.AllowSwitch) + "    " + PermItem("门", house.AllowDoor), green);
         plr.SendMessage(
             PermItem("植物", house.AllowPlant) + "    " + PermItem("易碎品", house.AllowFragile) + "    " + PermItem("挖坟", house.AllowGrave) + "    " + PermItem("复活点", house.AllowSpawn), green);
@@ -1063,7 +1310,8 @@ public class HouseCore
             $"进入: {(house.AllowEntry == 1 ? "✓" : "✗")}  " +
             $"传送: {(house.AllowTP == 1 ? "✓" : "✗")}  " +
             $"放置: {(house.AllowPlace == 1 ? "✓" : "✗")}  " +
-            $"破坏: {(house.AllowBreak == 1 ? "✓" : "✗")}", Color.Yellow);
+            $"破坏: {(house.AllowBreak == 1 ? "✓" : "✗")}  " +
+            $"爆炸物: {(house.AllowExplosion == 1 ? "✓" : "✗")}", Color.Yellow);
         args.Player.SendMessage(
             $"液体: {(house.AllowLiquid == 1 ? "✓" : "✗")}  " +
             $"箱子: {(house.AllowChest == 1 ? "✓" : "✗")}  " +
@@ -1363,6 +1611,7 @@ public class HouseCore
         {"传送", "AllowTP"},
         {"放置", "AllowPlace"},
         {"破坏", "AllowBreak"},
+        {"爆炸物", "AllowExplosion"},
         {"液体", "AllowLiquid"},
         {"箱子", "AllowChest"},
         {"植物", "AllowPlant"},
