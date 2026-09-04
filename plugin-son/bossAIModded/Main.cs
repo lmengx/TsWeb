@@ -130,9 +130,10 @@ public class BossAIModded : TerrariaPlugin
         {
             return existing;
         }
-        var mod = npc.type switch
+        BossAIModBase? mod = npc.type switch
         {
             Terraria.ID.NPCID.KingSlime => new KingSlimeEternity(),
+            Terraria.ID.NPCID.EyeofCthulhu => new EyeOfCthulhu(),
             _ => null,
         };
         if (mod != null)
