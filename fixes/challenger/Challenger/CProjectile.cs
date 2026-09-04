@@ -1,4 +1,4 @@
-﻿using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework;
 using Terraria;
 using Terraria.ID;
 using TShockAPI;
@@ -88,27 +88,12 @@ public class CProjectile
 
     public static void CKill(int index)
     {
-        if (Main.projectile[index] != null && Main.projectile[index].active)
+        var p = Main.projectile[index];
+        if (p != null && p.active)
         {
-            Main.projectileIdentity[Main.projectile[index].owner, Main.projectile[index].identity] = -1;
-            Main.projectile[index].timeLeft = 0;
-            if (Main.getGoodWorld && Main.projectile[index].aiStyle == 16)
-            {
-                Main.projectile[index].PrepareBombToBlow();
-                var projRectangle = Main.projectile[index].Damage_GetHitbox();
-    
-                if (Main.projectile[index].hostile)
-                {
-                    Main.projectile[index].Damage_EVP(projRectangle);
-                }
-                else if (Main.projectile[index].friendly && !Main.projectile[index].npcProj && !ProjectileID.Sets.RocketsSkipDamageForPlayers[Main.projectile[index].type] 
-                         && (Main.projectile[index].owner == Main.myPlayer || Main.getGoodWorld))
-                {
-                    Main.projectile[index].BombsHurtPlayers(projRectangle); 
-                }
-            }
-            Main.projectile[index].active = false;
-            TSPlayer.All.SendData((PacketTypes) 29, "", Main.projectile[index].identity, Main.projectile[index].owner, 0f, 0f, 0);
+            // 1.4.5.8：原版 Kill() 内部处理炸弹分支（aiStyle 16）与网络广播（SendData 29），
+            // 身份查找已改为 ProjectileKey(owner,index,generation) 机制，无需手动清 identity 表。
+            p.Kill();
             if (Collect.cprojs[index] != null)
             {
                 Collect.cprojs[index].isActive = false;
@@ -120,25 +105,7 @@ public class CProjectile
     {
         if (this.proj != null && this.proj.active)
         {
-            Main.projectileIdentity[this.proj.owner, this.proj.identity] = -1;
-            this.proj.timeLeft = 0;
-            if (Main.getGoodWorld && Main.projectile[index].aiStyle == 16)
-            {
-                Main.projectile[index].PrepareBombToBlow();
-                var projRectangle = Main.projectile[index].Damage_GetHitbox();
-    
-                if (Main.projectile[index].hostile)
-                {
-                    Main.projectile[index].Damage_EVP(projRectangle);
-                }
-                else if (Main.projectile[index].friendly && !Main.projectile[index].npcProj && !ProjectileID.Sets.RocketsSkipDamageForPlayers[type] 
-                         && (Main.projectile[index].owner == Main.myPlayer || Main.getGoodWorld))
-                {
-                    Main.projectile[index].BombsHurtPlayers(projRectangle); 
-                }
-            }
-            this.proj.active = false;
-            TSPlayer.All.SendData((PacketTypes) 29, "", this.proj.identity, this.proj.owner, 0f, 0f, 0);
+            this.proj.Kill();
             if (Collect.cprojs[this.proj.whoAmI] != null)
             {
                 Collect.cprojs[this.proj.whoAmI].isActive = false;

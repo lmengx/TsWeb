@@ -1182,7 +1182,8 @@ public class Challenger : TerrariaPlugin
 
                 if (Timer % config.RoyalGel_Timer == 0)
                 {
-                    var num = Item.NewItem(null, player.Center + new Vector2(Main.rand.Next(-860, 861), -600f), new Vector2(36f, 36f), list, 1, false, 0, false);
+                    var spawnPos = player.Center + new Vector2(Main.rand.Next(-860, 861), -600f);
+                    var num = Item.NewItem(null, (int) spawnPos.X, (int) spawnPos.Y, 36, 36, list, 1);
                     Main.item[num].color = new Color(Main.rand.Next(256), Main.rand.Next(256), Main.rand.Next(256));
                     TSPlayer.All.SendData((PacketTypes) 88, null, num, 1f, 0f, 0f, 0);
                 }
@@ -1244,7 +1245,7 @@ public class Challenger : TerrariaPlugin
         var itemId = config.VolatileGelatin[randomIndex];
 
         // 创建掉落物，使用随机选中的itemId
-        Item.NewItem(null, args.Npc.Center, new Vector2(20f, 20f), itemId);
+        Item.NewItem(null, (int) args.Npc.Center.X, (int) args.Npc.Center.Y, 20, 20, itemId);
     }
 
 
@@ -1773,8 +1774,8 @@ public class Challenger : TerrariaPlugin
             var num = type;
             if (num == 227)
             {
-                Collect.cprojs[e.Identity] = new CrystalLeafShot(Main.projectile[e.Identity]);
-                Collect.cprojs[e.Identity].MyEffect();
+                Collect.cprojs[e.Index] = new CrystalLeafShot(Main.projectile[e.Index]);
+                Collect.cprojs[e.Index].MyEffect();
             }
         }
     }

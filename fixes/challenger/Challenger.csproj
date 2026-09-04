@@ -4,10 +4,31 @@
     <TargetFramework>net9.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
   </PropertyGroup>
 
+  <!-- 服务器同版 API（1458，与 plugin/api 同源，实机已验证） -->
   <ItemGroup>
-    <PackageReference Include="TShock" Version="6.1.0" />
+    <Reference Include="TShockAPI">
+      <HintPath>api\TShockAPI.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="OTAPI">
+      <HintPath>api\OTAPI.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="TerrariaServer">
+      <HintPath>api\TerrariaServer.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="ModFramework">
+      <HintPath>api\ModFramework.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
   </ItemGroup>
 
 </Project>
