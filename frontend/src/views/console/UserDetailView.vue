@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { get, post } from '../../utils/api.js'
+import { get, post, del } from '../../utils/api.js'
 import InventoryViewer from '../../components/InventoryViewer.vue'
 import { getAntiCheatConfig } from '../../api/antiCheatApi.js'
 import { loadItemData } from '../../api/itemDataApi.js'
@@ -1490,11 +1490,8 @@ const exportAsPreset = async () => {
   presetSaveSuccess.value = ''
   try {
     const data = buildExportData()
-    const res = await fetch('/api/presets/save', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, data })
-    })
+    // 必须走 api 封装自动附带 Bearer token，裸 fetch 会被 verifyToken 401 Unauthorized
+    const res = await post('/api/presets/save', { name, data })
     const result = await res.json()
     if (result.success) {
       presetSaveSuccess.value = `预设「${result.name}」已保存`
@@ -1512,7 +1509,7 @@ const exportAsPreset = async () => {
 const loadPresetList = async () => {
   presetLoading.value = true
   try {
-    const res = await fetch('/api/presets/list')
+    const res = await get('/api/presets/list')
     const result = await res.json()
     presetList.value = result.presets || []
     presetsLoaded.value = true
@@ -1524,7 +1521,7 @@ const loadPresetList = async () => {
 
 const loadPreset = async (name) => {
   try {
-    const res = await fetch(`/api/presets/read?name=${encodeURIComponent(name)}`)
+    const res = await get(`/api/presets/read?name=${encodeURIComponent(name)}`)
     const result = await res.json()
     if (result.success) {
       importJson.value = JSON.stringify(result.data, null, 2)
@@ -1539,7 +1536,7 @@ const loadPreset = async (name) => {
 
 const deletePreset = async (name) => {
   try {
-    const res = await fetch(`/api/presets/delete?name=${encodeURIComponent(name)}`, { method: 'DELETE' })
+    const res = await del(`/api/presets/delete?name=${encodeURIComponent(name)}`)
     const result = await res.json()
     if (result.success) {
       loadPresetList()
