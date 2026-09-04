@@ -5,7 +5,8 @@ import { fileURLToPath } from 'url'
 import { getPlaytimeRecords } from './qqPlaytimeService.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const VOTES_PATH = path.join(__dirname, '..', 'data', 'votes.json')
+// 可用环境变量覆盖数据路径（测试/迁移场景隔离，默认 backend/data/votes.json）
+const VOTES_PATH = process.env.TSWeb_VOTES_PATH || path.join(__dirname, '..', 'data', 'votes.json')
 
 // ═══════════════════════════════════════════════════════════
 // 投票服务（后端本地权威）
@@ -177,13 +178,35 @@ export async function createRound(p) {
 }
 
 /**
- * 编辑轮次基本信息（标题 / 说明 / 截止时间），未传字段保持不变
- * @param {object} patch { title?, description?, endAt? }
+ * 可编辑的“投票规则”字段（仅进行中轮次允许改动；title/description/endAt 任何状态可改）
+ */
+const RULE_FIELDS = ['maxVotesPerUser', 'baseWeight', 'weightRules', 'allowProposals', 'maxProposalsPerUser', 'allowUnbound']
+
+/** 加权规则入参校验（返回清洗后的规则数组） */
+function sanitizeWeightRules(rules) {
+  if (!Array.isArray(rules)) throw new Error('加权规则格式不正确')
+  return rules.map(r => {
+    if (!r || r.field !== 'playtime_hours') throw new Error('加权规则字段不支持')
+    if (r.op !== '>' && r.op !== '>=') throw new Error('加权规则比较符仅支持 > 或 >=')
+    const threshold = Number(r.threshold)
+    const weight = Number(r.weight)
+    if (!Number.isFinite(threshold) || !Number.isFinite(weight)) throw new Error('加权规则的阈值/权重必须是数字')
+    return { field: r.field, op: r.op, threshold, weight }
+  })
+}
+
+/**
+ * 编辑轮次：发布后修改发起参数，未传字段保持不变
+ *  - title / description / endAt：任意状态可改（纠错/改期）
+ *  - 规则类字段（RULE_FIELDS）：仅“进行中”轮次可改；对已投出的票不追溯，只影响后续投票
+ * @param {object} patch { title?, description?, endAt?, maxVotesPerUser?, baseWeight?, weightRules?, allowProposals?, maxProposalsPerUser?, allowUnbound? }
  */
 export async function updateRound(id, patch = {}) {
   const data = await load()
   const round = data.rounds.find(r => r.id === id)
   if (!round) throw new Error('轮次不存在')
+
+  // ── 基本信息：任何状态可改 ──
   if (patch.title !== undefined) {
     const t = String(patch.title).trim()
     if (!t) throw new Error('标题不能为空')
@@ -195,8 +218,101 @@ export async function updateRound(id, patch = {}) {
   if (patch.endAt !== undefined) {
     round.endAt = patch.endAt ? new Date(patch.endAt).toISOString() : null
   }
+
+  // ── 规则类字段：仅进行中轮次可改（已结束 = 结果锁定，改规则无意义且令人困惑） ──
+  const wantsRules = RULE_FIELDS.some(k => patch[k] !== undefined)
+  if (wantsRules && roundStatus(round) !== 'open') {
+    throw new Error('轮次已结束，投票参数已锁定，仅可修改标题/说明/截止时间')
+  }
+
+  if (patch.maxVotesPerUser !== undefined) {
+    const n = parseInt(patch.maxVotesPerUser, 10)
+    if (!Number.isFinite(n) || n < 1) throw new Error('每用户可投选项数必须 ≥ 1')
+    // 一致性：不能低于“该轮任意身份已投的不同选项数”，否则产生“已投数 > 上限”的矛盾状态
+    const byIdentity = new Map()
+    for (const v of data.votes) {
+      if (v.roundId !== round.id) continue
+      const ident = String(v.qq || '').toLowerCase() || String(v.username || '').toLowerCase()
+      if (!byIdentity.has(ident)) byIdentity.set(ident, new Set())
+      byIdentity.get(ident).add(v.optionId)
+    }
+    const maxDistinct = [...byIdentity.values()].reduce((m, s) => Math.max(m, s.size), 0)
+    if (n < maxDistinct) {
+      throw new Error(`不能降到低于玩家已投数量：本轮有人已投 ${maxDistinct} 个不同选项（当前上限 ${round.maxVotesPerUser}）`)
+    }
+    round.maxVotesPerUser = n
+  }
+  if (patch.baseWeight !== undefined) {
+    const b = Number(patch.baseWeight)
+    if (!Number.isFinite(b) || b <= 0) throw new Error('初始权重必须大于 0')
+    round.baseWeight = b   // 历史票已落快照，不追溯
+  }
+  if (patch.weightRules !== undefined) {
+    round.weightRules = sanitizeWeightRules(patch.weightRules)  // 空数组 = 清除全部加权规则
+  }
+  if (patch.allowProposals !== undefined) {
+    round.allowProposals = !!patch.allowProposals
+  }
+  if (patch.maxProposalsPerUser !== undefined) {
+    const n = parseInt(patch.maxProposalsPerUser, 10)
+    if (!Number.isFinite(n) || n < 1) throw new Error('每用户最多提案数必须 ≥ 1')
+    round.maxProposalsPerUser = n   // 仅约束未来提案，已有提案不追溯
+  }
+  if (patch.allowUnbound !== undefined) {
+    round.allowUnbound = !!patch.allowUnbound
+  }
+
   await persist(data)
   return round
+}
+
+/**
+ * 管理员添加选项（仅进行中轮次；与玩家提案同防刷上限，同文本去重拒绝）
+ * @returns { option } 新选项（type='preset'，addedBy 记录操作人）
+ */
+export async function addOption(id, text, by = '') {
+  const data = await load()
+  const round = data.rounds.find(r => r.id === id)
+  if (!round) throw new Error('轮次不存在')
+  if (roundStatus(round) !== 'open') throw new Error('轮次已结束，选项已锁定，无法添加')
+
+  const clean = String(text || '').trim()
+  if (!clean) throw new Error('选项内容不能为空')
+  if (clean.length > 50) throw new Error('选项内容过长（最多 50 字）')
+  if (round.options.length >= 100) throw new Error('本轮选项已达上限（100）')
+
+  const lower = clean.toLowerCase()
+  const existing = round.options.find(o => o.text.toLowerCase() === lower)
+  if (existing) throw new Error('该选项已存在，无需重复添加')
+
+  const option = { id: genId('o'), text: clean, type: 'preset' }
+  if (by) option.addedBy = by
+  round.options.push(option)
+  await persist(data)
+  return option
+}
+
+/**
+ * 管理员删除选项（仅进行中轮次；预设与玩家提案均可删）
+ * 连带真实删除指向该选项的全部选票——不留悬空引用、不残留脏数据，计票/配额即时一致。
+ * @returns { option, removedVotes } 被删选项 + 连带删除的票数
+ */
+export async function removeOption(id, optionId, by = '') {
+  const data = await load()
+  const round = data.rounds.find(r => r.id === id)
+  if (!round) throw new Error('轮次不存在')
+  if (roundStatus(round) !== 'open') throw new Error('轮次已结束，选项已锁定，无法删除')
+  if (round.options.length <= 1) throw new Error('轮次至少需保留一个选项')
+
+  const idx = round.options.findIndex(o => o.id === optionId)
+  if (idx === -1) throw new Error('选项不存在')
+
+  const [option] = round.options.splice(idx, 1)
+  const before = data.votes.length
+  data.votes = data.votes.filter(v => !(v.roundId === round.id && v.optionId === optionId))
+  const removedVotes = before - data.votes.length
+  await persist(data)
+  return { option, removedVotes, removedBy: by || undefined }
 }
 
 /** 手动结束轮次 */
@@ -467,4 +583,4 @@ export async function propose(round, username, text, anonymous = false) {
   return { option, existing: false }
 }
 
-export default { roundStatus, calcUserWeight, tally, createRound, updateRound, closeRound, deleteRound, archiveRound, unarchiveRound, listRounds, getRound, getRoundDetail, castVote, castVoteForQq, qqState, roundWithQqState, propose }
+export default { roundStatus, calcUserWeight, tally, createRound, updateRound, addOption, removeOption, closeRound, deleteRound, archiveRound, unarchiveRound, listRounds, getRound, getRoundDetail, castVote, castVoteForQq, qqState, roundWithQqState, propose }

@@ -29,11 +29,21 @@ const showForm = ref(false)
 const formError = ref('')
 const formOk = ref('')
 
-// ── 编辑轮次 ──
+// ── 编辑轮次（发布后修改发起参数；规则类仅进行中可改，只影响后续票）──
 const showEdit = ref(false)
 const editId = ref(null)
-const editForm = ref({ title: '', description: '', endAt: '' })
+const editClosed = ref(false)     // 已结束轮次：规则输入禁用（服务端同样锁定）
+const editForm = ref({
+  title: '', description: '', endAt: '',
+  maxVotesPerUser: 1, baseWeight: 1,
+  allowProposals: false, maxProposalsPerUser: 1, allowUnbound: true,
+  weightRules: []
+})
 const editError = ref('')
+
+// ── 卡片内添加选项输入（按轮次 id）──
+const addText = ref({})
+const addErr = ref({})
 
 // ── 明细查看 ──
 const showDetail = ref(false)
@@ -152,14 +162,25 @@ const createRound = async () => {
 // ── 编辑轮次（标题 / 说明 / 截止时间）──
 const openEdit = (r) => {
   editId.value = r.id
+  editClosed.value = r.status !== 'open'
   editForm.value = {
     title: r.title || '',
     description: r.description || '',
-    endAt: toLocalInput(r.endAt)
+    endAt: toLocalInput(r.endAt),
+    maxVotesPerUser: r.maxVotesPerUser ?? 1,
+    baseWeight: r.baseWeight ?? 1,
+    allowProposals: !!r.allowProposals,
+    maxProposalsPerUser: r.maxProposalsPerUser ?? 1,
+    allowUnbound: r.allowUnbound !== false,
+    weightRules: (Array.isArray(r.weightRules) ? r.weightRules : []).map(x => ({ ...x }))
   }
   editError.value = ''
   showEdit.value = true
 }
+
+/** 编辑弹窗内规则输入行为：与创建表单共用 addRule/removeRule */
+const addEditRule = () => editForm.value.weightRules.push({ field: 'playtime_hours', op: '>', threshold: 50, weight: 0.5 })
+const removeEditRule = (i) => editForm.value.weightRules.splice(i, 1)
 
 const saveEdit = async () => {
   editError.value = ''
@@ -170,6 +191,17 @@ const saveEdit = async () => {
       description: editForm.value.description.trim(),
       endAt: editForm.value.endAt || null
     }
+    // 规则类字段仅进行中轮次可改（已结束轮次由服务端锁定，这里也不发送）
+    if (!editClosed.value) {
+      payload.maxVotesPerUser = parseInt(editForm.value.maxVotesPerUser) || 1
+      payload.baseWeight = Number(editForm.value.baseWeight) || 1
+      payload.allowProposals = editForm.value.allowProposals
+      payload.maxProposalsPerUser = parseInt(editForm.value.maxProposalsPerUser) || 1
+      payload.allowUnbound = editForm.value.allowUnbound
+      payload.weightRules = editForm.value.weightRules
+        .filter(r => r && Number.isFinite(Number(r.threshold)) && Number(r.weight) !== 0)
+        .map(r => ({ field: r.field, op: r.op, threshold: Number(r.threshold), weight: Number(r.weight) }))
+    }
     const res = await patch(`/api/vote/rounds/${editId.value}`, payload)
     const data = await res.json()
     if (!data.success) { editError.value = data.error || '保存失败'; return }
@@ -177,6 +209,44 @@ const saveEdit = async () => {
     loadRounds()
   } catch (err) {
     editError.value = '保存失败: ' + err.message
+  } finally {
+    busy.value = false
+  }
+}
+
+// ── 选项管理（管理员：添加 / 删除，仅进行中轮次）──
+const submitAddOption = async (r) => {
+  const text = (addText.value[r.id] || '').trim()
+  if (!text) return
+  addErr.value[r.id] = ''
+  busy.value = true
+  try {
+    const res = await post(`/api/vote/rounds/${r.id}/options`, { text })
+    const data = await res.json()
+    if (!data.success) { addErr.value[r.id] = data.error || '添加失败'; return }
+    addText.value[r.id] = ''
+    loadRounds()
+  } catch (err) {
+    addErr.value[r.id] = '添加失败: ' + err.message
+  } finally {
+    busy.value = false
+  }
+}
+
+/** 删除选项：有票时提示连带删除；选项不会恢复（投票不可撤，直接连票真删） */
+const removeOptionFromRound = async (r, o) => {
+  const tip = o.votes > 0
+    ? `该选项已有 ${o.votes} 票，删除会【一并真实删除这些选票】（不可恢复）！`
+    : '该选项暂无人投票，删除后不可恢复。'
+  if (!confirm(`确认删除选项「${o.text}」？${tip}`)) return
+  busy.value = true
+  try {
+    const res = await del(`/api/vote/rounds/${r.id}/options/${o.id}`)
+    const data = await res.json()
+    if (!data.success) { error.value = data.error || '操作失败'; return }
+    loadRounds()
+  } catch (err) {
+    error.value = '操作失败: ' + err.message
   } finally {
     busy.value = false
   }
@@ -404,7 +474,7 @@ onMounted(loadRounds)
           </div>
           <div class="round-actions">
             <button class="btn-mini" @click="openDetail(r)" title="查看投票明细与提案明细">明细</button>
-            <button class="btn-mini" @click="openEdit(r)" title="编辑标题/说明/截止时间">编辑</button>
+            <button class="btn-mini" @click="openEdit(r)" :title="r.status === 'open' ? '编辑发起参数（规则改动仅影响后续投票）' : '编辑标题/说明/截止时间（已结束参数锁定）'">编辑</button>
             <template v-if="activeTab === 'active'">
               <button v-if="r.status === 'open'" class="btn-mini" @click="closeRound(r)">结束投票</button>
               <button class="btn-mini" @click="archiveRound(r)">归档</button>
@@ -430,12 +500,20 @@ onMounted(loadRounds)
           <span v-if="r.archivedAt">归档于 <b>{{ fmtTime(r.archivedAt) }}</b>（{{ r.archivedBy || '手动' }}）</span>
         </div>
 
-        <div class="result-table">
+        <div v-if="r.status === 'open'" class="add-option-bar">
+          <input v-model="addText[r.id]" class="form-input" maxlength="50" placeholder="输入新选项内容（≤50字），回车添加" @keyup.enter="submitAddOption(r)" :disabled="busy || r.options.length >= 100" />
+          <button class="btn-mini" :disabled="busy || !(addText[r.id] || '').trim() || r.options.length >= 100" @click="submitAddOption(r)">添加选项</button>
+          <span v-if="r.options.length >= 100" class="hint-tip">已达选项上限（100）</span>
+          <span v-if="addErr[r.id]" class="add-err">{{ addErr[r.id] }}</span>
+        </div>
+
+        <div class="result-table" :class="{ editable: r.status === 'open' }">
           <div class="result-row header">
             <span class="c-option">选项</span>
             <span class="c-score">加权分</span>
             <span class="c-votes">票数</span>
             <span class="c-bar">占比</span>
+            <span v-if="r.status === 'open'" class="c-act">操作</span>
           </div>
           <div v-for="o in r.options" :key="o.id" class="result-row" :class="{ highlight: o.type === 'custom' }">
             <span class="c-option">
@@ -452,6 +530,9 @@ onMounted(loadRounds)
               </div>
               <span class="pct-num">{{ pct(o, r.options) }}</span>
             </span>
+            <span v-if="r.status === 'open'" class="c-act">
+              <button class="btn-mini danger tiny" :disabled="busy || r.options.length <= 1" :title="r.options.length <= 1 ? '轮次至少保留一个选项' : '删除该选项（有票将连带真实删除）'" @click="removeOptionFromRound(r, o)">✕</button>
+            </span>
           </div>
         </div>
       </div>
@@ -467,18 +548,72 @@ onMounted(loadRounds)
         <div class="modal">
           <button class="modal-close" @click="showEdit = false" aria-label="关闭">✕</button>
           <h3>编辑投票轮次</h3>
+          <div v-if="editClosed" class="msg warn lock-hint">该轮次已结束：投票参数与选项已锁定，仅可修改标题 / 说明 / 截止时间。</div>
+          <div v-else class="msg info edit-hint">修改的投票参数<b>只对之后的新票生效</b>，已投出的票保持原权重不变。</div>
           <div class="modal-form">
-            <div class="form-row">
-              <label class="form-label">标题</label>
-              <input v-model="editForm.title" class="form-input" maxlength="60" />
+            <!-- 基本信息 -->
+            <div class="form-section sec-mini">
+              <div class="sec-title">基本信息</div>
+              <div class="form-row">
+                <label class="form-label">标题</label>
+                <input v-model="editForm.title" class="form-input" maxlength="60" />
+              </div>
+              <div class="form-row">
+                <label class="form-label">说明内容</label>
+                <textarea v-model="editForm.description" class="form-input textarea" rows="2" maxlength="300" placeholder="玩家页标题下方展示，可留空"></textarea>
+              </div>
+              <div class="form-row">
+                <label class="form-label">截止时间 <span class="hint-tip">（留空 = 长期有效；已手动结束的轮次不可重新开放）</span></label>
+                <input v-model="editForm.endAt" type="datetime-local" class="form-input" />
+              </div>
             </div>
-            <div class="form-row">
-              <label class="form-label">说明内容</label>
-              <textarea v-model="editForm.description" class="form-input textarea" rows="3" maxlength="300" placeholder="玩家页标题下方展示，可留空"></textarea>
+            <!-- 投票规则（仅进行中可改） -->
+            <div class="form-section sec-mini">
+              <div class="sec-title">投票规则</div>
+              <div class="form-grid">
+                <div class="form-row">
+                  <label class="form-label">每用户最多可投选项数</label>
+                  <input v-model.number="editForm.maxVotesPerUser" type="number" min="1" class="form-input" :disabled="editClosed" />
+                </div>
+                <div class="form-row">
+                  <label class="form-label">初始权重（可小数）</label>
+                  <input v-model.number="editForm.baseWeight" type="number" min="0.1" step="0.1" class="form-input" :disabled="editClosed" />
+                </div>
+              </div>
+              <div class="form-row">
+                <label class="form-label switch-label">
+                  <input v-model="editForm.allowUnbound" type="checkbox" class="checkbox" :disabled="editClosed" />
+                  允许未绑定玩家参与（QQ机器人渠道）
+                </label>
+              </div>
+              <div class="form-row">
+                <label class="form-label switch-label">
+                  <input v-model="editForm.allowProposals" type="checkbox" class="checkbox" :disabled="editClosed" />
+                  允许玩家提交自定义选项
+                </label>
+              </div>
+              <div class="form-row" v-if="editForm.allowProposals">
+                <label class="form-label">每用户最多提案数</label>
+                <input v-model.number="editForm.maxProposalsPerUser" type="number" min="1" class="form-input" :disabled="editClosed" />
+              </div>
             </div>
-            <div class="form-row">
-              <label class="form-label">截止时间 <span class="hint-tip">（留空 = 长期有效）</span></label>
-              <input v-model="editForm.endAt" type="datetime-local" class="form-input" />
+            <!-- 加权规则（仅进行中可改） -->
+            <div class="form-section sec-mini">
+              <div class="sec-title">条件加权规则 <span class="hint-tip">（满足多条可累加；删除全部 = 清除加权）</span></div>
+              <div v-for="(r, i) in editForm.weightRules" :key="i" class="rule-line">
+                <span class="rule-text">如果</span>
+                <select v-model="r.field" class="form-select" :disabled="editClosed">
+                  <option v-for="f in fieldOptions" :key="f.value" :value="f.value">{{ f.label }}</option>
+                </select>
+                <select v-model="r.op" class="form-select narrow" :disabled="editClosed">
+                  <option v-for="o in opOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
+                </select>
+                <input v-model.number="r.threshold" type="number" min="0" class="form-input narrow" placeholder="阈值" :disabled="editClosed" />
+                <span class="rule-text">加权</span>
+                <input v-model.number="r.weight" type="number" step="0.1" class="form-input narrow" placeholder="+" :disabled="editClosed" />
+                <button class="btn-mini danger" @click="removeEditRule(i)" :disabled="editClosed">✕</button>
+              </div>
+              <button class="btn-mini" @click="addEditRule" :disabled="editClosed">添加加权规则</button>
             </div>
             <div v-if="editError" class="msg error">{{ editError }}</div>
             <div class="modal-actions">
@@ -820,6 +955,35 @@ onMounted(loadRounds)
 .v-at { color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .group-empty { padding: 16px 14px; text-align: center; color: var(--text-muted); font-size: 0.82rem; }
 .sub-group { margin-top: 4px; }
+
+/* ═══ 选项管理（添加条 / 操作列） ═══ */
+.add-option-bar {
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 10px; flex-wrap: wrap;
+}
+.add-option-bar .form-input { flex: 1; min-width: 180px; padding: 7px 12px; }
+.add-err { font-size: 0.75rem; color: #ef4444; }
+
+.result-table.editable .result-row { grid-template-columns: 1.4fr 80px 60px 1fr 44px; }
+.c-act { display: flex; justify-content: flex-end; align-items: center; }
+.result-row.header .c-act { justify-content: flex-end; }
+.btn-mini.tiny { padding: 2px 9px; font-size: 0.75rem; }
+
+/* ═══ 编辑模态：分区紧凑 + 消息类型 ═══ */
+.modal-form .form-section.sec-mini {
+  border-bottom: 1px dashed var(--border-light);
+  padding: 12px 0;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.modal-form .form-section.sec-mini:last-of-type { border-bottom: none; padding-bottom: 0; }
+.modal-form .sec-title { margin-bottom: 2px; }
+.modal-form input:disabled, .modal-form select:disabled, .modal-form button:disabled { opacity: 0.5; cursor: not-allowed; }
+.modal-form .msg.warn { background: rgba(245, 158, 11, 0.1); color: #d97706; }
+.msg.info { background: rgba(59, 130, 246, 0.08); color: #2563eb; }
+.msg.warn { background: rgba(245, 158, 11, 0.1); color: #d97706; }
+.lock-hint { margin-bottom: 12px; }
+.edit-hint { margin-bottom: 12px; }
+.edit-hint b { color: #2563eb; }
 
 @media (max-width: 640px) {
   .form-grid { grid-template-columns: 1fr; }

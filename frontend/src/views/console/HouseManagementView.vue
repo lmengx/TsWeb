@@ -23,7 +23,8 @@ const houseTotalPages = computed(() => Math.max(1, Math.ceil(houseTotal.value / 
 
 const PERMS = [
   { key: 'entry', label: '进入' }, { key: 'tp', label: '传送' }, { key: 'place', label: '放置' },
-  { key: 'break', label: '破坏' }, { key: 'liquid', label: '液体' }, { key: 'chest', label: '箱子' },
+  { key: 'break', label: '破坏' }, { key: 'explosion', label: '爆炸物' }, { key: 'liquid', label: '液体' },
+  { key: 'chest', label: '箱子' },
   { key: 'plant', label: '植物' }, { key: 'spawn', label: '复活点' }, { key: 'grave', label: '挖坟' },
   { key: 'switch', label: '开关' }, { key: 'door', label: '门' }, { key: 'fragile', label: '易碎品' }
 ]

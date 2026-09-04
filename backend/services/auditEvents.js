@@ -243,6 +243,14 @@ export const AUDIT_EVENTS = {
     level: 'error', category: 'vote', title: '删除投票轮次',
     fields: ['id', 'actor'], ip: false, sensitive: []
   },
+  'vote.round.option.add': {
+    level: 'warn', category: 'vote', title: '管理员添加投票选项',
+    fields: ['roundId', 'title', 'optionId', 'text', 'actor'], ip: false, sensitive: []
+  },
+  'vote.round.option.remove': {
+    level: 'error', category: 'vote', title: '管理员删除投票选项（连带删除选票）',
+    fields: ['roundId', 'title', 'optionId', 'text', 'removedVotes', 'actor'], ip: false, sensitive: []
+  },
   'vote.cast': {
     level: 'info', category: 'vote', title: '玩家投票',
     fields: ['roundId', 'username', 'optionId', 'weight'], ip: false, sensitive: []

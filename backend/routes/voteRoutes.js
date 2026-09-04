@@ -15,6 +15,8 @@ router.post('/rounds/:id/propose', verifyToken, requirePlayer, vote.propose)
 // ── 管理（admin）──
 router.post('/rounds', verifyToken, requireAdmin, vote.createRound)
 router.patch('/rounds/:id', verifyToken, requireAdmin, vote.updateRound)
+router.post('/rounds/:id/options', verifyToken, requireAdmin, vote.addOption)
+router.delete('/rounds/:id/options/:optionId', verifyToken, requireAdmin, vote.removeOption)
 router.get('/admin/rounds', verifyToken, requireAdmin, vote.listAdminRounds)
 router.get('/admin/rounds/:id/detail', verifyToken, requireAdmin, vote.getRoundDetail)
 router.post('/rounds/:id/close', verifyToken, requireAdmin, vote.closeRound)

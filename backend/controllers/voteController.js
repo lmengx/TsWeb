@@ -32,14 +32,47 @@ export const listAdminRounds = async (_req, res) => {
 }
 
 /**
- * 编辑轮次基本信息（标题 / 说明 / 截止时间，仅传需要修改的字段）
+ * 编辑轮次（发布后修改发起参数）：标题/说明/截止任意状态可改；
+ * 规则类参数（可投数/权重/加权规则/提案开关/未绑定开关）仅进行中可改，且只影响后续投票
  */
 export const updateRound = async (req, res) => {
   try {
-    const { title, description, endAt } = req.body || {}
-    const round = await voteService.updateRound(req.params.id, { title, description, endAt })
+    const round = await voteService.updateRound(req.params.id, req.body || {})
     audit.record('vote.round.update', { id: round.id, title: round.title, changedKeys: Object.keys(req.body || {}), actor: req.user?.username })
     res.json({ success: true, round })
+  } catch (err) {
+    res.status(400).json({ error: err.message })
+  }
+}
+
+/** 管理员添加选项（仅进行中轮次） */
+export const addOption = async (req, res) => {
+  try {
+    const { text } = req.body || {}
+    if (!text) return res.status(400).json({ error: '缺少选项内容' })
+    const round = await voteService.getRound(req.params.id)
+    if (!round) return res.status(404).json({ error: '轮次不存在' })
+    const option = await voteService.addOption(round.id, String(text), req.user?.username)
+    audit.record('vote.round.option.add', {
+      roundId: round.id, title: round.title, optionId: option.id, text: option.text, actor: req.user?.username
+    })
+    res.json({ success: true, option })
+  } catch (err) {
+    res.status(400).json({ error: err.message })
+  }
+}
+
+/** 管理员删除选项（仅进行中轮次；连带真实删除指向它的选票） */
+export const removeOption = async (req, res) => {
+  try {
+    const round = await voteService.getRound(req.params.id)
+    if (!round) return res.status(404).json({ error: '轮次不存在' })
+    const result = await voteService.removeOption(round.id, req.params.optionId, req.user?.username)
+    audit.record('vote.round.option.remove', {
+      roundId: round.id, title: round.title, optionId: result.option.id,
+      text: result.option.text, removedVotes: result.removedVotes, actor: req.user?.username
+    })
+    res.json({ success: true, option: result.option, removedVotes: result.removedVotes })
   } catch (err) {
     res.status(400).json({ error: err.message })
   }
