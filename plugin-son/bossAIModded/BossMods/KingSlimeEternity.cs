@@ -28,8 +28,8 @@ public sealed class KingSlimeEternity : BossAIModBase
     private const int SpikeRainInterval = 240;        // 狂暴尖刺雨间隔 tick（Fargo: 240）
     private const float BerserkLifeRatio = 0.66f;     // 狂暴血线（Fargo: life < 66%）
     private const int BuffTick = 90;                  // 接触黏液刷新时长 tick
-    private const int SpikeDamageScaleNum = 2;        // 尖刺伤害 = defDamage * 2/3（Fargo 语义）
-    private const int SpikeDamageScaleDen = 3;
+    private const int SpikeHitDamage = 80;            // 期望单发结算（实际扣血）。字段由 FieldForResult 反算，
+                                                      //   不再依赖 defDamage（该服 KS defDamage≈225，原 ×2/3 会填出 150→结算≈700）
 
     /// <summary>"当前在场的史莱姆王槽位"全局标记（语义同 Fargo EModeGlobalNPC.slimeBoss）。</summary>
     public static int SlimeBossWhoAmI = -1;
@@ -272,9 +272,8 @@ public sealed class KingSlimeEternity : BossAIModBase
     /// <summary>服务器造一颗原版尖刺弹（owner=255；1458 原版 NewProjectile 会自动广播 27）。</summary>
     private void SpawnSpike(NPC npc, Vector2 pos, Vector2 vel)
     {
-        int dmg = (int)(npc.defDamage * SpikeDamageScaleNum / SpikeDamageScaleDen);
         Projectile.NewProjectile(new EntitySource_Parent(npc), pos.X, pos.Y, vel.X, vel.Y,
-            ProjectileID.SpikedSlimeSpike, dmg, 0f, 255, 0f, 0f, 0f);
+            ProjectileID.SpikedSlimeSpike, FieldForResult(SpikeHitDamage), 0f, 255, 0f, 0f, 0f);
     }
 
     public override void OnKilled(NPC npc)

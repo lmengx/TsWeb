@@ -49,15 +49,13 @@ public sealed class EyeOfCthulhu : BossAIModBase
     private const int ScytheEveryPhase2 = 4;    // 二阶段撒镰间隔 tick（Fargo final 段用 2，非 final 用 6，中间档 4）
     private const int ScytheEveryBerserk = 2;   // ≤10% 血撒镰间隔 tick（Fargo final: 2）
     private const float ScytheSpeed = 8f;       // 弹速（44 AI 自加速已被钉死，此为恒定终速）
-    private const float ScytheDamageFactor = 1f;// 镰刀伤害 = defDamage × factor（Fargo: ScaledProjectileDamage(defDamage)）
-    private const int ScytheDamageMax = 15;      // ★damage 字段上限：客户端判伤恒 ×2（Projectile.cs 判伤段 DamageVar(damage)×2），
-                                                 //   故实际扣血≈字段×2：30→≈60 封顶；普通服 defDamage≈20 → ≈40
-                                                 //   ⚠高难/增强服 defDamage 会被放大到 150~250+，不封顶会打出 300~500（×2）
+    private const int ScytheHitDamage = 70;     // 期望单发结算（实际扣血）。字段由 FieldForResult 反算，
+                                                //   不再依赖 defDamage（高难服 defDamage 被放大到 150~250+ 是失控根源）
 
     private const int RingWays = 8;             // 预瞄期镰刀环数量（Fargo: 8）
     private const int RingWaysBerserk = 12;     // ≤10% 血镰刀环数量
     private const float RingSpeed = 6f;         // 环弹弹速
-    private const float BerserkLifeRatio = 0.10f; // 狂化血线（Fargo: life <= lifeMax * 0.1）
+    private const float BerserkLifeRatio = 0.25f; // 狂化血线（Fargo: life <= lifeMax * 0.1）
 
     private const int ScytheProjectile = ProjectileID.DemonSickle; // 换壳：原版恶魔镰（44），hostile 敌弹
 
@@ -184,9 +182,9 @@ public sealed class EyeOfCthulhu : BossAIModBase
     /// </summary>
     private int SpawnScythe(NPC npc, Vector2 pos, Vector2 vel)
     {
-        // 判伤机制备忘：hostile 弹对玩家的伤害在客户端判定，公式 = Main.DamageVar(damage)×2（Projectile.cs），
-        // 因此这里传给 NewProjectile 的 damage 是“目标扣血的一半”，并 clamp 防高难服 defDamage 巨大。
-        int dmg = Math.Min((int)(npc.defDamage * ScytheDamageFactor), ScytheDamageMax);
+        // 判伤机制：hostile 弹对玩家的伤害在客户端判定 = Main.DamageVar(damage)×2（Projectile.cs:13805），
+        // 服务器填的字段是“目标扣血的一部分”→ 用 FieldForResult(期望结算) 反算，不再碰 defDamage。
+        int dmg = FieldForResult(ScytheHitDamage);
         int who = Projectile.NewProjectile(new EntitySource_Parent(npc), pos.X, pos.Y, vel.X, vel.Y,
             ScytheProjectile, dmg, 0f, 255);
         if (who >= 0 && who < Main.maxProjectiles)

@@ -29,11 +29,12 @@
 ### 已知降级
 - 换色 shader / 忍者头饰 / Boss 头图 / 蓝色 Dust / 粒子演出 / 屏幕震动 / 自定义音效：不迁移
 - Fargo 的 Masochist 难度分支与 Mutant Boss 联动：不迁移
-- 召唤小怪/弹幕的伤害 = `npc.defDamage × 2/3`（Fargo 语义），未做 Fargo 全局 Eternity 数值缩放
+- 召唤小怪/弹幕伤害已改为“期望结算”查表填写（见 BossAIModBase.FieldForResult），不再依赖 `npc.defDamage`（大师+属性强化下 defDamage 被放大是历史失控根源）
 - **无死亡延迟演出**（Fargo 的 300tick 濒死锁血"聚能爆炸秀"依赖 CheckDead 拦截 + AI 冻结，后插桩无法复刻，已按原版正常死亡）
 
 ### 实机待调参点（KingSlimeEternity.cs 顶部常量）
-`SummonWaveCount / SummonCooldown / SpecialJumpWindup / SpecialJumpVY / SpecialJumpPredictRange / SpikeRainInterval / BerserkLifeRatio` 等。
+`SummonWaveCount / SummonCooldown / SpecialJumpWindup / SpecialJumpVY / SpecialJumpPredictRange / SpikeRainInterval / BerserkLifeRatio / SpikeHitDamage` 等。
+**伤害校准**：尖刺期望单发结算写 `SpikeHitDamage`（默认 80）；网络字段 = 期望 ÷ `BossAIModBase.ResultBias`（纯 vanilla 源码链路为 2f，本服实测 14/3≈4.667），换环境只需调 `ResultBias`。
 **依赖 1.4.5.8 原版 KS AI 数值的点**（如 `ai[2]∈[145,150)` 窗口、`ai[0]=-999` 冻结、落地判定 `velocity.Y==0`）已按 Fargo 源码原样移植，若实机与预期不符优先微调这些常量与 `ai[2]` 判断。
 
 ## Boss 2：克眼 Eternity-lite（对照 FargoSouls v1.7.3.9 EyeofCthulhu 类）
@@ -42,8 +43,8 @@
 
 ### 已实现（后插桩安全子集）
 - **dash 滑行漂移**：`position += velocity × k`（距离越远越飘；一阶段 0.15~0.5 距离 lerp，二阶段 0.5；Fargo 数值）→ 冲刺更难瞄准；漂移期间每 2 tick 主动推 23 防顿挫
-- **dash 撒镰**：滑行期每 N tick 沿速度方向掷一枚镰刀弹（换壳：原版 `DemonSickle`=44，hostile 敌弹；⚠45 DemonScythe 是 friendly 玩家弹会反打克眼）；一阶段 6 / 二阶段 4 / ≤10% 血 2 tick/发（Fargo: 6/6→2 final）；撞墙即消失（44 原生 tileCollide=true 且 27 网络包不同步该字段，无法服务端改穿墙——定案接受）；**伤害封顶**：damage 字段 ≤30，客户端判伤恒 ×2 → 实际扣血≈60 封顶（普通服 defDamage≈20 →≈40；⚠高难服 defDamage 150~250+ 不封顶会打出 300~500）
-- **预瞄镰刀环**：二阶段每次进入预瞄(`ai[1]==3`)以中心放一圈镰刀弹（8 向；≤10% 血升 12 向；Fargo: XWay 8 一次/CD），同上伤害封顶
+- **dash 撒镰**：滑行期每 N tick 沿速度方向掷一枚镰刀弹（换壳：原版 `DemonSickle`=44，hostile 敌弹；⚠45 DemonScythe 是 friendly 玩家弹会反打克眼）；一阶段 6 / 二阶段 4 / ≤10% 血 2 tick/发（Fargo: 6/6→2 final）；撞墙即消失（44 原生 tileCollide=true 且 27 网络包不同步该字段，无法服务端改穿墙——定案接受）；**伤害查表化**：期望单发结算 `ScytheHitDamage=70`，由 `FieldForResult(期望)` 按客户端判伤链路反算网络字段，不再依赖 defDamage（原 damage 字段上限 ≤30→≈60 的旧设计已废）
+- **预瞄镰刀环**：二阶段每次进入预瞄(`ai[1]==3`)以中心放一圈镰刀弹（8 向；≤10% 血升 12 向；Fargo: XWay 8 一次/CD），同上伤害查表
 - **低血狂化**：≤10% 血时 Fargo 的终局撒镰加密（2 tick/发）+ 环加密，不冻结原版 AI
 - **命中 debuff**：克眼本体接触 或 己方镰刀弹命中玩家 → 中毒+着火+破损盔甲（原版 `Poisoned`20/`OnFire`24/`BrokenArmor`36）各 5 秒（Fargo 接触 debuff 为自定义 CurseOfTheMoon/Berserked，换壳为原版三连）
 
@@ -56,7 +57,7 @@
 - Masochist 分支（补召仆从/Shadowflame）：不迁
 
 ### 实机待调参点（EyeOfCthulhu.cs 顶部常量）
-`DriftKPhase1/2 / ScytheEveryPhase1/2 / ScytheEveryBerserk / ScytheSpeed / ScytheDamageMax / RingWays / RingWaysBerserk / BerserkLifeRatio / DebuffDuration / DebuffApplyInterval`。换壳弹 44 原生 AI 自带 ai[0]∈[30,100) 每 tick ×1.06 自加速，已在 SpawnScythe 钉 `ai[0]=200` 段取消 → 弹速 = `ScytheSpeed` 恒定，优先按实机调；damage 字段上限 `ScytheDamageMax`（默认 30，判伤×2 后实际≈60）按服务器难度调。
+`DriftKPhase1/2 / ScytheEveryPhase1/2 / ScytheEveryBerserk / ScytheSpeed / ScytheHitDamage / RingWays / RingWaysBerserk / BerserkLifeRatio / DebuffDuration / DebuffApplyInterval`。换壳弹 44 原生 AI 自带 ai[0]∈[30,100) 每 tick ×1.06 自加速，已在 SpawnScythe 钉 `ai[0]=200` 段取消 → 弹速 = `ScytheSpeed` 恒定；期望结算写 `ScytheHitDamage`（默认 70），字段 = 期望 ÷ `BossAIModBase.ResultBias`。
 
 ## 命令与权限
 
