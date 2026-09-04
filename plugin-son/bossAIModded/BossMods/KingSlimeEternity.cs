@@ -25,14 +25,18 @@ public sealed class KingSlimeEternity : BossAIModBase
     private const int SpecialJumpWindup = 60;         // 大跳蓄力前摇 tick（Fargo: 60）
     private const float SpecialJumpVY = -18f;         // 大跳垂直初速（Fargo: -18）
     private const float SpecialJumpPredictRange = 1000f; // 大跳水平预判距离（Fargo: 1000px）
-    private const int SpikeRainInterval = 240;        // 狂暴尖刺雨间隔 tick（Fargo: 240）
+    private const int SpikeRainInterval = 100;        // 狂暴尖刺雨间隔 tick（Fargo: 240）
     private const float BerserkLifeRatio = 0.66f;     // 狂暴血线（Fargo: life < 66%）
-    private const int BuffTick = 90;                  // 接触黏液刷新时长 tick
+
+    // ═══ 命中 debuff（尖刺弹 605 命中 / Boss 本体接触，统一施加三件套）═══
+    private const int FrostburnDuration = 300;        // 霜冻(Frostburn 44) 时长 tick = 5s（持续扣血）
+    private const int DazedDuration = 240;           // 眩晕(Dazed 160) 时长 tick = 4s（原冷冻/减速，用户改眩晕）
+    private const int SlimedDuration = 120;           // 黏液(Slimed 137) 时长 tick（Fargo EMode case 605 全局同值）
+    private const int DebuffApplyInterval = 30;       // 同一玩家两次施加的最小间隔 tick（防持续接触逐 tick 重复）
+    private const float SpikeActiveWindowSeconds = 3f; // 我方尖刺"活跃时间窗"：来源 605 的受伤仅在此窗内才算我方尖刺打的
+                                                      //   （排除召唤怪 535 自带的 605）
     private const int SpikeHitDamage = 80;            // 期望单发结算（实际扣血）。字段由 FieldForResult 反算，
                                                       //   不再依赖 defDamage（该服 KS defDamage≈225，原 ×2/3 会填出 150→结算≈700）
-
-    /// <summary>"当前在场的史莱姆王槽位"全局标记（语义同 Fargo EModeGlobalNPC.slimeBoss）。</summary>
-    public static int SlimeBossWhoAmI = -1;
 
     // ---------- 实例状态（Fargo 同名实例字段，服务器内存即可） ----------
     private int _spikeRainCounter;
@@ -44,8 +48,20 @@ public sealed class KingSlimeEternity : BossAIModBase
     private int _specialJumpWindupTimer;
     private float _summonCounter = SummonStart;
 
+    // 每玩家命中 debuff 冷却（按 whoAmI 索引）
+    private readonly int[] _debuffCd = new int[255];
+
+    // 我方最近一次生成尖刺的时间：用于把 134 PlayerHurtV2 上报的来源 605 归因到本 Boss 的尖刺
+    private DateTime _lastSpikeTime = DateTime.MinValue;
+
     public override void Tick(NPC npc)
     {
+        // 命中 debuff 冷却节拍：无尖刺/无接触时也逐 tick 递减，玩家才能被再次施加
+        for (var i = 0; i < Main.maxPlayers; i++)
+        {
+            if (_debuffCd[i] > 0) _debuffCd[i]--;
+        }
+
         // ★ 原版 KS(AI_015) 的防卡墙传送抑制（根因修复，必须位于所有 return 分支之前）：
         // 原版在 CanHitLine 失败/高差>160px 时 ai[2]++，累积到 300 且落地 → ai[1]=5（60tick 无敌+隐藏
         // 前摇）→ base.Bottom = 传送点（瞬移）→ ai[1]=6。该瞬移即玩家看到的“中途异常突变位移一次”。
@@ -57,8 +73,6 @@ public sealed class KingSlimeEternity : BossAIModBase
             if (_jumpTimer < 900f) _jumpTimer = 900f;
             npc.ai[2] = 145f;
         }
-
-        SlimeBossWhoAmI = npc.whoAmI;
 
         if (_certainAttackCooldown > 0)
         {
@@ -202,10 +216,15 @@ public sealed class KingSlimeEternity : BossAIModBase
             SpawnSpikeRain(npc);
         }
 
-        // 接触上黏液（近似原版 OnHitPlayer；接触期间持续刷新）
-        if (TryGetTarget(npc, out var contact) && npc.Hitbox.Intersects(contact.Hitbox) && contact.active && !contact.dead)
+        // 本体接触玩家（精确碰撞箱相交，仅真碰到才触发；_debuffCd 节流防逐 tick 重复）
+        for (var i = 0; i < Main.maxPlayers; i++)
         {
-            TShock.Players[contact.whoAmI]?.SetBuff(BuffID.Slimed, BuffTick, false);
+            var pl = Main.player[i];
+            if (pl == null || !pl.active || pl.dead || _debuffCd[i] > 0) continue;
+            if (npc.Hitbox.Intersects(pl.Hitbox))
+            {
+                ApplyDebuffs(i);
+            }
         }
     }
 
@@ -227,6 +246,40 @@ public sealed class KingSlimeEternity : BossAIModBase
         }
         p = Main.player[npc.target];
         return p != null && p.active && !p.dead;
+    }
+
+    /// <summary>玩家受伤(134 PlayerHurtV2 上报)时判定：来源弹幕=尖刺(605) 且 在我方尖刺活跃窗内 → 施加三 debuff。
+    /// 服务器端不结算敌弹伤害（Damage_EVP 仅在 netMode!=2 跑），但客户端受伤会主动上报 134 包并携带来源弹幕信息。</summary>
+    public void OnPlayerDamage(int who, PlayerDeathReason reason)
+    {
+        // 尖刺弹 605：须在我方尖刺活跃窗内（排除召唤怪 535 自带的 605）
+        if (DateTime.UtcNow - _lastSpikeTime > TimeSpan.FromSeconds(SpikeActiveWindowSeconds))
+        {
+            return;
+        }
+        if (GetSourceProjectileType(reason) != ProjectileID.SpikedSlimeSpike)
+        {
+            return;
+        }
+        ApplyDebuffs(who);
+    }
+
+    /// <summary>给玩家上 霜冻(44)+冷冻(46)+黏液(137) 三 debuff（TShock SetBuff 服务端广播；受 _debuffCd 节流）。</summary>
+    private void ApplyDebuffs(int who)
+    {
+        if (who < 0 || who >= Main.maxPlayers || _debuffCd[who] > 0)
+        {
+            return;
+        }
+        _debuffCd[who] = DebuffApplyInterval;
+        var tp = TShock.Players[who];
+        if (tp == null)
+        {
+            return;
+        }
+        tp.SetBuff(BuffID.Frostburn, FrostburnDuration, false);
+        tp.SetBuff(BuffID.Dazed, DazedDuration, false);
+        tp.SetBuff(BuffID.Slimed, SlimedDuration, false);
     }
 
     /// <summary>掉血召唤波：体内爆出 6 只尖刺史莱姆（原版 NPCID.SlimeSpiked=535）。</summary>
@@ -274,13 +327,12 @@ public sealed class KingSlimeEternity : BossAIModBase
     {
         Projectile.NewProjectile(new EntitySource_Parent(npc), pos.X, pos.Y, vel.X, vel.Y,
             ProjectileID.SpikedSlimeSpike, FieldForResult(SpikeHitDamage), 0f, 255, 0f, 0f, 0f);
+        // 记录生成时间：把 134 PlayerHurtV2 上报的来源 605 归因到本 Boss 的尖刺（活跃窗内才算）
+        _lastSpikeTime = DateTime.UtcNow;
     }
 
     public override void OnKilled(NPC npc)
     {
-        if (SlimeBossWhoAmI == npc.whoAmI)
-        {
-            SlimeBossWhoAmI = -1;
-        }
+        _lastSpikeTime = DateTime.MinValue;
     }
 }

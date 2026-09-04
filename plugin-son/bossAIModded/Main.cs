@@ -29,6 +29,9 @@ public class BossAIModded : TerrariaPlugin
         ServerApi.Hooks.NpcStrike.Register(this, OnNpcStrike);
         ServerApi.Hooks.NpcKilled.Register(this, OnNpcKilled);
 
+        // 玩家受伤(134 PlayerHurtV2)上报 → 路由到各 Boss 实例（己方弹幕命中才施加 debuff；本体接触由实例每 tick 碰撞箱相交判定）
+        GetDataHandlers.PlayerDamage.Register(OnPlayerDamageV2);
+
         _cmd = new Command("bossaimod.admin", Toggle, "bossai")
         {
             HelpText = "切换 bossAIModded 全局开关（当前：史莱姆王 Eternity-lite）"
@@ -45,6 +48,7 @@ public class BossAIModded : TerrariaPlugin
             ServerApi.Hooks.NpcAIUpdate.Deregister(this, OnNpcAiUpdate);
             ServerApi.Hooks.NpcStrike.Deregister(this, OnNpcStrike);
             ServerApi.Hooks.NpcKilled.Deregister(this, OnNpcKilled);
+            GetDataHandlers.PlayerDamage.UnRegister(OnPlayerDamageV2);
             if (_cmd != null)
             {
                 Commands.ChatCommands.Remove(_cmd);
@@ -121,6 +125,33 @@ public class BossAIModded : TerrariaPlugin
             {
                 TShock.Log.ConsoleError($"[bossAIModded] OnKilled 异常: {ex}");
             }
+        }
+    }
+
+    private void OnPlayerDamageV2(object sender, GetDataHandlers.PlayerDamageEventArgs e)
+    {
+        if (!ModEnabled) return;
+        var who = e.ID;
+        if (who < 0 || who >= Main.maxPlayers) return;
+        try
+        {
+            // 路由到所有在场魔改 Boss 实例：134 上报对应己方弹幕命中（本体接触由实例每 tick 碰撞箱相交判定）
+            foreach (var mod in ActiveMods.Values)
+            {
+                switch (mod)
+                {
+                    case KingSlimeEternity ks:
+                        ks.OnPlayerDamage(who, e.PlayerDeathReason);
+                        break;
+                    case EyeOfCthulhu eoc:
+                        eoc.OnPlayerDamage(who, e.PlayerDeathReason);
+                        break;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            TShock.Log.ConsoleError($"[bossAIModded] OnPlayerDamage 异常: {ex}");
         }
     }
 

@@ -1,4 +1,6 @@
+using System.Reflection;
 using Terraria;
+using Terraria.DataStructures;
 using TerrariaApi.Server;
 
 namespace bossAIModded.BossMods;
@@ -33,4 +35,27 @@ public abstract class BossAIModBase
 
     /// <summary>Boss 死亡（NpcKilled）时调用，用于清理。</summary>
     public virtual void OnKilled(NPC npc) { }
+
+    /// <summary>跨版本安全读取 PlayerDeathReason 的来源弹幕类型（公开属性优先，私有字段兜底；读不到返回 0）。</summary>
+    public static int GetSourceProjectileType(PlayerDeathReason reason)
+    {
+        if (reason == null)
+        {
+            return 0;
+        }
+        try
+        {
+            var prop = reason.GetType().GetProperty("SourceProjectileType");
+            if (prop != null)
+            {
+                return Convert.ToInt32(prop.GetValue(reason));
+            }
+            var field = reason.GetType().GetField("_sourceProjectileType", BindingFlags.Instance | BindingFlags.NonPublic);
+            return field != null ? Convert.ToInt32(field.GetValue(reason)) : 0;
+        }
+        catch
+        {
+            return 0;
+        }
+    }
 }

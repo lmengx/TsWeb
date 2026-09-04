@@ -24,7 +24,7 @@ namespace bossAIModded.BossMods;
 ///      （Fargo 用 defDamage，但高难/增强服的 defDamage 会被放大到 300+，须封顶）；
 ///      44 原生 AI 带 ai[0]∈[30,100) 每 tick×1.06 自加速，钉 ai[0]=200 段 → 恒定可控弹速
 ///   3) 二阶段预瞄(ai[1]==3) 8 向镰刀环（每轮冲刺组开火一次）；≤10% 血升级 12 向 + 撒镰 2 tick/发
-///   4) 命中 debuff：克眼本体接触 或 己方镰刀弹命中玩家 →
+///   4) 命中 debuff（受伤事件判定）：玩家受伤上报(134 PlayerHurtV2)且来源=克眼本体(来源NPC)或我方镰刀(44) →
 ///      中毒(Poisoned 20)+着火(OnFire 24)+破损盔甲(BrokenArmor 36)，各 5 秒（300 tick）
 ///      （Fargo 原接触 debuff 是自定义 CurseOfTheMoon/Berserked，无原版等价 → 换壳原版三 debuff）
 ///
@@ -60,7 +60,8 @@ public sealed class EyeOfCthulhu : BossAIModBase
     private const int ScytheProjectile = ProjectileID.DemonSickle; // 换壳：原版恶魔镰（44），hostile 敌弹
 
     private const int DebuffDuration = 300;          // 中毒/着火/破损盔甲时长 tick（5 秒）
-    private const int DebuffApplyInterval = 30;      // 同一玩家两次施加的最小间隔 tick（防弹穿身逐 tick 重复叠）
+    private const int DebuffApplyInterval = 30;      // 同一玩家两次施加的最小间隔 tick（防持续接触逐 tick 重复叠）
+    private const float ScytheActiveWindowSeconds = 3f; // 我方镰刀"活跃时间窗"：来源 44 的受伤仅在此窗内算我方（44 仅本插件生成）
 
     // ---------- 实例状态（服务器内存即可） ----------
     private int _scytheTimer;        // 撒镰节拍
@@ -68,8 +69,9 @@ public sealed class EyeOfCthulhu : BossAIModBase
     private bool _wasDashing;        // 上一 tick 是否处于滑行
     private bool _ringFiredThisAim;  // 本轮预瞄(ai[1]==3)是否已放环
 
-    private readonly HashSet<int> _scythes = new();  // 己方存活镰刀弹（用于命中叠 debuff）
     private readonly int[] _debuffCd = new int[255]; // 每玩家命中冷却（按 whoAmI 索引）
+    // 我方最近一次生成镰刀弹的时间：用于把 134 PlayerHurtV2 上报的来源 44 归因到本 Boss
+    private DateTime _lastScytheTime = DateTime.MinValue;
 
     public override void Tick(NPC npc)
     {
@@ -78,7 +80,6 @@ public sealed class EyeOfCthulhu : BossAIModBase
         {
             if (_debuffCd[i] > 0) _debuffCd[i]--;
         }
-
         // Fargo 后置逻辑只作用于生命≥0 且在一/二形态主体（ai[0]==0 或 3）期间的"追加攻击"。
         var ai0 = npc.ai[0];
         var ai1 = npc.ai[1];
@@ -135,12 +136,16 @@ public sealed class EyeOfCthulhu : BossAIModBase
             _ringFiredThisAim = false; // 离开预瞄状态 → 允许下一轮再放
         }
 
-        // ---------- 4) 命中 debuff：克眼本体接触 / 己方镰刀弹命中玩家 ----------
-        if (TryGetTarget(npc, out var contact) && npc.Hitbox.Intersects(contact.Hitbox))
+        // 本体接触玩家（精确碰撞箱相交，仅真碰到才触发；_debuffCd 节流）
+        for (var i = 0; i < Main.maxPlayers; i++)
         {
-            ApplyDebuffs(contact.whoAmI);
+            var pl = Main.player[i];
+            if (pl == null || !pl.active || pl.dead || _debuffCd[i] > 0) continue;
+            if (npc.Hitbox.Intersects(pl.Hitbox))
+            {
+                ApplyDebuffs(i);
+            }
         }
-        TickScytheHits();
     }
 
     /// <summary>狂化（≤10% 血）时 Fargo 把撒镰压缩到 2 tick/发，其余按阶段。</summary>
@@ -152,7 +157,7 @@ public sealed class EyeOfCthulhu : BossAIModBase
 
     public override void OnKilled(NPC npc)
     {
-        _scythes.Clear();
+        _lastScytheTime = DateTime.MinValue;
     }
 
     // ---------- 私有实现 ----------
@@ -191,8 +196,9 @@ public sealed class EyeOfCthulhu : BossAIModBase
         {
             var pr = Main.projectile[who];
             pr.ai[0] = 200f;
-            _scythes.Add(who);
         }
+        // 记录生成时间：把 134 PlayerHurtV2 上报的来源 44 归因到本 Boss 的镰刀（活跃窗内才算）
+        _lastScytheTime = DateTime.UtcNow;
         return who;
     }
 
@@ -206,28 +212,18 @@ public sealed class EyeOfCthulhu : BossAIModBase
         }
     }
 
-    /// <summary>扫己方镰刀弹：清理失效 + 与玩家相交则叠 debuff（每玩家有施加冷却）。</summary>
-    private void TickScytheHits()
+    /// <summary>玩家受伤(134 PlayerHurtV2 上报)时判定：克眼本体接触(来源 NPC=本实例) 或 我方镰刀弹(44)命中 → 施加三 debuff。</summary>
+    public void OnPlayerDamage(int who, PlayerDeathReason reason)
     {
-        if (_scythes.Count == 0) return;
-        _scythes.RemoveWhere(id => id < 0 || id >= Main.maxProjectiles ||
-                                    !Main.projectile[id].active || Main.projectile[id].type != ScytheProjectile);
-        if (_scythes.Count == 0) return;
-
-        for (var i = 0; i < Main.maxPlayers; i++)
+        if (DateTime.UtcNow - _lastScytheTime > TimeSpan.FromSeconds(ScytheActiveWindowSeconds))
         {
-            var pl = Main.player[i];
-            if (pl == null || !pl.active || pl.dead || _debuffCd[i] > 0) continue;
-            var rect = pl.Hitbox;
-            foreach (var id in _scythes)
-            {
-                if (Main.projectile[id].Hitbox.Intersects(rect))
-                {
-                    ApplyDebuffs(i);
-                    break;
-                }
-            }
+            return;
         }
+        if (GetSourceProjectileType(reason) != ScytheProjectile)
+        {
+            return;
+        }
+        ApplyDebuffs(who);
     }
 
     /// <summary>给玩家上三连 debuff（受 _debuffCd 节流；走 TShock TSPlayer.SetBuff 保证服务端同步）。</summary>
