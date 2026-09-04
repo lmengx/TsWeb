@@ -102,16 +102,20 @@ const goHome = () => { router.push('/') }
 
 <template>
   <div class="login-page">
-    <div class="login-card">
+    <div class="tech-bg"></div>
+    <div class="login-orb orb-1"></div>
+    <div class="login-orb orb-2"></div>
+
+    <div class="login-card glass">
       <div class="login-header">
         <div class="login-logo">
-          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
             <line x1="3" y1="9" x2="21" y2="9"></line>
             <line x1="9" y1="21" x2="9" y2="9"></line>
           </svg>
         </div>
-        <h1>TSWeb</h1>
+        <h1 class="text-gradient">TSWeb</h1>
         <p class="login-sub">管理面板登录</p>
       </div>
 
@@ -160,32 +164,51 @@ const goHome = () => { router.push('/') }
 
 <style scoped>
 .login-page {
+  position: relative;
   min-height: 100vh;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 40px 20px;
-  background: linear-gradient(135deg, #e0e7ff, #c7d2fe, #a5b4fc, #c7d2fe, #e0e7ff);
-  background-size: 400% 400%;
-  animation: bgFlow 8s ease infinite;
+  background-color: var(--bg-base);
+  overflow: hidden;
 }
 
-@keyframes bgFlow {
-  0% { background-position: 0% 50%; }
-  50% { background-position: 100% 50%; }
-  100% { background-position: 0% 50%; }
+/* 漂浮光球 */
+.login-orb {
+  position: fixed;
+  border-radius: 50%;
+  filter: blur(90px);
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.55;
+}
+.orb-1 {
+  width: 460px;
+  height: 460px;
+  top: -140px;
+  right: -120px;
+  background: radial-gradient(circle, rgba(99, 102, 241, 0.5), transparent 70%);
+  animation: float 14s ease-in-out infinite;
+}
+.orb-2 {
+  width: 420px;
+  height: 420px;
+  bottom: -160px;
+  left: -140px;
+  background: radial-gradient(circle, rgba(34, 211, 238, 0.35), transparent 70%);
+  animation: float 18s ease-in-out infinite reverse;
 }
 
 .login-card {
+  position: relative;
+  z-index: 1;
   width: 100%;
   max-width: 420px;
-  background: rgba(255, 255, 255, 0.85);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border-radius: 24px;
+  border-radius: var(--radius-xl);
   padding: 44px 40px;
-  box-shadow: 0 8px 40px rgba(99, 102, 241, 0.12);
-  border: 1px solid rgba(255, 255, 255, 0.6);
+  box-shadow: var(--shadow-lg);
+  animation: fadeUp 0.6s var(--ease-out);
 }
 
 .login-header {
@@ -194,25 +217,28 @@ const goHome = () => { router.push('/') }
 }
 
 .login-logo {
-  color: #6366f1;
+  width: 52px;
+  height: 52px;
+  margin: 0 auto 14px;
+  border-radius: 14px;
+  background: var(--gradient-primary);
+  color: #fff;
   display: flex;
+  align-items: center;
   justify-content: center;
-  margin-bottom: 12px;
+  box-shadow: var(--glow-primary);
 }
 
 .login-header h1 {
-  margin: 0 0 4px;
-  font-size: 1.8rem;
+  margin: 0 0 6px;
+  font-size: 1.9rem;
   font-weight: 800;
-  background: linear-gradient(135deg, #4f46e5, #7c3aed);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  letter-spacing: 0.5px;
 }
 
 .login-sub {
   margin: 0;
-  color: #6b7280;
+  color: var(--text-muted);
   font-size: 0.9rem;
 }
 
@@ -227,7 +253,7 @@ const goHome = () => { router.push('/') }
 
 .form-label {
   display: block;
-  color: #1e1b4b;
+  color: var(--text-secondary);
   font-size: 0.85rem;
   font-weight: 600;
   margin-bottom: 8px;
@@ -236,37 +262,37 @@ const goHome = () => { router.push('/') }
 .form-group input {
   width: 100%;
   padding: 12px 16px;
-  background: white;
-  border: 2px solid rgba(0, 0, 0, 0.1);
-  border-radius: 10px;
-  color: #0f0a3a;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
   font-size: 0.95rem;
-  transition: all 0.25s ease;
+  transition: all 0.25s var(--ease-out);
   box-sizing: border-box;
   outline: none;
 }
 
 .form-group input:focus {
-  border-color: #6366f1;
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.18), var(--glow-primary);
 }
 
 .form-group input::placeholder {
-  color: #9ca3af;
+  color: var(--text-muted);
 }
 
 .form-group input.error {
-  border-color: #ef4444;
-  background: #fef2f2;
+  border-color: var(--accent-error);
+  background: rgba(244, 63, 94, 0.06);
 }
 
 .form-group input.success {
-  border-color: #22c55e;
-  background: #f0fdf4;
+  border-color: var(--accent-secondary);
+  background: rgba(16, 185, 129, 0.06);
 }
 
 .form-group input:disabled {
-  background: #f3f4f6;
+  opacity: 0.6;
   cursor: not-allowed;
 }
 
@@ -275,28 +301,23 @@ const goHome = () => { router.push('/') }
   align-items: center;
   justify-content: center;
   padding: 10px 16px;
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   margin-bottom: 16px;
   font-size: 0.85rem;
   font-weight: 500;
-  animation: slideIn 0.25s ease;
-}
-
-@keyframes slideIn {
-  from { opacity: 0; transform: translateY(-8px); }
-  to { opacity: 1; transform: translateY(0); }
+  animation: fadeUp 0.25s var(--ease-out);
 }
 
 .status-message.error {
-  background: rgba(239, 68, 68, 0.1);
-  color: #dc2626;
-  border: 1px solid rgba(239, 68, 68, 0.2);
+  background: rgba(244, 63, 94, 0.1);
+  color: #fda4af;
+  border: 1px solid rgba(244, 63, 94, 0.25);
 }
 
 .status-message.success {
-  background: rgba(22, 163, 74, 0.1);
-  color: #16a34a;
-  border: 1px solid rgba(22, 163, 74, 0.2);
+  background: rgba(16, 185, 129, 0.1);
+  color: #6ee7b7;
+  border: 1px solid rgba(16, 185, 129, 0.25);
 }
 
 .login-btn {
@@ -305,20 +326,20 @@ const goHome = () => { router.push('/') }
   justify-content: center;
   gap: 10px;
   padding: 14px 24px;
-  background: linear-gradient(135deg, #6366f1, #4f46e5);
+  background: var(--gradient-primary);
   color: white;
   border: none;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   font-size: 1rem;
-  font-weight: 600;
+  font-weight: 700;
   cursor: pointer;
-  transition: all 0.25s ease;
-  box-shadow: 0 4px 16px rgba(99, 102, 241, 0.25);
+  transition: all 0.25s var(--ease-out);
+  box-shadow: 0 4px 16px rgba(99, 102, 241, 0.35);
 }
 
 .login-btn:hover:not(:disabled) {
   transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(99, 102, 241, 0.4);
+  box-shadow: 0 8px 28px rgba(99, 102, 241, 0.5), var(--glow-primary);
 }
 
 .login-btn:disabled {
@@ -337,29 +358,33 @@ const goHome = () => { router.push('/') }
   animation: spin 0.8s linear infinite;
 }
 
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-
 .login-footer {
   text-align: center;
-  margin-top: 20px;
+  margin-top: 24px;
 }
 
 .back-btn {
   background: none;
   border: none;
-  color: #6366f1;
+  color: var(--text-secondary);
   cursor: pointer;
   font-size: 0.9rem;
   font-weight: 500;
   padding: 8px 16px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   transition: all 0.2s ease;
 }
 
 .back-btn:hover {
-  background: rgba(99, 102, 241, 0.08);
-  color: #4f46e5;
+  background: var(--bg-hover);
+  color: var(--accent-primary);
+}
+
+/* 亮色主题适配 */
+:global(.light) .status-message.error {
+  color: #dc2626;
+}
+:global(.light) .status-message.success {
+  color: #16a34a;
 }
 </style>

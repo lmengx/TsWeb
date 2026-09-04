@@ -84,14 +84,17 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <nav class="console-nav">
+  <nav class="console-nav glass">
     <div class="nav-brand" @click="goHome">
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-        <line x1="3" y1="9" x2="21" y2="9"></line>
-        <line x1="9" y1="21" x2="9" y2="9"></line>
-      </svg>
-      <span class="nav-title">TSWeb</span>
+      <div class="brand-logo">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+          <line x1="3" y1="9" x2="21" y2="9"></line>
+          <line x1="9" y1="21" x2="9" y2="9"></line>
+        </svg>
+      </div>
+      <span class="nav-title text-gradient">TSWeb</span>
+      <span class="nav-sub">管理面板</span>
     </div>
 
     <div class="nav-actions">
@@ -116,25 +119,35 @@ onUnmounted(() => {
         <div class="user-status" @click="isLoggedIn ? toggleUserMenu() : goLogin()" :class="{ active: showUserMenu }">
           <span class="status-dot" :class="{ online: serverConnected }"></span>
           <span class="username">{{ currentUser }}</span>
-          <span class="expand-icon">{{ isLoggedIn ? (showUserMenu ? '▲' : '▼') : '' }}</span>
+          <svg v-if="isLoggedIn" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="expand-icon" :class="{ rotated: showUserMenu }">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
         </div>
 
         <transition name="dropdown">
           <div v-if="showUserMenu && isLoggedIn" class="user-dropdown">
             <div class="dropdown-header">
+              <div class="user-avatar">{{ currentUser.charAt(0).toUpperCase() }}</div>
               <div class="user-info">
                 <div class="user-name">{{ currentUser }}</div>
                 <div class="user-meta">
                   <span class="meta-item">
                     <span class="meta-label">权限组</span>
-                    <span class="meta-value tag">{{ displayGroup }}</span>
+                    <span class="meta-value tag tag-primary">{{ displayGroup }}</span>
                   </span>
                 </div>
               </div>
             </div>
             <div class="dropdown-divider"></div>
             <div class="dropdown-actions">
-              <button class="logout-btn" @click="logout">退出登录</button>
+              <button class="logout-btn" @click="logout">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+                  <polyline points="16 17 21 12 16 7"></polyline>
+                  <line x1="21" y1="12" x2="9" y2="12"></line>
+                </svg>
+                退出登录
+              </button>
             </div>
           </div>
         </transition>
@@ -153,54 +166,72 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 24px;
+  padding: 10px 20px;
   margin: 12px 16px;
-  background: var(--bg-card);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border-radius: 14px;
+  border-radius: var(--radius-lg);
   border: 1px solid var(--border-light);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
+  box-shadow: var(--shadow-md);
 }
 
 .nav-brand {
   display: flex;
   align-items: center;
-  gap: 8px;
-  color: #6366f1;
+  gap: 10px;
   cursor: pointer;
+  user-select: none;
+}
+
+.brand-logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: var(--gradient-primary);
+  color: #fff;
+  box-shadow: var(--glow-primary);
 }
 
 .nav-title {
-  font-size: 1rem;
+  font-size: 1.05rem;
   font-weight: 800;
-  color: var(--text-primary);
+  letter-spacing: 0.5px;
+}
+
+.nav-sub {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  border-left: 1px solid var(--border-color);
+  padding-left: 10px;
+  margin-left: 2px;
 }
 
 .nav-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
 }
 
 /* 主题按钮 */
 .theme-btn {
-  width: 34px;
-  height: 34px;
-  border-radius: 9px;
-  border: 1.5px solid var(--border-color);
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  border: 1px solid var(--border-color);
   background: var(--bg-tertiary);
-  color: var(--text-muted);
+  color: var(--text-secondary);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.2s ease;
+  transition: all var(--dur-fast) var(--ease-out);
 }
 
 .theme-btn:hover {
-  border-color: #6366f1;
-  color: #6366f1;
+  border-color: var(--border-glow);
+  color: var(--accent-primary);
+  box-shadow: var(--glow-primary);
 }
 
 /* 用户状态 */
@@ -214,77 +245,99 @@ onUnmounted(() => {
   gap: 8px;
   padding: 7px 12px;
   background: var(--bg-tertiary);
-  border-radius: 9px;
+  border-radius: 10px;
   border: 1px solid var(--border-color);
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all var(--dur-fast) var(--ease-out);
 }
 
-.user-status:hover { background: var(--bg-hover); border-color: var(--accent-primary); }
+.user-status:hover { background: var(--bg-hover); border-color: var(--border-glow); }
 .user-status.active { background: var(--bg-hover); border-color: var(--accent-primary); }
 
 .status-dot {
-  width: 7px;
-  height: 7px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
-  background: #6b7280;
+  background: var(--text-muted);
 }
 
 .status-dot.online {
-  background: #22c55e;
-  box-shadow: 0 0 8px rgba(34, 197, 94, 0.6);
+  background: var(--accent-secondary);
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.7);
 }
 
-.username { font-size: 0.85rem; color: var(--text-primary); font-weight: 500; }
+.username { font-size: 0.85rem; color: var(--text-primary); font-weight: 600; }
 
-.expand-icon { font-size: 0.65rem; color: var(--text-secondary); margin-left: 4px; }
+.expand-icon {
+  color: var(--text-secondary);
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+.expand-icon.rotated { transform: rotate(180deg); }
 
 .user-dropdown {
   position: absolute;
-  top: calc(100% + 8px);
+  top: calc(100% + 10px);
   right: 0;
-  width: 260px;
-  background: var(--bg-card);
-  border-radius: 14px;
+  width: 280px;
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
   border: 1px solid var(--border-light);
   overflow: hidden;
   z-index: 1001;
 }
 
-.dropdown-enter-active, .dropdown-leave-active { transition: all 0.25s ease; }
-.dropdown-enter-from, .dropdown-leave-to { opacity: 0; transform: translateY(-10px); }
+.dropdown-enter-active, .dropdown-leave-active { transition: all 0.22s var(--ease-out); }
+.dropdown-enter-from, .dropdown-leave-to { opacity: 0; transform: translateY(-8px) scale(0.98); }
 
-.dropdown-header { padding: 20px; }
-.user-info { flex: 1; }
-.user-name { font-size: 1.1rem; font-weight: 600; color: var(--text-primary); margin-bottom: 16px; }
-.user-meta { display: flex; flex-direction: column; gap: 10px; }
-.meta-item { display: flex; justify-content: space-between; align-items: center; }
-.meta-label { font-size: 0.82rem; color: var(--text-muted); }
-.meta-value { font-size: 0.85rem; font-weight: 600; color: var(--text-primary); }
-.meta-value.tag {
-  color: var(--accent-primary);
-  background: rgba(99, 102, 241, 0.15);
-  padding: 2px 10px;
-  border-radius: 10px;
-  font-size: 0.78rem;
+.dropdown-header { padding: 20px; display: flex; gap: 14px; align-items: center; }
+
+.user-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: var(--gradient-primary);
+  color: #fff;
+  font-size: 1.2rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: var(--glow-primary);
 }
+
+.user-info { flex: 1; min-width: 0; }
+.user-name { font-size: 1.05rem; font-weight: 700; color: var(--text-primary); margin-bottom: 10px; }
+.user-meta { display: flex; flex-direction: column; gap: 8px; }
+.meta-item { display: flex; justify-content: space-between; align-items: center; }
+.meta-label { font-size: 0.78rem; color: var(--text-muted); }
 
 .dropdown-divider { height: 1px; background: var(--border-light); margin: 0 20px; }
 .dropdown-actions { padding: 16px 20px; }
 
 .logout-btn {
   width: 100%;
-  padding: 12px 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 11px 16px;
   background: var(--bg-tertiary);
   border: 1px solid var(--border-color);
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   color: var(--text-primary);
-  font-size: 0.95rem;
-  font-weight: 500;
+  font-size: 0.9rem;
+  font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all var(--dur-fast) var(--ease-out);
 }
 
-.logout-btn:hover { background: rgba(239, 68, 68, 0.1); border-color: var(--accent-error); color: var(--accent-error); }
+.logout-btn:hover {
+  background: rgba(244, 63, 94, 0.12);
+  border-color: var(--accent-error);
+  color: var(--accent-error);
+}
 </style>

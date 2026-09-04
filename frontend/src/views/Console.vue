@@ -54,12 +54,13 @@ onUnmounted(() => {
 
 <template>
   <div class="console-page" :class="{ mobile: isMobile }">
+    <div class="tech-bg"></div>
     <AppHeader />
     
     <main class="console-main">
       <ConsoleSidebar />
       
-      <div class="content-area" :class="{ mobile: isMobile }">
+      <div class="content-area glass" :class="{ mobile: isMobile }">
         <router-view />
       </div>
     </main>
@@ -68,11 +69,12 @@ onUnmounted(() => {
 
 <style scoped>
 .console-page {
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 100vh;
   overflow: hidden;
-  background-color: var(--bg-primary);
+  background-color: var(--bg-base);
   color: var(--text-primary);
 }
 
@@ -80,13 +82,15 @@ onUnmounted(() => {
   flex: 1;
   display: flex;
   overflow: hidden;
-  margin-top: 64px;
-  padding: 0 12px 12px;
+  margin-top: 68px;
+  padding: 0 16px 16px;
+  position: relative;
+  z-index: 1;
 }
 
 .console-page.mobile .console-main {
   padding: 0 0 60px; /* 底部留出导航栏高度 */
-  margin-top: 48px;
+  margin-top: 52px;
 }
 
 .content-area {
@@ -94,11 +98,10 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   overflow-y: auto;
-  padding: 20px;
-  background: var(--bg-card);
-  border-radius: 14px;
-  border: 1px solid var(--border-light);
-  margin-left: 12px;
+  padding: 24px;
+  border-radius: var(--radius-lg);
+  margin-left: 16px;
+  min-width: 0;
 }
 
 .content-area.mobile {
@@ -108,10 +111,14 @@ onUnmounted(() => {
   border-right: none;
   border-top: 1px solid var(--border-light);
   border-bottom: none;
-  padding: 12px 12px 0;
+  padding: 14px 14px 0;
+  background: transparent;
+  backdrop-filter: none;
+  box-shadow: none;
+  border: none;
 }
 
 .console-page.mobile {
-  background: var(--bg-primary);
+  background: var(--bg-base);
 }
 </style>

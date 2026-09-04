@@ -1,3 +1,5 @@
+/* 全局基础样式 —— 主题变量见 styles/theme.css（在 main.js 中全局引入） */
+
 * {
   margin: 0;
   padding: 0;
@@ -5,38 +7,11 @@
 }
 
 body {
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  background: #f5f5f5;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    'PingFang SC', 'Microsoft YaHei', sans-serif;
   min-height: 100vh;
-}
-
-/* 主题切换全局过渡 */
-html[data-theme='dark'] body {
-  background: #0f0a3a;
-}
-
-* {
-  transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;
 }
 
 #app {
   min-height: 100vh;
-}
-
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-
-::-webkit-scrollbar-track {
-  background: #1e1e2e;
-}
-
-::-webkit-scrollbar-thumb {
-  background: #4a4a6a;
-  border-radius: 4px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: #5a5a7a;
 }
