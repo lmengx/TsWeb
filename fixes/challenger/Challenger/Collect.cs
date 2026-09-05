@@ -15,7 +15,9 @@ internal static class Collect
 
     public static int worldevent = 0;
 
-    public static HashSet<int> noneedlifeNPC = new HashSet<int> { 115, 116, 488 };
+    // 豁免生命倍率的 NPC 类型：115/116/488 原名单；50(史莱姆王)/4(克眼) 为临时屏蔽加入
+    // （与 bossAIModded 共存时，这两个 Boss 完全按原版数值交给对方魔改）
+    public static HashSet<int> noneedlifeNPC = new HashSet<int> { 115, 116, 488, 50, 4 };
 
     public static int MyNewProjectile(IEntitySource? spawnSource, float X, float Y, float SpeedX, float SpeedY, int Type, int Damage, float KnockBack, int Owner = 255, float ai0 = 0f, float ai1 = 0f, float ai2 = 0f)
     {

@@ -1742,8 +1742,9 @@ public class Challenger : TerrariaPlugin
                 }
                 Collect.cnpcs[args.Npc.whoAmI] = args.Npc.type switch
                 {
-                    50 => new SlimeKing(args.Npc),
-                    4 => new EyeofCthulhu(args.Npc),
+                    // ═══ 临时屏蔽：史莱姆王(50)/克眼(4) 让给 bossAIModded 魔改（两插件共存，避免双重 AI 冲突）═══
+                    // 50 => new SlimeKing(args.Npc),
+                    // 4 => new EyeofCthulhu(args.Npc),
                     5 => new EyeofCthulhu_DemonEye(args.Npc),
                     266 => new BrainofCthulhu(args.Npc),
                     267 => new Creeper(args.Npc),
