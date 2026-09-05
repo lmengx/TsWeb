@@ -1,6 +1,8 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { getProjConfig, saveProjConfig, clearProjCache } from '../../api/antiCheatApi.js'
+import { loadProjectileData } from '../../api/projectileDataApi.js'
+import ProjectileSearchDialog from '../../components/ProjectileSearchDialog.vue'
 import Loading from '../../components/Loading.vue'
 
 const projConfig = ref(null)
@@ -9,6 +11,103 @@ const projLoading = ref(false)
 const projSaving = ref(false)
 const projError = ref('')
 const projSuccess = ref('')
+
+// ── 弹幕数据（名称/图标）与可视化搜索 ──
+const projData = ref({ list: [], dict: {} })
+const projImageErrors = ref({})
+const showProjSearch = ref(false)
+const projSearchMulti = ref(false)      // true=批量添加，false=单选替换
+const projSearchProgress = ref('')      // 目标进度
+const projSearchTargetIndex = ref(-1)   // 单选替换的目标条目下标
+const projSearchDefaultMethod = ref('log')  // 批量添加默认方案
+
+const openProjSearch = (progress, index) => {
+  projSearchMulti.value = false
+  projSearchProgress.value = progress
+  projSearchTargetIndex.value = index
+  showProjSearch.value = true
+}
+
+const openProjBatchAdd = (progress) => {
+  projSearchMulti.value = true
+  projSearchProgress.value = progress
+  projSearchTargetIndex.value = -1
+  projSearchDefaultMethod.value = 'log'
+  showProjSearch.value = true
+}
+
+const handleProjSelect = (res) => {
+  if (res && res.multi) {
+    const progress = projSearchProgress.value
+    const items = res.items || []
+    if (progress && projConfigEdit.value) {
+      if (!projConfigEdit.value.restrictionsMap[progress]) {
+        projConfigEdit.value.restrictionsMap[progress] = []
+      }
+      const target = projConfigEdit.value.restrictionsMap[progress]
+      const existingIds = new Set(target.map(i => String(i.id)))
+      let added = 0
+      for (const it of items) {
+        const id = it.id ?? 0
+        if (id === 0 || id === '' || existingIds.has(String(id))) continue
+        target.push({ id, method: res.method ?? 'log' })
+        existingIds.add(String(id))
+        added++
+      }
+      if (added > 0) {
+        projSuccess.value = `已批量添加 ${added} 个弹幕（${progress}）`
+        setTimeout(() => { projSuccess.value = '' }, 3000)
+      }
+    }
+    return
+  }
+  const progress = projSearchProgress.value
+  const index = projSearchTargetIndex.value
+  if (progress && index >= 0 && projConfigEdit.value?.restrictionsMap[progress]?.[index]) {
+    projConfigEdit.value.restrictionsMap[progress][index].id = res.id
+  }
+  // 弹窗内部播放成功动画后自行 emit close
+}
+
+const projNameById = (id) => {
+  if (id === undefined || id === null || id === '') return ''
+  return projData.value.dict[String(id)]?.chinese || ''
+}
+
+const projInternalById = (id) => {
+  if (id === undefined || id === null || id === '') return ''
+  return projData.value.dict[String(id)]?.internal || ''
+}
+
+const projEnglishById = (id) => {
+  if (id === undefined || id === null || id === '') return ''
+  return projData.value.dict[String(id)]?.english || ''
+}
+
+const getProjImageById = (id) => {
+  if (id === undefined || id === null || id === '') return ''
+  const err = projImageErrors.value[id] || 0
+  if (err >= 2) return ''
+  if (err === 1) {
+    const en = projEnglishById(id)
+    if (en) return `https://terraria.wiki.gg/images/${en.replace(/\s+/g, '_')}.gif`
+    return ''
+  }
+  if (err === 0) {
+    return `/assets/img/proj/proj_${id}.png`
+  }
+  const en = projEnglishById(id)
+  if (en) return `https://terraria.wiki.gg/images/${en.replace(/\s+/g, '_')}.png`
+  return ''
+}
+
+const handleProjImageError = (id) => {
+  projImageErrors.value = { ...projImageErrors.value, [id]: (projImageErrors.value[id] || 0) + 1 }
+}
+
+const initProjData = async () => {
+  projData.value = await loadProjectileData()
+}
 
 const fixedProgressOrder = [
   '始终生效',
@@ -151,17 +250,6 @@ const handleSaveProjConfig = async () => {
   projSaving.value = false
 }
 
-const addProjectile = (progress) => {
-  if (!projConfigEdit.value) return
-  if (!projConfigEdit.value.restrictionsMap[progress]) {
-    projConfigEdit.value.restrictionsMap[progress] = []
-  }
-  projConfigEdit.value.restrictionsMap[progress].push({
-    id: 0,
-    method: 'log'
-  })
-}
-
 const removeProjectile = (progress, index) => {
   if (!projConfigEdit.value || !projConfigEdit.value.restrictionsMap[progress]) return
   projConfigEdit.value.restrictionsMap[progress].splice(index, 1)
@@ -200,6 +288,7 @@ const getMethodColor = (method) => {
 
 onMounted(() => {
   fetchProjConfig()
+  initProjData()
 })
 </script>
 
@@ -269,7 +358,14 @@ onMounted(() => {
                 >
                   <div class="restriction-info">
                     <div class="id-wrapper">
-                      <span class="id-label">ID</span>
+                      <div class="id-search-row">
+                        <span class="id-label">ID</span>
+                        <button @click="openProjSearch(progress, pIndex)" class="item-search-btn" title="搜索弹幕">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                          </svg>
+                        </button>
+                      </div>
                       <input
                         type="number"
                         v-model.number="proj.id"
@@ -277,6 +373,15 @@ onMounted(() => {
                         min="0"
                         placeholder="弹幕ID"
                       />
+                      <div class="item-preview" v-if="projNameById(proj.id)">
+                        <img
+                          :src="getProjImageById(proj.id)"
+                          :alt="projNameById(proj.id)"
+                          class="item-icon"
+                          @error="handleProjImageError(proj.id)"
+                        />
+                        <span class="item-name">{{ projNameById(proj.id) }}</span>
+                      </div>
                     </div>
                     
                     <div class="method-panel">
@@ -379,13 +484,13 @@ onMounted(() => {
                 <span>暂无限制</span>
               </div>
 
-              <button @click="addProjectile(progress)" class="add-restriction-btn">
+              <button @click="openProjBatchAdd(progress)" class="add-restriction-btn">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <circle cx="12" cy="12" r="10"></circle>
                   <line x1="12" y1="8" x2="12" y2="16"></line>
                   <line x1="8" y1="12" x2="16" y2="12"></line>
                 </svg>
-                添加限制
+                批量添加
               </button>
             </div>
           </div>
@@ -404,6 +509,15 @@ onMounted(() => {
         </div>
       </div>
     </div>
+
+    <ProjectileSearchDialog
+      :show="showProjSearch"
+      :multi="projSearchMulti"
+      :plan="projSearchMulti"
+      :default-method="projSearchDefaultMethod"
+      @select="handleProjSelect"
+      @close="showProjSearch = false"
+    />
   </div>
 </template>
 
@@ -673,6 +787,61 @@ onMounted(() => {
   flex-direction: column;
   align-items: center;
   min-width: 70px;
+}
+
+/* 弹幕搜索（与物品一致） */
+.id-search-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.item-search-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: all 0.2s;
+  padding: 0;
+}
+
+.item-search-btn:hover {
+  background: rgba(99, 102, 241, 0.1);
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+}
+
+.item-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.item-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  object-fit: cover;
+  background: rgba(99, 102, 241, 0.1);
+}
+
+.item-name {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  text-align: center;
+  max-width: 64px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .id-label {

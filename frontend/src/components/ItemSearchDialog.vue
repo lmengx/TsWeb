@@ -165,19 +165,27 @@ const fuzzyMatchOneMistake = (text, keyword) => {
 }
 
 const getItemImage = (id) => {
-  const hasError = imageErrors.value[id]
-  if (hasError) {
+  const err = imageErrors.value[id] || 0
+  if (err >= 2) return ''
+  if (err === 1) {
     const info = itemData.value.dict[id.toString()]
     if (info && info.english) {
-      return `https://terraria.wiki.gg/images/${info.english.replace(/\s+/g, '_')}.png`
+      return `https://terraria.wiki.gg/images/${info.english.replace(/\s+/g, '_')}.gif`
     }
     return ''
   }
-  return `/assets/img/img/Item_${id}.png`
+  if (err === 0) {
+    return `/assets/img/img/Item_${id}.png`
+  }
+  const info = itemData.value.dict[id.toString()]
+  if (info && info.english) {
+    return `https://terraria.wiki.gg/images/${info.english.replace(/\s+/g, '_')}.png`
+  }
+  return ''
 }
 
 const handleImageError = (id) => {
-  imageErrors.value = { ...imageErrors.value, [id]: true }
+  imageErrors.value = { ...imageErrors.value, [id]: (imageErrors.value[id] || 0) + 1 }
 }
 
 const handleSelect = (item) => {
