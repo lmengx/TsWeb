@@ -454,3 +454,26 @@ textarea::placeholder {
     font-size: 13px;
   }
 }
+
+/* ══════════════════════════════════════════════════════════════
+   移动端修复：页面过渡降级为纯 opacity 淡入淡出
+   （滚动容器内 transform 过渡会触发移动端 WebView 合成层黑屏，
+    故移动端去掉 translate，保留淡入淡出即可）
+   ══════════════════════════════════════════════════════════════ */
+@media (max-width: 767px) {
+  .fade-slide-enter-active,
+  .fade-slide-leave-active {
+    transition: opacity var(--dur-med) var(--ease-out);
+  }
+  .fade-slide-enter-from,
+  .fade-slide-leave-to {
+    transform: none;
+  }
+
+  /* 玻璃拟态在移动端 WebView 支持差，禁用 blur 避免合成黑屏 */
+  .glass,
+  .card {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}

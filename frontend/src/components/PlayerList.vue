@@ -209,7 +209,8 @@ const handleRowClick = (user) => {
 </script>
 
 <template>
-  <div class="players-content">
+  <div class="player-list-root">
+    <div class="players-content">
     <div class="section-header">
       <div class="header-title">
         <h2>玩家列表</h2>
@@ -296,7 +297,7 @@ const handleRowClick = (user) => {
         </tbody>
       </table>
     </div>
-  </div>
+    </div>
 
     <!-- 创建用户模态框 -->
     <div v-if="showCreateModal" class="modal-overlay" @click.self="closeCreateModal">
@@ -398,9 +399,17 @@ const handleRowClick = (user) => {
         </div>
       </div>
     </div>
+  </div>
 </template>
 
 <style scoped>
+.player-list-root {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
 .players-content {
   flex: 1;
   display: flex;

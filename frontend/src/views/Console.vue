@@ -117,7 +117,8 @@ onUnmounted(() => {
   border-top: 1px solid var(--border-light);
   border-bottom: none;
   padding: 14px 14px 0;
-  background: transparent;
+  /* 实心背景：路由懒加载切换期间避免透明露底导致黑屏 */
+  background: var(--bg-primary);
   backdrop-filter: none;
   box-shadow: none;
   border: none;
