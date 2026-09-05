@@ -37,8 +37,6 @@ namespace TShockData
         private const string MsgAdminKick = "管理员执行：风控踢出。";
         private const string SqlTotalPlayMinutes =
             "SELECT COALESCE(SUM(daily_min), 0) AS total FROM player_daily_stat WHERE uid = @0";
-        private const string SqlQqBound =
-            "SELECT COUNT(1) AS C FROM qq_bind WHERE UserId = @0";
 
         private static TerrariaPlugin _plugin;
         private static bool _initialized;
@@ -659,20 +657,11 @@ namespace TShockData
             return false;
         }
 
-        /// <summary>QQ 绑定判定（qq_bind 表；表缺失/查询异常视为未绑定，不豁免）</summary>
+        /// <summary>QQ 绑定判定（AccountSync 后端台账快照，与登录晋升同源；快照为空视为未绑定，不豁免）</summary>
         private static bool IsQqBound(TSPlayer player)
         {
             if (player.Account == null) return false;
-            try
-            {
-                using (var reader = TShock.DB.QueryReader(SqlQqBound, player.Account.ID))
-                {
-                    if (reader.Read())
-                        return reader.Get<long>("C") > 0;
-                }
-            }
-            catch { }
-            return false;
+            return AccountSync.IsQqBound(player.Account.Name);
         }
 
         /// <summary>注册不足 1 小时判定（UserAccount.Registered 为 UTC ISO8601）</summary>

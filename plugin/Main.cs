@@ -34,7 +34,6 @@ namespace TShockData
 
             ItemRestrict.Initialize();
 
-            QQBind.Initialize();
             PromotionManager.LoadConfig();
 
             // ═══ 表情指令（玩家发表情时按配置顺序执行指定指令）═══
@@ -228,10 +227,6 @@ namespace TShockData
             TShock.RestApi.Register(new SecureRestCommand("/data/files/delete", FileManager.DeleteFile, "data.rest.invsee"));
             TShock.RestApi.Register(new SecureRestCommand("/data/files/upload", FileManager.UploadFile, "data.rest.invsee"));
 
-            TShock.RestApi.Register(new SecureRestCommand("/data/qq/bind", QQBind.BindQQ, "data.rest.invsee"));
-            TShock.RestApi.Register(new SecureRestCommand("/data/qq/register", QQBind.RegisterAndBind, "data.rest.invsee"));
-            TShock.RestApi.Register(new SecureRestCommand("/data/qq/reset-password", QQBind.ResetPasswordByQQ, "data.rest.invsee"));
-            TShock.RestApi.Register(new SecureRestCommand("/data/qq/query-player", QQBind.QueryPlayerByQQ, "data.rest.invsee"));
             TShock.RestApi.Register(new SecureRestCommand("/data/qq/find-account", QQBind.FindAccount, "data.rest.invsee"));
             TShock.RestApi.Register(new SecureRestCommand("/data/qq/player-data", QQBind.PlayerData, "data.rest.invsee"));
 
@@ -408,11 +403,7 @@ namespace TShockData
                 "/data/files/tree",
                 "/data/files/delete",
                 "/data/files/upload",
-				"/data/qq/bind",
-                "/data/qq/register",
-                "/data/qq/reset-password",
-				"/data/qq/query-player",
-                "/data/qq/find-account",
+				"/data/qq/find-account",
                 "/data/qq/player-data",                "/data/promotion/config",
                 "/data/promotion/config/set",
                 "/data/statuspanel/config",

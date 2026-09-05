@@ -1,4 +1,19 @@
 import { AsyncLocalStorage } from 'async_hooks'
+import { getAccounts } from './qqAccountService.js'
+
+/** 台账 QQ 映射：用户名（大小写不敏感）→ QQ，用于玩家管理页从后端台账展示绑定 QQ */
+async function buildQqMap() {
+  try {
+    const records = await getAccounts()
+    const map = new Map()
+    for (const [username, rec] of Object.entries(records)) {
+      if (rec?.qq) map.set(String(username).toLowerCase(), String(rec.qq))
+    }
+    return map
+  } catch {
+    return new Map()
+  }
+}
 
 function buildBaseUrl(server) {
   const host = server?.host || 'localhost'
@@ -233,13 +248,15 @@ export class TShockService {
         if (!data || !Array.isArray(data.users)) {
           return data || { error: 'Invalid JSON', rawResponse: text }
         }
+        // QQ 展示以后端台账为权威（插件端 qq_bind 表已移除，不再返回 QQ 字段）
+        const qqMap = await buildQqMap()
         const users = data.users.map(u => ({
           id: u.ID,
           name: u.Username,
           group: u.Usergroup,
           registered: u.Registered,
           lastAccessed: u.LastAccessed,
-          qq: u.QQ,
+          qq: qqMap.get(String(u.Username || '').toLowerCase()) || '',
           uuid: u.UUID,
           knownIPs: u.KnownIPs,
           isOnline: u.IsOnline,
@@ -362,7 +379,15 @@ export class TShockService {
       console.log(`[RESPONSE] Body: ${text}`)
 
       try {
-        return JSON.parse(text)
+        const data = JSON.parse(text)
+        // QQ 展示以后端台账为权威（插件端 qq_bind 表已移除，不再返回 QQ 字段）
+        if (data && Array.isArray(data.users)) {
+          const qqMap = await buildQqMap()
+          for (const u of data.users) {
+            u.QQ = qqMap.get(String(u.Username || '').toLowerCase()) || ''
+          }
+        }
+        return data
       } catch {
         return { error: 'Invalid JSON', rawResponse: text }
       }

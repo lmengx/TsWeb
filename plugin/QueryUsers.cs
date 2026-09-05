@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using Rests;
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using Rests;
 using System;
 using System.Collections.Generic;
 using System.Data;
@@ -35,12 +35,12 @@ namespace TShockData
                 
                 if (!string.IsNullOrEmpty(username))
                 {
-                    query = "SELECT u.*, q.QQ as QQ FROM Users u LEFT JOIN qq_bind q ON u.ID = q.UserId WHERE u.Username = @0";
+                    query = "SELECT u.* FROM Users u WHERE u.Username = @0";
                     parameters = new object[] { username };
                 }
                 else
                 {
-                    query = "SELECT u.*, q.QQ as QQ FROM Users u LEFT JOIN qq_bind q ON u.ID = q.UserId";
+                    query = "SELECT u.* FROM Users u";
                     parameters = new object[] { };
                 }
                 
@@ -72,7 +72,6 @@ namespace TShockData
                         user.Add("Usergroup", res.Get<string>("Usergroup"));
                         user.Add("Registered", res.Get<string>("Registered"));
                         user.Add("LastAccessed", res.Get<string>("LastAccessed"));
-                        user.Add("QQ", res.Get<string>("QQ") ?? "");
                         user.Add("UUID", res.Get<string>("UUID") ?? "");
                         user.Add("KnownIPs", res.Get<string>("KnownIPs") ?? "");
                         
