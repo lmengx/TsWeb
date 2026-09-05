@@ -400,25 +400,31 @@ textarea::placeholder {
 }
 
 /* ══════════════════════════════════════════════════════════════
-   页面切换过渡（fade-slide：淡入 + 轻微上移）
+   页面切换过渡（fade：纯淡入淡出，禁止 transform）
    用法：<router-view v-slot="{ Component }">
            <transition name="fade-slide" mode="out-in">
              <component :is="Component" :key="..." />
            </transition>
          </router-view>
+
+   注意：不要在此过渡上使用 transform（translate/scale）。
+   实测（2026-08 黑屏修复）：
+   - 移动端 WebView：滚动容器内 transform 过渡触发合成层黑屏
+   - 桌面端 Chromium：transform 过渡 + .content-area 的 backdrop-filter
+     玻璃层会命中 GPU 合成 bug，内容区渲染为纯黑且整页刷新才恢复
+   （切换目标服务器后首次切换分页必现：服务器切换先触发侧边栏/卡片
+    重渲染重组合成层，随后的 translate 过渡即命中该 bug）
+   故全局统一降级为纯 opacity 淡入淡出，视觉上仍平滑。
    ══════════════════════════════════════════════════════════════ */
 .fade-slide-enter-active,
 .fade-slide-leave-active {
-  transition: opacity var(--dur-med) var(--ease-out),
-    transform var(--dur-med) var(--ease-out);
+  transition: opacity var(--dur-med) var(--ease-out);
 }
 .fade-slide-enter-from {
   opacity: 0;
-  transform: translateY(12px);
 }
 .fade-slide-leave-to {
   opacity: 0;
-  transform: translateY(-8px);
 }
 
 /* ── 统一加载圆环（渐变双色，供全局复用）── */
@@ -456,20 +462,11 @@ textarea::placeholder {
 }
 
 /* ══════════════════════════════════════════════════════════════
-   移动端修复：页面过渡降级为纯 opacity 淡入淡出
-   （滚动容器内 transform 过渡会触发移动端 WebView 合成层黑屏，
-    故移动端去掉 translate，保留淡入淡出即可）
+   移动端修复：玻璃拟态在移动端 WebView 支持差，禁用 blur 避免合成黑屏
+   （页面过渡已全局降级为纯 opacity，见上方 fade-slide 说明，
+     此处不再需要单独去掉 transform）
    ══════════════════════════════════════════════════════════════ */
 @media (max-width: 767px) {
-  .fade-slide-enter-active,
-  .fade-slide-leave-active {
-    transition: opacity var(--dur-med) var(--ease-out);
-  }
-  .fade-slide-enter-from,
-  .fade-slide-leave-to {
-    transform: none;
-  }
-
   /* 玻璃拟态在移动端 WebView 支持差，禁用 blur 避免合成黑屏 */
   .glass,
   .card {

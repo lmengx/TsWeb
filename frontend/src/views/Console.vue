@@ -63,6 +63,9 @@ onUnmounted(() => {
       
       <div class="content-area glass" :class="{ mobile: isMobile }">
         <router-view v-slot="{ Component }">
+          <!-- 警告：mode="out-in" 下路由组件必须只有一个根元素！
+               任何路由页若为多根（fragment），过渡会无法动画且 isLeaving 永久卡死，
+               内容区永久空白（黑屏），只能整页刷新恢复（ServersView/UserDetailView 已踩坑修复） -->
           <transition name="fade-slide" mode="out-in">
             <component :is="Component" :key="route.path" />
           </transition>
@@ -107,6 +110,9 @@ onUnmounted(() => {
   border-radius: var(--radius-lg);
   margin-left: 16px;
   min-width: 0;
+  /* 实心背景：路由切换过渡期间（out-in 离开/进入间隙）避免透明露底黑屏，
+     桌面端同样需要（合成层黑屏修复，见 theme.css fade-slide 说明） */
+  background: var(--bg-primary);
 }
 
 .content-area.mobile {
@@ -117,8 +123,7 @@ onUnmounted(() => {
   border-top: 1px solid var(--border-light);
   border-bottom: none;
   padding: 14px 14px 0;
-  /* 实心背景：路由懒加载切换期间避免透明露底导致黑屏 */
-  background: var(--bg-primary);
+  /* 实心背景已在 .content-area 基础样式中全局设置（防过渡期黑屏），此处无需重复 */
   backdrop-filter: none;
   box-shadow: none;
   border: none;

@@ -1618,7 +1618,8 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="user-detail-page">
+  <div class="user-detail-root">
+    <div class="user-detail-page">
     <div class="page-header">
       <button @click="goBack" class="back-btn">
         ← 返回
@@ -2449,7 +2450,7 @@ onMounted(() => {
         </div>
       </div>
     </div>
-  </div>
+    </div>
 
     <!-- 导入/导出弹窗 -->
     <div v-if="showImportExportModal" class="modal-overlay" @click.self="showImportExportModal = false">
@@ -2590,11 +2591,21 @@ onMounted(() => {
       <div v-if="toastMessage" class="toast-notification">{{ toastMessage }}</div>
     </Transition>
   </Teleport>
+  </div>
 </template>
 
 <style scoped>
+/* 单根容器：路由页面在 <Transition mode="out-in"> 内必须只有一个根元素，
+   否则（fragment 根）过渡无法动画且 isLeaving 永久卡死 → 内容区永久空白（黑屏） */
+.user-detail-root {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
 .user-detail-page {
   flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   overflow-y: auto;

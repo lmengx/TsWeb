@@ -167,7 +167,8 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="servers-content">
+  <div class="servers-page">
+    <div class="servers-content">
     <div class="section-header">
       <h2>服务器管理</h2>
     </div>
@@ -231,13 +232,13 @@ onUnmounted(() => {
           @toggle-sync="toggleSync"
         />
       </div>
-  </div>
+    </div>
 
-  <!-- ══════════ 添加服务器向导 ══════════ -->
-  <AddServerWizard :show="showAddModal" @close="showAddModal = false" @added="handleAdded" />
+    <!-- ══════════ 添加服务器向导 ══════════ -->
+    <AddServerWizard :show="showAddModal" @close="showAddModal = false" @added="handleAdded" />
 
-  <!-- ══════════ 编辑服务器弹窗 ══════════ -->
-  <div v-if="showEditModal" class="modal-mask" @click.self="showEditModal = false">
+    <!-- ══════════ 编辑服务器弹窗 ══════════ -->
+    <div v-if="showEditModal" class="modal-mask" @click.self="showEditModal = false">
     <div class="modal">
       <div class="modal-head">
         <h3>编辑服务器</h3>
@@ -292,12 +293,22 @@ onUnmounted(() => {
         </div>
       </div>
     </div>
+    </div>
   </div>
 </template>
 
 <style scoped>
+/* 单根容器：路由页面在 <Transition mode="out-in"> 内必须只有一个根元素，
+   否则（fragment 根）过渡无法动画且 isLeaving 永久卡死 → 内容区永久空白（黑屏） */
+.servers-page {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
 .servers-content {
   flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   overflow: auto;
