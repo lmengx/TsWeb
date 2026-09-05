@@ -255,16 +255,60 @@ namespace TShockData
                             Method = matchedItem.Method,
                             Slot = item.slot
                         });
-
-                        if (!hasPermission)
-                        {
-                            ViolationExecutor.ExecuteViolation(player, matchedItem.Method, itemId: item.netID, itemName: AntiCheat.GetItemName(item.netID), stack: item.stack, allowedStack: matchedItem.Stack);
-                        }
                     }
                 }
             }
 
+            // 扫描完成：按处理方式聚合同一玩家的所有违规，避免逐条踢出产生多个断开包
+            if (results.Count > 0 && !hasPermission)
+            {
+                ExecuteAggregatedViolations(player, results);
+            }
+
             return results;
+        }
+
+        /// <summary>
+        /// 聚合执行同一玩家一次扫描产生的全部违规：
+        /// kick / ban 合并为一次处理（原因列出所有违规物品，踢出前聊天展示 [i:id] 物品图标）；
+        /// log 仅记录；自定义命令保持逐条执行。
+        /// </summary>
+        private static void ExecuteAggregatedViolations(TSPlayer player, List<CheatResult> results)
+        {
+            foreach (var group in results.GroupBy(r => (r.Method ?? "log").ToLower()))
+            {
+                string method = group.Key;
+
+                if (method == "kick" || method == "ban")
+                {
+                    var entries = group.Select(r => new ViolationEntry
+                    {
+                        ItemId = r.ItemID,
+                        ItemName = r.ItemName,
+                        FoundStack = r.FoundStack,
+                        AllowedStack = r.AllowedStack
+                    }).ToList();
+
+                    ViolationExecutor.ExecuteViolations(player, method, entries, player.Name);
+                }
+                else if (method == "log")
+                {
+                    // 日志已在扫描时逐条输出，无需额外处理
+                }
+                else
+                {
+                    // 自定义命令：含占位符，无法聚合，保持逐条执行
+                    foreach (var r in group)
+                    {
+                        ViolationExecutor.ExecuteViolation(player, r.Method,
+                            playerName: player.Name,
+                            itemId: r.ItemID,
+                            itemName: r.ItemName,
+                            stack: r.FoundStack,
+                            allowedStack: r.AllowedStack);
+                    }
+                }
+            }
         }
 
         public static List<CheatResult> ScanOfflinePlayer(int accountId, string playerName, bool executeViolations = true)
