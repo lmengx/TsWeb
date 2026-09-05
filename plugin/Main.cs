@@ -62,6 +62,12 @@ namespace TShockData
             TShock.RestApi.Register(new SecureRestCommand("/data/crosstransfer/config/set", CrossTransfer.SetConfigRest, "tshock.admin"));
             TShock.RestApi.Register(new SecureRestCommand("/data/crosstransfer/probe", CrossTransfer.ProbeRest, "tshock.admin"));
 
+            // ═══ 宵禁（禁止进服：条目化排期 + 豁免组 + 模板消息，ServerJoin 即时拦截）═══
+            Curfew.Initialize(this);
+            TShockAPI.Commands.ChatCommands.Add(new Command("tshock.admin", Curfew.CurfewCommand, "curfew", "宵禁"));
+            TShock.RestApi.Register(new SecureRestCommand("/data/curfew/config", Curfew.GetConfigJson, ""));
+            TShock.RestApi.Register(new SecureRestCommand("/data/curfew/config/set", Curfew.SetConfigJson, "data.rest.invsee"));
+
             // ═══ House 房屋系统（原 plugin-son/House 并入）═══
             HouseCore.Instance.Initialize(this);
             HouseApi.Register();
@@ -259,6 +265,7 @@ namespace TShockData
             PromotionManager.LoadConfig();
             EmoteCommandManager.LoadConfig();
             RiskControl.LoadConfig();
+            Curfew.LoadConfig();
             TaskScheduler.Reload();
             AutoBackup.LoadConfig();
             ShopUIConfigManager.LoadConfig();
@@ -291,6 +298,7 @@ namespace TShockData
                 CrossChat.Dispose();
                 CrossTransfer.Dispose();
                 RiskControl.Dispose();
+                Curfew.Dispose();
                 BypassHelper.UnregisterPermissionHook();
 				PvPLockManager.Dispose();
 				TeamLockManager.Dispose();
@@ -335,8 +343,8 @@ namespace TShockData
                 "ping",
                 "statustext", "st",
 				"bosslimit", "进度锁",
-                "shopui", "旅商",			};
-
+                "shopui", "旅商",
+                "curfew", "宵禁",			};
 			Commands.ChatCommands.RemoveAll(cmd =>
 				cmd.Names.Any(name => tswebCommandNames.Contains(name)));
 
@@ -445,6 +453,8 @@ namespace TShockData
                 "/data/riskcontrol/action",
                 "/data/riskcontrol/players",
                 "/data/riskcontrol/proxy/refresh",
+                "/data/curfew/config",
+                "/data/curfew/config/set",
 			};
 
 			try

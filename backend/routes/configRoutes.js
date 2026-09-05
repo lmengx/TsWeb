@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { getConfigFile, saveConfigFile, getTsWebConfig, setTsWebConfig, getBossConfig, setBossConfig, getBackupConfig, setBackupConfig, postLicenseClose, getBossLimitStatus, getPromotionConfig, setPromotionConfig, getListenConfig, saveListenConfig, getSingleLoginConfig, setSingleLoginConfig, getStatusPanelConfig, setStatusPanelConfig, getShopUIConfig, setShopUIConfig, getRiskControlConfig, setRiskControlConfig, riskControlAction, riskControlPlayers, riskControlProxyRefresh } from '../controllers/configController.js'
+import { getConfigFile, saveConfigFile, getTsWebConfig, setTsWebConfig, getBossConfig, setBossConfig, getBackupConfig, setBackupConfig, postLicenseClose, getBossLimitStatus, getPromotionConfig, setPromotionConfig, getListenConfig, saveListenConfig, getSingleLoginConfig, setSingleLoginConfig, getStatusPanelConfig, setStatusPanelConfig, getShopUIConfig, setShopUIConfig, getRiskControlConfig, setRiskControlConfig, riskControlAction, riskControlPlayers, riskControlProxyRefresh, getCurfewConfig, setCurfewConfig } from '../controllers/configController.js'
 import { verifyToken, requireRole, requireAdmin, requireManager } from '../middlewares/authMiddleware.js'
 
 const router = Router()
@@ -36,5 +36,8 @@ router.post('/risk-control/action', verifyToken, requireManager, riskControlActi
 router.get('/risk-control/players', verifyToken, requireManager, riskControlPlayers)
 // 风控：强制刷新代理检测缓存（ip 可选，缺省清空全部）
 router.post('/risk-control/proxy/refresh', verifyToken, requireManager, riskControlProxyRefresh)
+// 宵禁（禁止进服）：条目化排期 + 豁免组 + 模板消息
+router.get('/curfew', verifyToken, requireManager, getCurfewConfig)
+router.post('/curfew', verifyToken, requireManager, setCurfewConfig)
 
 export default router

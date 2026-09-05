@@ -13,7 +13,8 @@ const tabs = [
   { path: '/console/settings/shopui', name: '虚拟商店' },
   { path: '/console/settings/crosstransfer', name: '跨服传送' },
   { path: '/console/settings/backup', name: '自动备份' },
-  { path: '/console/settings/risk-control', name: '实时风控' }
+  { path: '/console/settings/risk-control', name: '实时风控' },
+  { path: '/console/settings/curfew', name: '宵禁管理' }
 ]
 </script>
 

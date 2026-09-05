@@ -297,3 +297,23 @@ export const riskControlProxyRefresh = async (req, res) => {
     res.status(500).json({ status: '500', error: error.message })
   }
 }
+
+// ═══ 宵禁（禁止进服）═══
+
+export const getCurfewConfig = async (req, res) => {
+  try {
+    const result = await tshockService.getCurfewConfig()
+    res.json(result)
+  } catch (error) {
+    res.status(500).json({ status: '500', error: error.message })
+  }
+}
+
+export const setCurfewConfig = async (req, res) => {
+  try {
+    const result = await tshockService.setCurfewConfig(req.body)
+    res.json(result)
+  } catch (error) {
+    res.status(500).json({ status: '500', error: error.message })
+  }
+}

@@ -151,6 +151,12 @@ const routes = [
             name: 'RiskControl',
             component: () => import('../views/console/settings/RiskControlSettingsView.vue'),
             meta: { requiresAuth: true, requiresAdmin: true }
+          },
+          {
+            path: 'curfew',
+            name: 'CurfewSettings',
+            component: () => import('../views/console/settings/CurfewSettingsView.vue'),
+            meta: { requiresAuth: true, requiresAdmin: true }
           }
         ]
       },

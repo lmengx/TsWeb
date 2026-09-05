@@ -1818,6 +1818,34 @@ export class TShockService {
     }
   }
 
+  // ===== 宵禁（禁止进服）=====
+
+  async getCurfewConfig() {
+    if (!this.baseUrl) await this.init()
+    const url = `${this.baseUrl}/data/curfew/config${this.apiKey ? `?token=${encodeURIComponent(this.apiKey)}` : ''}`
+    console.log(`[OUTGOING] GET ${url}`)
+    try {
+      const response = await fetch(url, { method: 'GET', headers: { 'Accept': 'application/json' } })
+      return await response.json()
+    } catch (error) {
+      return { status: '500', error: error.message }
+    }
+  }
+
+  async setCurfewConfig(params) {
+    if (!this.baseUrl) await this.init()
+    // 整体配置作为一个 JSON 字符串参数下发（条目列表结构较复杂，扁平化不利维护）
+    const query = `config=${encodeURIComponent(JSON.stringify(params || {}))}`
+    const url = `${this.baseUrl}/data/curfew/config/set?${query}${this.apiKey ? `&token=${encodeURIComponent(this.apiKey)}` : ''}`
+    console.log(`[OUTGOING] POST ${url.substring(0, 600)}`)
+    try {
+      const response = await fetch(url, { method: 'POST', headers: { 'Accept': 'application/json' } })
+      return await response.json()
+    } catch (error) {
+      return { status: '500', error: error.message }
+    }
+  }
+
   // ===== 通用数据代理：/data/tasks/* 等自定义端点 =====
 
   async proxyDataRequest(subPath, method = 'GET', params = {}) {
