@@ -1,8 +1,11 @@
 <script setup>
 import { ref, onMounted } from 'vue'
+import { onBeforeRouteLeave } from 'vue-router'
 import { getProjConfig, saveProjConfig, clearProjCache } from '../../api/antiCheatApi.js'
 import { loadProjectileData } from '../../api/projectileDataApi.js'
 import ProjectileSearchDialog from '../../components/ProjectileSearchDialog.vue'
+import SuccessModal from '../../components/SuccessModal.vue'
+import LeaveConfirmModal from '../../components/LeaveConfirmModal.vue'
 import Loading from '../../components/Loading.vue'
 
 const projConfig = ref(null)
@@ -10,7 +13,34 @@ const projConfigEdit = ref(null)
 const projLoading = ref(false)
 const projSaving = ref(false)
 const projError = ref('')
-const projSuccess = ref('')
+
+// ── 保存成功模态 + 未保存离开拦截 ──
+const showSaveSuccess = ref(false)
+const showLeaveConfirm = ref(false)
+let leaveNext = null
+
+const isDirty = () => {
+  if (!projConfigEdit.value || !projConfig.value) return false
+  return JSON.stringify(projConfigEdit.value) !== JSON.stringify(projConfig.value)
+}
+
+onBeforeRouteLeave((to, from, next) => {
+  if (!isDirty()) { next(); return }
+  leaveNext = next
+  showLeaveConfirm.value = true
+})
+
+const cancelLeave = () => {
+  showLeaveConfirm.value = false
+  leaveNext = null
+}
+
+const confirmLeave = () => {
+  showLeaveConfirm.value = false
+  const n = leaveNext
+  leaveNext = null
+  if (n) n()
+}
 
 // ── 弹幕数据（名称/图标）与可视化搜索 ──
 const projData = ref({ list: [], dict: {} })
@@ -53,10 +83,6 @@ const handleProjSelect = (res) => {
         target.push({ id, method: res.method ?? 'log' })
         existingIds.add(String(id))
         added++
-      }
-      if (added > 0) {
-        projSuccess.value = `已批量添加 ${added} 个弹幕（${progress}）`
-        setTimeout(() => { projSuccess.value = '' }, 3000)
       }
     }
     return
@@ -228,18 +254,14 @@ const fetchProjConfig = async () => {
 const handleSaveProjConfig = async () => {
   projSaving.value = true
   projError.value = ''
-  projSuccess.value = ''
 
   try {
     const backendConfig = mapProjConfigToBackend(projConfigEdit.value)
     const result = await saveProjConfig(backendConfig)
     if (result.success) {
-      projSuccess.value = '保存成功'
       projConfig.value = JSON.parse(JSON.stringify(projConfigEdit.value))
       clearProjCache()
-      setTimeout(() => {
-        projSuccess.value = ''
-      }, 3000)
+      showSaveSuccess.value = true
     } else {
       projError.value = result.error || '保存失败'
     }
@@ -497,7 +519,6 @@ onMounted(() => {
         </div>
 
         <div v-if="projError" class="error-message">{{ projError }}</div>
-        <div v-if="projSuccess" class="success-message">{{ projSuccess }}</div>
 
         <div class="actions">
           <button @click="handleSaveProjConfig" :disabled="projSaving" class="save-btn">
@@ -518,6 +539,9 @@ onMounted(() => {
       @select="handleProjSelect"
       @close="showProjSearch = false"
     />
+
+    <SuccessModal :show="showSaveSuccess" text="保存成功" @close="showSaveSuccess = false" />
+    <LeaveConfirmModal :show="showLeaveConfirm" @cancel="cancelLeave" @leave="confirmLeave" />
   </div>
 </template>
 

@@ -1,6 +1,9 @@
 <script setup>
 import { ref, onMounted } from 'vue'
+import { onBeforeRouteLeave } from 'vue-router'
 import ItemSearchDialog from '../../components/ItemSearchDialog.vue'
+import SuccessModal from '../../components/SuccessModal.vue'
+import LeaveConfirmModal from '../../components/LeaveConfirmModal.vue'
 import { getItemConfig, saveItemConfig, clearItemCache, scanItems, scanItemById } from '../../api/antiCheatApi.js'
 import { loadItemData } from '../../api/itemDataApi.js'
 import Loading from '../../components/Loading.vue'
@@ -10,9 +13,36 @@ const itemConfigEdit = ref(null)
 const itemLoading = ref(false)
 const itemSaving = ref(false)
 const itemError = ref('')
-const itemSuccess = ref('')
 const itemData = ref({ list: [], dict: {} })
 const imageErrorIds = ref(new Set())
+
+// ── 保存成功模态 + 未保存离开拦截 ──
+const showSaveSuccess = ref(false)
+const showLeaveConfirm = ref(false)
+let leaveNext = null
+
+const isDirty = () => {
+  if (!itemConfigEdit.value || !itemConfig.value) return false
+  return JSON.stringify(itemConfigEdit.value) !== JSON.stringify(itemConfig.value)
+}
+
+onBeforeRouteLeave((to, from, next) => {
+  if (!isDirty()) { next(); return }
+  leaveNext = next
+  showLeaveConfirm.value = true
+})
+
+const cancelLeave = () => {
+  showLeaveConfirm.value = false
+  leaveNext = null
+}
+
+const confirmLeave = () => {
+  showLeaveConfirm.value = false
+  const n = leaveNext
+  leaveNext = null
+  if (n) n()
+}
 
 // 物品搜索对话框
 const showItemSearch = ref(false)
@@ -60,10 +90,6 @@ const handleItemSelect = (res) => {
         target.push({ id, stack: res.stack ?? 1, method: res.method ?? 'log' })
         existingIds.add(id)
         added++
-      }
-      if (added > 0) {
-        itemSuccess.value = `已批量添加 ${added} 个物品（${progress}）`
-        setTimeout(() => { itemSuccess.value = '' }, 3000)
       }
     }
     // 弹窗内部播放成功动画后自行 emit close
@@ -269,18 +295,14 @@ const fetchItemConfig = async () => {
 const handleSaveItemConfig = async () => {
   itemSaving.value = true
   itemError.value = ''
-  itemSuccess.value = ''
 
   try {
     const backendConfig = mapItemConfigToBackend(itemConfigEdit.value)
     const result = await saveItemConfig(backendConfig)
     if (result.success) {
-      itemSuccess.value = '保存成功'
       itemConfig.value = JSON.parse(JSON.stringify(itemConfigEdit.value))
       clearItemCache()
-      setTimeout(() => {
-        itemSuccess.value = ''
-      }, 3000)
+      showSaveSuccess.value = true
     } else {
       itemError.value = result.error || '保存失败'
     }
@@ -633,7 +655,6 @@ onMounted(() => {
         </div>
 
         <div v-if="itemError" class="error-message">{{ itemError }}</div>
-        <div v-if="itemSuccess" class="success-message">{{ itemSuccess }}</div>
 
         <div class="actions">
           <button @click="handleSaveItemConfig" :disabled="itemSaving" class="save-btn">
@@ -658,6 +679,9 @@ onMounted(() => {
       @back="handleScanBack"
       @close="showItemSearch = false"
     />
+
+    <SuccessModal :show="showSaveSuccess" text="保存成功" @close="showSaveSuccess = false" />
+    <LeaveConfirmModal :show="showLeaveConfirm" @cancel="cancelLeave" @leave="confirmLeave" />
   </div>
 </template>
 

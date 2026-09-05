@@ -30,7 +30,7 @@ const startSuccessClose = () => {
       closingPhase.value = 'idle'
       emit('close')
     }, 260)
-  }, 440)
+  }, 750)
 }
 const startPlainClose = () => {
   if (closingPhase.value !== 'idle') return
@@ -481,6 +481,8 @@ onUnmounted(() => clearTimeout(closeTimer))
   right: 0;
   bottom: 0;
   background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -490,7 +492,9 @@ onUnmounted(() => clearTimeout(closeTimer))
 
 /* ═══ 弹窗出现：跳动（bounce）动画 ═══ */
 .search-dialog {
-  background: var(--bg-card);
+  background: rgba(13, 18, 34, 0.72); /* 自身玻璃：半透明 + 高斯模糊 */
+  backdrop-filter: blur(18px) saturate(140%);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
   border-radius: 20px;
   width: 90%;
   max-width: 620px;
@@ -501,6 +505,10 @@ onUnmounted(() => clearTimeout(closeTimer))
   position: relative;
   overflow: hidden;
   animation: dialog-bounce-in 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+.light .search-dialog {
+  background: rgba(255, 255, 255, 0.72);
 }
 
 /* 跳动出现：缩小→放大过头→回弹→落定 */
