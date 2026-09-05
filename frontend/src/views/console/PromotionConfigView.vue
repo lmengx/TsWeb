@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted, watch, nextTick, onUnmounted } from 'vue'
 import { get, post } from '../../utils/api.js'
+import Loading from '../../components/Loading.vue'
 
 const loading = ref(true)
 const saving = ref(false)
@@ -152,9 +153,7 @@ onMounted(() => {
       <p class="page-desc">配置 QQ 绑定和游玩时长的自动权限提升规则</p>
     </div>
 
-    <div v-if="loading" class="loading-state">
-      <p>加载中...</p>
-    </div>
+    <Loading v-if="loading" text="加载中..." />
 
     <div v-else class="promotion-content">
       <!-- ===== QQ 绑定提升 ===== -->
@@ -352,12 +351,6 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 20px;
-}
-
-.loading-state {
-  text-align: center;
-  padding: 60px;
-  color: var(--text-muted);
 }
 
 .section-card {

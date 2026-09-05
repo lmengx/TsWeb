@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { getEmoteConfig, saveEmoteConfig, EMOTE_PRESETS } from '../../../api/emojiApi.js'
+import Loading from '../../../components/Loading.vue'
 
 const loading = ref(true)
 const saving = ref(false)
@@ -200,9 +201,7 @@ onUnmounted(() => {
       </ul>
     </div>
 
-    <div v-if="loading" class="loading-state">
-      <p>加载中...</p>
-    </div>
+    <Loading v-if="loading" text="加载中..." />
 
     <div v-else class="emoji-content">
       <!-- ===== 规则列表 ===== -->
@@ -425,12 +424,6 @@ onUnmounted(() => {
 }
 
 /* ===== 内容区 ===== */
-.loading-state {
-  text-align: center;
-  padding: 60px;
-  color: var(--text-muted);
-}
-
 .emoji-content {
   max-width: 860px;
   display: flex;

@@ -2,6 +2,7 @@
 import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { get, post } from '../utils/api.js'
 import { getPermissionName, searchPermissions, permissionMap } from '../utils/permissionMap.js'
+import Loading from './Loading.vue'
 
 const groups = ref([])
 const loading = ref(false)
@@ -406,10 +407,7 @@ onUnmounted(() => {
       </div>
     </div>
     <div v-if="error" class="error-message">{{ error }}</div>
-    <div v-if="loading" class="loading">
-      <div class="spinner"></div>
-      <span>加载中...</span>
-    </div>
+    <Loading v-if="loading" text="加载中..." />
     <div v-else class="groups-grid">
       <div
         v-for="group in groups"
@@ -822,25 +820,6 @@ onUnmounted(() => {
   border-radius: 8px;
   margin-bottom: 16px;
   border: 1px solid rgba(239, 68, 68, 0.2);
-}
-.loading {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  padding: 48px;
-  color: var(--text-muted);
-}
-.spinner {
-  width: 24px;
-  height: 24px;
-  border: 2px solid var(--border-color);
-  border-top-color: var(--accent-primary);
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-@keyframes spin {
-  to { transform: rotate(360deg); }
 }
 .groups-grid {
   display: grid;

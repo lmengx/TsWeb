@@ -5,6 +5,7 @@ import { get, post, del } from '../../utils/api.js'
 import InventoryViewer from '../../components/InventoryViewer.vue'
 import { getAntiCheatConfig } from '../../api/antiCheatApi.js'
 import { loadItemData } from '../../api/itemDataApi.js'
+import Loading from '../../components/Loading.vue'
 
 const itemData = ref({ list: [], dict: {} })
 const antiCheatConfig = ref(null)
@@ -1639,9 +1640,7 @@ onMounted(() => {
       </div>
     </div>
 
-    <div v-if="loading" class="loading-state">
-      <p>加载中...</p>
-    </div>
+    <Loading v-if="loading" text="加载中..." />
 
     <div v-else-if="error" class="error-state">
       <p>{{ error }}</p>
@@ -1784,7 +1783,7 @@ onMounted(() => {
 
         <!-- 总览模式 -->
         <div v-if="dailyMode === 'overview'" class="daily-stats-body">
-          <div v-if="overviewLoading" class="loading-state"><p>加载中...</p></div>
+          <div v-if="overviewLoading"><Loading size="sm" text="加载中..." /></div>
           <div v-else class="overview-chart-container">
             <div class="overview-summary">
                   <span>近30天累计: <strong>{{ formatDuration(overviewTotalMin) }}</strong> | 活跃天数: {{ overviewActiveDays }}/30</span>
@@ -1812,7 +1811,7 @@ onMounted(() => {
 
         <!-- 详情模式 -->
         <div v-else class="daily-stats-body">
-          <div v-if="dailyLoading" class="loading-state"><p>加载中...</p></div>
+          <div v-if="dailyLoading"><Loading size="sm" text="加载中..." /></div>
           <template v-else>
             <div class="daily-cards">
               <div
@@ -1843,7 +1842,7 @@ onMounted(() => {
                   <span>该玩家在线</span>
                 </span>
               </div>
-              <div v-if="hourlyDetailLoading" class="loading-state"><p>加载中...</p></div>
+              <div v-if="hourlyDetailLoading"><Loading size="sm" text="加载中..." /></div>
               <div v-else class="hourly-heatmap">
                 <div v-for="h in 24" :key="h-1" class="hourly-cell" :class="heatmapCellClass(expandedDay, h-1)" :title="heatmapCellTitle(expandedDay, h-1)">
                   <span v-if="isPlayerOnlineAtHour(expandedDay, h-1)" class="hourly-dot"></span>
@@ -1870,9 +1869,7 @@ onMounted(() => {
           </div>
         </div>
         
-        <div v-if="statsLoading" class="loading-state">
-          <p>加载中...</p>
-        </div>
+        <Loading v-if="statsLoading" size="sm" text="加载中..." />
         
         <div v-else-if="statsError" class="error-state">
           <p>{{ statsError }}</p>
@@ -2529,7 +2526,7 @@ onMounted(() => {
 
             <!-- 预设内容 -->
             <div v-if="selectedImportMethod === 'preset'" class="ie-method-panel">
-              <div v-if="presetLoading" class="loading-state" style="padding:16px"><p>加载中...</p></div>
+              <div v-if="presetLoading" style="padding:16px"><Loading size="sm" text="加载中..." /></div>
               <div v-else-if="presetList.length === 0" class="ie-panel-empty">
                 <p>暂无预设，请先在导出面板中保存预设。</p>
                 <button class="ie-action-btn" @click="importExportTab = 'export'">去导出</button>
@@ -3014,7 +3011,6 @@ onMounted(() => {
   border-color: var(--accent-primary);
 }
 
-.loading-state,
 .error-state {
   text-align: center;
   padding: 60px 20px;

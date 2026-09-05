@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { apiRequest } from '../../utils/api.js'
+import Loading from '../../components/Loading.vue'
 
 // ═══════════════════════════════════════════════════════════
 // 状态（整个页面仅 admin 可用，路由 + 后端双重校验）
@@ -205,7 +206,7 @@ onMounted(() => {
         </div>
       </div>
 
-      <div v-if="loading" class="loading">加载中...</div>
+      <Loading v-if="loading" text="加载中..." />
 
       <table v-else class="data-table">
         <thead>
@@ -361,7 +362,6 @@ onMounted(() => {
   color: var(--text-primary);
   width: 220px;
 }
-.loading { color: var(--text-muted); padding: 24px; text-align: center; }
 
 .data-table {
   width: 100%;

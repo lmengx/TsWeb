@@ -1,11 +1,12 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import AppHeader from '../components/AppHeader.vue'
 import ConsoleSidebar from '../components/ConsoleSidebar.vue'
 import '../styles/theme.css'
 
 const router = useRouter()
+const route = useRoute()
 
 const user = ref(null)
 const isMobile = ref(false)
@@ -61,7 +62,11 @@ onUnmounted(() => {
       <ConsoleSidebar />
       
       <div class="content-area glass" :class="{ mobile: isMobile }">
-        <router-view />
+        <router-view v-slot="{ Component }">
+          <transition name="fade-slide" mode="out-in">
+            <component :is="Component" :key="route.path" />
+          </transition>
+        </router-view>
       </div>
     </main>
   </div>

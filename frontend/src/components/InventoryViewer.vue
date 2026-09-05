@@ -2,6 +2,7 @@
 import { ref, watch, onMounted, computed } from 'vue'
 import ItemEditModal from './ItemEditModal.vue'
 import { loadItemData } from '../api/itemDataApi.js'
+import Loading from './Loading.vue'
 
 const props = defineProps({
   inventory: {
@@ -134,9 +135,7 @@ const handleModalClose = () => {
       {{ error }}
     </div>
     
-    <div v-else-if="loading" class="loading-state">
-      <p>加载中...</p>
-    </div>
+    <Loading v-else-if="loading" size="sm" text="加载中..." />
     
     <div v-else class="inventory-container">
       <div class="main-content-row">
@@ -657,12 +656,6 @@ const handleModalClose = () => {
   margin-left: 20px;
   margin-right: 20px;
   border: 1px solid rgba(239, 68, 68, 0.3);
-}
-
-.loading-state {
-  text-align: center;
-  padding: 60px 20px;
-  color: var(--text-muted);
 }
 
 .inventory-container {

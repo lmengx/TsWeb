@@ -3,6 +3,7 @@ import { ref, computed, onMounted } from 'vue'
 import { get, post } from '../../../utils/api.js'
 import ItemSearchDialog from '../../../components/ItemSearchDialog.vue'
 import { loadItemData } from '../../../api/itemDataApi.js'
+import Loading from '../../../components/Loading.vue'
 
 const loading = ref(true)
 const saving = ref(false)
@@ -643,7 +644,7 @@ onMounted(() => {
 
 <template>
   <div class="settings-page">
-    <div v-if="loading" class="loading-state"><p>加载中...</p></div>
+    <Loading v-if="loading" text="加载中..." />
 
     <template v-else>
       <!-- ═══════ 顶部总览（紧凑） ═══════ -->
@@ -1067,7 +1068,6 @@ onMounted(() => {
 
 <style scoped>
 .settings-page { padding: 20px; width: 100%; }
-.loading-state { text-align: center; padding: 60px; color: var(--text-muted); }
 
 /* ═══════ 卡片 ═══════ */
 .section-card {

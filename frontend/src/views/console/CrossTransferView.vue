@@ -2,6 +2,7 @@
 import { ref, reactive, onMounted, computed } from 'vue'
 import { getCurrentServer } from '../../utils/serverStore.js'
 import { getCrossTransferConfig, saveCrossTransferConfig, probeCrossTransfer } from '../../utils/crossTransferApi.js'
+import Loading from '../../components/Loading.vue'
 
 const loading = ref(true)
 const saving = ref(false)
@@ -163,9 +164,7 @@ onMounted(async () => {
       </p>
     </div>
 
-    <div v-if="loading" class="loading-state">
-      <p>加载中...</p>
-    </div>
+    <Loading v-if="loading" text="加载中..." />
 
     <div v-else class="ct-content">
       <!-- 本服设置 -->
@@ -314,12 +313,6 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 20px;
-}
-
-.loading-state {
-  text-align: center;
-  padding: 60px;
-  color: var(--text-muted);
 }
 
 .section-card {

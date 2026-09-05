@@ -399,6 +399,55 @@ textarea::placeholder {
   }
 }
 
+/* ══════════════════════════════════════════════════════════════
+   页面切换过渡（fade-slide：淡入 + 轻微上移）
+   用法：<router-view v-slot="{ Component }">
+           <transition name="fade-slide" mode="out-in">
+             <component :is="Component" :key="..." />
+           </transition>
+         </router-view>
+   ══════════════════════════════════════════════════════════════ */
+.fade-slide-enter-active,
+.fade-slide-leave-active {
+  transition: opacity var(--dur-med) var(--ease-out),
+    transform var(--dur-med) var(--ease-out);
+}
+.fade-slide-enter-from {
+  opacity: 0;
+  transform: translateY(12px);
+}
+.fade-slide-leave-to {
+  opacity: 0;
+  transform: translateY(-8px);
+}
+
+/* ── 统一加载圆环（渐变双色，供全局复用）── */
+.ts-spinner {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 3px solid rgba(99, 102, 241, 0.15);
+  border-top-color: var(--accent-primary);
+  border-right-color: var(--accent-cyan);
+  animation: ts-spin 0.9s linear infinite;
+  box-shadow: 0 0 12px rgba(99, 102, 241, 0.12);
+}
+.ts-spinner.sm {
+  width: 20px;
+  height: 20px;
+  border-width: 2px;
+}
+.ts-spinner.lg {
+  width: 48px;
+  height: 48px;
+  border-width: 4px;
+}
+@keyframes ts-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 /* ── 响应式文字 ── */
 @media (max-width: 640px) {
   html {

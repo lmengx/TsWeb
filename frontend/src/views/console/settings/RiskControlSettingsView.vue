@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { get, post } from '../../../utils/api.js'
+import Loading from '../../../components/Loading.vue'
 
 const loading = ref(true)
 const error = ref('')
@@ -282,7 +283,7 @@ onUnmounted(() => {
 
 <template>
   <div class="settings-page">
-    <div v-if="loading" class="loading-state"><p>加载中...</p></div>
+    <Loading v-if="loading" text="加载中..." />
 
     <div v-else class="settings-content">
 
@@ -474,12 +475,6 @@ onUnmounted(() => {
 
 .settings-content {
   max-width: 760px;
-}
-
-.loading-state {
-  text-align: center;
-  padding: 60px;
-  color: var(--text-muted);
 }
 
 .section-card {

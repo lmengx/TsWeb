@@ -3,6 +3,7 @@ import { ref, computed, watch, onMounted, onUnmounted, Transition } from 'vue'
 import { useRouter } from 'vue-router'
 import { get } from '../../utils/api.js'
 import BanListView from './BanListView.vue'
+import Loading from '../../components/Loading.vue'
 
 const isMobile = ref(false)
 let mql = null
@@ -385,7 +386,7 @@ onMounted(() => {
           <input type="date" v-model="hourlyDate" class="filter-date" />
         </div>
         <div class="card-body">
-          <div v-if="hourlyLoading" class="loading">加载中...</div>
+          <Loading v-if="hourlyLoading" size="sm" text="加载中..." />
           <div v-else class="bar-chart">
             <div v-for="h in 24" :key="h - 1" class="bar-col" :class="{ future: h - 1 > maxVisibleHour }"
               @mouseenter="h - 1 <= maxVisibleHour && showHourlyTooltip(h - 1, $event)" @mouseleave="hideHourlyTooltip">

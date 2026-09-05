@@ -3,6 +3,7 @@ import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { get } from '../../utils/api.js'
 import { getUnverifiedDetail, registerPlayer, forceLogin, kickUnverified, banUnverified } from '../../utils/unverifiedApi.js'
+import Loading from '../../components/Loading.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -229,7 +230,7 @@ onMounted(fetchDetail)
       <button @click="goBack" class="back-btn">← 返回玩家列表</button>
     </div>
 
-    <div v-if="loading" class="loading-state">加载中...</div>
+    <Loading v-if="loading" text="加载中..." />
     <div v-else-if="error" class="error-state">{{ error }}</div>
     <div v-else-if="player" class="detail-content">
       <!-- 玩家信息卡片 -->
@@ -446,7 +447,7 @@ onMounted(fetchDetail)
   color: var(--accent-primary);
 }
 
-.loading-state, .error-state {
+.error-state {
   text-align: center;
   padding: 60px 20px;
   color: var(--text-muted);

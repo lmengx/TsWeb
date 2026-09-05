@@ -1,6 +1,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
 import AppSelect from '../../components/AppSelect.vue'
+import Loading from '../../components/Loading.vue'
 import {
   listTasks, getTask, saveTask, deleteTask, runTask,
   listTaskLogs, getTaskLogDetail, BOSS_NAMES
@@ -378,10 +379,7 @@ onMounted(() => { loadTasks() })
     <div v-if="success" class="alert alert-success">{{ success }}</div>
 
     <Transition name="fade-slide" mode="out-in">
-      <div v-if="loading" key="loading" class="loading-state">
-        <div class="spinner"></div>
-        <p>加载中...</p>
-      </div>
+      <Loading v-if="loading" key="loading" text="加载中..." />
 
       <!-- ===== 任务卡片列表 ===== -->
       <div v-else key="content" class="tasks-content">
@@ -606,10 +604,7 @@ onMounted(() => { loadTasks() })
           <button class="modal-close" @click="closeLogs">✕</button>
         </div>
 
-        <div v-if="logsLoading" class="loading-state">
-          <div class="spinner"></div>
-          <p>加载中...</p>
-        </div>
+        <Loading v-if="logsLoading" text="加载中..." />
 
         <div v-else-if="logs.length === 0" class="empty-state">
           <p>暂无执行记录</p>
@@ -669,21 +664,7 @@ onMounted(() => { loadTasks() })
 .alert-error { background: rgba(239, 68, 68, 0.12); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); }
 .alert-success { background: rgba(34, 197, 94, 0.12); color: #22c55e; border: 1px solid rgba(34, 197, 94, 0.3); }
 
-.loading-state { padding: 60px; text-align: center; color: var(--text-secondary); display: flex; flex-direction: column; align-items: center; gap: 12px; }
-.spinner {
-  width: 34px; height: 34px;
-  border: 3px solid var(--border-light);
-  border-top-color: var(--accent-primary);
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-@keyframes spin { to { transform: rotate(360deg); } }
 .empty-state { padding: 40px; text-align: center; color: var(--text-secondary); }
-
-/* 列表加载过渡 */
-.fade-slide-enter-active, .fade-slide-leave-active { transition: opacity 0.3s ease, transform 0.3s ease; }
-.fade-slide-enter-from { opacity: 0; transform: translateY(12px); }
-.fade-slide-leave-to { opacity: 0; transform: translateY(-6px); }
 
 .tasks-toolbar { display: flex; justify-content: flex-end; margin-bottom: 16px; }
 .btn-add { padding: 8px 16px; border-radius: 10px; border: 1px solid rgba(99, 102, 241, 0.3); background: rgba(99, 102, 241, 0.12); color: #818cf8; font-size: 0.88rem; cursor: pointer; transition: all 0.2s; }

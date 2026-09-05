@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import Loading from '../components/Loading.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -160,10 +161,7 @@ async function submitCreateAdmin() {
     <div class="init-container">
 
       <!-- 加载中 -->
-      <div v-if="loading" class="loading-overlay">
-        <div class="spinner"></div>
-        <p>正在校验授权...</p>
-      </div>
+      <Loading v-if="loading" overlay text="正在校验授权..." />
 
       <!-- Token 缺失 -->
       <div v-else-if="tokenMissing" class="token-auth-overlay">
@@ -245,27 +243,6 @@ async function submitCreateAdmin() {
   width: 100%;
   padding: 48px 24px 80px;
 }
-
-/* ═══ 加载中 ═══ */
-.loading-overlay {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  min-height: 60vh;
-  gap: 16px;
-  color: #94a3b8;
-  font-size: 0.9rem;
-}
-.spinner {
-  width: 40px;
-  height: 40px;
-  border: 3px solid rgba(99, 102, 241, 0.2);
-  border-top-color: #6366f1;
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-@keyframes spin { to { transform: rotate(360deg); } }
 
 /* ═══ 顶部标题 ═══ */
 .init-header {
