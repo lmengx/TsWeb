@@ -329,22 +329,31 @@ namespace TShockData
 			var active = GetActiveEntries(now);
 			if (active.Count == 0) return;
 
-			var player = GetActivePlayer(args.Who);
-			if (player == null) return;
+			var player = GetJoinPlayer(args.Who);
+			if (player == null)
+			{
+				TShock.Log.ConsoleInfo($"[TSWeb][Curfew] ServerJoin#{args.Who} 玩家对象为空，跳过（宵禁生效中）");
+				return;
+			}
 
 			var group = ResolveJoinGroup(player);
-			if (group == null) return;
+			if (string.IsNullOrEmpty(group))
+			{
+				TShock.Log.ConsoleInfo($"[TSWeb][Curfew] ServerJoin#{args.Who} {player.Name} 无法判定组，跳过");
+				return;
+			}
 
 			if (IsGroupExempt(active.Select(x => x.Entry), group))
 			{
 				// 宵禁生效期间放行 → 记录进服时间，登录时兜底复查
 				_joinTimes[args.Who] = now;
+				TShock.Log.ConsoleInfo($"[TSWeb][Curfew] ServerJoin#{args.Who} {player.Name} 组={group} 豁免放行");
 				return;
 			}
 
 			args.Handled = true;
 			SafeKick(player, BuildMessage(active, now));
-			TShock.Log.ConsoleInfo($"[TSWeb][Curfew] 进服拦截（宵禁）: {player.Name} 组={group}");
+			TShock.Log.ConsoleInfo($"[TSWeb][Curfew] 进服拦截（宵禁）: #{args.Who} {player.Name} 组={group}");
 		}
 
 		/// <summary>进服时判定玩家所属组：已登录直接用玩家组；否则按角色名查账号组；无账号视为 guest 组</summary>
@@ -400,7 +409,7 @@ namespace TShockData
 		// 定时器：一次性条目到期自动关闭 + 状态变化日志
 		// ═══════════════════════════════════════════
 
-		private static void OnTick(object _)
+		private static void OnTick(object? _)
 		{
 			try
 			{
@@ -537,7 +546,7 @@ namespace TShockData
 		}
 
 		/// <summary>条目字段校验，非法返回错误描述，合法返回 null</summary>
-		private static string ValidateEntry(CurfewEntry e, DateTime now)
+		private static string? ValidateEntry(CurfewEntry e, DateTime now)
 		{
 			if (string.IsNullOrWhiteSpace(e.Name))
 				return "名称不能为空";
@@ -759,18 +768,23 @@ namespace TShockData
 		// 辅助
 		// ═══════════════════════════════════════════
 
-		private static TSPlayer? GetActivePlayer(int who)
+		/// <summary>
+		/// 取 ServerJoin 阶段的玩家对象。
+		/// 注意：此阶段 Terraria 原生 Main.player[who].active 可能尚未置 true（greetPlayer 前），
+		/// 不能用 TSPlayer.Active 过滤，否则会漏拦截；TShock.OnJoin 同样直接使用 Players[who]。
+		/// </summary>
+		private static TSPlayer? GetJoinPlayer(int who)
 		{
 			if (who < 0 || who >= TShock.Players.Length) return null;
-			var p = TShock.Players[who];
-			return p != null && p.Active ? p : null;
+			return TShock.Players[who];
 		}
 
 		private static void SafeKick(TSPlayer player, string reason)
 		{
 			try
 			{
-				if (player != null && player.Active && player.ConnectionAlive)
+				// 不要求 player.Active：ServerJoin 阶段 Main.player[who].active 可能尚未置 true
+				if (player != null && player.ConnectionAlive)
 					player.Kick(reason, true);
 			}
 			catch (Exception ex)
@@ -839,6 +853,6 @@ namespace TShockData
 
 		/// <summary>条目级豁免组；null/空则用全局豁免组</summary>
 		[JsonProperty("exemptGroups")]
-		public List<string> ExemptGroups { get; set; }
+		public List<string>? ExemptGroups { get; set; }
 	}
 }
