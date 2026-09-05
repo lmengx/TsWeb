@@ -669,12 +669,15 @@ namespace TShockData
 
         // ==========================================================================
         // 子模块3: MinionLimit — 召唤物数量上限（异常数据限制）
-        // 检测依据：玩家名下的活跃召唤物弹幕（Projectile.minion && !sentry），
-        // 哨兵/宠物/坐骑不计。超过上限即审计并踢出（一次即踢）。
+        // 检测依据：玩家占用的召唤槽位（TPlayer.slotsMinions，服务端权威、随弹幕
+        // 每帧维护）。不能用 minion 弹幕条数——星尘龙每段(625-628)/泰拉棱镜剑刃(946)/
+        // 星尘守卫(623) 都是 minion=true 弹幕，一条星尘龙就有最多 11 条弹幕，
+        // 弹幕条数远大于实际召唤物数量，曾把只召唤 2 个召唤物的正常玩家判成 20 踢出。
+        // 实现参照 TShockPlugin-master/src/ServerTools 的 NewProj。超上限即审计并踢出（一次即踢）。
         // ==========================================================================
         public static class MinionLimit
         {
-            /// <summary>召唤物数量上限：超过即拦截创建并踢出</summary>
+            /// <summary>召唤槽位上限：超过即拦截创建并踢出（正常玩家极限约 11 槽，20 留足余量）</summary>
             private const int MaxMinions = 20;
             /// <summary>弹幕类型 → 是否为召唤物（0=未知, 1=召唤物, 2=非召唤物）</summary>
             private static readonly int[] _typeCache = new int[ProjectileID.Count];
@@ -695,7 +698,7 @@ namespace TShockData
                 if (e.Handled)
                     return;
 
-                // 只有召唤物弹幕才计数（哨兵/宠物/坐骑不计）
+                // 只有召唤物弹幕才检查（哨兵/宠物/坐骑不计）
                 if (!IsMinionType(e.Type))
                     return;
 
@@ -703,17 +706,21 @@ namespace TShockData
                 if (plr == null || !plr.Active || !plr.IsLoggedIn)
                     return;
 
-                var count = CountMinions(e.Owner);
-                if (count < MaxMinions)
+                // 召唤物数量以「召唤槽位占用」为准（slotsMinions），不数弹幕条数：
+                // 星尘龙每段(625-628)、泰拉棱镜剑刃(946)、星尘守卫(623) 等均标记
+                // minion=true，一条星尘龙最多 11 条弹幕但只占 1 个召唤位，
+                // 按弹幕计数会把正常玩家误判为异常（曾把 2 个召唤物判成 20）。
+                if (plr.TPlayer.slotsMinions <= MaxMinions)
                     return;
 
                 // 已满 → 拦截本次召唤 + 审计 + 踢出（一次即踢）
                 e.Handled = true;
                 var account = plr.Account?.Name ?? "未登录";
-                TShock.Log.ConsoleInfo($"[MinionLimit][审计] 玩家={plr.Name} 账号={account} IP={plr.IP} 召唤物={count} 上限={MaxMinions} 弹幕类型={e.Type}");
+                var slots = plr.TPlayer.slotsMinions;
+                TShock.Log.ConsoleInfo($"[MinionLimit][审计] 玩家={plr.Name} 账号={account} IP={plr.IP} 召唤槽位={slots} 上限={MaxMinions} 弹幕类型={e.Type}");
                 try
                 {
-                    plr.Kick($"召唤物数量异常 ({count}/{MaxMinions})", true);
+                    plr.Kick($"召唤物数量异常 ({slots}/{MaxMinions})", true);
                 }
                 catch (Exception ex)
                 {
@@ -733,19 +740,6 @@ namespace TShockData
                 p.SetDefaults(type);
                 _typeCache[type] = (p.minion && !p.sentry) ? 1 : 2;
                 return _typeCache[type] == 1;
-            }
-
-            /// <summary>统计玩家当前活跃的召唤物（minion 且非哨兵）数量</summary>
-            private static int CountMinions(int whoAmI)
-            {
-                var count = 0;
-                for (var i = 0; i < Main.projectile.Length; i++)
-                {
-                    var p = Main.projectile[i];
-                    if (p.active && p.owner == whoAmI && p.minion && !p.sentry)
-                        count++;
-                }
-                return count;
             }
         }
 
