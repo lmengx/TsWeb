@@ -36,6 +36,39 @@
 
 ---
 
+## 目录约定：scripts/ 与 tmp/（临时区）
+
+### scripts/ —— 常用脚本仓库（本地使用，已在 .gitignore 忽略）
+
+按分类存放**整理好的常用工具**，新增可复用工具放入对应分类：
+
+| 分类 | 内容 |
+|------|------|
+| `scripts/反编译/工具` | Terraria/TShock 反编译工具（`_ilspy_*.py`、`th_decomp`、`th_dump`、`dcmp_drop`、`dcmp_mb`、`dcmpv7` 及 find/scan 辅助脚本） |
+| `scripts/反编译/参考源码` | 反编译参考源码与输出（`_tml_full`、`_tml_ref`、`_bossai_ref`、`_pg_ref`、`_spectate_ref`、`_t8ref`、`_terraria_ref`、`_fargo_*`、`TShock` 源码、decompiled `.cs`） |
+| `scripts/抓包/工具` | 抓包工具（`PacketCatch`、`TerraAngel1457Patch`） |
+| `scripts/抓包/数据` | 抓包原始数据与日志（`.pcapd`、`进服原始日志.txt`、`抓包节选.txt`、`跨服收包.txt`） |
+| `scripts/分析` | 分析/辅助脚本（Python/JS/MJS）与 `api_diff` API 差异对比 |
+| `scripts/文档` | 设计文档、规范、审查报告（`开发设计*.txt`、`HOUSE_SPEC.md`、`权限设计_TSWeb_RBAC.md`、`自动任务系统设计.md` 等） |
+| `scripts/数据` | 数据文件（strings 表、客户端清单、`弹幕违禁.json`、世界存档 `.wld`/`.tsb`、`tshock.sqlite`、APK、zip、dll） |
+
+### tmp/ —— 临时与归档区（已 gitignore，禁止进 git）
+
+**后续所有临时性文件一律放入 `tmp/`**，不得堆进 `scripts/` 或其他目录。包括：
+
+1. 一次性/临时脚本与中间产物（用后即弃的分析脚本、反编译临时输出、转储文件）
+2. 原始抓包数据、抓包日志（`.pcapd`、进服原始日志等未整理的数据）
+3. 大文件与二进制（APK、dll、世界存档 `.wld`/`.tsb`、sqlite、zip 包）
+4. 测试数据、复现材料、旧版本/重复产物、备份文件
+5. 尚未分类整理的散落文件（先放 tmp，整理后再移入 scripts/ 对应分类）
+6. 任何不应提交到 git 的本地杂物
+
+**规则：可复用 → 整理进 `scripts/` 对应分类；一次性/临时/大文件 → 放 `tmp/`。**
+从 scripts/ 清理出的杂项统一归档到 tmp/（tmp 保留 scripts/ 全量快照，可随时找回）。
+当前 scripts/ 结构说明见 `scripts/README.md`。
+
+---
+
 ## 核心原则
 
 | 原则 | 说明 |

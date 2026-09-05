@@ -138,6 +138,7 @@ dist
 .pnp.*
 /参考源码
 /scripts
+/tmp
 
 /.talkcody
 _temp_fix.js
