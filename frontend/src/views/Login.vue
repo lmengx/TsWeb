@@ -121,11 +121,11 @@ const goHome = () => { router.push('/') }
 
       <form @submit.prevent="login" class="login-form">
         <div class="form-group">
-          <label class="form-label">用户名</label>
+          <label class="form-label">用户名 / QQ号</label>
           <input
             v-model="loginForm.username"
             type="text"
-            placeholder="请输入用户名"
+            placeholder="请输入用户名或QQ号"
             :disabled="loading"
             :class="{ error: loginStatus === 'user_not_found', success: loginStatus === 'success' }"
           />

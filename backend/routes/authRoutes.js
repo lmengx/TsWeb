@@ -2,7 +2,7 @@ import { Router } from 'express'
 import {
   getServerKey, login, setupLogin, changePassword,
   playerLogin, playerMe,
-  getAccounts, addAccount, removeAccount, resetAccountPassword,
+  getAccounts, addAccount, getLinkableAccounts, removeAccount, resetAccountPassword,
   changeAccountRole
 } from '../controllers/authController.js'
 import { verifyToken, requireAdmin, requirePlayer } from '../middlewares/authMiddleware.js'
@@ -22,6 +22,7 @@ router.post('/change-password', verifyToken, changePassword)
 
 // 账户管理（仅 admin）
 router.get('/accounts', verifyToken, requireAdmin, getAccounts)
+router.get('/accounts/linkable', verifyToken, requireAdmin, getLinkableAccounts)
 router.post('/accounts', verifyToken, requireAdmin, addAccount)
 router.delete('/accounts/:username', verifyToken, requireAdmin, removeAccount)
 router.post('/accounts/:username/reset-password', verifyToken, requireAdmin, resetAccountPassword)

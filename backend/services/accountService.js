@@ -3,6 +3,7 @@ import path from 'path'
 import crypto from 'crypto'
 import bcrypt from 'bcrypt'
 import { fileURLToPath } from 'url'
+import { getAccountByUsernameCI } from './qqAccountService.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -12,7 +13,7 @@ const ACCOUNTS_PATH = path.join(__dirname, '..', 'data', 'accounts.json')
 export const ROLE_ADMIN = 'admin'
 export const ROLE_SUBADMIN = 'subadmin'
 
-// 全局唯一 admin 用户名
+// 初始管理员用户名（setup 首次初始化 / setup-login JWT 使用；放开后可存在多个 admin）
 export const ADMIN_USERNAME = 'admin'
 
 let accounts = null
@@ -47,16 +48,29 @@ export async function hasAnyAccount() {
   return Object.keys(acc).length > 0
 }
 
-/** 判断全局唯一 admin 是否已存在 */
-export async function hasAdmin() {
-  const acc = await load()
-  return Object.values(acc).some(a => a.role === ROLE_ADMIN)
-}
-
 export async function getAccount(username) {
   const acc = await load()
   const key = String(username || '').toLowerCase()
   return acc[key] || null
+}
+
+/**
+ * 按登录标识查找账户（双标识）：
+ *  - 5-15 位纯数字 → 按 QQ 号匹配（台账关联账户）
+ *  - 其余 → 按用户名大小写不敏感匹配
+ */
+export async function findAccountByIdent(ident) {
+  const s = String(ident || '').trim()
+  if (!s) return null
+  const acc = await load()
+  if (/^\d{5,15}$/.test(s)) {
+    for (const [key, a] of Object.entries(acc)) {
+      if (a.qq && String(a.qq) === s) return { key, ...a }
+    }
+  }
+  const key = s.toLowerCase()
+  if (acc[key]) return { key, ...acc[key] }
+  return null
 }
 
 export async function listAccounts() {
@@ -65,6 +79,8 @@ export async function listAccounts() {
     .map(a => ({
       username: a.username,
       role: a.role,
+      qq: a.qq || '',
+      linkedTo: a.linkedTo || '',
       createdAt: a.createdAt,
       updatedAt: a.updatedAt
     }))
@@ -74,57 +90,72 @@ export async function listAccounts() {
 /**
  * 创建账户
  * 约束：
- *  - 全局唯一 admin：role=admin 只能创建一次，且用户名强制为 "admin"
- *  - 普通账户 role=subadmin
+ *  - 角色仅 admin / subadmin；不限制 admin 数量（可多管理员）
+ *  - linkedTo 模式：从现有 QQ 台账（qq_accounts.json）选取用户授予管理身份，
+ *    登录凭证（QQ/用户名 + 密码）以台账为准（实时校验），不由 TShock 权限决定，仅 admin 手动授予
+ *  - 普通模式：手动设置用户名 + 密码（bcrypt 落盘）
  */
-export async function createAccount(username, password, role) {
+export async function createAccount(username, password, role, { linkedTo } = null) {
   const targetRole = role === ROLE_ADMIN ? ROLE_ADMIN : ROLE_SUBADMIN
-  const name = String(username || '').trim()
-  const key = name.toLowerCase()
+  let name = String(username || '').trim()
+  let qq = ''
+  let passwordHash = null
+  let linked = null
+
+  if (linkedTo) {
+    // 台账关联模式：凭证取自现有 QQ 绑定数据
+    linked = await getAccountByUsernameCI(linkedTo)
+    if (!linked || !linked.passwordHash) {
+      throw new Error('QQ 台账中不存在该用户或该用户未设置密码')
+    }
+    name = name || linked.username
+    qq = String(linked.qq || '')
+  } else {
+    if (!password || String(password).length < 8) {
+      throw new Error('密码长度至少 8 位')
+    }
+    passwordHash = await bcrypt.hash(String(password), 12)
+  }
 
   if (!name) throw new Error('用户名不能为空')
-  if (!password || String(password).length < 8) {
-    throw new Error('密码长度至少 8 位')
-  }
-
-  // 唯一 admin 约束
-  if (targetRole === ROLE_ADMIN) {
-    if (name !== ADMIN_USERNAME) {
-      throw new Error(`唯一管理员用户名必须为 "${ADMIN_USERNAME}"`)
-    }
-    if (await hasAdmin()) {
-      throw new Error('已存在全局唯一管理员，无法创建第二个 admin')
-    }
-  }
 
   const acc = await load()
+  const key = name.toLowerCase()
   if (acc[key]) {
     throw new Error('用户名已存在')
   }
 
-  const hash = await bcrypt.hash(String(password), 12)
   const now = new Date().toISOString()
   acc[key] = {
     username: name,
-    passwordHash: hash,
+    qq,
+    // 台账关联账户不落盘密码哈希：登录时实时读 qq_accounts.json（改密即时同步）
+    ...(linked ? { linkedTo: linked.username, passwordHash: undefined } : { passwordHash }),
     role: targetRole,
     createdAt: now,
     updatedAt: now
   }
   await persist()
-  return { username: name, role: targetRole }
+  return { username: name, role: targetRole, linkedTo: linked ? linked.username : '' }
 }
 
 /** 校验密码（登录 / 自助改密旧密码验证），成功返回账户信息 */
-export async function verifyAccount(username, password) {
-  const account = await getAccount(username)
-  if (!account || !account.passwordHash) return null
-  const ok = await bcrypt.compare(String(password), account.passwordHash)
-  if (!ok) return null
-  return {
-    username: account.username,
-    role: account.role
+export async function verifyAccount(ident, password) {
+  const account = await findAccountByIdent(ident)
+  if (!account) return null
+
+  // 台账关联账户：密码以 qq_accounts.json 为准（与游戏同源，实时校验）
+  let hash = account.passwordHash
+  if (account.linkedTo) {
+    const linked = await getAccountByUsernameCI(account.linkedTo)
+    if (!linked || !linked.passwordHash) return null
+    hash = linked.passwordHash
   }
+  if (!hash) return null
+
+  const ok = await bcrypt.compare(String(password), hash)
+  if (!ok) return null
+  return { username: account.username, role: account.role, linkedTo: account.linkedTo }
 }
 
 /**
@@ -134,6 +165,9 @@ export async function verifyAccount(username, password) {
 export async function changePassword(username, oldPassword, newPassword) {
   const account = await getAccount(username)
   if (!account) throw new Error('用户不存在')
+  if (account.linkedTo) {
+    throw new Error('该账户密码由 QQ 绑定数据托管，请通过游戏内或 QQ 渠道修改')
+  }
 
   if (!oldPassword) {
     throw new Error('旧密码为必填')
@@ -161,6 +195,9 @@ export async function changePassword(username, oldPassword, newPassword) {
 export async function resetPassword(username) {
   const account = await getAccount(username)
   if (!account) throw new Error('用户不存在')
+  if (account.linkedTo) {
+    throw new Error('该账户密码由 QQ 绑定数据托管，无法在后端重置，请通过游戏内或 QQ 渠道修改')
+  }
 
   const plain = generateStrongPassword(16)
   account.passwordHash = await bcrypt.hash(plain, 12)
@@ -169,29 +206,23 @@ export async function resetPassword(username) {
   return { username: account.username, plainPassword: plain }
 }
 
-/** 删除账户。铁律：不允许删除全局唯一 admin */
+/** 删除账户。铁律：不允许删除当前登录账户（controller 校验）；允许删除任意其他账户（含其他 admin） */
 export async function deleteAccount(username) {
   const account = await getAccount(username)
   if (!account) throw new Error('用户不存在')
-  if (account.role === ROLE_ADMIN) {
-    throw new Error('不允许删除全局唯一管理员')
-  }
   const acc = await load()
   delete acc[String(username).toLowerCase()]
   await persist()
   return { username: account.username, role: account.role }
 }
 
-/** 更新角色（仅 subadmin 之间/降级可用，不允许提升为 admin 或操作 admin） */
+/** 更新角色（admin / subadmin 互转；不允许修改当前登录账户，由 controller 校验） */
 export async function updateRole(username, role) {
   if (role !== ROLE_ADMIN && role !== ROLE_SUBADMIN) {
     throw new Error('无效的角色')
   }
   const account = await getAccount(username)
   if (!account) throw new Error('用户不存在')
-  if (account.role === ROLE_ADMIN) {
-    throw new Error('不允许修改唯一管理员角色')
-  }
   const from = account.role
   account.role = role
   account.updatedAt = new Date().toISOString()

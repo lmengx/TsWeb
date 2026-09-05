@@ -210,19 +210,41 @@ export const getAccounts = async (req, res) => {
 
 export const addAccount = async (req, res) => {
   try {
-    const { username, password, role } = req.body
-    if (!username || !password) {
-      return res.status(400).json({ error: 'username 和 password 均为必填' })
+    const { username, password, role, linkedTo } = req.body
+    if (!username && !linkedTo) {
+      return res.status(400).json({ error: '请提供用户名，或选择要关联的 QQ 台账用户' })
     }
-    const account = await createAccount(username, password, role || 'subadmin')
+    // linkedTo：从现有 QQ 台账选取用户授予管理身份（登录凭证以台账为准，可设多 admin）
+    const account = await createAccount(username, password, role || 'subadmin', { linkedTo })
     audit.record('account.create', {
       username: account.username,
       role: account.role,
+      linkedTo: account.linkedTo || '',
       actor: req.user?.username
     })
     res.json({ success: true, account })
   } catch (err) {
     res.status(400).json({ error: err.message })
+  }
+}
+
+/**
+ * 可选关联的 QQ 台账用户列表（尚未成为管理端账户）：供 admin 添加管理员时选择
+ * 返回：{ accounts: [{ username, qq }] }
+ */
+export const getLinkableAccounts = async (req, res) => {
+  try {
+    const { getAccounts } = await import('../services/qqAccountService.js')
+    const records = await getAccounts()
+    const existing = await listAccounts()
+    const used = new Set(existing.map(a => String(a.username).toLowerCase()))
+    const linkable = Object.entries(records)
+      .filter(([name]) => !used.has(String(name).toLowerCase()))
+      .map(([name, rec]) => ({ username: name, qq: String(rec.qq || '') }))
+      .sort((a, b) => a.username.localeCompare(b.username))
+    res.json({ accounts: linkable })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
   }
 }
 
@@ -267,6 +289,9 @@ export const changeAccountRole = async (req, res) => {
     const { username } = req.params
     const { role } = req.body
     if (!username || !role) return res.status(400).json({ error: 'username 和 role 均为必填' })
+    if (String(username).toLowerCase() === String(req.user?.username || '').toLowerCase()) {
+      return res.status(400).json({ error: '不能修改当前登录账户的角色' })
+    }
     const result = await updateRole(username, role)
     audit.record('account.role_change', {
       username: result.username,

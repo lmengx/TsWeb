@@ -1,4 +1,4 @@
-export const ADMIN_ROLES = ['admin']           // 全局唯一管理员
+export const ADMIN_ROLES = ['admin']           // 管理员（可为多个）
 export const MANAGER_ROLES = ['admin', 'subadmin']  // 所有管理（admin + 子管理员）
 
 export const getUserFromStorage = () => {
