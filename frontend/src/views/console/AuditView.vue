@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { apiRequest } from '../../utils/api.js'
+import Loading from '../../components/Loading.vue'
 
 // ═══════════════════════════════════════════════════════════
 // 状态
@@ -177,7 +178,7 @@ onMounted(() => {
           </tr>
         </thead>
         <tbody>
-          <tr v-if="loading"><td colspan="7" class="td-center">加载中...</td></tr>
+          <tr v-if="loading"><td colspan="7" class="td-center"><Loading size="sm" text="" /></td></tr>
           <tr v-else-if="rows.length === 0"><td colspan="7" class="td-center">无匹配日志</td></tr>
           <tr v-for="r in rows" :key="r.id">
             <td class="td-time">{{ formatTime(r.ts) }}</td>

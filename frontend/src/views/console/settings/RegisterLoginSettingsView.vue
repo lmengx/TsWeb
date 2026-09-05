@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted, watch } from 'vue'
 import { get, post } from '../../../utils/api.js'
+import Loading from '../../../components/Loading.vue'
 
 const loading = ref(true)
 const error = ref('')
@@ -64,9 +65,7 @@ onMounted(fetchConfig)
 
 <template>
   <div class="settings-page">
-    <div v-if="loading" class="loading-state">
-      <p>加载中...</p>
-    </div>
+    <Loading v-if="loading" text="加载中..." />
 
     <div v-else class="settings-content">
       <div class="settings-grid">
@@ -140,12 +139,6 @@ onMounted(fetchConfig)
 
 .settings-content {
   max-width: 700px;
-}
-
-.loading-state {
-  text-align: center;
-  padding: 60px;
-  color: var(--text-muted);
 }
 
 .settings-grid {

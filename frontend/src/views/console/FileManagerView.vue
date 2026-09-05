@@ -40,7 +40,7 @@
         <span class="col-actions">操作</span>
       </div>
 
-      <div v-if="loading" class="list-status">加载中...</div>
+      <Loading v-if="loading" size="sm" text="加载中..." />
       <div v-else-if="entries.length === 0" class="list-status">空目录</div>
 
       <div v-for="e in entries" :key="e.type + e.name" class="file-row"
@@ -73,7 +73,7 @@
         <span class="col-actions">操作</span>
       </div>
 
-      <div v-if="loading" class="list-status">加载中...</div>
+      <Loading v-if="loading" size="sm" text="加载中..." />
       <div v-else-if="savedFiles.length === 0" class="list-status">暂无已保存的文件</div>
 
       <div v-for="f in savedFiles" :key="f.name" class="file-row">
@@ -124,7 +124,7 @@
             <button class="preview-close" @click="closePreview">✕</button>
           </div>
           <div class="preview-body">
-            <div v-if="preview.loading" class="preview-status">加载中...</div>
+            <Loading v-if="preview.loading" size="sm" text="加载中..." />
             <div v-else-if="preview.error" class="preview-status error">{{ preview.error }}</div>
             <textarea v-else v-model="preview.content" spellcheck="false" class="preview-editor"></textarea>
           </div>
@@ -150,6 +150,7 @@ import {
   listSavedFiles, downloadSavedFile, deleteSavedFile,
   isTextFile, formatSize
 } from '../../utils/fileApi.js'
+import Loading from '../../components/Loading.vue'
 
 // ═══ 视图切换 ═══
 const viewMode = ref('browse')

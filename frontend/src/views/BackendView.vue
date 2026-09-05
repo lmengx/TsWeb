@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import Loading from '../components/Loading.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -44,10 +45,7 @@ onMounted(async () => {
 
 <template>
   <div class="backend-redirect-page">
-    <div v-if="loading" class="loading-box">
-      <div class="spinner"></div>
-      <p>正在跳转...</p>
-    </div>
+    <Loading v-if="loading" text="正在跳转..." />
   </div>
 </template>
 
@@ -60,20 +58,4 @@ onMounted(async () => {
   background: linear-gradient(135deg, #0f0c29, #1a1740, #242150);
   color: #94a3b8;
 }
-.loading-box {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 16px;
-  font-size: 0.9rem;
-}
-.spinner {
-  width: 40px;
-  height: 40px;
-  border: 3px solid rgba(99, 102, 241, 0.2);
-  border-top-color: #6366f1;
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-@keyframes spin { to { transform: rotate(360deg); } }
 </style>

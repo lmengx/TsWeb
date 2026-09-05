@@ -3,6 +3,7 @@ import { ref, onMounted } from 'vue'
 import ItemSearchDialog from '../../components/ItemSearchDialog.vue'
 import { getItemConfig, saveItemConfig, clearItemCache, scanItems, scanItemById } from '../../api/antiCheatApi.js'
 import { loadItemData } from '../../api/itemDataApi.js'
+import Loading from '../../components/Loading.vue'
 
 const itemConfig = ref(null)
 const itemConfigEdit = ref(null)
@@ -340,10 +341,7 @@ onMounted(() => {
     </div>
 
     <div class="section">
-      <div v-if="itemLoading" class="loading">
-        <div class="loading-spinner"></div>
-        <span>加载中...</span>
-      </div>
+      <Loading v-if="itemLoading" text="加载中..." />
 
       <div v-else-if="itemConfigEdit">
         <div class="scan-section">
@@ -1627,24 +1625,5 @@ onMounted(() => {
   color: var(--accent-error);
   border-radius: 8px;
   font-size: 0.85rem;
-}
-
-.loading {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  padding: 40px;
-  color: var(--text-muted);
-}
-
-.loading-spinner {
-  width: 40px;
-  height: 40px;
-  border: 3px solid rgba(99, 102, 241, 0.2);
-  border-top-color: var(--accent-primary);
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
 }
 </style>

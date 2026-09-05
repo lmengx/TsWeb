@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { get, post } from '../utils/api.js'
+import Loading from './Loading.vue'
 
 const props = defineProps({
   users: {
@@ -261,9 +262,7 @@ const handleRowClick = (user) => {
       </div>
     </div>
 
-    <div v-if="loading" class="loading-state">
-      <p>加载中...</p>
-    </div>
+    <Loading v-if="loading" size="sm" text="加载中..." />
 
     <div v-else-if="filteredUsers.length === 0" class="empty-state">
       <p>{{ searchQuery ? '未找到匹配的用户' : (showWithCharacter ? '没有有角色数据的玩家' : '暂无用户') }}</p>
@@ -534,7 +533,6 @@ const handleRowClick = (user) => {
   cursor: pointer;
 }
 
-.loading-state,
 .empty-state {
   text-align: center;
   padding: 60px 20px;

@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import forge from 'node-forge'
 import { playerGet, playerPost } from '../utils/playerApi.js'
+import Loading from '../components/Loading.vue'
 
 // ═══════════════════════════════════════════════════════════
 // 玩家投票页（单页，只展示「活跃中」= 未归档轮次）
@@ -464,7 +465,7 @@ onBeforeUnmount(() => {
 
     <!-- ═══ 主体：当前投票详情 ═══ -->
     <div class="vote-body" ref="bodyEl">
-      <div v-if="loading" class="state-box">加载中…</div>
+      <Loading v-if="loading" text="加载中…" />
 
       <div v-else-if="currentRound" class="vote-card" :class="{ closed: currentRound.status === 'closed' }">
         <!-- 状态行 -->

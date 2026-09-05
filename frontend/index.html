@@ -1,10 +1,21 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Vite + Vue</title>
+    <title>TSWeb 管理面板</title>
+    <script>
+      // 首屏主题预置，避免闪烁：默认深色
+      ;(function () {
+        var theme = localStorage.getItem('tsweb-theme')
+        if (theme === 'light') {
+          document.documentElement.classList.add('light')
+        } else {
+          document.documentElement.classList.add('dark')
+        }
+      })()
+    </script>
   </head>
   <body>
     <div id="app"></div>

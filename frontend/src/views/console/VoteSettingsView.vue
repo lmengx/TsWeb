@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { get, post, patch, del } from '../../utils/api.js'
+import Loading from '../../components/Loading.vue'
 
 // ═══════════════════════════════════════════════════════════
 // 投票管理（蓝色主题）：发起投票 / 编辑 / 归档 / 删除 / 明细
@@ -462,7 +463,7 @@ onMounted(loadRounds)
     </div>
 
     <!-- ═══ 轮次列表 ═══ -->
-    <div v-if="loading" class="loading">加载中...</div>
+    <Loading v-if="loading" text="加载中..." />
 
     <div v-else class="vs-list">
       <div v-for="r in (activeTab === 'active' ? activeRounds : archivedRounds)" :key="r.id" class="vs-card round-card" :class="{ closed: r.status === 'closed' }">
@@ -644,7 +645,7 @@ onMounted(loadRounds)
             </button>
           </div>
 
-          <div v-if="detailLoading" class="loading">加载中...</div>
+          <Loading v-if="detailLoading" size="sm" text="加载中..." />
           <div v-else-if="detailError" class="msg error">{{ detailError }}</div>
 
           <!-- 投票明细：按选项分组 -->
@@ -831,7 +832,7 @@ onMounted(loadRounds)
 .msg.error { background: rgba(239, 68, 68, 0.1); color: #ef4444; }
 .msg.ok { background: rgba(34, 197, 94, 0.1); color: #16a34a; }
 
-.loading, .empty { text-align: center; color: var(--text-secondary); padding: 40px 0; font-size: 0.9rem; }
+.empty { text-align: center; color: var(--text-secondary); padding: 40px 0; font-size: 0.9rem; }
 
 /* ── 轮次卡片 ── */
 .round-card.closed { opacity: 0.78; }

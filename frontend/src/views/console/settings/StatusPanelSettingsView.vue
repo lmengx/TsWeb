@@ -3,6 +3,7 @@ import { ref, computed, nextTick, onMounted } from 'vue'
 import { get, post } from '../../../utils/api.js'
 import GradientText from '../tools/GradientText.vue'
 import { loadItemData } from '../../../api/itemDataApi.js'
+import Loading from '../../../components/Loading.vue'
 
 // ═══════════ 插值字典（前端展示 + 点击插入，无需手打） ═══════════
 const INTERPOLATIONS = [
@@ -425,9 +426,7 @@ const activeGroupList = computed(() => {
 
 <template>
   <div class="settings-page">
-    <div v-if="loading" class="loading-state">
-      <p>加载中...</p>
-    </div>
+    <Loading v-if="loading" text="加载中..." />
 
     <div v-else class="settings-content">
       <!-- 顶部总览（100% 宽）：状态面板总览 + 启用按钮 + 次要设置 -->
@@ -646,7 +645,6 @@ const activeGroupList = computed(() => {
 <style scoped>
 .settings-page { padding: 20px; width: 100%; }
 .settings-content { max-width: 1100px; }
-.loading-state { text-align: center; padding: 60px; color: var(--text-muted); }
 
 .section-card {
   background: var(--bg-card);

@@ -4,6 +4,7 @@ import { listHouses, listBuildings, getBuildingInfo,
   exportBuildingToLocal, exportBuildingToBackend, getOnlinePlayers,
   deleteLocalBuilding, listBackendBuildings, sendBuildingToBackend,
   uploadBuildingToPlugin, importBuildingToWorld, deleteBackendBuilding, downloadBackendBuilding } from '../../api/houseApi.js'
+import Loading from '../../components/Loading.vue'
 
 // ═══ 顶部主 Tab ═══
 const mainTab = ref('houses')   // 'houses' | 'buildings'
@@ -287,7 +288,7 @@ onMounted(() => { fetchHouses() })
     <!-- ═══ Tab1 房屋管理 ═══ -->
     <div v-if="mainTab === 'houses'" class="section">
       <div v-if="housesError" class="error-message">{{ housesError }}</div>
-      <div v-if="housesLoading" class="loading">加载中...</div>
+      <div v-if="housesLoading"><Loading text="加载中..." /></div>
       <div v-else-if="houses.length === 0" class="empty-state">暂无房屋数据（游戏中 /h c 圈地创建）</div>
 
       <div v-else class="house-list">
@@ -381,7 +382,7 @@ onMounted(() => { fetchHouses() })
       <!-- 插件本地 -->
       <div v-if="sourceTab === 'local'">
         <div v-if="buildingsError" class="error-message">{{ buildingsError }}</div>
-        <div v-if="buildingsLoading" class="loading">加载中...</div>
+        <div v-if="buildingsLoading"><Loading text="加载中..." /></div>
         <div v-else-if="buildings.length === 0" class="empty-state">暂无建筑存档（房屋卡片「导出」或游戏中 /h export 生成）</div>
         <div v-else class="table-wrap">
           <table class="data-table">
@@ -419,7 +420,7 @@ onMounted(() => { fetchHouses() })
       <!-- 后端 -->
       <div v-else>
         <div v-if="backendError" class="error-message">{{ backendError }}</div>
-        <div v-if="backendLoading" class="loading">加载中...</div>
+        <div v-if="backendLoading"><Loading text="加载中..." /></div>
         <div v-else-if="backendFiles.length === 0" class="empty-state">后端暂无建筑存档（房屋「导出→后端」或本地文件「发后端」）</div>
         <div v-else class="table-wrap">
           <table class="data-table">
@@ -520,7 +521,7 @@ onMounted(() => { fetchHouses() })
             <button class="modal-close" @click="closeDetail">✕</button>
           </div>
           <div class="modal-body">
-            <div v-if="detailLoading" class="loading">加载中...</div>
+            <div v-if="detailLoading"><Loading text="加载中..." /></div>
             <div v-else-if="detail && detail.error" class="error-message">{{ detail.error }}</div>
             <div v-else-if="detail" class="detail-content">
               <div class="detail-title">{{ detail.meta?.name || detail.file }}</div>
@@ -601,7 +602,6 @@ onMounted(() => { fetchHouses() })
   box-shadow: var(--shadow-md); border: 1px solid var(--border-light);
 }
 .error-message { padding: 12px 16px; background: rgba(239,68,68,.1); color: var(--accent-error); border-radius: var(--radius-md); margin-bottom: 16px; border: 1px solid rgba(239,68,68,.3); }
-.loading { text-align: center; padding: 40px; color: var(--text-muted); }
 .empty-state { text-align: center; padding: 40px; color: var(--text-muted); }
 
 /* 房屋卡片 */

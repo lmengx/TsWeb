@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { getProjConfig, saveProjConfig, clearProjCache } from '../../api/antiCheatApi.js'
+import Loading from '../../components/Loading.vue'
 
 const projConfig = ref(null)
 const projConfigEdit = ref(null)
@@ -210,10 +211,7 @@ onMounted(() => {
     </div>
 
     <div class="section">
-      <div v-if="projLoading" class="loading">
-        <div class="loading-spinner"></div>
-        <span>加载中...</span>
-      </div>
+      <Loading v-if="projLoading" text="加载中..." />
 
       <div v-else-if="projConfigEdit">
         <div class="config-header">
@@ -975,24 +973,5 @@ onMounted(() => {
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
-}
-
-.loading {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  padding: 40px;
-  color: var(--text-muted);
-}
-
-.loading-spinner {
-  width: 40px;
-  height: 40px;
-  border: 3px solid rgba(99, 102, 241, 0.2);
-  border-top-color: var(--accent-primary);
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
 }
 </style>

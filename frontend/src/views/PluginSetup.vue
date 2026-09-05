@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import Loading from '../components/Loading.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -177,10 +178,7 @@ onMounted(async () => {
         <p class="setup-subtitle">配置 TSWeb 插件的进服策略</p>
       </div>
 
-      <div v-if="loading" class="loading-state">
-        <div class="spinner"></div>
-        <p>正在检测插件状态...</p>
-      </div>
+      <Loading v-if="loading" text="正在检测插件状态..." />
 
       <div v-else-if="error && !setupCompleted" class="error-state">
         <p>❌ {{ error }}</p>
@@ -258,10 +256,7 @@ onMounted(async () => {
           <h3 class="section-title">SSC配置</h3>
           <p class="section-desc">配置服务器角色开荒（SSC）相关设置，决定玩家进服后是否使用统一角色数据。</p>
 
-          <div v-if="sscLoading" class="loading-state">
-            <div class="spinner"></div>
-            <p>正在读取配置文件...</p>
-          </div>
+          <Loading v-if="sscLoading" text="正在读取配置文件..." />
 
           <div v-else-if="sscConfig" class="ssc-card">
             <div class="ssc-row">
@@ -396,28 +391,6 @@ onMounted(async () => {
   margin: 8px 0 0;
   color: #6b7280;
   font-size: 0.95rem;
-}
-
-.loading-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 16px;
-  padding: 40px;
-  color: var(--text-muted);
-}
-
-.spinner {
-  width: 36px;
-  height: 36px;
-  border: 3px solid var(--border-light);
-  border-top-color: var(--accent-primary);
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
 }
 
 .error-state {

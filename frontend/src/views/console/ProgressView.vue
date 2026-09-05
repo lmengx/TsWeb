@@ -3,6 +3,7 @@ import { ref, onMounted, computed, reactive } from 'vue'
 import { get } from '../../utils/api.js'
 import { isAdmin } from '../../utils/authHelper.js'
 import { getWorldModifyStatus, applyWorldModify } from '../../utils/worldModifyApi.js'
+import Loading from '../../components/Loading.vue'
 
 // ═══════════════ 顶部 Tab（默认世界参数） ═══════════════
 const activeTab = ref('params') // 'params' | 'progress'
@@ -345,7 +346,7 @@ onMounted(() => {
           </div>
         </div>
 
-        <div v-if="wmLoading" class="loading-box">正在加载世界参数...</div>
+        <Loading v-if="wmLoading" text="正在加载世界参数..." />
 
         <div v-else class="wm-grid">
           <div v-for="g in wmVisibleGroups" :key="g.id" class="wm-card">
@@ -393,7 +394,7 @@ onMounted(() => {
     <div v-else class="progress-view">
       <div v-if="error" class="error-box">{{ error }}</div>
 
-      <div v-if="isLoading" class="loading-box">正在加载进度数据...</div>
+      <Loading v-if="isLoading" text="正在加载进度数据..." />
 
       <div v-else-if="progressData" class="progress-content">
         <div class="boss-section">
@@ -692,12 +693,6 @@ onMounted(() => {
   color: #22c55e;
   margin-bottom: 14px;
   font-size: 0.9rem;
-}
-
-.loading-box {
-  padding: 40px;
-  text-align: center;
-  color: var(--text-secondary);
 }
 
 /* ═══════════ 世界参数 ═══════════ */

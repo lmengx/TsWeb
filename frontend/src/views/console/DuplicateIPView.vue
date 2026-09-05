@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { get } from '../../utils/api.js'
+import Loading from '../../components/Loading.vue'
 
 const router = useRouter()
 
@@ -53,9 +54,7 @@ const goToUser = (username) => {
 
       <div v-if="error" class="error-message">{{ error }}</div>
 
-      <div v-if="loading" class="loading">
-        加载中...
-      </div>
+      <Loading v-if="loading" text="加载中..." />
 
       <div v-else-if="duplicateIPData.length > 0" class="ip-list">
         <div v-for="group in duplicateIPData" :key="group.index" class="ip-group-block">
@@ -158,12 +157,6 @@ const goToUser = (username) => {
   border-radius: var(--radius-md);
   margin-bottom: 16px;
   border: 1px solid rgba(239, 68, 68, 0.3);
-}
-
-.loading {
-  text-align: center;
-  padding: 40px;
-  color: var(--text-muted);
 }
 
 .empty-state {

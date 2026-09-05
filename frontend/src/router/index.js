@@ -13,6 +13,9 @@ import BackendInit from '../views/BackendInit.vue'
 import NotFound from '../views/NotFound.vue'
 import { isAdmin, isManager } from '../utils/authHelper.js'
 import { fetchServers } from '../utils/serverStore.js'
+import { useProgress } from '../composables/useProgress.js'
+
+const { start: progressStart, done: progressDone } = useProgress()
 
 const routes = [
   {
@@ -346,6 +349,9 @@ const checkServerStatus = async () => {
 }
 
 router.beforeEach(async (to, from) => {
+  // 开始顶部进度条（懒加载 chunk / 守卫异步期间持续推进）
+  progressStart()
+
   // 检测 URL 中是否有 ?token=xxx（Setup Token）
   //  - 首次（无账户）→ 强制引导到 /backend/init 设置管理员密码
   //  - 已有账户 → token 不再用于登录，去登录页
@@ -394,6 +400,14 @@ router.beforeEach(async (to, from) => {
   }
 
   return true
+})
+
+// 导航完成 / 失败时结束进度条
+router.afterEach(() => {
+  progressDone()
+})
+router.onError(() => {
+  progressDone()
 })
 
 export default router
