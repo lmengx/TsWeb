@@ -420,7 +420,7 @@ const handleItemSelect = (item) => {
   } else if (t.type === 'item-replace') {
     config.value.shops[t.shopIndex].items[t.goodsIndex].itemId = item.id
   }
-  showItemSearch.value = false
+  // 弹窗内部播放成功动画后自行 emit close（不再立即关闭）
 }
 const newItem = (itemId, slot = -1) => ({
   slot: slot >= 0 && slot < 40 ? slot : -1,
@@ -447,7 +447,7 @@ const firstFreeSlot = (shopIndex) => {
 }
 const handleBatchSelect = (res) => {
   const items = res?.items || []
-  showBatchDialog.value = false
+  // 弹窗内部播放成功动画后自行 emit close（不再立即关闭）
   if (items.length === 0) return
   const shop = config.value.shops[batchShopIndex.value]
   if (!shop) return

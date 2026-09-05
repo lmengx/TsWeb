@@ -19,6 +19,8 @@ const showItemSearch = ref(false)
 const itemSearchTargetIndex = ref(-1)
 const itemSearchMode = ref('restrict')
 const itemSearchProgress = ref('')
+// 批量添加：目标进度 + 多选方案面板
+const batchAddProgress = ref('')
 
 const openItemSearch = (progress, index) => {
   itemSearchMode.value = 'restrict'
@@ -27,22 +29,56 @@ const openItemSearch = (progress, index) => {
   showItemSearch.value = true
 }
 
+// 批量添加入口：打开多选 + 方案面板对话框
+const openBatchAdd = (progress) => {
+  itemSearchMode.value = 'restrict'
+  batchAddProgress.value = progress
+  itemSearchTargetIndex.value = -1
+  showItemSearch.value = true
+}
+
 const openScanSearch = () => {
   itemSearchMode.value = 'scan'
   showItemSearch.value = true
 }
 
-const handleItemSelect = (item) => {
+const handleItemSelect = (res) => {
+  // 批量添加（multi + plan）：把选中物品按方案批量写入目标进度
+  if (res && res.multi) {
+    const progress = batchAddProgress.value
+    const items = res.items || []
+    if (progress && itemConfigEdit.value) {
+      if (!itemConfigEdit.value.restrictionsMap[progress]) {
+        itemConfigEdit.value.restrictionsMap[progress] = []
+      }
+      const target = itemConfigEdit.value.restrictionsMap[progress]
+      const existingIds = new Set(target.map(i => i.id))
+      let added = 0
+      for (const it of items) {
+        const id = it.id ?? 0
+        if (!id || existingIds.has(id)) continue
+        target.push({ id, stack: res.stack ?? 1, method: res.method ?? 'log' })
+        existingIds.add(id)
+        added++
+      }
+      if (added > 0) {
+        itemSuccess.value = `已批量添加 ${added} 个物品（${progress}）`
+        setTimeout(() => { itemSuccess.value = '' }, 3000)
+      }
+    }
+    // 弹窗内部播放成功动画后自行 emit close
+    return
+  }
   if (itemSearchMode.value === 'scan') {
-    handleScanHolders(item.id, item.chinese || item.english || item.id)
+    handleScanHolders(res.id, res.chinese || res.english || res.id)
     return
   }
   const progress = itemSearchProgress.value
   const index = itemSearchTargetIndex.value
   if (progress && index >= 0 && itemConfigEdit.value?.restrictionsMap[progress]?.[index]) {
-    itemConfigEdit.value.restrictionsMap[progress][index].id = item.id
+    itemConfigEdit.value.restrictionsMap[progress][index].id = res.id
   }
-  showItemSearch.value = false
+  // 弹窗内部播放成功动画后自行 emit close
 }
 
 const handleScanBack = () => {
@@ -253,18 +289,6 @@ const handleSaveItemConfig = async () => {
   }
 
   itemSaving.value = false
-}
-
-const addRestrictionItem = (progress) => {
-  if (!itemConfigEdit.value) return
-  if (!itemConfigEdit.value.restrictionsMap[progress]) {
-    itemConfigEdit.value.restrictionsMap[progress] = []
-  }
-  itemConfigEdit.value.restrictionsMap[progress].push({
-    id: 0,
-    stack: 1,
-    method: 'log'
-  })
 }
 
 const removeRestrictionItem = (progress, index) => {
@@ -596,13 +620,13 @@ onMounted(() => {
                 <span>暂无限制</span>
               </div>
 
-              <button @click="addRestrictionItem(progress)" class="add-restriction-btn">
+              <button @click="openBatchAdd(progress)" class="add-restriction-btn">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <circle cx="12" cy="12" r="10"></circle>
                   <line x1="12" y1="8" x2="12" y2="16"></line>
                   <line x1="8" y1="12" x2="16" y2="12"></line>
                 </svg>
-                添加限制
+                批量添加
               </button>
             </div>
           </div>
@@ -625,6 +649,8 @@ onMounted(() => {
     <ItemSearchDialog
       :show="showItemSearch"
       :mode="itemSearchMode"
+      :multi="itemSearchMode === 'restrict' && itemSearchTargetIndex === -1"
+      :plan="itemSearchMode === 'restrict' && itemSearchTargetIndex === -1"
       :scan-results="scanHoldersResults"
       :scan-loading="scanHoldersLoading"
       :scan-error="scanHoldersError"

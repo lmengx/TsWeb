@@ -1,11 +1,15 @@
 <script setup>
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onUnmounted } from 'vue'
 import { loadItemData } from '../api/itemDataApi.js'
 
 const props = defineProps({
   show: Boolean,
   mode: { type: String, default: 'restrict' },
   multi: { type: Boolean, default: false },
+  // 显示右侧"执行方案"面板（multi 模式下使用）：批量添加时统一设置处理方法
+  plan: { type: Boolean, default: false },
+  defaultMethod: { type: String, default: 'log' },
+  defaultStack: { type: Number, default: 1 },
   scanResults: { type: Object, default: null },
   scanLoading: { type: Boolean, default: false },
   scanError: { type: String, default: '' }
@@ -13,9 +17,75 @@ const props = defineProps({
 
 const emit = defineEmits(['select', 'close', 'back'])
 
+// ── 关闭动画状态机：idle → success（成功图样浮现）→ shrink（缩小消失）→ close ──
+const closingPhase = ref('idle')
+let closeTimer = null
+const startSuccessClose = () => {
+  if (closingPhase.value !== 'idle') return
+  closingPhase.value = 'success'
+  clearTimeout(closeTimer)
+  closeTimer = setTimeout(() => {
+    closingPhase.value = 'shrink'
+    closeTimer = setTimeout(() => {
+      closingPhase.value = 'idle'
+      emit('close')
+    }, 260)
+  }, 440)
+}
+const startPlainClose = () => {
+  if (closingPhase.value !== 'idle') return
+  closingPhase.value = 'shrink'
+  clearTimeout(closeTimer)
+  closeTimer = setTimeout(() => {
+    closingPhase.value = 'idle'
+    emit('close')
+  }, 240)
+}
+const requestClose = () => {
+  if (closingPhase.value !== 'idle') return
+  startPlainClose()
+}
+
+// 打开时重置动画状态
+watch(() => props.show, (val) => {
+  if (val) {
+    closingPhase.value = 'idle'
+    clearTimeout(closeTimer)
+    searchQuery.value = ''
+    imageErrors.value = {}
+    selectedIds.value = new Set()
+    // 重置方案面板为默认值
+    planMethod.value = props.defaultMethod
+    planCommand.value = ''
+    planStack.value = props.defaultStack
+    if (!dataLoaded.value) {
+      initItemData()
+    }
+  }
+})
+
 const selectedItem = ref(null)
 // 多选模式：已选物品 id 集合（id 全局唯一，用作选中标记）
 const selectedIds = ref(new Set())
+
+// ── 方案面板状态 ──
+const planMethod = ref(props.defaultMethod)
+const planCommand = ref('')
+const planStack = ref(props.defaultStack)
+const planQuickCommands = [
+  { label: '/banp "{playername}" "违规使用{itemname}"', desc: '封禁玩家' },
+  { label: '/kick "{playername}" "违规使用{itemname}"', desc: '踢出玩家' },
+  { label: '/bc "{playername}违规使用{itemname}"', desc: '广播公告' },
+  { label: '/remove {playername} {itemid}', desc: '清除物品' }
+]
+const isQuickPlan = () => ['ban', 'kick', 'log'].includes(planMethod.value)
+// 批量添加时实际写入的 method：命令方案且填了命令 → 命令字符串
+const effectivePlanMethod = computed(() => {
+  if (planMethod.value === 'command') {
+    return planCommand.value.trim() || 'log'
+  }
+  return planMethod.value
+})
 
 const searchQuery = ref('')
 const itemData = ref({ list: [], dict: {} })
@@ -121,15 +191,23 @@ const handleSelect = (item) => {
     else next.add(item.id)
     selectedIds.value = next
   } else {
+    // 单选：emit 后播放成功动画再关闭
     emit('select', item)
+    startSuccessClose()
   }
 }
 
-// 多选确认：把选中的物品对象数组 emit 出去（{ multi: true, items: [...] }）
+// 多选确认：把选中的物品对象数组 emit 出去（{ multi: true, items, method, stack }）
 const confirmMulti = () => {
   const items = itemData.value.list.filter(i => selectedIds.value.has(i.id))
-  emit('select', { multi: true, items })
+  emit('select', {
+    multi: true,
+    items,
+    method: effectivePlanMethod.value,
+    stack: planStack.value
+  })
   selectedIds.value = new Set()
+  startSuccessClose()
 }
 const clearMulti = () => {
   selectedIds.value = new Set()
@@ -140,73 +218,193 @@ const initItemData = async () => {
   dataLoaded.value = true
 }
 
-watch(() => props.show, (val) => {
-  if (val) {
-    searchQuery.value = ''
-    imageErrors.value = {}
-    selectedIds.value = new Set()
-    if (!dataLoaded.value) {
-      initItemData()
-    }
-  }
-})
+watch(() => props.defaultMethod, (v) => { planMethod.value = v })
+watch(() => props.defaultStack, (v) => { planStack.value = v })
+
+onUnmounted(() => clearTimeout(closeTimer))
 </script>
 
 <template>
   <Teleport to="body">
-    <div v-if="show" class="search-dialog-overlay" @click.self="emit('close')">
-      <div class="search-dialog">
+    <div
+      v-if="show"
+      class="search-dialog-overlay"
+      :class="{ 'overlay-leaving': closingPhase === 'shrink' }"
+      @click.self="requestClose"
+    >
+      <div
+        class="search-dialog"
+        :class="{
+          'with-plan': multi && plan,
+          'phase-success': closingPhase === 'success',
+          'phase-shrink': closingPhase === 'shrink'
+        }"
+      >
         <div class="search-dialog-header">
-          <h3>{{ mode === 'scan' ? '扫描持有者 - 选择物品' : '选择物品' }}</h3>
-          <button @click="emit('close')" class="close-btn">
+          <h3>{{ mode === 'scan' ? '扫描持有者 - 选择物品' : (multi ? '批量添加物品' : '选择物品') }}</h3>
+          <button @click="requestClose" class="close-btn" :disabled="closingPhase !== 'idle'">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <line x1="18" y1="6" x2="6" y2="18"></line>
               <line x1="6" y1="6" x2="18" y2="18"></line>
             </svg>
           </button>
         </div>
+
+        <!-- 成功图样覆盖层：模糊渐变浮现，随后整体缩小消失 -->
+        <div v-if="closingPhase === 'success'" class="success-layer">
+          <div class="success-badge">
+            <svg width="46" height="46" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <polyline points="20 6 9 17 4 12"></polyline>
+            </svg>
+          </div>
+          <span class="success-text">已添加</span>
+        </div>
         <div class="search-dialog-body">
           <!-- 选择物品阶段 -->
           <template v-if="mode !== 'scan' || (!scanResults && !scanLoading && !scanError)">
-            <input
-              v-model="searchQuery"
-              type="text"
-              placeholder="搜索物品名称或ID（支持多词）..."
-              class="search-input"
-              autofocus
-            />
-            <div class="search-hint">
-              找到 {{ searchResults.length }} 个匹配结果
-            </div>
-            <div class="results-grid">
-              <div
-                v-for="item in searchResults"
-                :key="item.id"
-                class="item-card"
-                :class="{ 'item-card-selected': multi && selectedIds.has(item.id) }"
-                @click="handleSelect(item)"
-              >
-                <span v-if="multi" class="item-check" :class="{ checked: selectedIds.has(item.id) }">
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
-                    <polyline points="20 6 9 17 4 12"></polyline>
-                  </svg>
-                </span>
-                <div class="item-image-wrapper">
-                  <img
-                    :src="getItemImage(item.id)"
-                    :alt="item.chinese"
-                    class="item-image"
-                    @error="handleImageError(item.id)"
-                  />
+            <div class="pick-layout" :class="{ 'with-plan': multi && plan }">
+              <!-- 左侧：搜索结果 -->
+              <div class="pick-left">
+                <input
+                  v-model="searchQuery"
+                  type="text"
+                  placeholder="搜索物品名称或ID（支持多词）..."
+                  class="search-input"
+                  autofocus
+                />
+                <div class="search-hint">
+                  找到 {{ searchResults.length }} 个匹配结果
                 </div>
-                <div class="item-info">
-                  <span class="item-name">{{ item.chinese }}</span>
-                  <span class="item-id">ID: {{ item.id }}</span>
-                  <span class="item-english">{{ item.english }}</span>
+                <div class="results-grid" :class="{ 'results-grid-condensed': multi && plan }">
+                  <div
+                    v-for="item in searchResults"
+                    :key="item.id"
+                    class="item-card"
+                    :class="{ 'item-card-selected': multi && selectedIds.has(item.id) }"
+                    @click="handleSelect(item)"
+                  >
+                    <span v-if="multi" class="item-check" :class="{ checked: selectedIds.has(item.id) }">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                        <polyline points="20 6 9 17 4 12"></polyline>
+                      </svg>
+                    </span>
+                    <div class="item-image-wrapper">
+                      <img
+                        :src="getItemImage(item.id)"
+                        :alt="item.chinese"
+                        class="item-image"
+                        @error="handleImageError(item.id)"
+                      />
+                    </div>
+                    <div class="item-info">
+                      <span class="item-name">{{ item.chinese }}</span>
+                      <span class="item-id">ID: {{ item.id }}</span>
+                      <span class="item-english">{{ item.english }}</span>
+                    </div>
+                  </div>
+                  <div v-if="searchResults.length === 0 && searchQuery.trim()" class="no-results">
+                    未找到匹配的物品
+                  </div>
                 </div>
               </div>
-              <div v-if="searchResults.length === 0 && searchQuery.trim()" class="no-results">
-                未找到匹配的物品
+
+              <!-- 右侧：执行方案面板 -->
+              <div v-if="multi && plan" class="pick-right">
+                <div class="plan-panel">
+                  <h4 class="plan-title">执行方案</h4>
+
+                  <div class="plan-methods">
+                    <button
+                      @click="planMethod = 'log'"
+                      class="plan-method-btn plan-log"
+                      :class="{ active: planMethod === 'log' }"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"></path>
+                        <polyline points="14 2 14 8 20 8"></polyline>
+                        <line x1="16" y1="13" x2="8" y2="13"></line>
+                        <line x1="16" y1="17" x2="8" y2="17"></line>
+                      </svg>
+                      记录
+                    </button>
+                    <button
+                      @click="planMethod = 'kick'"
+                      class="plan-method-btn plan-kick"
+                      :class="{ active: planMethod === 'kick' }"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 12a9 9 0 00-9-9 9.75 9.75 0 00-6.74 2.74L3 8"></path>
+                        <path d="M16 3.13a9 9 0 010 17.74"></path>
+                        <path d="M10 17l6-6"></path>
+                      </svg>
+                      踢出
+                    </button>
+                    <button
+                      @click="planMethod = 'ban'"
+                      class="plan-method-btn plan-ban"
+                      :class="{ active: planMethod === 'ban' }"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <line x1="15" y1="9" x2="9" y2="15"></line>
+                        <line x1="9" y1="9" x2="15" y2="15"></line>
+                      </svg>
+                      封禁
+                    </button>
+                    <button
+                      @click="planMethod = 'command'"
+                      class="plan-method-btn plan-command"
+                      :class="{ active: planMethod === 'command' }"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="4 17 10 11 4 5"></polyline>
+                        <line x1="12" y1="19" x2="20" y2="19"></line>
+                      </svg>
+                      命令
+                    </button>
+                  </div>
+
+                  <div v-if="planMethod === 'command'" class="plan-command-box">
+                    <input
+                      v-model="planCommand"
+                      type="text"
+                      class="plan-command-input"
+                      placeholder="支持 {playername}、{itemname}、{itemid} 转义"
+                    />
+                    <div class="plan-quick">
+                      <span class="plan-quick-label">快速:</span>
+                      <button
+                        v-for="cmd in planQuickCommands"
+                        :key="cmd.label"
+                        @click="planCommand = cmd.label"
+                        class="plan-quick-btn"
+                        :title="cmd.desc"
+                      >
+                        {{ cmd.label }}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div class="plan-stack">
+                    <span class="plan-stack-label">数量阈值</span>
+                    <input
+                      v-model.number="planStack"
+                      type="number"
+                      class="plan-stack-input"
+                      min="0"
+                      placeholder="最大数量"
+                    />
+                  </div>
+
+                  <div class="plan-summary">
+                    <span class="plan-summary-count">已选 {{ selectedIds.size }} 个物品</span>
+                    <span class="plan-summary-method">
+                      方案：{{ planMethod === 'command'
+                        ? (planCommand.trim() || '自定义命令')
+                        : planMethod === 'ban' ? '封禁' : planMethod === 'kick' ? '踢出' : '记录' }}
+                    </span>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -279,8 +477,10 @@ watch(() => props.show, (val) => {
   align-items: center;
   justify-content: center;
   z-index: 9999;
+  animation: dialog-overlay-in 0.22s ease-out both;
 }
 
+/* ═══ 弹窗出现：跳动（bounce）动画 ═══ */
 .search-dialog {
   background: var(--bg-card);
   border-radius: 20px;
@@ -290,6 +490,129 @@ watch(() => props.show, (val) => {
   display: flex;
   flex-direction: column;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  position: relative;
+  overflow: hidden;
+  animation: dialog-bounce-in 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+/* 跳动出现：缩小→放大过头→回弹→落定 */
+@keyframes dialog-bounce-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.55) translateY(60px);
+  }
+  55% {
+    opacity: 1;
+    transform: scale(1.06) translateY(-12px);
+  }
+  75% {
+    transform: scale(0.98) translateY(4px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes dialog-overlay-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* 有方案面板时加宽 */
+.search-dialog.with-plan {
+  max-width: 860px;
+}
+
+/* ═══ 成功阶段：内容模糊渐变 + 成功图样浮现 ═══ */
+.search-dialog.phase-success {
+  animation: none;
+}
+.search-dialog.phase-success .search-dialog-header,
+.search-dialog.phase-success .search-dialog-body {
+  filter: blur(6px);
+  opacity: 0.25;
+  transition: filter 0.35s ease, opacity 0.35s ease;
+  pointer-events: none;
+}
+
+.success-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  background: radial-gradient(circle at center,
+    rgba(34, 197, 94, 0.12) 0%,
+    rgba(34, 197, 94, 0.04) 45%,
+    transparent 75%);
+  animation: success-fade-in 0.28s ease-out both;
+}
+
+@keyframes success-fade-in {
+  from { opacity: 0; backdrop-filter: blur(0px); }
+  to { opacity: 1; backdrop-filter: blur(4px); }
+}
+
+.success-badge {
+  width: 76px;
+  height: 76px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  background: linear-gradient(135deg, #22c55e, #16a34a);
+  box-shadow: 0 8px 30px rgba(34, 197, 94, 0.5), inset 0 0 0 1px rgba(255, 255, 255, 0.2);
+  animation: badge-pop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) 0.05s both;
+}
+
+@keyframes badge-pop {
+  0% { transform: scale(0) rotate(-40deg); opacity: 0; }
+  60% { transform: scale(1.15) rotate(6deg); opacity: 1; }
+  80% { transform: scale(0.95) rotate(-2deg); }
+  100% { transform: scale(1) rotate(0); }
+}
+
+.success-text {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: 0.5px;
+  animation: success-text-in 0.3s ease-out 0.12s both;
+}
+
+@keyframes success-text-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ═══ 消失阶段：缩小淡出 ═══ */
+.search-dialog.phase-shrink {
+  animation: dialog-shrink-out 0.26s ease-in both;
+}
+
+@keyframes dialog-shrink-out {
+  0% {
+    opacity: 1;
+    transform: scale(1);
+    filter: blur(0px);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.78) translateY(24px);
+    filter: blur(6px);
+  }
+}
+.search-dialog-overlay.overlay-leaving {
+  animation: dialog-overlay-out 0.26s ease-in both;
+}
+@keyframes dialog-overlay-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
 }
 
 .search-dialog-header {
@@ -620,5 +943,187 @@ watch(() => props.show, (val) => {
 
 .back-btn:hover {
   background: rgba(99, 102, 241, 0.1);
+}
+
+/* ═══════ 左右分栏 + 方案面板 ═══════ */
+.pick-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.pick-layout.with-plan {
+  flex-direction: row;
+  align-items: stretch;
+  gap: 16px;
+}
+.pick-left {
+  flex: 1;
+  min-width: 0;
+}
+.pick-right {
+  width: 240px;
+  flex-shrink: 0;
+  display: flex;
+}
+.results-grid-condensed {
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 8px;
+}
+
+.plan-panel {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-light);
+  border-radius: 14px;
+  align-self: flex-start;
+  position: sticky;
+  top: 0;
+}
+.plan-title {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.plan-methods {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.plan-method-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 9px 10px;
+  border: 1px solid var(--border-light);
+  border-radius: 10px;
+  background: transparent;
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  transition: all 0.2s var(--ease-out);
+}
+.plan-method-btn:hover {
+  border-color: var(--accent-primary);
+  color: var(--text-primary);
+}
+.plan-method-btn.active {
+  color: #fff;
+  border-color: transparent;
+  transform: scale(1.02);
+}
+.plan-log.active { background: #eab308; }
+.plan-kick.active { background: #f97316; }
+.plan-ban.active { background: #ef4444; }
+.plan-command { color: #8b5cf6; border-color: rgba(139, 92, 246, 0.3); }
+.plan-command.active { background: #8b5cf6; color: #fff; }
+
+.plan-command-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.plan-command-input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background: rgba(139, 92, 246, 0.08);
+  color: var(--text-primary);
+  font-size: 0.75rem;
+  font-family: 'SF Mono', 'Consolas', monospace;
+  box-sizing: border-box;
+}
+.plan-command-input:focus {
+  outline: none;
+  border-color: #8b5cf6;
+}
+.plan-quick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.plan-quick-label {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+.plan-quick-btn {
+  padding: 4px 8px;
+  background: rgba(99, 102, 241, 0.1);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: 6px;
+  font-size: 0.68rem;
+  color: var(--accent-primary);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.plan-quick-btn:hover {
+  background: rgba(99, 102, 241, 0.2);
+}
+
+.plan-stack {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.plan-stack-label {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+}
+.plan-stack-input {
+  width: 70px;
+  padding: 6px 8px;
+  background: rgba(34, 197, 94, 0.1);
+  border: 1px solid rgba(34, 197, 94, 0.2);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-align: center;
+  -moz-appearance: textfield;
+}
+.plan-stack-input::-webkit-outer-spin-button,
+.plan-stack-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.plan-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px;
+  background: rgba(99, 102, 241, 0.06);
+  border: 1px solid rgba(99, 102, 241, 0.15);
+  border-radius: 10px;
+}
+.plan-summary-count {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--accent-primary);
+}
+.plan-summary-method {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .pick-layout.with-plan {
+    flex-direction: column;
+  }
+  .pick-right {
+    width: 100%;
+  }
 }
 </style>
