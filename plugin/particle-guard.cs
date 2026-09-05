@@ -202,7 +202,13 @@ namespace TShockData
 		//  拦截逻辑
 		// ════════════════════════════════════════════
 
-		private static void OnNetParticlesDeserialize(OrigNetParticlesDeserialize orig, NetParticlesModule self, BinaryReader reader, int userId)
+		/// <summary>
+		/// MonoMod RuntimeDetour 委托挂钩。注意：返回值必须与源方法 Deserialize 同为 bool ——
+		/// MonoMod 的 Hook.PrepareRealTarget 要求挂钩方法返回类型与源方法兼容（IsCompatibleWith），
+		/// 返回 void 会在注册时抛 "Target method is not compatible with source method" 导致防线静默失效。
+		/// 调用方 NetManager.Read 忽略该返回值，放行时透传 orig 结果、丢弃时返回 false 即可。
+		/// </summary>
+		private static bool OnNetParticlesDeserialize(OrigNetParticlesDeserialize orig, NetParticlesModule self, BinaryReader reader, int userId)
 		{
 			// 引擎已在 NetManager.Read 内消费 moduleId，此处 reader 位置恰为粒子类型字节
 			long start = reader.BaseStream.Position;
@@ -211,8 +217,7 @@ namespace TShockData
 			if (!Enabled)
 			{
 				reader.BaseStream.Position = start;
-				orig(self, reader, userId);
-				return;
+				return orig(self, reader, userId);
 			}
 
 			// 读取粒子类型（载荷首字节）
@@ -225,8 +230,7 @@ namespace TShockData
 			{
 				// 畸形包：复位交回原逻辑，保持与原版一致的行为
 				reader.BaseStream.Position = start;
-				orig(self, reader, userId);
-				return;
+				return orig(self, reader, userId);
 			}
 			bool isMalicious = MaliciousTypes.Contains(particleType);
 			bool isHighFrequency = !isMalicious && HighFrequencyTypes.Contains(particleType);
@@ -235,7 +239,7 @@ namespace TShockData
 			if (isMalicious)
 			{
 				HandleViolation(userId, particleType);
-				return;
+				return false;
 			}
 
 			// ═══ 合法高频类型（如叶绿水晶矢）：独立高阈值限流，超限仅丢弃不踢出 ═══
@@ -261,12 +265,11 @@ namespace TShockData
 					// 超限：丢弃该请求（不调 orig → 不广播），仅记日志，绝不踢出
 					var name = userId >= 0 && userId < TShock.Players.Length ? TShock.Players[userId]?.Name : null;
 					TShock.Log.ConsoleInfo($"[ParticleGuard] 丢弃 {name ?? "#" + userId} 的超高频粒子请求 Type={particleType}（> {HighFrequencyLimitPerSecond}/s）");
-					return;
+					return false;
 				}
 
 				reader.BaseStream.Position = start;
-				orig(self, reader, userId);
-				return;
+				return orig(self, reader, userId);
 			}
 
 			// ═══ 普通类型：按频率限流（20/s），超限仅丢弃不踢出 ═══
@@ -289,14 +292,14 @@ namespace TShockData
 			if (!shouldBlock)
 			{
 				reader.BaseStream.Position = start;
-				orig(self, reader, userId);
-				return;
+				return orig(self, reader, userId);
 			}
 
 			// ═══ 普通类型超频：丢弃该请求（不调 orig → 不广播），仅记日志，绝不踢出 ═══
 			// 合法特效（武器剑气、换装、弹幕粒子等）被插件批量弹幕放大频率是正常现象，不视为作弊
 			var p = userId >= 0 && userId < TShock.Players.Length ? TShock.Players[userId] : null;
 			TShock.Log.ConsoleInfo($"[ParticleGuard] 丢弃 {p?.Name ?? "#" + userId} 的超频粒子请求 Type={particleType}（> {MaxParticlesPerSecond}/s）");
+			return false;
 		}
 
 		private static void HandleViolation(int userId, byte particleType)
