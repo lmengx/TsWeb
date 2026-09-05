@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System;
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System;
 using System.Collections.Generic;
 using System.Data;
 using System.IO;
@@ -437,13 +437,13 @@ namespace TShockData
     public static class ViolationExecutor
     {
         /// <summary>
-        /// 聚合执行违规处理：同一次扫描中同一玩家的所有违规条目聚合成一次踢出/封禁，
-        /// 避免逐条踢出导致客户端连续收到多个断开包（表现为踢出消息一闪而过 + 连接已丢失）。
-        /// 踢出/封禁前先以聊天消息（[i:id] 物品标签）展示该玩家违规持有的全部物品。
+        /// 聚合执行违规处理：同一次扫描中同一玩家的所有违规条目聚合成一次处理（不再逐条踢出，
+        /// 避免客户端连续收到多个断开包）。method 为本次扫描的最高处理结果（ban > kick > log），
+        /// 公屏播报统一格式：玩家"xxx"持有[i/s标签列表]，超过当前进度合法值，已记录/已踢出/已封禁。
         /// </summary>
         /// <param name="player">违规玩家（在线）</param>
-        /// <param name="method">处理方式：kick / ban；其他值回退为逐条执行原逻辑</param>
-        /// <param name="entries">该玩家的全部违规条目</param>
+        /// <param name="method">本次扫描最高处理方式：ban / kick / log</param>
+        /// <param name="entries">该玩家的全部违规条目（本次扫描所有非法物品）</param>
         /// <param name="playerName">玩家名（缺省取 player.Name）</param>
         public static void ExecuteViolations(TSPlayer player, string method, List<ViolationEntry> entries, string playerName = null)
         {
@@ -455,6 +455,18 @@ namespace TShockData
                 try
                 {
                     string reason = BuildReason(entries);
+                    string itemTags = BuildViolationTagText(entries);
+
+                    // 统一公屏播报：玩家名 + 物品图标标签列表（本次扫描所有非法物品）+ 超过当前进度合法值 + 本次最高处理结果
+                    string actionWord = captureMethod?.ToLower() switch
+                    {
+                        "ban" => "已封禁",
+                        "kick" => "已踢出",
+                        _ => "已记录"
+                    };
+                    string held = itemTags.Length > 0 ? $"持有{itemTags}" : "持有违禁品";
+                    string report = $"玩家\"{name}\"{held}，超过当前进度合法值，{actionWord}";
+                    TShock.Utils.Broadcast($"[反作弊] {report}", Color.Red);
 
                     switch (captureMethod?.ToLower())
                     {
@@ -462,19 +474,15 @@ namespace TShockData
                             ExecuteBan(name, reason);
                             if (player != null)
                             {
-                                SendViolationItems(player, entries);
-                                player.Kick($"检测到作弊行为: {reason}", true);
+                                // silent: true → 不再触发 TShock 自带踢出广播，公屏播报统一由上方一条完成
+                                player.Kick($"检测到作弊行为: {reason}", true, true);
                             }
                             TShock.Log.ConsoleError($"[反作弊] 已封禁玩家: {name}, 原因: {reason}");
                             break;
                         case "kick":
                             if (player != null)
                             {
-                                // 先以聊天消息展示违规物品（客户端聊天支持 [i:id] 内联物品图标），再执行一次踢出
-                                SendViolationItems(player, entries);
-                                string kickReport = $"{name}{reason}，已踢出";
-                                ExecuteKick(player, name, kickReport);
-                                TShock.Utils.Broadcast($"[反作弊] {kickReport}", Color.Red);
+                                player.Kick(reason, true, true);
                                 TShock.Log.ConsoleError($"[反作弊] 已踢出玩家: {name}, 原因: {reason}");
                             }
                             else
@@ -483,11 +491,7 @@ namespace TShockData
                             }
                             break;
                         default:
-                            // 自定义命令等：无法聚合，保持逐条执行原逻辑
-                            foreach (var entry in entries)
-                            {
-                                ExecuteViolation(player, captureMethod, playerName: name, itemId: entry.ItemId, itemName: entry.ItemName, stack: entry.FoundStack, allowedStack: entry.AllowedStack);
-                            }
+                            TShock.Log.ConsoleError($"[反作弊] 违规记录 - 玩家: {name}, 原因: {reason}");
                             break;
                     }
                 }
@@ -499,38 +503,54 @@ namespace TShockData
         }
 
         /// <summary>
-        /// 以聊天消息向违规玩家展示其持有的全部违规物品（[i:id] 标签渲染物品图标+名称）
+        /// 生成公屏播报用的物品展示文本：使用 [i/s{stack}:{itemId}] 聊天标签，客户端渲染为物品图标，
+        /// 堆叠数量 > 1 时图标文本附带数量（如 [i/s24:356] = 木剑(ID 356) 24 个）。
+        /// 同物品分布在多个格子时先按物品 ID 合并数量。无可展示物品时返回空串。
         /// </summary>
-        private static void SendViolationItems(TSPlayer player, List<ViolationEntry> entries)
+        private static string BuildViolationTagText(List<ViolationEntry> entries)
         {
-            if (player == null || entries == null || entries.Count == 0)
-                return;
+            if (entries == null || entries.Count == 0)
+                return "";
 
-            var parts = entries.Select(e =>
-            {
-                string itemName = !string.IsNullOrEmpty(e.ItemName) ? e.ItemName : $"Item_{e.ItemId}";
-                return $"[i:{e.ItemId}]x{e.FoundStack} {itemName}";
-            });
-
-            player.SendMessage($"[反作弊] 检测到你持有违禁品: {string.Join("  ", parts)}", Color.Red);
+            var merged = MergeEntries(entries);
+            return string.Join(" ", merged.Select(e => $"[i/s{e.FoundStack}:{e.ItemId}]"));
         }
 
         /// <summary>
-        /// 聚合原因：列出该玩家违规持有的所有物品（纯文本，用于踢出/封禁原因，不依赖聊天标签渲染）
+        /// 聚合原因（纯文本，用于踢出/封禁界面，不依赖聊天标签渲染），统一格式：
+        /// 持有物品名x数量、物品名x数量，超过当前进度合法值（不论违规物品是一个还是多个）
         /// </summary>
         private static string BuildReason(List<ViolationEntry> entries)
         {
             if (entries == null || entries.Count == 0)
                 return "检测到作弊行为";
 
-            var parts = entries.Select(e =>
+            var merged = MergeEntries(entries);
+
+            var parts = merged.Select(e =>
             {
                 string itemName = !string.IsNullOrEmpty(e.ItemName) ? e.ItemName : $"Item_{e.ItemId}";
-                // 限制 1 个 = 持有即违规；否则显示实际持有数量
-                return e.AllowedStack <= 1 ? itemName : $"{itemName}x{e.FoundStack}";
+                return $"{itemName}x{e.FoundStack}";
             });
 
-            return $"持有违禁品{string.Join("、", parts)}";
+            return $"持有{string.Join("、", parts)}，超过当前进度合法值";
+        }
+
+        /// <summary>
+        /// 按物品 ID 合并违规条目：同物品分布在多个格子时数量求和（名称与限制取第一条）
+        /// </summary>
+        private static List<ViolationEntry> MergeEntries(List<ViolationEntry> entries)
+        {
+            return entries
+                .GroupBy(e => e.ItemId)
+                .Select(g => new ViolationEntry
+                {
+                    ItemId = g.Key,
+                    ItemName = g.First().ItemName,
+                    FoundStack = g.Sum(e => e.FoundStack),
+                    AllowedStack = g.First().AllowedStack
+                })
+                .ToList();
         }
 
         public static void ExecuteViolation(TSPlayer player, string method, string playerName = null, int itemId = 0, string itemName = null, int projId = 0, int stack = 0, int allowedStack = 0)

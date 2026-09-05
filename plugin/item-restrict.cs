@@ -270,45 +270,58 @@ namespace TShockData
 
         /// <summary>
         /// 聚合执行同一玩家一次扫描产生的全部违规：
-        /// kick / ban 合并为一次处理（原因列出所有违规物品，踢出前聊天展示 [i:id] 物品图标）；
-        /// log 仅记录；自定义命令保持逐条执行。
+        /// 标准档（log/kick/ban）按本次扫描的最高处理结果统一执行一次（ban &gt; kick &gt; log），
+        /// 公屏播报统一列出所有非法物品；自定义命令条目无法聚合，保持逐条执行原逻辑。
         /// </summary>
         private static void ExecuteAggregatedViolations(TSPlayer player, List<CheatResult> results)
         {
-            foreach (var group in results.GroupBy(r => (r.Method ?? "log").ToLower()))
+            // 自定义命令条目：逐条执行原逻辑（含各自处理），不参与最高档聚合
+            var commandResults = results.Where(r => !IsStandardMethod(r.Method)).ToList();
+            foreach (var r in commandResults)
             {
-                string method = group.Key;
-
-                if (method == "kick" || method == "ban")
-                {
-                    var entries = group.Select(r => new ViolationEntry
-                    {
-                        ItemId = r.ItemID,
-                        ItemName = r.ItemName,
-                        FoundStack = r.FoundStack,
-                        AllowedStack = r.AllowedStack
-                    }).ToList();
-
-                    ViolationExecutor.ExecuteViolations(player, method, entries, player.Name);
-                }
-                else if (method == "log")
-                {
-                    // 日志已在扫描时逐条输出，无需额外处理
-                }
-                else
-                {
-                    // 自定义命令：含占位符，无法聚合，保持逐条执行
-                    foreach (var r in group)
-                    {
-                        ViolationExecutor.ExecuteViolation(player, r.Method,
-                            playerName: player.Name,
-                            itemId: r.ItemID,
-                            itemName: r.ItemName,
-                            stack: r.FoundStack,
-                            allowedStack: r.AllowedStack);
-                    }
-                }
+                ViolationExecutor.ExecuteViolation(player, r.Method,
+                    playerName: player.Name,
+                    itemId: r.ItemID,
+                    itemName: r.ItemName,
+                    stack: r.FoundStack,
+                    allowedStack: r.AllowedStack);
             }
+
+            // 标准档条目（log/kick/ban）：统一按最高处理结果执行一次 + 统一播报
+            var standard = results.Where(r => IsStandardMethod(r.Method)).ToList();
+            if (standard.Count == 0)
+                return;
+
+            // 本次扫描最高处理结果：ban(封禁) > kick(踢出) > log(记录)
+            string topMethod = standard.Any(r => IsMethod(r, "ban")) ? "ban"
+                             : standard.Any(r => IsMethod(r, "kick")) ? "kick"
+                             : "log";
+
+            var entries = standard.Select(r => new ViolationEntry
+            {
+                ItemId = r.ItemID,
+                ItemName = r.ItemName,
+                FoundStack = r.FoundStack,
+                AllowedStack = r.AllowedStack
+            }).ToList();
+
+            ViolationExecutor.ExecuteViolations(player, topMethod, entries, player.Name);
+        }
+
+        /// <summary>
+        /// 是否为标准处理方式（log / kick / ban）；null 或空视为 log
+        /// </summary>
+        private static bool IsStandardMethod(string method)
+        {
+            return string.IsNullOrEmpty(method)
+                || "log".Equals(method, StringComparison.OrdinalIgnoreCase)
+                || "kick".Equals(method, StringComparison.OrdinalIgnoreCase)
+                || "ban".Equals(method, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsMethod(CheatResult r, string method)
+        {
+            return method.Equals(r.Method, StringComparison.OrdinalIgnoreCase);
         }
 
         public static List<CheatResult> ScanOfflinePlayer(int accountId, string playerName, bool executeViolations = true)
