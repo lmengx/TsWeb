@@ -168,6 +168,7 @@ const mainTabs = computed(() => {
     return [
       { id: 'progress', name: '世界信息', path: '/console/progress' },
       { id: 'tools', name: '工具', isTools: true },
+      { id: 'more', name: '管理', isMore: true },
     ]
   }
 })
@@ -195,8 +196,7 @@ const closeMoreMenu = () => { showMoreMenu.value = false; expandedMoreItem.value
 
 const moreItems = computed(() => {
   return visibleItems.value.filter(item =>
-    !['online', 'terminal', 'players', 'progress', 'tools'].includes(item.id) &&
-    item.adminOnly
+    !['online', 'terminal', 'players', 'progress', 'tools'].includes(item.id)
   )
 })
 
