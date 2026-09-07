@@ -5,6 +5,7 @@ import { getCurrentServerId, selectServer, fetchServers } from '../../utils/serv
 import ServerCard from '../../components/ServerCard.vue'
 import AddServerWizard from '../../components/AddServerWizard.vue'
 import ServerInitModal from '../../components/ServerInitModal.vue'
+import SuccessModal from '../../components/SuccessModal.vue'
 
 // ═══════════════ 状态 ═══════════════
 const servers = ref([])
@@ -17,6 +18,10 @@ const showAddModal = ref(false)
 // 插件初始化模态框
 const showInitModal = ref(false)
 const initTarget = ref(null)   // { id, name }
+
+// 初始化结束（完成/跳过）的成功反馈弹窗（复用项目 SuccessModal 动画）
+const showInitDoneModal = ref(false)
+const initDoneText = ref('')
 
 // 编辑弹窗
 const showEditModal = ref(false)
@@ -188,12 +193,17 @@ const onInitCompleted = () => {
   }
   // 完成即关闭模态框（skip 路径走 @close → onInitSkipped）
   showInitModal.value = false
+  initDoneText.value = '服务器配置成功'
+  showInitDoneModal.value = true
 }
 
 const onInitSkipped = () => {
   if (initTarget.value?.id) {
     localStorage.setItem(`tsweb.server-init.${initTarget.value.id}`, 'skipped')
   }
+  // 跳过同样给出完成反馈（同款成功动画）
+  initDoneText.value = '已跳过，可随时在服务器设置中重新初始化'
+  showInitDoneModal.value = true
 }
 
 // 定时刷新（静默）：保持卡片在线状态实时同步；切换服务器为纯本地操作，无需重拉列表
@@ -294,6 +304,13 @@ onUnmounted(() => {
       :server-name="initTarget?.name"
       @close="showInitModal = false; onInitSkipped()"
       @completed="onInitCompleted"
+    />
+
+    <!-- ══════════ 初始化结束成功反馈（完成/跳过，复用项目成功动画） ══════════ -->
+    <SuccessModal
+      :show="showInitDoneModal"
+      :text="initDoneText"
+      @close="showInitDoneModal = false"
     />
 
     <!-- ══════════ 编辑服务器弹窗 ══════════ -->

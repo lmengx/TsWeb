@@ -38,10 +38,6 @@ const showSkipConfirm = ref(false)
 const skipCountdown = ref(0)
 let countdownTimer = null
 
-// 跳过
-const skipToast = ref(false)
-let skipToastTimer = null
-
 // ═══════════════ 每屏标题 ═══════════════
 const stepTitle = computed(() => ({
   1: '服务器面向哪类玩家？',
@@ -54,7 +50,7 @@ const stepTitle = computed(() => ({
 
 const stepHint = computed(() => step.value === 6
   ? '点一次卡片执行添加，完成后点两次底部完成卡提交'
-  : '点一下选中，再点一次所选选项确认'
+  : '单击选项选中，选中后再点一次即确认进入下一步'
 )
 
 // ═══════════════ 选项卡片（每卡自带介绍） ═══════════════
@@ -210,14 +206,9 @@ const loadSsc = async () => {
 }
 
 // ═══════════════ 跳过 ═══════════════
+// 跳过反馈由父层 SuccessModal 统一呈现（此处 emit close 后组件即卸载，自身 toast 无法存活）
 const doSkip = () => {
-  showSkipToast()
   emit('close')
-}
-const showSkipToast = () => {
-  skipToast.value = true
-  clearTimeout(skipToastTimer)
-  skipToastTimer = setTimeout(() => { skipToast.value = false }, 3300)
 }
 
 // ═══════════════ 快速权限：应用预设 ═══════════════
@@ -345,7 +336,6 @@ watch(() => props.show, (v) => {
 }, { immediate: true })
 
 onUnmounted(() => {
-  clearTimeout(skipToastTimer)
   clearInterval(countdownTimer)
 })
 </script>
@@ -385,9 +375,7 @@ onUnmounted(() => {
               </svg>
               <div class="card-title">{{ card.title }}</div>
               <div class="card-desc">{{ card.desc }}</div>
-              <div class="pick-mark" v-if="isPicked(audience, card.key)">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12.5l5 5L19.5 6.5"/></svg>
-              </div>
+              <span v-if="isPicked(audience, card.key)" class="confirm-hint">再点一次确认</span>
             </div>
           </div>
 
@@ -406,9 +394,7 @@ onUnmounted(() => {
                 <span v-if="sscCurrent !== null && sscCurrent === card.key" class="mini-tag">当前状态</span>
               </div>
               <div class="card-desc">{{ card.desc }}</div>
-              <div class="pick-mark" v-if="isPicked(sscEnabled, card.key)">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12.5l5 5L19.5 6.5"/></svg>
-              </div>
+              <span v-if="isPicked(sscEnabled, card.key)" class="confirm-hint">再点一次确认</span>
             </div>
           </div>
 
@@ -423,9 +409,7 @@ onUnmounted(() => {
               <span v-if="card.badge" class="mini-badge" :class="card.badge.cls">{{ card.badge.text }}</span>
               <div class="card-title">{{ card.title }}</div>
               <div class="card-desc">{{ card.desc }}</div>
-              <div class="pick-mark" v-if="isPicked(registerMode, card.key)">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12.5l5 5L19.5 6.5"/></svg>
-              </div>
+              <span v-if="isPicked(registerMode, card.key)" class="confirm-hint">再点一次确认</span>
             </div>
           </div>
 
@@ -443,9 +427,7 @@ onUnmounted(() => {
                 <li v-for="s in card.items" :key="s">{{ s }}</li>
               </ul>
               <div class="card-desc">{{ card.desc }}</div>
-              <div class="pick-mark" v-if="isPicked(acOn, card.key)">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12.5l5 5L19.5 6.5"/></svg>
-              </div>
+              <span v-if="isPicked(acOn, card.key)" class="confirm-hint">再点一次确认</span>
             </div>
           </div>
 
@@ -463,9 +445,7 @@ onUnmounted(() => {
                 <li v-for="s in card.items" :key="s">{{ s }}</li>
               </ul>
               <div class="card-desc">{{ card.desc }}</div>
-              <div class="pick-mark" v-if="isPicked(bfOn, card.key)">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12.5l5 5L19.5 6.5"/></svg>
-              </div>
+              <span v-if="isPicked(bfOn, card.key)" class="confirm-hint">再点一次确认</span>
             </div>
           </div>
 
@@ -522,11 +502,6 @@ onUnmounted(() => {
           </div>
         </div>
       </div>
-
-      <!-- 跳过提示 -->
-      <Transition name="skip-slide">
-        <div v-if="skipToast" class="skip-toast">已跳过，可随时在服务器设置中重新初始化</div>
-      </Transition>
     </div>
   </Teleport>
 </template>
@@ -573,7 +548,7 @@ onUnmounted(() => {
 
 .vote-list { display: flex; flex-direction: column; gap: 12px; }
 
-/* 投票卡片 */
+/* 投票卡片（两段式：单击选中变蓝实底，再点一次确认进入下一步） */
 .vote-card {
   position: relative;
   display: flex; flex-direction: column; gap: 5px;
@@ -583,32 +558,45 @@ onUnmounted(() => {
   border-radius: 14px;
   cursor: pointer;
   user-select: none;
-  transition: transform .16s ease, border-color .16s ease, box-shadow .16s ease, background .16s ease;
+  transition: transform .16s ease, border-color .16s ease, box-shadow .16s ease, background .16s ease, color .16s ease;
   text-align: left;
 }
 .vote-card:hover {
   transform: translateY(-1px);
   border-color: var(--border-light);
 }
+/* 单击一次后：整卡变蓝色渐变实底白字（与投票选项 selected 同款） */
 .vote-card.picked {
-  border-color: var(--accent-primary);
-  background: color-mix(in srgb, var(--accent-primary) 10%, var(--bg-tertiary));
-  box-shadow: 0 0 0 1.5px var(--accent-primary), 0 8px 26px rgba(99, 102, 241, .16);
+  border-color: #2563eb;
+  background: linear-gradient(135deg, #3b82f6, #2563eb);
+  color: #fff;
+  box-shadow: 0 6px 20px rgba(37, 99, 235, 0.35);
 }
+.vote-card.picked .card-title { color: #fff; }
+.vote-card.picked .card-desc { color: rgba(255, 255, 255, 0.88); }
+.vote-card.picked .card-icon { color: #fff; }
+.vote-card.picked .card-subs li { color: rgba(255, 255, 255, 0.9); }
+.vote-card.picked .card-subs li::before { background: #fff; opacity: .9; }
+.vote-card.picked .card-state { color: #fff; }
+/* danger 卡的选中态保留红色语义但同样实底白字 */
 .vote-card.danger:not(.picked) {
   border-color: rgba(239, 68, 68, .65);
   background: color-mix(in srgb, rgba(239, 68, 68, .07), var(--bg-tertiary));
 }
 .vote-card.danger.picked {
-  border-color: #ef4444;
-  box-shadow: 0 0 0 1.5px #ef4444, 0 8px 26px rgba(239, 68, 68, .2);
-  background: color-mix(in srgb, rgba(239, 68, 68, .14), var(--bg-tertiary));
+  border-color: #dc2626;
+  background: linear-gradient(135deg, #ef4444, #dc2626);
+  box-shadow: 0 6px 20px rgba(220, 38, 38, .35);
 }
+.vote-card.danger.picked .card-title,
+.vote-card.danger.picked .card-desc,
+.vote-card.danger.picked .card-subs li { color: #fff; }
+.vote-card.danger.picked .card-subs li::before { background: #fff; }
 .card-icon { width: 26px; height: 26px; color: var(--accent-primary); margin-bottom: 4px; }
 .card-title {
   font-size: .98rem; font-weight: 700; color: var(--text-primary);
   display: flex; align-items: center; gap: 8px;
-  padding-right: 30px;
+  padding-right: 4px;
 }
 .card-desc { font-size: .82rem; color: var(--text-muted); line-height: 1.6; }
 .card-subs { margin: 2px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 3px; }
@@ -623,15 +611,30 @@ onUnmounted(() => {
 }
 .card-state { font-size: .76rem; color: var(--accent-primary); }
 
-/* 选中标记（右上角对勾圆） */
-.pick-mark {
-  position: absolute; top: 14px; right: 14px;
-  width: 22px; height: 22px; border-radius: 50%;
-  background: var(--accent-primary); color: #fff;
-  display: flex; align-items: center; justify-content: center;
-  flex-shrink: 0;
+/* 选中确认徽标（投票同款 confirm-hint：再点一次确认） */
+.confirm-hint {
+  align-self: flex-start;
+  color: #2563eb;
+  font-size: .72rem;
+  font-weight: 800;
+  background: rgba(59, 130, 246, 0.12);
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  padding: 3px 10px;
+  border-radius: 6px;
+  white-space: nowrap;
+  animation: cdTick .3s ease;
+  margin-top: 2px;
 }
-.pick-mark svg { width: 13px; height: 13px; }
+@keyframes cdTick {
+  0% { transform: scale(.8); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+.vote-card.picked .confirm-hint,
+.vote-card.danger.picked .confirm-hint {
+  color: #2563eb;
+  background: #fff;
+  border-color: #fff;
+}
 
 /* 徽标 */
 .mini-badge {
@@ -715,24 +718,4 @@ onUnmounted(() => {
   margin: 0 0 20px;
 }
 .confirm-actions { display: flex; justify-content: flex-end; gap: 10px; }
-
-/* 跳过 toast */
-.skip-toast {
-  position: fixed; top: 20px; left: 50%;
-  transform: translateX(-50%);
-  background: var(--bg-card);
-  border: 1px solid var(--border-light);
-  color: var(--text-primary);
-  font-size: .9rem; font-weight: 600;
-  padding: 12px 22px; border-radius: 10px;
-  box-shadow: 0 10px 34px rgba(0, 0, 0, .4);
-  z-index: 9700;
-  white-space: nowrap;
-}
-.skip-slide-enter-active { transition: all .3s cubic-bezier(0.34, 1.56, 0.64, 1); }
-.skip-slide-leave-active { transition: all .3s ease-in; }
-.skip-slide-enter-from { opacity: 0; transform: translate(-50%, -110%); }
-.skip-slide-enter-to { opacity: 1; transform: translate(-50%, 0); }
-.skip-slide-leave-from { opacity: 1; transform: translate(-50%, 0); }
-.skip-slide-leave-to { opacity: 0; transform: translate(-50%, -110%); }
 </style>
