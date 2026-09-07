@@ -34,25 +34,26 @@ namespace TShockData
         {
             string playerName = args.Parameters["player"];
 
-            var onlinePlayers = TSPlayer.FindByNameOrID(playerName);
-            if (onlinePlayers.Count > 0)
-            {
-                var tsPlayer = onlinePlayers[0];
-                var stats = GetOnlinePlayerStats(tsPlayer);
-                return new RestObject()
-                {
-                    { "data", stats },
-                    { "source", "memory" },
-                    { "online", true }
-                };
-            }
-
-            var account = TShock.UserAccounts.GetUserAccountByName(playerName);
+            // 统一按账号定位（先精确后大小写不敏感兜底），避免"仅大小写不同"时定位错账号
+            var account = UserAccountHelper.FindUserAccountByName(playerName);
             if (account == null)
             {
                 return new RestObject("404")
                 {
                     { "error", "找不到玩家" }
+                };
+            }
+
+            // 在线判定按账号名（大小写不敏感）匹配，而不是 FindByNameOrID 的角色名前缀匹配
+            var onlinePlayer = UserAccountHelper.FindOnlinePlayerByAccount(account.Name);
+            if (onlinePlayer != null)
+            {
+                var stats = GetOnlinePlayerStats(onlinePlayer);
+                return new RestObject()
+                {
+                    { "data", stats },
+                    { "source", "memory" },
+                    { "online", true }
                 };
             }
 
@@ -78,7 +79,8 @@ namespace TShockData
         {
             string playerName = args.Parameters["player"];
 
-            var account = TShock.UserAccounts.GetUserAccountByName(playerName);
+            // 统一按账号定位（先精确后大小写不敏感兜底），避免"仅大小写不同"时定位错账号
+            var account = UserAccountHelper.FindUserAccountByName(playerName);
             if (account == null)
             {
                 return new RestObject("404")
@@ -88,11 +90,9 @@ namespace TShockData
             }
 
             // 如果玩家在线，先同步当前状态到 DB，再修改 DB + 同步到客户端
-            var onlinePlayers = TSPlayer.FindByNameOrID(playerName);
-            TSPlayer? onlinePlayer = null;
-            if (onlinePlayers.Count > 0 && onlinePlayers[0].Active)
+            var onlinePlayer = UserAccountHelper.FindOnlinePlayerByAccount(account.Name);
+            if (onlinePlayer != null)
             {
-                onlinePlayer = onlinePlayers[0];
                 onlinePlayer.PlayerData.CopyCharacter(onlinePlayer);
                 TShock.CharacterDB.InsertPlayerData(onlinePlayer);
             }

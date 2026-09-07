@@ -158,7 +158,9 @@ namespace TShockData
         {
             try
             {
-                var account = TShock.UserAccounts.GetUserAccountByName(username);
+                // 统一大小写匹配规则（先精确后兜底）：后端台账可能携带与本地不同的大小写，
+                // 必须命中已有账号而不是再创建一个"仅大小写不同"的重复账号
+                var account = UserAccountHelper.FindUserAccountByName(username);
                 if (account == null)
                 {
                     // 缺失 → 注册（直插密码哈希，不重新哈希，保证与后端一致）
@@ -177,10 +179,11 @@ namespace TShockData
                 else
                 {
                     // 台账权威：密码不同 → 覆盖（绑定/改密语义）
+                    // 用数据库真实账号名（account.Name）定位，避免大小写不同导致更新 0 行
                     if (!string.IsNullOrEmpty(hash) && !string.Equals(account.Password, hash, StringComparison.Ordinal))
                     {
-                        TShock.DB.Query("UPDATE Users SET Password=@0 WHERE Username=@1", hash, username);
-                        TShock.Log.ConsoleInfo($"[AccountSync] 已同步覆盖密码: {username}");
+                        TShock.DB.Query("UPDATE Users SET Password=@0 WHERE Username=@1", hash, account.Name);
+                        TShock.Log.ConsoleInfo($"[AccountSync] 已同步覆盖密码: {account.Name}");
                     }
                 }
             }
@@ -216,8 +219,16 @@ namespace TShockData
 
             try
             {
+                // 统一大小写匹配规则：定位真实账号名再落盘，避免大小写不同导致更新 0 行或更新错行
+                var account = UserAccountHelper.FindUserAccountByName(username);
+                if (account == null)
+                {
+                    TShock.Log.ConsoleWarn($"[AccountSync] UUID 落盘跳过：本地无账号 {username}");
+                    return;
+                }
+
                 // 接收端静默落盘（无需刷屏）；仅异常时输出错误
-                TShock.DB.Query("UPDATE Users SET UUID=@0 WHERE Username=@1", uuid, username);
+                TShock.DB.Query("UPDATE Users SET UUID=@0 WHERE Username=@1", uuid, account.Name);
             }
             catch (Exception ex)
             {
@@ -225,14 +236,15 @@ namespace TShockData
             }
         }
 
-        /// <summary>禁止多服登录：踢掉本服同名的在线已登录角色</summary>
+        /// <summary>禁止多服登录：踢掉本服同名（账号名，大小写不敏感）的在线已登录角色</summary>
         private static void TryKickDuplicate(string? username)
         {
             if (string.IsNullOrEmpty(username)) return;
             foreach (var p in TShock.Players)
             {
                 if (p == null || !p.Active) continue;
-                if (!p.Name.Equals(username, StringComparison.OrdinalIgnoreCase)) continue;
+                if (p.Account == null ||
+                    !p.Account.Name.Equals(username, StringComparison.OrdinalIgnoreCase)) continue;
                 if (!p.IsLoggedIn) continue;   // 只踢已登录的同名角色（未登录的不构成重复）
                 try
                 {
@@ -269,7 +281,9 @@ namespace TShockData
             if (string.IsNullOrEmpty(p.Name) || string.IsNullOrEmpty(p.UUID)) return;
             if (!IsValidUuid(p.UUID)) return;
 
-            var name = p.Name;
+            // 上报账号名（登录者已登录，Account 必非空）而不是角色名：
+            // 角色名大小写/内容可与账号名不同，若上报角色名会导致其他服务器按错误名字落盘 UUID
+            var name = p.Account?.Name ?? p.Name;
             var uuid = p.UUID;
             try
             {

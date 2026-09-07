@@ -36,7 +36,7 @@ namespace TShockData
             int stack = int.Parse(args.Parameters["stack"]);
             int index = int.Parse(args.Parameters["index"]);
             string player = args.Parameters["player"];
-            var account = TShock.UserAccounts.GetUserAccountByName(player);
+            var account = UserAccountHelper.FindUserAccountByName(player);
             if (account == null)
             {
                 return new RestObject("404")
@@ -50,11 +50,9 @@ namespace TShockData
                 IDbConnection db = TShock.DB;
 
                 // 如果玩家在线，先同步当前内存状态到 DB，再修改 DB + 同步到客户端
-                var onlinePlayers = TShockAPI.TSPlayer.FindByNameOrID(account.Name);
-                TSPlayer? onlinePlayer = null;
-                if (onlinePlayers.Count > 0 && onlinePlayers[0].Active)
+                var onlinePlayer = UserAccountHelper.FindOnlinePlayerByAccount(account.Name);
+                if (onlinePlayer != null)
                 {
-                    onlinePlayer = onlinePlayers[0];
                     // 将玩家当前内存中的背包/装备/属性保存到 DB
                     onlinePlayer.PlayerData.CopyCharacter(onlinePlayer);
                     TShock.CharacterDB.InsertPlayerData(onlinePlayer);
@@ -130,22 +128,9 @@ namespace TShockData
         public static object GetInv(RestRequestArgs args)
         {
             string player = args.Parameters["player"];
-            
-            var onlinePlayers = TShockAPI.TSPlayer.FindByNameOrID(player);
-            if (onlinePlayers.Count > 0)
-            {
-                var tsPlayer = onlinePlayers[0];
-                List<InventoryData> invList = GetOnlinePlayerInventory(tsPlayer);
-                
-                return new RestObject()
-                {
-                    { "inventory", invList },
-                    { "source", "memory" },
-                    { "online", true }
-                };
-            }
-            
-            var account = TShock.UserAccounts.GetUserAccountByName(player);
+
+            // 统一按账号定位（先精确后大小写不敏感兜底），避免"仅大小写不同"时定位错账号
+            var account = UserAccountHelper.FindUserAccountByName(player);
             if (account == null)
             {
                 return new RestObject("404")
@@ -153,7 +138,21 @@ namespace TShockData
                     { "error", "找不到玩家" }
                 };
             }
-            
+
+            // 在线判定按账号名（大小写不敏感）匹配，而不是 FindByNameOrID 的角色名前缀匹配
+            var onlinePlayer = UserAccountHelper.FindOnlinePlayerByAccount(account.Name);
+            if (onlinePlayer != null)
+            {
+                List<InventoryData> invList = GetOnlinePlayerInventory(onlinePlayer);
+
+                return new RestObject()
+                {
+                    { "inventory", invList },
+                    { "source", "memory" },
+                    { "online", true }
+                };
+            }
+
             List<InventoryData> offlineInvList = GetOfflinePlayerInventory(account.ID);
             if (offlineInvList == null)
             {
@@ -503,30 +502,25 @@ namespace TShockData
 
             TShock.Log.ConsoleInfo($"[BatchEdit] player={playerName}, stats长度={statsJson?.Length ?? 0}, inv长度={invCompact.Length}");
 
-            var account = TShock.UserAccounts.GetUserAccountByName(playerName);
+            // 统一按账号定位（先精确后大小写不敏感兜底）；再尝试 ID
+            var account = UserAccountHelper.FindUserAccountByName(playerName);
+            if (account == null && int.TryParse(playerName, out int accountId))
+            {
+                account = TShock.UserAccounts.GetUserAccountByID(accountId);
+            }
             if (account == null)
             {
-                // 尝试用 ID 查找
-                if (int.TryParse(playerName, out int accountId))
+                return new RestObject("404")
                 {
-                    account = TShock.UserAccounts.GetUserAccountByID(accountId);
-                }
-                if (account == null)
-                {
-                    return new RestObject("404")
-                    {
-                        { "error", $"找不到玩家: {playerName}" },
-                        { "debug_player", playerName }
-                    };
-                }
+                    { "error", $"找不到玩家: {playerName}" },
+                    { "debug_player", playerName }
+                };
             }
 
-            // 在线则先同步内存→DB
-            var onlinePlayers = TSPlayer.FindByNameOrID(playerName);
-            TSPlayer? onlinePlayer = null;
-            if (onlinePlayers.Count > 0 && onlinePlayers[0].Active)
+            // 在线则先同步内存→DB（按账号名匹配，避免"仅大小写不同"时同步错玩家）
+            var onlinePlayer = UserAccountHelper.FindOnlinePlayerByAccount(account.Name);
+            if (onlinePlayer != null)
             {
-                onlinePlayer = onlinePlayers[0];
                 onlinePlayer.PlayerData.CopyCharacter(onlinePlayer);
                 TShock.CharacterDB.InsertPlayerData(onlinePlayer);
             }

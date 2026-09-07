@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using Rests;
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using Rests;
 using System;
 using System.Collections.Generic;
 using System.Data;
@@ -35,8 +35,18 @@ namespace TShockData
                 
                 if (!string.IsNullOrEmpty(username))
                 {
+                    // 统一大小写匹配规则：先精确后大小写不敏感兜底（UserAccountHelper），
+                    // 再用解析出的真实账号名精确查询，避免"仅大小写不同"的账号被漏查/错查
+                    var resolved = UserAccountHelper.FindUserAccountByName(username);
+                    if (resolved == null)
+                    {
+                        return new RestObject()
+                        {
+                            { "users", users }
+                        };
+                    }
                     query = "SELECT u.* FROM Users u WHERE u.Username = @0";
-                    parameters = new object[] { username };
+                    parameters = new object[] { resolved.Name };
                 }
                 else
                 {
@@ -135,6 +145,7 @@ namespace TShockData
                 int targetIndex = -1;
 
                 string query = "SELECT ID, Username, UUID, KnownIPs FROM Users";
+                string matchedUsername = null; // 实际命中的账号名（数据库中的真实大小写）
                 using (QueryResult res = db.QueryReader(query))
                 {
                     int index = 0;
@@ -149,10 +160,19 @@ namespace TShockData
                             { "knownIPs", res.Get<string>("KnownIPs") ?? "" }
                         };
                         allUsers.Add(user);
-                        
-                        if (userUsername.Equals(username, StringComparison.OrdinalIgnoreCase))
+
+                        // 匹配规则与 UserAccountHelper 一致：
+                        // 精确大小写优先；仅大小写不敏感命中时取第一个（先注册者，确定性）
+                        if (userUsername.Equals(username, StringComparison.Ordinal))
                         {
                             targetIndex = index;
+                            matchedUsername = userUsername;
+                        }
+                        else if (targetIndex == -1 &&
+                                 userUsername.Equals(username, StringComparison.OrdinalIgnoreCase))
+                        {
+                            targetIndex = index;
+                            matchedUsername = userUsername;
                         }
                         index++;
                     }
@@ -288,7 +308,7 @@ namespace TShockData
 
                 return new RestObject()
                 {
-                    { "targetUser", username },
+                    { "targetUser", matchedUsername },
                     { "targetIPs", targetIPs },
                     { "duplicates", duplicates },
                     { "count", duplicates.Count },
@@ -356,8 +376,17 @@ namespace TShockData
 
                 if (hasName)
                 {
+                    // 统一大小写匹配规则：先精确后大小写不敏感兜底，再用真实账号名精确查询
+                    var resolved = UserAccountHelper.FindUserAccountByName(name);
+                    if (resolved == null)
+                    {
+                        return new RestObject("404")
+                        {
+                            { "error", "用户不存在" }
+                        };
+                    }
                     query = "SELECT ID, Username, UUID, KnownIPs FROM Users WHERE Username = @0";
-                    parameters = new object[] { name };
+                    parameters = new object[] { resolved.Name };
                 }
                 else
                 {

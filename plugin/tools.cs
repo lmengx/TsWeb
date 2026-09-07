@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System.Collections.Concurrent;
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System.Collections.Concurrent;
 using System.Data;
 using System.Diagnostics;
 using System.IO;
@@ -177,7 +177,8 @@ namespace TShockData
                 }
                 else
                 {
-                    var account = TShock.UserAccounts.GetUserAccountByName(target);
+                    // 统一大小写匹配规则（先精确后大小写不敏感兜底）
+                    var account = UserAccountHelper.FindUserAccountByName(target);
                     if (account == null)
                     {
                         args.Player.SendErrorMessage($"找不到玩家: {target}");
@@ -214,7 +215,8 @@ namespace TShockData
             }
             else
             {
-                var account = TShock.UserAccounts.GetUserAccountByName(target);
+                // 统一大小写匹配规则（先精确后大小写不敏感兜底）
+                var account = UserAccountHelper.FindUserAccountByName(target);
                 if (account == null)
                 {
                     args.Player.SendErrorMessage($"找不到玩家: {target}");
@@ -971,20 +973,21 @@ namespace TShockData
 
             if (forceByName)
             {
-                var account = TShock.UserAccounts.GetUserAccountByName(target);
+                // 统一大小写匹配规则（先精确后大小写不敏感兜底）
+                var account = UserAccountHelper.FindUserAccountByName(target);
                 if (account == null)
                 {
                     args.Player.SendErrorMessage($"找不到名为 {target} 的账户");
                     return;
                 }
-                ExecuteBan(target, account.ID, reason, args);
+                ExecuteBan(account.Name, account.ID, reason, args);
                 return;
             }
 
             if (isNumeric)
             {
                 var accountById = TShock.UserAccounts.GetUserAccountByID(targetId);
-                var accountByName = TShock.UserAccounts.GetUserAccountByName(target);
+                var accountByName = UserAccountHelper.FindUserAccountByName(target);
 
                 bool idExists = accountById != null;
                 bool nameExists = accountByName != null && accountByName.ID != targetId;
@@ -1001,7 +1004,7 @@ namespace TShockData
                 }
                 else if (nameExists)
                 {
-                    ExecuteBan(target, accountByName.ID, reason, args);
+                    ExecuteBan(accountByName.Name, accountByName.ID, reason, args);
                     return;
                 }
                 else
@@ -1012,13 +1015,14 @@ namespace TShockData
             }
             else
             {
-                var account = TShock.UserAccounts.GetUserAccountByName(target);
+                // 统一大小写匹配规则（先精确后大小写不敏感兜底）
+                var account = UserAccountHelper.FindUserAccountByName(target);
                 if (account == null)
                 {
                     args.Player.SendErrorMessage($"找不到名为 {target} 的账户");
                     return;
                 }
-                ExecuteBan(target, account.ID, reason, args);
+                ExecuteBan(account.Name, account.ID, reason, args);
             }
         }
 

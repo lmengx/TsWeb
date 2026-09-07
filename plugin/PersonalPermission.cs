@@ -498,8 +498,10 @@ namespace TShockData
                 var actor = string.IsNullOrEmpty(grantedBy) ? "unknown" : grantedBy;
                 var total = playersRaw.Count * permissionsRaw.Count;
 
-                // 预解析账号，无效玩家一次性提示
-                var accounts = new Dictionary<string, UserAccount>(StringComparer.OrdinalIgnoreCase);
+                // 预解析账号，无效玩家一次性提示。
+                // 注意：用默认（大小写敏感）键——"仅大小写不同"的账号是两个独立账号，
+                // 若用 OrdinalIgnoreCase 键会互相覆盖导致权限签发到错误的账号
+                var accounts = new Dictionary<string, UserAccount>();
                 foreach (var p in playersRaw)
                 {
                     var acc = TShock.UserAccounts.GetUserAccountByName(p);

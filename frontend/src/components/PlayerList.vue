@@ -172,8 +172,14 @@ const executeClearAllData = async () => {
   clearAllDataLoading.value = false
 }
 
-const isUserOnline = (username) => {
-  return props.activeUsers.some(name => name.toLowerCase() === username.toLowerCase())
+// 在线判定：
+// 1) 优先使用插件端按账号名计算的 isOnline（大小写不敏感、按账号归属，多个"仅大小写不同"
+//    的账号不会互相点亮；角色名与账号名大小写不同时也不会误标）；
+// 2) 数据源未提供 isOnline 时（如旧数据/未验证列表），退回角色名大小写不敏感匹配。
+const isUserOnline = (user) => {
+  if (user && typeof user.isOnline === 'boolean') return user.isOnline
+  const name = user ? (user.name || '') : ''
+  return props.activeUsers.some(an => String(an).toLowerCase() === String(name).toLowerCase())
 }
 
 const sortedUsers = computed(() => {
@@ -181,7 +187,7 @@ const sortedUsers = computed(() => {
   const offline = []
   
   props.users.forEach(user => {
-    if (isUserOnline(user.name)) {
+    if (isUserOnline(user)) {
       online.push(user)
     } else {
       offline.push(user)
@@ -287,7 +293,7 @@ const handleRowClick = (user) => {
             class="clickable-row"
           >
             <td>
-              <span v-if="isUserOnline(user.name)" class="online-indicator" title="在线"></span>
+              <span v-if="isUserOnline(user)" class="online-indicator" title="在线"></span>
               <span v-else class="offline-indicator" title="离线"></span>
             </td>
             <td>{{ user.id }}</td>
