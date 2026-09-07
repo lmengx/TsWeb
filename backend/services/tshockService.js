@@ -2,38 +2,43 @@ import { AsyncLocalStorage } from 'async_hooks'
 import { getAccounts } from './qqAccountService.js'
 
 /**
- * 台账 QQ 映射（原始大小写 key）：
- *   map        — 原始大小写用户名 → QQ（精确匹配用）
- *   lowerIndex — 小写用户名 → 原始名变体列表（检测"仅大小写不同"的冲突账号）
- * 与插件端 UserAccountHelper 规则一致：精确大小写优先；大小写兜底仅在无冲突时使用。
+ * 台账 QQ 映射（原始大小写 key），用于玩家管理页从后端台账展示绑定 QQ。
+ * 保留原始大小写，精确匹配优先；兜底由 qqForUser 结合用户列表判断。
  */
 async function buildQqMap() {
   try {
     const records = await getAccounts()
     const map = new Map()
-    const lowerIndex = new Map()
     for (const [username, rec] of Object.entries(records)) {
-      if (!rec?.qq) continue
-      map.set(username, String(rec.qq))
-      const lk = String(username).toLowerCase()
-      if (!lowerIndex.has(lk)) lowerIndex.set(lk, [])
-      lowerIndex.get(lk).push(username)
+      if (rec?.qq) map.set(username, String(rec.qq))
     }
-    return { map, lowerIndex }
+    return map
   } catch {
-    return { map: new Map(), lowerIndex: new Map() }
+    return new Map()
   }
 }
 
 /**
- * 按用户名取绑定 QQ：先精确大小写匹配；小写兜底仅在变体唯一时生效，
- * 多个"仅大小写不同"的账号并存（如 ZK / zk）时返回空串，避免张冠李戴。
+ * 按用户名取绑定 QQ（userList 为该查询返回的完整用户列表，含 Username 字段）：
+ *   1. 精确大小写匹配台账（TShock 账号名大小写敏感，台账用户名即绑定时的精确名）；
+ *   2. 用户列表中同名小写变体多于 1 个（如 ZK 与 zk 并存）→ 查询名是独立账号，
+ *      不兜底（返回空串，避免张冠李戴）；
+ *   3. 同名小写变体唯一（查询名即该账号，或台账名与库名仅大小写不同）→ 台账大小写兜底。
  */
-function qqForUser(qqData, username) {
+function qqForUser(qqMap, username, userList) {
   const u = String(username || '')
-  if (qqData.map.has(u)) return qqData.map.get(u)
-  const variants = qqData.lowerIndex.get(u.toLowerCase())
-  if (variants && variants.length === 1) return qqData.map.get(variants[0])
+  // 1) 精确大小写
+  if (qqMap.has(u)) return qqMap.get(u)
+  // 2) 统计同名小写变体数量：>1 = 多个独立账号并存 → 冲突，不兜底
+  const lk = u.toLowerCase()
+  const list = Array.isArray(userList) ? userList : []
+  const sameLowerCount = list.filter(x =>
+    x.Username && String(x.Username).toLowerCase() === lk).length
+  if (sameLowerCount > 1) return ''
+  // 3) 唯一变体 → 台账大小写兜底
+  for (const [name, qq] of qqMap.entries()) {
+    if (String(name).toLowerCase() === lk) return qq
+  }
   return ''
 }
 
@@ -278,7 +283,7 @@ export class TShockService {
           group: u.Usergroup,
           registered: u.Registered,
           lastAccessed: u.LastAccessed,
-          qq: qqForUser(qqMap, u.Username),
+          qq: qqForUser(qqMap, u.Username, data.users),
           uuid: u.UUID,
           knownIPs: u.KnownIPs,
           isOnline: u.IsOnline,
@@ -380,12 +385,11 @@ export class TShockService {
       'Accept': 'application/json'
     }
 
+    // 不带 username 查全量：qqForUser 的冲突检测需要完整用户列表
+    //（仅大小写不同的独立账号如 ZK / zk 必须都在列表中才能判断）
     let url = `${this.baseUrl}/data/users/query_detail`
-    if (username) {
-      url += `?username=${encodeURIComponent(username)}`
-    }
     if (this.apiKey) {
-      url += (username ? '&' : '?') + `token=${encodeURIComponent(this.apiKey)}`
+      url += `?token=${encodeURIComponent(this.apiKey)}`
     }
 
     console.log(`[OUTGOING] GET ${url}`)
@@ -398,15 +402,33 @@ export class TShockService {
 
       console.log(`[RESPONSE] Status: ${response.status}`)
       const text = await response.text()
-      console.log(`[RESPONSE] Body: ${text}`)
 
       try {
         const data = JSON.parse(text)
         // QQ 展示以后端台账为权威（插件端 qq_bind 表已移除，不再返回 QQ 字段）
         if (data && Array.isArray(data.users)) {
           const qqMap = await buildQqMap()
-          for (const u of data.users) {
-            u.QQ = qqForUser(qqMap, u.Username)
+          const all = data.users
+          let target = null
+          if (username) {
+            // 定位目标：精确优先；大小写兜底取 ID 最小（与插件 UserAccountHelper 规则一致）
+            target = all.find(u => u.Username === username) || null
+            if (!target) {
+              const lk = String(username).toLowerCase()
+              const variants = all.filter(u =>
+                u.Username && String(u.Username).toLowerCase() === lk)
+              if (variants.length >= 1) {
+                target = variants.sort((a, b) => (a.ID || 0) - (b.ID || 0))[0]
+              }
+            }
+          } else {
+            target = all[0] || null
+          }
+          if (target) {
+            target.QQ = qqForUser(qqMap, target.Username, all)
+            data.users = [target]
+          } else {
+            data.users = []
           }
         }
         return data
