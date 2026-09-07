@@ -26,7 +26,7 @@ frontend/  Vue 3 + Vite —— 管理面板（console 视图 + 设置页）
 | 功能 | 插件模块 | 后端/前端 | 说明 |
 |------|----------|-----------|------|
 | **进服策略** | `RegisterAndAccess`、`UnverifiedManager` | `unverifiedRoutes` / `UnverifiedDetail.vue` | 动态配置，可随时切换白名单/自动注册 |
-| **物品/弹幕反作弊** | `AntiCheat` | `ItemDetection` / `ProjDetection` | `antiCheatRoutes` / `ItemRestrictView.vue` / `ProjRestrictView.vue` | 违禁物品/弹幕检测、全服扫描、闪电防护、反恶性 bug（登录/宝箱/召唤物限制） |
+| **物品/弹幕反作弊** | `AntiCheat` | `ItemDetection` / `ProjDetection`  | 违禁物品/弹幕检测、全服扫描 |
 | **反恶性bug** | `ParticleGuard` / `BugFixes`  || 闪电防护、反恶性 bug（登录/宝箱/召唤物限制） |
 | **房屋插件** | `HouseCore` / `HouseApi`（原 plugin-son/House 并入） | `houseApi.js` / `HouseManagementView.vue` | 圈地建房、屋主自定义传送点以及自主权限，一键导入导出 |
 | **QQ 机器人** | `QQ.cs` / `AccountSync` | `botRoutes` / `qqAccountService` / `QQConfigView.vue` | QQ 绑定账号、查询玩家数据、绑定流程、多服时长聚合 |
