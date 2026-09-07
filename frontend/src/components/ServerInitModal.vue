@@ -183,7 +183,7 @@ const pickReg = makePicker(registerMode)
 const pickAc = makePicker(acOn)
 const pickBf = makePicker(bfOn)
 
-const isPicked = (pickKey, key) => pickKey.value === key
+const isPicked = (val, key) => val === key
 
 const next = () => { if (step.value < 6) step.value++ }
 const prev = () => { if (step.value > 1) step.value-- }
