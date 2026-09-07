@@ -1,18 +1,40 @@
 import { AsyncLocalStorage } from 'async_hooks'
 import { getAccounts } from './qqAccountService.js'
 
-/** 台账 QQ 映射：用户名（大小写不敏感）→ QQ，用于玩家管理页从后端台账展示绑定 QQ */
+/**
+ * 台账 QQ 映射（原始大小写 key）：
+ *   map        — 原始大小写用户名 → QQ（精确匹配用）
+ *   lowerIndex — 小写用户名 → 原始名变体列表（检测"仅大小写不同"的冲突账号）
+ * 与插件端 UserAccountHelper 规则一致：精确大小写优先；大小写兜底仅在无冲突时使用。
+ */
 async function buildQqMap() {
   try {
     const records = await getAccounts()
     const map = new Map()
+    const lowerIndex = new Map()
     for (const [username, rec] of Object.entries(records)) {
-      if (rec?.qq) map.set(String(username).toLowerCase(), String(rec.qq))
+      if (!rec?.qq) continue
+      map.set(username, String(rec.qq))
+      const lk = String(username).toLowerCase()
+      if (!lowerIndex.has(lk)) lowerIndex.set(lk, [])
+      lowerIndex.get(lk).push(username)
     }
-    return map
+    return { map, lowerIndex }
   } catch {
-    return new Map()
+    return { map: new Map(), lowerIndex: new Map() }
   }
+}
+
+/**
+ * 按用户名取绑定 QQ：先精确大小写匹配；小写兜底仅在变体唯一时生效，
+ * 多个"仅大小写不同"的账号并存（如 ZK / zk）时返回空串，避免张冠李戴。
+ */
+function qqForUser(qqData, username) {
+  const u = String(username || '')
+  if (qqData.map.has(u)) return qqData.map.get(u)
+  const variants = qqData.lowerIndex.get(u.toLowerCase())
+  if (variants && variants.length === 1) return qqData.map.get(variants[0])
+  return ''
 }
 
 function buildBaseUrl(server) {
@@ -256,7 +278,7 @@ export class TShockService {
           group: u.Usergroup,
           registered: u.Registered,
           lastAccessed: u.LastAccessed,
-          qq: qqMap.get(String(u.Username || '').toLowerCase()) || '',
+          qq: qqForUser(qqMap, u.Username),
           uuid: u.UUID,
           knownIPs: u.KnownIPs,
           isOnline: u.IsOnline,
@@ -384,7 +406,7 @@ export class TShockService {
         if (data && Array.isArray(data.users)) {
           const qqMap = await buildQqMap()
           for (const u of data.users) {
-            u.QQ = qqMap.get(String(u.Username || '').toLowerCase()) || ''
+            u.QQ = qqForUser(qqMap, u.Username)
           }
         }
         return data
