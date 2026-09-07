@@ -89,6 +89,15 @@ const banLoading = ref(false)
 const banError = ref('')
 const banSuccess = ref('')
 
+// ═══ 封禁状态显示（玩家详情页：有封禁时头部显示徽标，点击弹出详情）═══
+const banListLoading = ref(false)
+const banListError = ref('')
+const banListData = ref([])            // 全量封禁列表（来自 /api/tshock/banlist）
+const showBanDetailModal = ref(false)
+const unbanDetailLoading = ref(false)
+const unbanDetailError = ref('')
+const unbanDetailSuccess = ref('')
+
 const showClearCharacterModal = ref(false)
 const clearCharacterLoading = ref(false)
 const clearCharacterError = ref('')
@@ -675,6 +684,123 @@ const executeBan = async () => {
   }
 
   banLoading.value = false
+}
+
+// ═══════════ 封禁状态显示逻辑 ═══════════
+
+// .NET 刻度 → 本地时间字符串
+const ticksToDate = (ticks) => {
+  try {
+    const date = new Date((ticks - 621355968000000000) / 10000)
+    return date.toLocaleString('zh-CN')
+  } catch {
+    return '-'
+  }
+}
+
+// 封禁标识（identifier）解析：ip:xxx / uuid:xxx / acc:xxx
+const parseBanIdentifier = (identifier) => {
+  if (!identifier) return { type: '未知', value: '-' }
+  if (identifier.startsWith('ip:')) return { type: 'IP', value: identifier.substring(3) }
+  if (identifier.startsWith('uuid:')) return { type: 'UUID', value: identifier.substring(5) }
+  if (identifier.startsWith('acc:')) return { type: '账户', value: identifier.substring(4) }
+  if (identifier.startsWith('acc：')) return { type: '账户', value: identifier.substring(4) }
+  return { type: '未知', value: identifier }
+}
+
+// 3155378976000000000 = DateTime.MaxValue.Ticks = 永久封禁
+const isBanExpired = (ban) => {
+  if (!ban || !ban.end_date_ticks) return false
+  if (ban.end_date_ticks === 3155378976000000000) return false
+  const nowTicks = (Date.now() * 10000) + 621355968000000000
+  return ban.end_date_ticks <= nowTicks
+}
+
+// 当前玩家的封禁记录（匹配依据：账号名 acc: + UUID uuid: + 已知IP ip:，全匹配）
+// 注意：本阶段按现有设计判定逻辑（大小写敏感精确匹配），stash 修复后的行为对比见后续
+const playerBans = computed(() => {
+  if (!userDetails.value) return []
+  const username = userDetails.value.Username || userDetails.value.name || ''
+  const uuid = userDetails.value.UUID || ''
+  const ips = ipList.value || []
+
+  return banListData.value.filter(ban => {
+    const parsed = parseBanIdentifier(ban.identifier)
+    if (parsed.type === '账户') {
+      return parsed.value === username
+    }
+    if (parsed.type === 'UUID') {
+      return uuid && parsed.value === uuid
+    }
+    if (parsed.type === 'IP') {
+      return ips.includes(parsed.value)
+    }
+    return false
+  })
+})
+
+// 生效中的封禁（未过期的）——有则头部显示徽标
+const activePlayerBans = computed(() => {
+  return playerBans.value.filter(ban => !isBanExpired(ban))
+})
+
+const fetchPlayerBans = async () => {
+  banListLoading.value = true
+  banListError.value = ''
+  try {
+    const response = await get('/api/tshock/banlist')
+    const result = await response.json()
+    if (result.status === '200' && result.bans) {
+      banListData.value = result.bans
+    } else if (result.error) {
+      banListError.value = result.error
+    } else {
+      banListError.value = '获取封禁列表失败'
+    }
+  } catch (err) {
+    banListError.value = err.message || '获取封禁列表失败'
+  }
+  banListLoading.value = false
+}
+
+const openBanDetailModal = () => {
+  unbanDetailError.value = ''
+  unbanDetailSuccess.value = ''
+  showBanDetailModal.value = true
+}
+
+const closeBanDetailModal = () => {
+  showBanDetailModal.value = false
+}
+
+const executeUnbanDetail = async (ticket) => {
+  unbanDetailLoading.value = true
+  unbanDetailError.value = ''
+  unbanDetailSuccess.value = ''
+
+  try {
+    const response = await post('/api/tshock/unban', { ticket })
+    const result = await response.json()
+
+    if (result.error) {
+      unbanDetailError.value = result.error
+    } else {
+      unbanDetailSuccess.value = result.response || '解封成功'
+      // 刷新封禁列表
+      await fetchPlayerBans()
+      setTimeout(() => {
+        unbanDetailSuccess.value = ''
+        // 若已无生效封禁，关闭弹窗
+        if (activePlayerBans.value.length === 0) {
+          showBanDetailModal.value = false
+        }
+      }, 1200)
+    }
+  } catch (err) {
+    unbanDetailError.value = err.message || '解封失败'
+  }
+
+  unbanDetailLoading.value = false
 }
 
 const openClearCharacterModal = () => {
@@ -1602,6 +1728,7 @@ watch(() => route.params.username, (newUsername) => {
     fetchPlayerStats(newUsername)
     fetchDailyStats(newUsername)
     checkOnlineStatus()
+    fetchPlayerBans()
   }
 }, { immediate: true })
 
@@ -1613,6 +1740,7 @@ onMounted(() => {
     fetchPlayerStats(route.params.username)
     fetchDailyStats(route.params.username)
     checkOnlineStatus()
+    fetchPlayerBans()
   }
 })
 </script>
@@ -1636,6 +1764,15 @@ onMounted(() => {
             <span class="qq-dot"></span>
             <span v-if="userDetails.QQ" class="qq-number">QQ:{{ userDetails.QQ }}</span>
             <span v-else>QQ:未绑定</span>
+          </div>
+          <div
+            v-if="activePlayerBans.length > 0"
+            class="ban-status-badge"
+            @click="openBanDetailModal"
+            title="该玩家有生效中的封禁，点击查看详情"
+          >
+            <span class="ban-status-dot"></span>
+            <span>已封禁</span>
           </div>
         </template>
       </div>
@@ -2586,6 +2723,71 @@ onMounted(() => {
       </div>
     </div>
 
+    <!-- 封禁详情弹窗（玩家详情页封禁徽标点击打开） -->
+    <div v-if="showBanDetailModal" class="modal-overlay" @click.self="closeBanDetailModal">
+      <div class="modal ban-detail-modal">
+        <div class="modal-header">
+          <h3>封禁详情</h3>
+          <button @click="closeBanDetailModal" class="close-btn">×</button>
+        </div>
+        <div class="modal-body">
+          <div v-if="banListLoading" class="ban-detail-loading">加载中...</div>
+          <div v-else-if="banListError" class="give-error">{{ banListError }}</div>
+          <div v-else-if="playerBans.length === 0" class="ban-detail-empty">该玩家当前没有匹配的封禁记录</div>
+          <div v-else class="ban-detail-list">
+            <div v-for="ban in playerBans" :key="ban.ticket_number" class="ban-detail-item">
+              <div class="ban-detail-head">
+                <span class="ban-detail-ticket">#{{ ban.ticket_number }}</span>
+                <span class="ban-detail-type" :class="'type-' + parseBanIdentifier(ban.identifier).type.toLowerCase()">
+                  {{ parseBanIdentifier(ban.identifier).type }}
+                </span>
+                <span v-if="isBanExpired(ban)" class="ban-detail-expired">已过期</span>
+                <span v-else class="ban-detail-active">生效中</span>
+              </div>
+              <div class="ban-detail-rows">
+                <div class="ban-detail-row">
+                  <span class="ban-detail-label">标识符</span>
+                  <span class="ban-detail-value ban-detail-mono">{{ parseBanIdentifier(ban.identifier).value }}</span>
+                </div>
+                <div class="ban-detail-row">
+                  <span class="ban-detail-label">原因</span>
+                  <span class="ban-detail-value">{{ ban.reason || '-' }}</span>
+                </div>
+                <div class="ban-detail-row">
+                  <span class="ban-detail-label">封禁者</span>
+                  <span class="ban-detail-value">{{ ban.banning_user || '-' }}</span>
+                </div>
+                <div class="ban-detail-row">
+                  <span class="ban-detail-label">封禁时间</span>
+                  <span class="ban-detail-value">{{ ticksToDate(ban.start_date_ticks) }}</span>
+                </div>
+                <div class="ban-detail-row">
+                  <span class="ban-detail-label">到期时间</span>
+                  <span class="ban-detail-value" :class="{ 'ban-detail-permanent': ban.end_date_ticks === 3155378976000000000 }">
+                    {{ ban.end_date_ticks === 3155378976000000000 ? '永久' : ticksToDate(ban.end_date_ticks) }}
+                  </span>
+                </div>
+              </div>
+              <div class="ban-detail-actions">
+                <button
+                  @click="executeUnbanDetail(ban.ticket_number)"
+                  :disabled="unbanDetailLoading"
+                  class="ban-detail-unban-btn"
+                >
+                  {{ unbanDetailLoading ? '处理中...' : '解封' }}
+                </button>
+              </div>
+            </div>
+          </div>
+          <div v-if="unbanDetailError" class="give-error" style="margin-top: 12px;">{{ unbanDetailError }}</div>
+          <div v-if="unbanDetailSuccess" class="give-success" style="margin-top: 12px;">{{ unbanDetailSuccess }}</div>
+        </div>
+        <div class="modal-footer">
+          <button @click="closeBanDetailModal" class="cancel-btn">关闭</button>
+        </div>
+      </div>
+    </div>
+
   <Teleport to="body">
     <Transition name="toast-fade">
       <div v-if="toastMessage" class="toast-notification">{{ toastMessage }}</div>
@@ -2757,6 +2959,185 @@ onMounted(() => {
 @keyframes qq-glow {
   0%, 100% { box-shadow: 0 0 8px rgba(234, 179, 8, 0.4); }
   50% { box-shadow: 0 0 14px rgba(234, 179, 8, 0.9); }
+}
+
+/* ═══ 封禁状态徽标（头部，仅生效中封禁时显示）═══ */
+.ban-status-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  border-radius: 20px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #ef4444;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.2s ease;
+}
+
+.ban-status-badge:hover {
+  background: rgba(239, 68, 68, 0.25);
+  box-shadow: 0 0 10px rgba(239, 68, 68, 0.4);
+}
+
+.ban-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ef4444;
+  box-shadow: 0 0 8px rgba(239, 68, 68, 0.8);
+}
+
+/* ═══ 封禁详情弹窗 ═══ */
+.ban-detail-modal {
+  max-width: 560px;
+}
+
+.ban-detail-loading,
+.ban-detail-empty {
+  padding: 24px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.ban-detail-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.ban-detail-item {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+}
+
+.ban-detail-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.ban-detail-ticket {
+  font-weight: 700;
+  color: var(--accent-primary);
+  font-size: 0.95rem;
+}
+
+.ban-detail-type {
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.ban-detail-type.type-ip {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+.ban-detail-type.type-uuid {
+  background: rgba(139, 92, 246, 0.15);
+  color: #8b5cf6;
+}
+
+.ban-detail-type.type-账户 {
+  background: rgba(22, 163, 74, 0.15);
+  color: #16a34a;
+}
+
+.ban-detail-type.type-未知 {
+  background: rgba(156, 163, 175, 0.15);
+  color: #6b7280;
+}
+
+.ban-detail-expired {
+  margin-left: auto;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  background: rgba(156, 163, 175, 0.15);
+  color: #6b7280;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.ban-detail-active {
+  margin-left: auto;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.ban-detail-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.ban-detail-row {
+  display: flex;
+  gap: 10px;
+  font-size: 0.85rem;
+}
+
+.ban-detail-label {
+  flex-shrink: 0;
+  width: 60px;
+  color: var(--text-muted);
+}
+
+.ban-detail-value {
+  color: var(--text-primary);
+  word-break: break-all;
+}
+
+.ban-detail-mono {
+  font-family: 'Cascadia Code', Consolas, monospace;
+  font-size: 0.8rem;
+}
+
+.ban-detail-permanent {
+  color: var(--accent-error);
+  font-weight: 600;
+}
+
+.ban-detail-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.ban-detail-unban-btn {
+  padding: 6px 18px;
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--accent-error);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 600;
+  transition: all 0.2s ease;
+}
+
+.ban-detail-unban-btn:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.25);
+  border-color: var(--accent-error);
+}
+
+.ban-detail-unban-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .action-section {
