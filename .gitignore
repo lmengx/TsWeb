@@ -162,3 +162,5 @@ backend/data/**
 /plugin-son/Possess/bin
 /plugin-son/MapManager/bin
 /ModTransplant
+# 三个 mod 仓库合并后的独立开源仓库（Hero / ModLoader / RecipeBrowser）
+/mods-merged
