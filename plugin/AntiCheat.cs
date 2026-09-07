@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System;
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System;
 using System.Collections.Generic;
 using System.Data;
 using System.IO;
@@ -8,6 +8,7 @@ using Microsoft.Xna.Framework;
 using Terraria;
 using TShockAPI;
 using TShockAPI.DB;
+using Rests;
 
 namespace TShockData
 {
@@ -419,6 +420,47 @@ namespace TShockData
             catch
             {
                 return $"Item_{itemId}";
+            }
+        }
+
+        /// <summary>
+        /// POST /data/anticheat/enable — 反作弊轻量开关（仅开关，不动配置列表）
+        /// 参数：itemEnabled（物品违禁总开关）/ projEnabled（弹幕违禁总开关），缺省保持原值
+        /// </summary>
+        public static object SetEnableApi(RestRequestArgs args)
+        {
+            try
+            {
+                LoadConfig();
+                LoadProjConfig();
+
+                var itemEnabled = args.Parameters["itemEnabled"];
+                if (!string.IsNullOrEmpty(itemEnabled))
+                {
+                    _config.Enabled = itemEnabled.ToLower() == "true";
+                    SaveConfig(_config);
+                    TShock.Log.ConsoleInfo($"[TSWeb] REST 更新物品违禁开关: {_config.Enabled}");
+                }
+
+                var projEnabled = args.Parameters["projEnabled"];
+                if (!string.IsNullOrEmpty(projEnabled))
+                {
+                    _projConfig.Enabled = projEnabled.ToLower() == "true";
+                    SaveProjConfig(_projConfig);
+                    TShock.Log.ConsoleInfo($"[TSWeb] REST 更新弹幕违禁开关: {_projConfig.Enabled}");
+                }
+
+                return new RestObject
+                {
+                    { "status", "200" },
+                    { "itemEnabled", _config.Enabled },
+                    { "projEnabled", _projConfig.Enabled }
+                };
+            }
+            catch (Exception ex)
+            {
+                TShock.Log.ConsoleError($"[TSWeb] 反作弊开关更新失败: {ex.Message}");
+                return new RestObject("500") { { "error", ex.Message } };
             }
         }
     }

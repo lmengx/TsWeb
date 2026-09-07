@@ -4,6 +4,7 @@ import { apiRequest, post, put, del } from '../../utils/api.js'
 import { getCurrentServerId, selectServer, fetchServers } from '../../utils/serverStore.js'
 import ServerCard from '../../components/ServerCard.vue'
 import AddServerWizard from '../../components/AddServerWizard.vue'
+import ServerInitModal from '../../components/ServerInitModal.vue'
 
 // ═══════════════ 状态 ═══════════════
 const servers = ref([])
@@ -12,6 +13,10 @@ const error = ref('')
 const success = ref('')
 
 const showAddModal = ref(false)
+
+// 插件初始化模态框
+const showInitModal = ref(false)
+const initTarget = ref(null)   // { id, name }
 
 // 编辑弹窗
 const showEditModal = ref(false)
@@ -152,6 +157,45 @@ const handleAdded = async () => {
   await loadServers()
 }
 
+// 编辑弹窗内「初始化」：关闭编辑弹窗，打开该服务器的初始化模态框
+const openInitFromEdit = () => {
+  showEditModal.value = false
+  openInitModal(editForm.value)
+}
+
+// 添加成功且该服务器无「已完成/已跳过」记录 → 自动弹出初始化模态框（纯前端状态）
+const handleInitRequested = (server) => {
+  if (server?.id) {
+    const key = `tsweb.server-init.${server.id}`
+    const record = localStorage.getItem(key)
+    if (!record || (record !== 'done' && record !== 'skipped')) {
+      openInitModal(server)
+    }
+  }
+}
+
+// ═══════════════ 插件初始化 ═══════════════
+const openInitModal = (s) => {
+  const server = s.id ? s : (servers.value.find(x => x.id === s) || null)
+  if (!server) return
+  initTarget.value = { id: server.id, name: server.name || server.host || '' }
+  showInitModal.value = true
+}
+
+const onInitCompleted = () => {
+  if (initTarget.value?.id) {
+    localStorage.setItem(`tsweb.server-init.${initTarget.value.id}`, 'done')
+  }
+  // 完成即关闭模态框（skip 路径走 @close → onInitSkipped）
+  showInitModal.value = false
+}
+
+const onInitSkipped = () => {
+  if (initTarget.value?.id) {
+    localStorage.setItem(`tsweb.server-init.${initTarget.value.id}`, 'skipped')
+  }
+}
+
 // 定时刷新（静默）：保持卡片在线状态实时同步；切换服务器为纯本地操作，无需重拉列表
 let statusTimer = null
 const refreshServers = () => { loadServers(true) }
@@ -235,7 +279,22 @@ onUnmounted(() => {
     </div>
 
     <!-- ══════════ 添加服务器向导 ══════════ -->
-    <AddServerWizard :show="showAddModal" @close="showAddModal = false" @added="handleAdded" />
+    <AddServerWizard
+      :show="showAddModal"
+      @close="showAddModal = false"
+      @added="handleAdded"
+      @init-requested="handleInitRequested"
+    />
+
+    <!-- ══════════ 插件初始化模态框 ══════════ -->
+    <ServerInitModal
+      v-if="showInitModal"
+      :show="showInitModal"
+      :server-id="initTarget?.id"
+      :server-name="initTarget?.name"
+      @close="showInitModal = false; onInitSkipped()"
+      @completed="onInitCompleted"
+    />
 
     <!-- ══════════ 编辑服务器弹窗 ══════════ -->
     <div v-if="showEditModal" class="modal-mask" @click.self="showEditModal = false">
@@ -289,6 +348,7 @@ onUnmounted(() => {
         </div>
         <div class="modal-actions">
           <button class="mini-btn" @click="showEditModal = false">取消</button>
+          <button class="mini-btn" @click="openInitFromEdit" title="打开插件初始化向导（可重新配置 SSC、注册模式、反作弊、BugFixes 与权限）">初始化</button>
           <button class="save-btn" :disabled="editSaving" @click="saveEdit">{{ editSaving ? '保存中...' : '保存' }}</button>
         </div>
       </div>

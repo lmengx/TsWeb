@@ -2,7 +2,7 @@ import { Router } from 'express'
 import jwt from 'jsonwebtoken'
 import { getConfig, getServers, addServer } from '../config.js'
 import { validateSetupToken } from '../setupToken.js'
-import tshockService from '../services/tshockService.js'
+import tshockService, { runWithServer } from '../services/tshockService.js'
 import { exec } from 'child_process'
 import { promisify } from 'util'
 import fs from 'fs/promises'
@@ -26,9 +26,14 @@ const tshockFetch = async (pathname) => {
   const servers = await getServers()
   const current = servers.find(s => s.enabled) || servers[0]
   if (!current) return { error: '尚未配置任何服务器' }
-  const host = current.host || 'localhost'
-  const baseUrl = (host.startsWith('http://') || host.startsWith('https://') ? host : `http://${host}`) + ':' + (current.port || 7878)
-  const apiKey = current.apiKey || ''
+  return tshockFetchFor(current, pathname)
+}
+
+/** 向指定服务器对象发 TShock REST 请求（与 tshockFetch 相同格式） */
+const tshockFetchFor = async (server, pathname) => {
+  const host = server.host || 'localhost'
+  const baseUrl = (host.startsWith('http://') || host.startsWith('https://') ? host : `http://${host}`) + ':' + (server.port || 7878)
+  const apiKey = server.apiKey || ''
   const sep = pathname.includes('?') ? '&' : '?'
   const url = `${baseUrl}${pathname}${sep}token=${encodeURIComponent(apiKey)}`
   const res = await fetch(url)
@@ -429,6 +434,76 @@ router.post('/plugin-init', setupOrAdmin, async (req, res) => {
     }
     const result = await tshockFetch(path)
     res.json(result || { status: '200', message: '配置已保存' })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// ═══════════════════════════════════════════════════════════
+// 插件初始化 v2（初始化模态框聚合调用）
+// 支持指定服务器（serverId），逐项应用：
+//   注册模式 registerMode (default/auto/block)
+//   SSC 配置 ssc: { content }（完整 sscconfig.json 文本；缺省不修改）
+//   反作弊开关 anticheat: { itemEnabled?, projEnabled? }
+//   反恶性bug开关 bugfix: { enabled?, loginFix?, chestFix?, minionLimit?, lightning? }
+// 返回分项结果，任一失败不影响其它项
+// ═══════════════════════════════════════════════════════════
+router.post('/plugin-init-v2', setupOrAdmin, async (req, res) => {
+  const { serverId, registerMode, ssc, anticheat, bugfix } = req.body || {}
+  try {
+    const servers = await getServers()
+    const target = (serverId && servers.find(s => s.id === serverId))
+      || servers.find(s => s.enabled) || servers[0]
+    if (!target) {
+      return res.status(400).json({ error: '尚未配置任何服务器' })
+    }
+
+    const results = {}
+
+    // 1. 注册模式
+    if (registerMode && ['default', 'auto', 'block'].includes(registerMode)) {
+      const r = await tshockFetchFor(target, `/data/config/tsweb/set?mode=${encodeURIComponent(registerMode)}`)
+      results.register = { ok: r?.status === '200' || !r?.error, response: r }
+    }
+
+    // 2. SSC 配置（写 tshock/sscconfig.json，按目标服务器上下文）
+    if (ssc && typeof ssc.content === 'string' && ssc.content.length > 0) {
+      const r = await runWithServer(target.id, () => tshockService.fileWrite('tshock/sscconfig.json', ssc.content))
+      results.ssc = r
+    }
+
+    // 3. 反作弊开关（物品/弹幕）
+    if (anticheat) {
+      const params = []
+      if (anticheat.itemEnabled !== undefined) params.push(`itemEnabled=${anticheat.itemEnabled}`)
+      if (anticheat.projEnabled !== undefined) params.push(`projEnabled=${anticheat.projEnabled}`)
+      if (params.length > 0) {
+        const r = await tshockFetchFor(target, `/data/anticheat/enable?${params.join('&')}`)
+        results.anticheat = { ok: r?.status === '200' || !r?.error, response: r }
+      }
+    }
+
+    // 4. 反恶性bug开关
+    if (bugfix) {
+      const params = []
+      if (bugfix.enabled !== undefined) params.push(`enabled=${bugfix.enabled}`)
+      if (bugfix.loginFix !== undefined) params.push(`loginFix=${bugfix.loginFix}`)
+      if (bugfix.chestFix !== undefined) params.push(`chestFix=${bugfix.chestFix}`)
+      if (bugfix.minionLimit !== undefined) params.push(`minionLimit=${bugfix.minionLimit}`)
+      if (bugfix.lightning !== undefined) params.push(`lightning=${bugfix.lightning}`)
+      if (params.length > 0) {
+        const r = await tshockFetchFor(target, `/data/bugfix/set?${params.join('&')}`)
+        results.bugfix = { ok: r?.status === '200' || !r?.error, response: r }
+      }
+    }
+
+    audit.record('setup.plugin_init', {
+      server: target.name,
+      serverId: target.id,
+      actor: req.user?.username || 'setup'
+    })
+
+    res.json({ success: true, serverId: target.id, serverName: target.name, results })
   } catch (err) {
     res.status(500).json({ error: err.message })
   }

@@ -106,6 +106,7 @@ namespace TShockData
             TShock.RestApi.Register(new SecureRestCommand("/data/anticheat/item-config/saveitemconfig", ItemConfigHandler.SaveItemConfigApi, "tshock.admin"));
             TShock.RestApi.Register(new SecureRestCommand("/data/anticheat/item-config/scanall", ItemConfigHandler.ScanAllItemsApi, "tshock.admin"));
             TShock.RestApi.Register(new SecureRestCommand("/data/anticheat/item-config/scan-by-id", ItemConfigHandler.ScanItemByIdApi, "tshock.admin"));
+            TShock.RestApi.Register(new SecureRestCommand("/data/anticheat/enable", AntiCheat.SetEnableApi, "tshock.admin"));
 
             TShockAPI.Commands.ChatCommands.Add(new Command("tools.runas", tools.runas, "runas"));
 
@@ -134,6 +135,10 @@ namespace TShockData
             PlannedOff.Initialize(this);
 
             BugFixes.Initialize(this);
+
+            // ═══ BugFixes 配置（反恶性 bug：登录修复/宝箱修复/召唤物限制/粒子防线 开关）═══
+            TShock.RestApi.Register(new SecureRestCommand("/data/bugfix", BugFixes.GetConfigApi, "data.rest.invsee"));
+            TShock.RestApi.Register(new SecureRestCommand("/data/bugfix/set", BugFixes.SetConfigApi, "data.rest.invsee"));
 
             // ping 命令：测量玩家到服务器的延迟（/ping 查自己，/ping 玩家名 需 tshock.admin）
             TShockAPI.Commands.ChatCommands.Add(new Command("", Ping.PingCommand, "ping") { HelpText = "查看你到服务器的延迟；管理员可用 /ping 玩家名 查看指定玩家延迟" });
@@ -171,8 +176,8 @@ namespace TShockData
             ItemConfigHandler.LoadItemConfig();
             ItemDetection.Initialize();
 
-            // ═══ 粒子防线：拦截客户端伪造粒子请求（82 + NetParticlesModule）═══
-            ParticleGuard.Initialize(this);
+            // ═══ 粒子防线（由 BugFixes 统一管理，按配置 lightning 子功能开关）═══
+            // ParticleGuard.Initialize(this) 已移至 BugFixes.ApplySubmodules
 
             OnlineData.Initialize(this);
 
@@ -379,6 +384,9 @@ namespace TShockData
 				"/data/anticheat/item-config/saveitemconfig",
 				"/data/anticheat/item-config/scanall",
 				"/data/anticheat/item-config/scan-by-id",
+				"/data/anticheat/enable",
+				"/data/bugfix",
+				"/data/bugfix/set",
                 "/data/boss/progress",
                 "/data/bosslimit/status",
 				"/data/config/tsweb",

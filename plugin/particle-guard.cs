@@ -337,6 +337,13 @@ namespace TShockData
 		/// </summary>
 		public static void LightningCommand(CommandArgs args)
 		{
+			// lightning 子功能开关：粒子防线关闭时禁止劈闪（与 BugFixes 配置联动）
+			if (!Enabled)
+			{
+				args.Player.SendErrorMessage("粒子防线已关闭，无法使用劈闪指令。可在服务器设置中开启「粒子防线」后重试。");
+				return;
+			}
+
 			if (args.Parameters.Count < 1)
 			{
 				args.Player.SendInfoMessage(

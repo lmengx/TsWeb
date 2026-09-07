@@ -12,31 +12,65 @@ using TerrariaApi.Server;
 using TShockAPI;
 using TShockAPI.DB;
 using TShockAPI.Hooks;
+using Newtonsoft.Json;
+using Rests;
 
 namespace TShockData
 {
+    /// <summary>
+    /// BugFixes 模块配置（TSWeb/BugFixes.json）
+    /// 总开关默认关；子功能默认全开。加载时 ensure 补齐缺失字段并落盘。
+    /// </summary>
+    public class BugFixesConfig
+    {
+        [JsonProperty("启用")]
+        public bool Enabled { get; set; } = false;
+
+        [JsonProperty("登录修复")]
+        public bool LoginFix { get; set; } = true;
+
+        [JsonProperty("宝箱修复")]
+        public bool ChestFix { get; set; } = true;
+
+        [JsonProperty("召唤物限制")]
+        public bool MinionLimit { get; set; } = true;
+
+        [JsonProperty("粒子防线")]
+        public bool Lightning { get; set; } = true;
+    }
+
     /// <summary>
     /// 修复 TShock 恶性 Bug 的通用模块
     /// 子模块：
     ///   LoginFix — 修复 UUID 变更导致无法进服的连接层 Bug
     ///   ChestFix — 修复宝箱数据包校验缺失漏洞
     ///   DualChestFix — 禁止玩家同时打开多个箱子（防双箱刷物品）
+    ///   MinionLimit — 召唤物数量上限（异常数据限制）
+    ///   ParticleGuard（Lightning）— 闪电粒子洪泛防线
+    ///
+    /// 配置化：总开关（Enabled 默认 false）+ 子功能开关（默认全开）；
+    /// REST 动态开关通过 ApplyConfig 先全卸载再按新配置挂载，天然幂等。
     /// </summary>
     public static class BugFixes
     {
         private static bool _isInitialized = false;
+        private static TerrariaPlugin? _plugin;
+        public static BugFixesConfig Config { get; private set; } = new BugFixesConfig();
+        private static string ConfigPath => Path.Combine(TShock.SavePath, "TSWeb", "BugFixes.json");
+        /// <summary>当前已挂载的子模块名集合（LoginFix/ChestFix/MinionLimit/Lightning）</summary>
+        private static readonly HashSet<string> _activeModules = new(StringComparer.OrdinalIgnoreCase);
 
         public static void Initialize(TerrariaPlugin plugin)
         {
             if (_isInitialized)
                 return;
 
-            LoginFix.Initialize(plugin);
-            ChestFix.Initialize(plugin);
-            MinionLimit.Initialize(plugin);
+            _plugin = plugin;
+            LoadConfig();
+            ApplySubmodules();
 
             _isInitialized = true;
-            TShock.Log.ConsoleInfo("[TSWeb] BugFixes 已加载");
+            TShock.Log.ConsoleInfo($"[TSWeb] BugFixes 已加载 - 启用:{Config.Enabled}, 登录修复:{Config.LoginFix}, 宝箱修复:{Config.ChestFix}, 召唤物限制:{Config.MinionLimit}, 粒子防线:{Config.Lightning}");
         }
 
         public static void Dispose(TerrariaPlugin plugin)
@@ -44,11 +78,179 @@ namespace TShockData
             if (!_isInitialized)
                 return;
 
-            LoginFix.Dispose(plugin);
-            ChestFix.Dispose(plugin);
-            MinionLimit.Dispose(plugin);
-
+            UnloadAllSubmodules();
             _isInitialized = false;
+        }
+
+        // ═══════════════ 配置读写（ensure 补齐缺失字段） ═══════════════
+
+        public static void LoadConfig()
+        {
+            try
+            {
+                var directory = Path.GetDirectoryName(ConfigPath);
+                if (!Directory.Exists(directory))
+                {
+                    Directory.CreateDirectory(directory);
+                }
+
+                if (File.Exists(ConfigPath))
+                {
+                    var json = File.ReadAllText(ConfigPath);
+                    Config = JsonConvert.DeserializeObject<BugFixesConfig>(json) ?? new BugFixesConfig();
+                }
+                else
+                {
+                    Config = new BugFixesConfig();
+                }
+
+                // ensure：缺失字段用默认值补齐（总开关关 / 子功能开）并落盘
+                File.WriteAllText(ConfigPath, JsonConvert.SerializeObject(Config, Formatting.Indented));
+            }
+            catch (Exception ex)
+            {
+                TShock.Log.ConsoleError($"[TSWeb] 加载 BugFixes 配置失败: {ex.Message}");
+                Config = new BugFixesConfig();
+            }
+        }
+
+        public static void SaveConfig()
+        {
+            try
+            {
+                var directory = Path.GetDirectoryName(ConfigPath);
+                if (!Directory.Exists(directory))
+                {
+                    Directory.CreateDirectory(directory);
+                }
+                File.WriteAllText(ConfigPath, JsonConvert.SerializeObject(Config, Formatting.Indented));
+            }
+            catch (Exception ex)
+            {
+                TShock.Log.ConsoleError($"[TSWeb] 保存 BugFixes 配置失败: {ex.Message}");
+            }
+        }
+
+        /// <summary>按当前配置挂载启用的子模块（先清空已挂集合，幂等）</summary>
+        private static void ApplySubmodules()
+        {
+            _activeModules.Clear();
+
+            // 粒子防线运行时开关与配置同步（lightning 关闭时 /lightning 命令拒绝、Hook 不拦截）
+            ParticleGuard.Enabled = Config.Enabled && Config.Lightning;
+
+            if (!Config.Enabled)
+                return;
+
+            if (Config.LoginFix)
+            {
+                LoginFix.Initialize(_plugin!);
+                _activeModules.Add("LoginFix");
+            }
+            if (Config.ChestFix)
+            {
+                ChestFix.Initialize(_plugin!);
+                _activeModules.Add("ChestFix");
+            }
+            if (Config.MinionLimit)
+            {
+                MinionLimit.Initialize(_plugin!);
+                _activeModules.Add("MinionLimit");
+            }
+            if (Config.Lightning)
+            {
+                ParticleGuard.Initialize(_plugin!);
+                _activeModules.Add("Lightning");
+            }
+        }
+
+        /// <summary>卸载全部已挂载子模块（幂等）</summary>
+        private static void UnloadAllSubmodules()
+        {
+            foreach (var m in _activeModules)
+            {
+                try
+                {
+                    switch (m)
+                    {
+                        case "LoginFix": LoginFix.Dispose(_plugin!); break;
+                        case "ChestFix": ChestFix.Dispose(_plugin!); break;
+                        case "MinionLimit": MinionLimit.Dispose(_plugin!); break;
+                        case "Lightning": ParticleGuard.Dispose(); break;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    TShock.Log.ConsoleError($"[TSWeb] 卸载子模块 {m} 失败: {ex.Message}");
+                }
+            }
+            _activeModules.Clear();
+        }
+
+        /// <summary>REST 动态开关：先全卸载，再按新配置挂载</summary>
+        public static void ApplyConfig(BugFixesConfig newConfig)
+        {
+            UnloadAllSubmodules();
+            Config = newConfig;
+            SaveConfig();
+            ApplySubmodules();
+            TShock.Log.ConsoleInfo($"[TSWeb] BugFixes 配置已应用 - 启用:{Config.Enabled}, 登录修复:{Config.LoginFix}, 宝箱修复:{Config.ChestFix}, 召唤物限制:{Config.MinionLimit}, 粒子防线:{Config.Lightning}");
+        }
+
+        // ═══════════════ REST API ═══════════════
+
+        /// <summary>GET /data/bugfix — 读取当前配置</summary>
+        public static object GetConfigApi(RestRequestArgs args)
+        {
+            return new
+            {
+                status = "200",
+                enabled = Config.Enabled,
+                loginFix = Config.LoginFix,
+                chestFix = Config.ChestFix,
+                minionLimit = Config.MinionLimit,
+                lightning = Config.Lightning
+            };
+        }
+
+        /// <summary>POST /data/bugfix/set — 动态开关（缺省参数保持原值）</summary>
+        public static object SetConfigApi(RestRequestArgs args)
+        {
+            try
+            {
+                var cfg = new BugFixesConfig
+                {
+                    Enabled = Config.Enabled,
+                    LoginFix = Config.LoginFix,
+                    ChestFix = Config.ChestFix,
+                    MinionLimit = Config.MinionLimit,
+                    Lightning = Config.Lightning
+                };
+
+                var enabled = args.Parameters["enabled"];
+                if (!string.IsNullOrEmpty(enabled))
+                    cfg.Enabled = enabled.ToLower() == "true";
+                var loginFix = args.Parameters["loginFix"];
+                if (!string.IsNullOrEmpty(loginFix))
+                    cfg.LoginFix = loginFix.ToLower() == "true";
+                var chestFix = args.Parameters["chestFix"];
+                if (!string.IsNullOrEmpty(chestFix))
+                    cfg.ChestFix = chestFix.ToLower() == "true";
+                var minionLimit = args.Parameters["minionLimit"];
+                if (!string.IsNullOrEmpty(minionLimit))
+                    cfg.MinionLimit = minionLimit.ToLower() == "true";
+                var lightning = args.Parameters["lightning"];
+                if (!string.IsNullOrEmpty(lightning))
+                    cfg.Lightning = lightning.ToLower() == "true";
+
+                ApplyConfig(cfg);
+                return new { status = "200", message = "配置已保存" };
+            }
+            catch (Exception ex)
+            {
+                TShock.Log.ConsoleError($"[TSWeb] BugFixes 配置保存失败: {ex.Message}");
+                return new RestObject("500") { { "error", ex.Message } };
+            }
         }
 
         // ==========================================================================
@@ -57,15 +259,22 @@ namespace TShockData
         public static class LoginFix
         {
             private static readonly HashSet<string> _passwordPending = new();
+            private static bool _initialized;
 
             public static void Initialize(TerrariaPlugin plugin)
             {
+                if (_initialized)
+                    return;
                 ServerApi.Hooks.NetGetData.Register(plugin, OnGetData, int.MaxValue);
+                _initialized = true;
             }
 
             public static void Dispose(TerrariaPlugin plugin)
             {
+                if (!_initialized)
+                    return;
                 ServerApi.Hooks.NetGetData.Deregister(plugin, OnGetData);
+                _initialized = false;
             }
 
             private static void OnGetData(GetDataEventArgs args)
@@ -182,19 +391,26 @@ namespace TShockData
         {
             private const string Ver = "1.0.3";
             private static int _blockedCount;
+            private static bool _initialized;
 
             public static void Initialize(TerrariaPlugin plugin)
             {
+                if (_initialized)
+                    return;
                 GetDataHandlers.ChestItemChange += OnChestItemChange;
                 ServerApi.Hooks.NetGetData.Register(plugin, OnNetGetData, -1000);
                 Commands.ChatCommands.Add(new Command("chestfix.admin", ChestFixCommand, "chestfix", "cstf"));
+                _initialized = true;
             }
 
             public static void Dispose(TerrariaPlugin plugin)
             {
+                if (!_initialized)
+                    return;
                 GetDataHandlers.ChestItemChange -= OnChestItemChange;
                 ServerApi.Hooks.NetGetData.Deregister(plugin, OnNetGetData);
                 Commands.ChatCommands.RemoveAll(c => c.CommandDelegate == ChestFixCommand);
+                _initialized = false;
             }
 
             private static void OnChestItemChange(object? sender, GetDataHandlers.ChestItemEventArgs e)
@@ -691,16 +907,23 @@ namespace TShockData
             private const int MaxMinions = 20;
             /// <summary>弹幕类型 → 是否为召唤物（0=未知, 1=召唤物, 2=非召唤物）</summary>
             private static readonly int[] _typeCache = new int[ProjectileID.Count];
+            private static bool _initialized;
 
             public static void Initialize(TerrariaPlugin plugin)
             {
+                if (_initialized)
+                    return;
                 GetDataHandlers.NewProjectile.Register(OnNewProjectile);
+                _initialized = true;
                 TShock.Log.ConsoleInfo($"[TSWeb] MinionLimit 已加载 (召唤物上限 {MaxMinions})");
             }
 
             public static void Dispose(TerrariaPlugin plugin)
             {
+                if (!_initialized)
+                    return;
                 GetDataHandlers.NewProjectile.UnRegister(OnNewProjectile);
+                _initialized = false;
             }
 
             private static void OnNewProjectile(object? sender, GetDataHandlers.NewProjectileEventArgs e)

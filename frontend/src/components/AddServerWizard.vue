@@ -6,7 +6,7 @@ import { selectServer, fetchServers } from '../utils/serverStore.js'
 const props = defineProps({
   show: { type: Boolean, default: false }
 })
-const emit = defineEmits(['close', 'added'])
+const emit = defineEmits(['close', 'added', 'init-requested'])
 
 // ═══════════════ 视图（两段式：choose → 模式表单 → done） ═══════════════
 const view = ref('choose')   // choose | manual | local | remote | done
@@ -292,6 +292,7 @@ const finishAdd = async (server) => {
   addedServer.value = server
   view.value = 'done'
   emit('added', server)
+  emit('init-requested', server)
 }
 
 const reset = () => {

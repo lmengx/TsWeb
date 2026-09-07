@@ -27,7 +27,8 @@ export const apiRequest = async (url, options = {}) => {
   }
 
   // 自动附加当前服务器 id（后端请求级上下文，无全局 currentServerId）
-  const serverId = getCurrentServerId()
+  // 若调用方显式传了 x-server-id（如初始化模态框针对非当前选中服务器），以显式值为准
+  const serverId = options.headers?.['x-server-id'] || getCurrentServerId()
   if (serverId) {
     headers['x-server-id'] = serverId
   }
