@@ -669,11 +669,21 @@ namespace TShockData
 
         // ==========================================================================
         // 子模块3: MinionLimit — 召唤物数量上限（异常数据限制）
-        // 检测依据：玩家占用的召唤槽位（TPlayer.slotsMinions，服务端权威、随弹幕
-        // 每帧维护）。不能用 minion 弹幕条数——星尘龙每段(625-628)/泰拉棱镜剑刃(946)/
-        // 星尘守卫(623) 都是 minion=true 弹幕，一条星尘龙就有最多 11 条弹幕，
-        // 弹幕条数远大于实际召唤物数量，曾把只召唤 2 个召唤物的正常玩家判成 20 踢出。
-        // 实现参照 TShockPlugin-master/src/ServerTools 的 NewProj。超上限即审计并踢出（一次即踢）。
+        // 检测依据：实时统计该玩家名下活跃召唤弹幕占用的槽位（minionSlots 之和，
+        // 遍历 Main.projectile，服务端权威、与客户端 UI 一致）。
+        //
+        // 【为什么不用 TPlayer.slotsMinions —— 误判根因（已查 Terraria 反编译源码确认）】
+        // 服务端 slotsMinions 每帧由 Player.Update 重置为 0（Player.cs 26999-27000），
+        // 再由 Projectile.Update 对所有活跃 minion 弹幕累加（Projectile.cs 15959）。
+        // 但 Player.Update 在玩家 dead（23609）/ghost（23602）状态提前 return，
+        // 跳过重置；而死亡玩家的召唤物弹幕不会立即消失（如飞行小鬼 375 timeLeft*=5，
+        // 残留数千帧；弹幕清理只查掉线 !active 不查死亡 dead），每帧继续累加，
+        // 导致 slotsMinions 在死亡/幽灵期间只增不减、虚高到 20+。
+        // 玩家重生瞬间发 NewProjectile 包时读到该虚高值 → 把只召唤 2 个的玩家判成 21 踢出。
+        // 实时统计 Main.projectile 不受该重置时序影响，任何时刻都等于当前真实活跃弹幕槽位。
+        // 星尘龙段(626/627) 每段仅 0.5 槽、头部(625)/尾部(628) 原版不计（15933 排除），
+        // 天然不会把星尘龙误判超限；按槽位求和而非弹幕条数，泰拉棱镜剑刃(946,1槽)也准确。
+        // 实现参照 TShockPlugin-master/src/ServerTools 的 NewProj（e.Player 而非包内 owner）。
         // ==========================================================================
         public static class MinionLimit
         {
@@ -702,21 +712,39 @@ namespace TShockData
                 if (!IsMinionType(e.Type))
                     return;
 
-                var plr = TShock.Players[e.Owner];
+                // 以发送者为准（e.Player），不能用包内 owner 字段（e.Owner 客户端可控，
+                // 恶意包可伪造 owner 指向他人，导致检查并踢错玩家 —— ServerTools 参考实现同款写法）。
+                var plr = e.Player;
                 if (plr == null || !plr.Active || !plr.IsLoggedIn)
                     return;
 
-                // 召唤物数量以「召唤槽位占用」为准（slotsMinions），不数弹幕条数：
-                // 星尘龙每段(625-628)、泰拉棱镜剑刃(946)、星尘守卫(623) 等均标记
-                // minion=true，一条星尘龙最多 11 条弹幕但只占 1 个召唤位，
-                // 按弹幕计数会把正常玩家误判为异常（曾把 2 个召唤物判成 20）。
-                if (plr.TPlayer.slotsMinions <= MaxMinions)
+                // 死亡/幽灵状态：Player.Update 提前 return 不重置 slotsMinions，
+                // 且残留召唤物弹幕仍每帧累加 → slotsMinions 虚高，此时直接跳过检查。
+                // 实时统计 Main.projectile 也不统计死亡残留（见下：仅统计 owner 存活玩家的弹幕）。
+                if (plr.TPlayer.dead || plr.TPlayer.ghost)
+                    return;
+
+                // 实时统计该玩家名下当前活跃召唤弹幕的槽位占用（minionSlots 之和）。
+                // 不信任 TPlayer.slotsMinions：其准确性依赖 Player.Update 每帧重置，
+                // 死亡/幽灵/重生瞬间均不可靠（详见模块注释）。
+                float slots = 0f;
+                for (int i = 0; i < Main.maxProjectiles; i++)
+                {
+                    var p = Main.projectile[i];
+                    if (!p.active || p.owner != plr.Index || !p.minion || p.sentry)
+                        continue;
+                    // 星尘龙头(625)/尾(628)：原版 slotsMinions 累加同样排除（Projectile.cs 15933）
+                    if (p.type == 625 || p.type == 628)
+                        continue;
+                    slots += p.minionSlots;
+                }
+
+                if (slots <= MaxMinions)
                     return;
 
                 // 已满 → 拦截本次召唤 + 审计 + 踢出（一次即踢）
                 e.Handled = true;
                 var account = plr.Account?.Name ?? "未登录";
-                var slots = plr.TPlayer.slotsMinions;
                 TShock.Log.ConsoleInfo($"[MinionLimit][审计] 玩家={plr.Name} 账号={account} IP={plr.IP} 召唤槽位={slots} 上限={MaxMinions} 弹幕类型={e.Type}");
                 try
                 {
