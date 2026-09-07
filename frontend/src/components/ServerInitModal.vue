@@ -71,9 +71,9 @@ const sscCards = computed(() => {
     },
     {
       key: false, title: '关闭 SSC',
-      desc: pub ? '玩家可携带外部物品进服，存在被炸图毁档的风险' : '角色随客户端本地保存，好友可带外部物品进入',
-      badge: null,
-      danger: pub
+      desc: pub ? '玩家可携带外部物品进服，存在被<span class="hl">炸图毁档</span>的风险' : '角色随客户端本地保存，好友可带外部物品进入',
+      danger: pub,
+      warn: pub
     }
   ]
 })
@@ -110,10 +110,9 @@ const acCards = computed(() => {
     },
     {
       key: false, title: '关闭反作弊',
-      items: ['物品违禁检测', '弹幕违禁检测'],
-      desc: pub ? '不拦截物品与弹幕，玩家可携带违规内容进入' : '完全放行，游玩最自由',
-      badge: null,
-      danger: pub
+      desc: pub ? '恶意玩家可能通过修改器传播<span class="hl">违规物品与弹幕</span>，比如<span class="hl">开局满地天顶剑</span>' : '完全放行，游玩最自由',
+      danger: pub,
+      warn: pub
     }
   ]
 })
@@ -135,9 +134,9 @@ const bfCards = computed(() => {
     },
     {
       key: false, title: '关闭反恶性 Bug',
-      desc: pub ? '不启用任何修复，存在被恶意炸档的风险' : '维持 tshock 原版行为',
-      badge: null,
-      danger: pub
+      desc: pub ? '不启用任何修复，存在被<span class="hl">恶意炸档</span>的风险' : '维持 tshock 原版行为',
+      danger: pub,
+      warn: pub
     }
   ]
 })
@@ -385,16 +384,16 @@ onUnmounted(() => {
             <div
               v-for="card in sscCards" :key="String(card.key)"
               class="vote-card"
-              :class="{ picked: isPicked(sscEnabled, card.key), danger: card.danger }"
+              :class="{ picked: isPicked(sscEnabled, card.key), danger: card.danger, 'hl-on': isPicked(sscEnabled, card.key) && card.warn }"
               @click="pickSsc(card)"
             >
               <span v-if="card.badge" class="mini-badge" :class="card.badge.cls">{{ card.badge.text }}</span>
               <div class="card-title">
                 {{ card.title }}
+                <span v-if="isPicked(sscEnabled, card.key) && card.warn" class="danger-badge"><span class="danger-pulse"></span>危险</span>
                 <span v-if="sscCurrent !== null && sscCurrent === card.key" class="mini-tag">当前状态</span>
               </div>
-              <div class="card-desc">{{ card.desc }}</div>
-              <span v-if="isPicked(sscEnabled, card.key)" class="confirm-hint">再点一次确认</span>
+              <div class="card-desc" v-html="card.desc"></div>
             </div>
           </div>
 
@@ -409,7 +408,6 @@ onUnmounted(() => {
               <span v-if="card.badge" class="mini-badge" :class="card.badge.cls">{{ card.badge.text }}</span>
               <div class="card-title">{{ card.title }}</div>
               <div class="card-desc">{{ card.desc }}</div>
-              <span v-if="isPicked(registerMode, card.key)" class="confirm-hint">再点一次确认</span>
             </div>
           </div>
 
@@ -418,16 +416,18 @@ onUnmounted(() => {
             <div
               v-for="card in acCards" :key="String(card.key)"
               class="vote-card"
-              :class="{ picked: isPicked(acOn, card.key), danger: card.danger }"
+              :class="{ picked: isPicked(acOn, card.key), danger: card.danger, 'hl-on': isPicked(acOn, card.key) && card.warn }"
               @click="pickAc(card)"
             >
               <span v-if="card.badge" class="mini-badge" :class="card.badge.cls">{{ card.badge.text }}</span>
-              <div class="card-title">{{ card.title }}</div>
+              <div class="card-title">
+                {{ card.title }}
+                <span v-if="isPicked(acOn, card.key) && card.warn" class="danger-badge"><span class="danger-pulse"></span>危险</span>
+              </div>
               <ul v-if="card.items" class="card-subs">
                 <li v-for="s in card.items" :key="s">{{ s }}</li>
               </ul>
-              <div class="card-desc">{{ card.desc }}</div>
-              <span v-if="isPicked(acOn, card.key)" class="confirm-hint">再点一次确认</span>
+              <div class="card-desc" v-html="card.desc"></div>
             </div>
           </div>
 
@@ -436,16 +436,18 @@ onUnmounted(() => {
             <div
               v-for="card in bfCards" :key="String(card.key)"
               class="vote-card"
-              :class="{ picked: isPicked(bfOn, card.key), danger: card.danger }"
+              :class="{ picked: isPicked(bfOn, card.key), danger: card.danger, 'hl-on': isPicked(bfOn, card.key) && card.warn }"
               @click="pickBf(card)"
             >
               <span v-if="card.badge" class="mini-badge" :class="card.badge.cls">{{ card.badge.text }}</span>
-              <div class="card-title">{{ card.title }}</div>
+              <div class="card-title">
+                {{ card.title }}
+                <span v-if="isPicked(bfOn, card.key) && card.warn" class="danger-badge"><span class="danger-pulse"></span>危险</span>
+              </div>
               <ul v-if="card.items" class="card-subs">
                 <li v-for="s in card.items" :key="s">{{ s }}</li>
               </ul>
-              <div class="card-desc">{{ card.desc }}</div>
-              <span v-if="isPicked(bfOn, card.key)" class="confirm-hint">再点一次确认</span>
+              <div class="card-desc" v-html="card.desc"></div>
             </div>
           </div>
 
@@ -455,14 +457,23 @@ onUnmounted(() => {
               v-for="card in permCards" :key="card.key"
               class="vote-card perm-card"
               :class="{ done: groupDone[card.key] }"
-              @click="applyGroupPreset(card)"
             >
-              <div class="card-title">
-                {{ card.title }}
-                <span v-if="groupDone[card.key]" class="mini-tag ok">已添加</span>
+              <div class="perm-main">
+                <div class="card-title">
+                  {{ card.title }}
+                  <span v-if="groupDone[card.key]" class="mini-tag ok">已添加</span>
+                </div>
+                <div class="card-desc">{{ card.desc }}</div>
+                <div v-if="groupApplying === card.key" class="card-state">添加中...</div>
               </div>
-              <div class="card-desc">{{ card.desc }}</div>
-              <div v-if="groupApplying === card.key" class="card-state">添加中...</div>
+              <button
+                class="perm-add-btn"
+                :class="{ done: groupDone[card.key] }"
+                :disabled="groupApplying !== null || groupDone[card.key]"
+                @click="applyGroupPreset(card)"
+              >
+                {{ groupDone[card.key] ? '已添加' : '添加' }}
+              </button>
             </div>
             <div v-if="groupMsg" class="perm-msg">{{ groupMsg }}</div>
 
@@ -565,33 +576,28 @@ onUnmounted(() => {
   transform: translateY(-1px);
   border-color: var(--border-light);
 }
-/* 单击一次后：整卡变蓝色渐变实底白字（与投票选项 selected 同款） */
+/* 选中态：项目主题色描边 + 淡背景（不变蓝/不变白字），带轻量弹跳动画 */
 .vote-card.picked {
-  border-color: #2563eb;
-  background: linear-gradient(135deg, #3b82f6, #2563eb);
-  color: #fff;
-  box-shadow: 0 6px 20px rgba(37, 99, 235, 0.35);
+  border-color: var(--accent-primary);
+  background: color-mix(in srgb, var(--accent-primary) 9%, var(--bg-tertiary));
+  box-shadow: 0 0 0 1.5px var(--accent-primary), 0 8px 24px rgba(99, 102, 241, .14);
+  animation: cardPop .25s ease;
 }
-.vote-card.picked .card-title { color: #fff; }
-.vote-card.picked .card-desc { color: rgba(255, 255, 255, 0.88); }
-.vote-card.picked .card-icon { color: #fff; }
-.vote-card.picked .card-subs li { color: rgba(255, 255, 255, 0.9); }
-.vote-card.picked .card-subs li::before { background: #fff; opacity: .9; }
-.vote-card.picked .card-state { color: #fff; }
-/* danger 卡的选中态保留红色语义但同样实底白字 */
+@keyframes cardPop {
+  0% { transform: scale(.985); }
+  55% { transform: scale(1.012); }
+  100% { transform: scale(1); }
+}
 .vote-card.danger:not(.picked) {
   border-color: rgba(239, 68, 68, .65);
   background: color-mix(in srgb, rgba(239, 68, 68, .07), var(--bg-tertiary));
 }
 .vote-card.danger.picked {
-  border-color: #dc2626;
-  background: linear-gradient(135deg, #ef4444, #dc2626);
-  box-shadow: 0 6px 20px rgba(220, 38, 38, .35);
+  border-color: #ef4444;
+  background: color-mix(in srgb, rgba(239, 68, 68, .13), var(--bg-tertiary));
+  box-shadow: 0 0 0 1.5px #ef4444, 0 8px 24px rgba(239, 68, 68, .15);
+  animation: cardPop .25s ease;
 }
-.vote-card.danger.picked .card-title,
-.vote-card.danger.picked .card-desc,
-.vote-card.danger.picked .card-subs li { color: #fff; }
-.vote-card.danger.picked .card-subs li::before { background: #fff; }
 .card-icon { width: 26px; height: 26px; color: var(--accent-primary); margin-bottom: 4px; }
 .card-title {
   font-size: .98rem; font-weight: 700; color: var(--text-primary);
@@ -611,7 +617,7 @@ onUnmounted(() => {
 }
 .card-state { font-size: .76rem; color: var(--accent-primary); }
 
-/* 选中确认徽标（投票同款 confirm-hint：再点一次确认） */
+/* 选中确认徽标（仅屏 1 玩家群体卡使用，投票同款 confirm-hint：再点一次确认） */
 .confirm-hint {
   align-self: flex-start;
   color: #2563eb;
@@ -629,11 +635,62 @@ onUnmounted(() => {
   0% { transform: scale(.8); opacity: 0; }
   100% { transform: scale(1); opacity: 1; }
 }
-.vote-card.picked .confirm-hint,
-.vote-card.danger.picked .confirm-hint {
-  color: #2563eb;
-  background: #fff;
-  border-color: #fff;
+
+/* 红色动态「危险」徽标（仅红框选项被选中时，出现在标题右侧） */
+.danger-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #ef4444;
+  font-size: .72rem;
+  font-weight: 800;
+  background: rgba(239, 68, 68, .1);
+  border: 1.5px solid rgba(239, 68, 68, .55);
+  padding: 1px 10px;
+  border-radius: 999px;
+  white-space: nowrap;
+  animation: dangerBlink 1.1s ease-in-out infinite, badgeIn .38s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  flex-shrink: 0;
+}
+.danger-pulse {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: #ef4444;
+  box-shadow: 0 0 0 0 rgba(239, 68, 68, .6);
+  animation: dangerPulse 1.1s ease-in-out infinite;
+  flex-shrink: 0;
+}
+@keyframes badgeIn {
+  0% { opacity: 0; transform: translateX(-6px) scale(.7); }
+  100% { opacity: 1; transform: translateX(0) scale(1); }
+}
+@keyframes dangerPulse {
+  0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, .55); }
+  70% { box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+}
+@keyframes dangerBlink {
+  0%, 100% { border-color: rgba(239, 68, 68, .55); background: rgba(239, 68, 68, .1); }
+  50% { border-color: rgba(239, 68, 68, 1); background: rgba(239, 68, 68, .22); }
+}
+
+/* 关键文本标红：v-html 注入的内容不受 scoped 约束，需 :deep() 才能命中；
+   仅在该危险选项被选中（hl-on）时，描述内 .hl 词条标红加粗，带扫光进场动画 */
+.card-desc :deep(.hl) { color: inherit; font-weight: inherit; }
+.vote-card.hl-on .card-desc :deep(.hl) {
+  color: #dc2626;
+  font-weight: 800;
+  text-decoration: underline;
+  text-decoration-color: rgba(220, 38, 38, .45);
+  text-underline-offset: 3px;
+  animation: hlIn .5s ease both;
+  position: relative;
+}
+@keyframes hlIn {
+  0% { opacity: .4; text-shadow: 0 0 0 transparent; }
+  45% { color: #ef4444; text-shadow: 0 0 14px rgba(239, 68, 68, .8); }
+  70% { text-shadow: 0 0 0 transparent; }
+  100% { opacity: 1; }
 }
 
 /* 徽标 */
@@ -664,14 +721,47 @@ onUnmounted(() => {
 .mini-tag.ok { background: rgba(34, 197, 94, .15); color: #4ade80; }
 
 /* 快速权限 */
+.perm-card {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  cursor: default;
+}
+.perm-card:hover { transform: none; border-color: var(--border-color); }
 .perm-card.done { border-color: rgba(34, 197, 94, .55); }
+.perm-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
 .perm-msg { font-size: .8rem; color: var(--text-muted); }
+.perm-add-btn {
+  flex-shrink: 0;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: .86rem;
+  font-weight: 700;
+  padding: 9px 22px;
+  color: #fff;
+  background: linear-gradient(135deg, var(--accent-primary), #4f46e5);
+  box-shadow: 0 2px 10px rgba(99, 102, 241, .3);
+  transition: opacity .18s ease, transform .12s ease;
+  white-space: nowrap;
+}
+.perm-add-btn:hover:not(:disabled) { opacity: .9; transform: translateY(-1px); }
+.perm-add-btn:active:not(:disabled) { transform: translateY(0); }
+.perm-add-btn:disabled { cursor: not-allowed; opacity: .55; box-shadow: none; }
+.perm-add-btn.done {
+  background: rgba(34, 197, 94, .14);
+  color: #4ade80;
+  box-shadow: none;
+}
 
 /* 完成卡 */
 .done-card {
   margin-top: 6px;
   border-style: dashed;
   border-color: var(--border-light);
+  cursor: pointer;
 }
 .done-card.picked { border-style: solid; }
 .done-card .card-title { padding-right: 0; }
