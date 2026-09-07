@@ -4,7 +4,6 @@ using TerrariaApi.Server;
 using TShockAPI;
 
 namespace bossAIModded;
-
 [ApiVersion(2, 1)]
 public class BossAIModded : TerrariaPlugin
 {
@@ -18,6 +17,10 @@ public class BossAIModded : TerrariaPlugin
 
     /// <summary>路由池：npc.whoAmI -> 魔改实例。</summary>
     internal static readonly Dictionary<int, BossAIModBase> ActiveMods = new();
+
+    /// <summary>链级生成时间：npc.whoAmI -> 首次登记时刻（世界吞噬者段变头 whoAmI 不变 → 沿用，
+    /// 避免中途变身重置免伤计时；NPC 死亡/失效时清理，防槽位复用误免伤）。</summary>
+    internal static readonly Dictionary<int, DateTime> SpawnTimes = new();
 
     private Command? _cmd;
 
@@ -55,6 +58,7 @@ public class BossAIModded : TerrariaPlugin
                 _cmd = null;
             }
             ActiveMods.Clear();
+            SpawnTimes.Clear();
         }
         base.Dispose(Disposing);
     }
@@ -70,18 +74,29 @@ public class BossAIModded : TerrariaPlugin
         var npc = args.Npc;
         if (npc == null || !npc.active)
         {
-            if (npc != null) ActiveMods.Remove(npc.whoAmI);
+            if (npc != null)
+            {
+                ActiveMods.Remove(npc.whoAmI);
+                SpawnTimes.Remove(npc.whoAmI);
+            }
             return;
         }
         if (!ModEnabled)
         {
             ActiveMods.Remove(npc.whoAmI);
+            SpawnTimes.Remove(npc.whoAmI);
             return;
+        }
+        // 首次见到该槽 → 登记生成时刻（段变头 whoAmI 不变，沿用旧值 → 免伤不重置）
+        if (!SpawnTimes.ContainsKey(npc.whoAmI))
+        {
+            SpawnTimes[npc.whoAmI] = DateTime.UtcNow;
         }
         var mod = GetOrCreate(npc);
         if (mod == null)
         {
             ActiveMods.Remove(npc.whoAmI);
+            SpawnTimes.Remove(npc.whoAmI);
             return;
         }
         try
@@ -92,6 +107,7 @@ public class BossAIModded : TerrariaPlugin
         {
             TShock.Log.ConsoleError($"[bossAIModded] Tick 异常 (npc {npc.type}@{npc.whoAmI}): {ex}");
             ActiveMods.Remove(npc.whoAmI);
+            SpawnTimes.Remove(npc.whoAmI);
         }
     }
 
@@ -115,6 +131,7 @@ public class BossAIModded : TerrariaPlugin
     {
         var npc = args.npc;
         if (npc == null) return;
+        SpawnTimes.Remove(npc.whoAmI);
         if (ActiveMods.Remove(npc.whoAmI, out var mod))
         {
             try
@@ -146,6 +163,9 @@ public class BossAIModded : TerrariaPlugin
                     case EyeOfCthulhu eoc:
                         eoc.OnPlayerDamage(who, e.PlayerDeathReason);
                         break;
+                    case EaterOfWorldsHead eow:
+                        eow.OnPlayerDamage(who, e.PlayerDeathReason);
+                        break;
                 }
             }
         }
@@ -159,18 +179,48 @@ public class BossAIModded : TerrariaPlugin
     {
         if (ActiveMods.TryGetValue(npc.whoAmI, out var existing))
         {
-            return existing;
+            // 世界吞噬者链分裂：段(14)断链会原版变身 头(13)/尾(15)（NPC.cs 54793-54809），
+            // whoAmI 不变但 type 变了。旧实例（如 EaterOfWorldsSegment）没有头的齐射逻辑，
+            // 直接返回会导致新头"不再放咒火"（只放一轮的 bug）。按 type 期望重建。
+            if (TypeFor(npc.type) == existing.GetType())
+            {
+                return existing;
+            }
+            ActiveMods.Remove(npc.whoAmI);
         }
-        BossAIModBase? mod = npc.type switch
-        {
-            Terraria.ID.NPCID.KingSlime => new KingSlimeEternity(),
-            Terraria.ID.NPCID.EyeofCthulhu => new EyeOfCthulhu(),
-            _ => null,
-        };
+        BossAIModBase? mod = CreateFor(npc.type);
         if (mod != null)
         {
             ActiveMods[npc.whoAmI] = mod;
         }
         return mod;
+    }
+
+    /// <summary>npc.type → 期望的魔改实例类型（用于缓存类型一致性校验）。</summary>
+    private static Type? TypeFor(int npcType)
+    {
+        return npcType switch
+        {
+            Terraria.ID.NPCID.KingSlime => typeof(KingSlimeEternity),
+            Terraria.ID.NPCID.EyeofCthulhu => typeof(EyeOfCthulhu),
+            Terraria.ID.NPCID.EaterofWorldsHead => typeof(EaterOfWorldsHead),
+            Terraria.ID.NPCID.EaterofWorldsBody => typeof(EaterOfWorldsSegment),
+            Terraria.ID.NPCID.EaterofWorldsTail => typeof(EaterOfWorldsSegment),
+            _ => null,
+        };
+    }
+
+    /// <summary>npc.type → 新建魔改实例（路由池登记用）。</summary>
+    private static BossAIModBase? CreateFor(int npcType)
+    {
+        return npcType switch
+        {
+            Terraria.ID.NPCID.KingSlime => new KingSlimeEternity(),
+            Terraria.ID.NPCID.EyeofCthulhu => new EyeOfCthulhu(),
+            Terraria.ID.NPCID.EaterofWorldsHead => new EaterOfWorldsHead(),
+            Terraria.ID.NPCID.EaterofWorldsBody => new EaterOfWorldsSegment(),
+            Terraria.ID.NPCID.EaterofWorldsTail => new EaterOfWorldsSegment(),
+            _ => null,
+        };
     }
 }

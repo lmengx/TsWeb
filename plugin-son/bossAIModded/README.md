@@ -2,7 +2,7 @@
 
 将 **Fargo Souls（Eternity Mode）** 的 Boss 魔改按"原版客户端可达"原则迁移到 **TShock + Terraria 1.4.5.8** 的独立子插件。
 
-当前 Boss：**史莱姆王（KingSlime）**、**克眼（Eye of Cthulhu）** 均实现 Eternity-lite。
+当前 Boss：**史莱姆王（KingSlime）**、**克眼（Eye of Cthulhu）**、**世界吞噬者（Eater of Worlds）** 均实现 Eternity-lite。
 
 ## 设计原则
 
@@ -58,6 +58,34 @@
 
 ### 实机待调参点（EyeOfCthulhu.cs 顶部常量）
 `DriftKPhase1/2 / ScytheEveryPhase1/2 / ScytheEveryBerserk / ScytheSpeed / ScytheHitDamage / RingWays / RingWaysBerserk / BerserkLifeRatio / DebuffDuration / DebuffApplyInterval`。换壳弹 44 原生 AI 自带 ai[0]∈[30,100) 每 tick ×1.06 自加速，已在 SpawnScythe 钉 `ai[0]=200` 段取消 → 弹速 = `ScytheSpeed` 恒定；期望结算写 `ScytheHitDamage`（默认 70），字段 = 期望 ÷ `BossAIModBase.ResultBias`。
+
+## Boss 3：世界吞噬者 Eternity-lite（对照 FargoSouls v1.7.3.9 EaterofWorldsHead/EaterofWorlds/EaterofWorldsSegment）
+
+链式多 NPC Boss（头 13 + 段 14×N + 尾 15，`ai[0]/ai[1]` 双向链）。已实现为「头实例主控 + 段实例从属」，路由池按 type 分支。
+
+### 已实现（后插桩安全子集）
+- **出场免伤**：整条链出现后**前 10 秒所有伤害只能造成 1 点**——免伤期 `npc.defense=99999`（原版 SuperArmor：`CalculateDamageNPCsTake` 把一切伤害钳到 1），免伤结束恢复 `defDefense`，变化时 netUpdate 广播；链级生成时间按 whoAmI 登记，段变头沿用，NPC 死亡/失效清理）
+- **命中 debuff**：本体接触 / 我方 96 火球命中 → 灵液(69)+咒火(24) 各 5s + 眩晕(160) 3s（Fargo 原 ShadowFlame39+RottingBuff 换壳为原版三 debuff；`_debuffCd` 30 tick 节流）
+- **火球全段齐射（按整条链总血量分档）**：头实例每轮调度，**每个活跃体节（头/段/尾）从自身中心向玩家发射 96 CursedFlame**（Fargo 自定义 CursedFireballHoming 全段齐射追踪弹 → 换壳 96 直线定向弹；火力与体节数正比，`SegmentEvery` 可调发射密度）：
+  - 总血量 ≥60%：**齐射**（全段共享倒计时，到点所有段同 tick 各 1 发），间隔 300 tick（±随机抖动）
+  - 总血量 <60%：**双倍齐射**（全段同 tick 各 2 发：直射 + 随机侧偏 10°），间隔 200 tick
+  - 总血量 <30%：**轮流持续射**（每段独立倒计时 + 随机相位起步，各段轮流吐，连发 3 发），间隔 90 tick
+  - 总血量 = **同一"生成批次"的所有活跃 EOW 段**（头 13/段 14/尾 15，按 `SpawnTimes` 生成时间差 ≤ 免伤时长分组）life 之和 ÷ lifeMax 之和——既排除地图上其它 Boss（残血旧链/他人正打的链）拉低满血新链，断链分截后前后截仍合并按整条 Boss 判定；各段独立血量，避免"头残血但链还有很多血"误入高阶段）
+- **数值层**：头伤害 ×4/3、段伤害 ×2（⚠ 仅服务端生效，NPC 撞击伤害客户端本地判定）、免疫暗影焰
+- **脱战消失 / 远距追击**：>6000px 下坠 + timeLeft=120；>2500px 转向加速限速 25
+- **链完整性自检**：生成 15 tick 保护期后每 6 tick 检查 `ai[0]` 下一段断链 → 自杀（Fargo NoSelfDestruct 语义）
+
+### Bug 修复
+- **"只放一轮咒火"**：原版段(14)断链自动变身 头(13)/尾(15)（NPC.cs 54793-54809），whoAmI 不变但 type 变了；路由池此前直接返回缓存实例（旧 `EaterOfWorldsSegment` 无齐射逻辑）→ 新头不再放咒火。现 `GetOrCreate` 按 `npc.type` 期望类型校验缓存，不匹配则重建实例（`TypeFor`/`CreateFor` 分离）。
+
+### 未迁移（详见类头注释）
+- **UTurn（Attack==2）** / **Coil 盘圈（Attack==3）**：Fargo SafePreAI return false 完全接管状态机，后插桩无法复刻 → 留待"接管引擎"（Coil 的段拉圈依赖冻结整条链跟随）
+- **CursedFireballHoming 追踪弹**：无原版追踪 hostile 弹等价 → 已换壳直线环形（判定/数值层保留）
+- **MassDefense 群体防御** / **CheckDead 段多不死** / **弹幕磨损** / **666 唾沫强化**：后续迭代
+- **WormyFood 召唤物掉落**：Fargo ModItem，后续换壳原版蠕虫诱饵
+
+### 实机待调参点（EaterOfWorldsHead.cs 顶部常量）
+`FireballInterval / FireballIntervalEnraged / FireballIntervalBerserk / EnragedLifeRatio(=0.6) / BerserkLifeRatio(=0.3) / ShotsPerRoundNormal/Enraged/Berserk / SpreadAngleDeg / IntervalJitterMax / ShotGapTicks / SegmentEvery / RingSpeed / FireballHitDamage / IchorDuration / CursedDuration / DazedDuration / SpawnDamageCapDuration`。96 弹为原版直线弹（撞墙消失），弹速 = `RingSpeed` 恒定；期望结算写 `FireballHitDamage`（默认 110），字段 = 期望 ÷ `BossAIModBase.ResultBias`；出场免伤时长 `SpawnDamageCapDuration`（默认 10s）。
 
 ## 命令与权限
 

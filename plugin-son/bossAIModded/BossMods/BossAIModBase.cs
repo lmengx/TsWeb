@@ -58,4 +58,18 @@ public abstract class BossAIModBase
             return 0;
         }
     }
+
+    /// <summary>
+    /// 链级生成时刻（出场免伤计时）。取路由池 SpawnTimes 登记值：世界吞噬者段变头 whoAmI 不变，
+    /// 沿用首次出现时间 → 整条链统一"刚出现前 10 秒"；无登记时回退当前时刻（不触发免伤）。
+    /// </summary>
+    protected static DateTime GetChainSpawnTime(int whoAmI)
+        => BossAIModded.SpawnTimes.TryGetValue(whoAmI, out var t) ? t : DateTime.UtcNow;
+
+    /// <summary>是否处于出场免伤期（链生成后 SpawnDamageCapDuration 内）。</summary>
+    public static bool IsInSpawnGrace(int whoAmI)
+        => DateTime.UtcNow - GetChainSpawnTime(whoAmI) < SpawnDamageCapDuration;
+
+    /// <summary>出场免伤时长（与 Eater 类共享；段/头各自设置 defense=99999 时统一口径）。</summary>
+    protected static readonly TimeSpan SpawnDamageCapDuration = TimeSpan.FromSeconds(10);
 }
