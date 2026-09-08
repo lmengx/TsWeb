@@ -126,6 +126,41 @@ router.post('/item-config', (req, res) => {
     })
 })
 
+// 反恶性 bug 修复配置（总开关 + 4 项子功能开关）
+// 直读/直写插件端 /data/bugfix 与 /data/bugfix/set（缺省参数保持插件原值）
+router.get('/bugfix', (req, res) => {
+  tshockService.getBugfixConfig()
+    .then(data => {
+      if (data.error) {
+        res.status(500).json({ status: '500', error: data.error })
+      } else {
+        res.json({ status: '200', config: data })
+      }
+    })
+    .catch(error => {
+      res.status(500).json({ status: '500', error: error.message })
+    })
+})
+
+router.post('/bugfix/set', (req, res) => {
+  const { enabled, loginFix, chestFix, minionLimit, lightning } = req.body || {}
+  if (enabled === undefined && loginFix === undefined && chestFix === undefined &&
+      minionLimit === undefined && lightning === undefined) {
+    return res.status(400).json({ status: '400', error: '缺少开关参数（enabled/loginFix/chestFix/minionLimit/lightning）' })
+  }
+  tshockService.saveBugfixConfig({ enabled, loginFix, chestFix, minionLimit, lightning })
+    .then(data => {
+      if (data.error) {
+        res.status(500).json({ status: '500', error: data.error })
+      } else {
+        res.json({ status: '200', message: 'BugFixes 配置已保存', config: data })
+      }
+    })
+    .catch(error => {
+      res.status(500).json({ status: '500', error: error.message })
+    })
+})
+
 router.post('/check-anomaly', (req, res) => {
   const { id, stack } = req.body
   if (id === undefined || stack === undefined) {

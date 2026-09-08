@@ -103,6 +103,7 @@ const serverSection = [
     children: [
       { id: 'item-restrict', name: '物品限制配置', path: '/console/anticheat/item-restrict', icon: 'box' },
       { id: 'proj-restrict', name: '弹幕限制配置', path: '/console/anticheat/proj-restrict', icon: 'crosshair' },
+      { id: 'bugfix', name: '反恶性bug', path: '/console/anticheat/bugfix', icon: 'wrench' },
       { id: 'duplicate-ip', name: '共享IP检测', path: '/console/anticheat/duplicate-ip', icon: 'copy' }
     ]
   },

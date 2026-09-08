@@ -293,6 +293,12 @@ const routes = [
         meta: { requiresAuth: true, requiresManager: true },
         children: [
           {
+            path: 'bugfix',
+            name: 'BugfixSettings',
+            component: () => import('../views/console/BugfixSettingsView.vue'),
+            meta: { requiresAuth: true, requiresManager: true }
+          },
+          {
             path: 'duplicate-ip',
             name: 'DuplicateIP',
             component: () => import('../views/console/DuplicateIPView.vue'),

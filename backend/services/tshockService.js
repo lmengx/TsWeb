@@ -1238,6 +1238,89 @@ export class TShockService {
     }
   }
 
+  async getBugfixConfig() {
+    if (!this.baseUrl) {
+      await this.init()
+    }
+
+    const headers = {
+      'Accept': 'application/json'
+    }
+
+    let url = `${this.baseUrl}/data/bugfix`
+    if (this.apiKey) {
+      url += `?token=${encodeURIComponent(this.apiKey)}`
+    }
+
+    console.log(`[OUTGOING] GET ${url}`)
+
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        headers
+      })
+
+      console.log(`[RESPONSE] Status: ${response.status}`)
+      const text = await response.text()
+      console.log(`[RESPONSE] Body: ${text}`)
+
+      try {
+        return JSON.parse(text)
+      } catch {
+        return { error: 'Invalid JSON', rawResponse: text }
+      }
+    } catch (error) {
+      this.isConnected = false
+      return { error: error.message }
+    }
+  }
+
+  async saveBugfixConfig(config) {
+    if (!this.baseUrl) {
+      await this.init()
+    }
+
+    const headers = {
+      'Accept': 'application/json'
+    }
+
+    // 插件端 /data/bugfix/set 通过请求参数读取开关值（缺省保持原值），
+    // 仅拼接显式传入的字段
+    const params = []
+    if (config.enabled !== undefined) params.push(`enabled=${encodeURIComponent(String(config.enabled))}`)
+    if (config.loginFix !== undefined) params.push(`loginFix=${encodeURIComponent(String(config.loginFix))}`)
+    if (config.chestFix !== undefined) params.push(`chestFix=${encodeURIComponent(String(config.chestFix))}`)
+    if (config.minionLimit !== undefined) params.push(`minionLimit=${encodeURIComponent(String(config.minionLimit))}`)
+    if (config.lightning !== undefined) params.push(`lightning=${encodeURIComponent(String(config.lightning))}`)
+
+    let url = `${this.baseUrl}/data/bugfix/set?${params.join('&')}`
+    if (this.apiKey) {
+      url += `&token=${encodeURIComponent(this.apiKey)}`
+    }
+
+    console.log(`[OUTGOING] POST ${url}`)
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers
+      })
+
+      console.log(`[RESPONSE] Status: ${response.status}`)
+      const text = await response.text()
+      console.log(`[RESPONSE] Body: ${text}`)
+
+      try {
+        return JSON.parse(text)
+      } catch {
+        return { error: 'Invalid JSON', rawResponse: text }
+      }
+    } catch (error) {
+      this.isConnected = false
+      return { error: error.message }
+    }
+  }
+
   async checkAnomalyItem(id, stack) {
     if (!this.baseUrl) {
       await this.init()
