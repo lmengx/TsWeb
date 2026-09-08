@@ -323,8 +323,8 @@ router.post('/auto-read', setupOrAdmin, async (req, res) => {
       await fs.access(pluginDst)
       // 文件已存在，跳过
     } catch {
-      // 文件不存在，尝试复制
-      const pluginSrc = path.join(__dirname, '../data/resource/TsWeb.dll')
+      // 文件不存在，尝试复制（内置资源目录，git 跟踪，非用户数据区）
+      const pluginSrc = path.join(__dirname, '../resources/TsWeb.dll')
       try {
         await fs.access(pluginSrc)
         await fs.mkdir(pluginDir, { recursive: true })
