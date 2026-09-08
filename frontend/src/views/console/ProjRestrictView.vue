@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
-import { getProjConfig, saveProjConfig, clearProjCache } from '../../api/antiCheatApi.js'
+import { getProjConfig, saveProjConfig, clearProjCache, enableAntiCheat } from '../../api/antiCheatApi.js'
 import { loadProjectileData } from '../../api/projectileDataApi.js'
 import ProjectileSearchDialog from '../../components/ProjectileSearchDialog.vue'
 import SuccessModal from '../../components/SuccessModal.vue'
@@ -312,6 +312,48 @@ onMounted(() => {
   fetchProjConfig()
   initProjData()
 })
+
+// ── 启用检测开关 关→开 时：后端下发默认配置（插件无配置时）或翻转开关 ──
+const enableMsg = ref('')
+const enableMsgType = ref('info')
+const enableBusy = ref(false)
+
+const handleEnableToggled = async (val) => {
+  if (!val || enableBusy.value) return
+  enableBusy.value = true
+  enableMsg.value = ''
+  try {
+    const result = await enableAntiCheat(false, true)
+    if (result.status === 200 || result.status === '200') {
+      const projResult = result.results?.proj
+      if (projResult?.status === 'ok') {
+        enableMsgType.value = 'success'
+        enableMsg.value = projResult.message || '已启用弹幕检测'
+      } else if (projResult?.status === 'skipped') {
+        enableMsgType.value = 'success'
+        enableMsg.value = projResult.message || '插件端已有配置，未覆盖'
+      } else {
+        enableMsgType.value = 'error'
+        enableMsg.value = projResult?.error || '启用失败'
+        projConfigEdit.value.enabled = false
+      }
+      // 仅真正下发默认配置后重新拉取（skipped 时保留用户编辑）
+      if (projResult?.status === 'ok') {
+        clearProjCache()
+        await fetchProjConfig()
+      }
+    } else {
+      enableMsgType.value = 'error'
+      enableMsg.value = result.error || '启用失败'
+      projConfigEdit.value.enabled = false
+    }
+  } catch (err) {
+    enableMsgType.value = 'error'
+    enableMsg.value = err.message
+    projConfigEdit.value.enabled = false
+  }
+  enableBusy.value = false
+}
 </script>
 
 <template>
@@ -329,10 +371,12 @@ onMounted(() => {
           <div class="config-row">
             <label>启用检测</label>
             <label class="toggle">
-              <input type="checkbox" v-model="projConfigEdit.enabled">
+              <input type="checkbox" v-model="projConfigEdit.enabled" @change="handleEnableToggled(projConfigEdit.enabled)">
               <span class="slider"></span>
             </label>
           </div>
+
+          <div v-if="enableMsg" class="enable-msg" :class="'enable-msg-' + enableMsgType">{{ enableMsg }}</div>
 
           <div class="config-row">
             <label>伤害上限</label>
@@ -1118,6 +1162,28 @@ onMounted(() => {
   color: var(--accent-error);
   border-radius: 8px;
   margin-top: 16px;
+}
+
+.enable-msg {
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  align-self: center;
+}
+
+.enable-msg-success {
+  background: rgba(34, 197, 94, 0.1);
+  color: #22c55e;
+}
+
+.enable-msg-error {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--accent-error);
+}
+
+.enable-msg-info {
+  background: rgba(99, 102, 241, 0.1);
+  color: var(--accent-primary);
 }
 
 .success-message {

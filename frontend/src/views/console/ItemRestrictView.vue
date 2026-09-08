@@ -4,7 +4,7 @@ import { onBeforeRouteLeave } from 'vue-router'
 import ItemSearchDialog from '../../components/ItemSearchDialog.vue'
 import SuccessModal from '../../components/SuccessModal.vue'
 import LeaveConfirmModal from '../../components/LeaveConfirmModal.vue'
-import { getItemConfig, saveItemConfig, clearItemCache, scanItems, scanItemById } from '../../api/antiCheatApi.js'
+import { getItemConfig, saveItemConfig, clearItemCache, scanItems, scanItemById, enableAntiCheat } from '../../api/antiCheatApi.js'
 import { loadItemData } from '../../api/itemDataApi.js'
 import Loading from '../../components/Loading.vue'
 
@@ -377,6 +377,48 @@ const getPlayerItemName = (itemId) => {
 onMounted(() => {
   fetchItemConfig()
 })
+
+// ── 启用检测开关 关→开 时：后端下发默认配置（插件无配置时）或翻转开关 ──
+const enableMsg = ref('')
+const enableMsgType = ref('info') // info / error / success
+const enableBusy = ref(false)
+
+const handleEnableToggled = async (val) => {
+  if (!val || enableBusy.value) return
+  enableBusy.value = true
+  enableMsg.value = ''
+  try {
+    const result = await enableAntiCheat(true, false)
+    if (result.status === 200 || result.status === '200') {
+      const itemResult = result.results?.item
+      if (itemResult?.status === 'ok') {
+        enableMsgType.value = 'success'
+        enableMsg.value = itemResult.message || '已启用物品检测'
+      } else if (itemResult?.status === 'skipped') {
+        enableMsgType.value = 'success'
+        enableMsg.value = itemResult.message || '插件端已有配置，未覆盖'
+      } else {
+        enableMsgType.value = 'error'
+        enableMsg.value = itemResult?.error || '启用失败'
+        itemConfigEdit.value.enabled = false
+      }
+      // 仅真正下发默认配置后重新拉取（skipped 时保留用户编辑）
+      if (itemResult?.status === 'ok') {
+        clearItemCache()
+        await fetchItemConfig()
+      }
+    } else {
+      enableMsgType.value = 'error'
+      enableMsg.value = result.error || '启用失败'
+      itemConfigEdit.value.enabled = false
+    }
+  } catch (err) {
+    enableMsgType.value = 'error'
+    enableMsg.value = err.message
+    itemConfigEdit.value.enabled = false
+  }
+  enableBusy.value = false
+}
 </script>
 
 <template>
@@ -439,10 +481,12 @@ onMounted(() => {
           <div class="config-row">
             <label>启用检测</label>
             <label class="toggle">
-              <input type="checkbox" v-model="itemConfigEdit.enabled">
+              <input type="checkbox" v-model="itemConfigEdit.enabled" @change="handleEnableToggled(itemConfigEdit.enabled)">
               <span class="slider"></span>
             </label>
           </div>
+
+          <div v-if="enableMsg" class="enable-msg" :class="'enable-msg-' + enableMsgType">{{ enableMsg }}</div>
 
           <div class="config-row">
             <label>自动扫描</label>
@@ -1274,6 +1318,28 @@ onMounted(() => {
   color: var(--accent-error);
   border-radius: 8px;
   margin-top: 16px;
+}
+
+.enable-msg {
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  align-self: center;
+}
+
+.enable-msg-success {
+  background: rgba(34, 197, 94, 0.1);
+  color: #22c55e;
+}
+
+.enable-msg-error {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--accent-error);
+}
+
+.enable-msg-info {
+  background: rgba(99, 102, 241, 0.1);
+  color: var(--accent-primary);
 }
 
 .success-message {

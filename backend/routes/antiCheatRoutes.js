@@ -1,11 +1,50 @@
 import { Router } from 'express'
 import tshockService from '../services/tshockService.js'
+import { enableAntiCheat, pushDefaultToPlugin } from '../services/anticheatDefaults.js'
 import { verifyToken, requireManager } from '../middlewares/authMiddleware.js'
 
 const router = Router()
 
 // 反作弊配置：admin + subadmin（用户确认 subadmin 可用）
 router.use(verifyToken, requireManager)
+
+// 打开反作弊（启用检测开关 关→开 时调用）：
+//   item / proj 任一为 true 时，若插件端无有效配置 → 下发后端默认配置（启用=true）；
+//   已有配置 → 仅翻转插件端启用开关。返回逐项结果。
+router.post('/enable', async (req, res) => {
+  const { item, proj } = req.body || {}
+  if (!item && !proj) {
+    return res.status(400).json({ status: '400', error: '缺少 item / proj 启用标记' })
+  }
+  const results = {}
+  try {
+    if (item) results.item = await enableAntiCheat('item')
+    if (proj) results.proj = await enableAntiCheat('proj')
+    const failed = Object.values(results).some(r => r?.status === 'error')
+    res.status(failed ? 502 : 200).json({ status: failed ? '502' : '200', results })
+  } catch (err) {
+    res.status(500).json({ status: '500', error: err.message })
+  }
+})
+
+// 手动下发默认配置（管理端「应用默认配置」按钮，可选）
+router.post('/apply-defaults', async (req, res) => {
+  const { item, proj } = req.body || {}
+  const kinds = []
+  if (item) kinds.push('item')
+  if (proj) kinds.push('proj')
+  if (kinds.length === 0) {
+    return res.status(400).json({ status: '400', error: '缺少 item / proj 标记' })
+  }
+  const results = {}
+  try {
+    for (const kind of kinds) results[kind] = await pushDefaultToPlugin(kind)
+    const failed = Object.values(results).some(r => r?.status === 'error')
+    res.status(failed ? 502 : 200).json({ status: failed ? '502' : '200', results })
+  } catch (err) {
+    res.status(500).json({ status: '500', error: err.message })
+  }
+})
 
 router.get('/config', (req, res) => {
   tshockService.getItemConfig()

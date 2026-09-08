@@ -1,0 +1,697 @@
+{
+  "启用": false,
+  "自动扫描": true,
+  "扫描间隔": 10,
+  "限制列表": [
+    {
+      "进度": "始终生效",
+      "限制物品": [
+        {
+          "id": 2676,
+          "stack": 1000,
+          "method": "kick"
+        }
+      ]
+    },
+    {
+      "进度": "哥布林入侵",
+      "限制物品": [
+        {
+          "id": 398,
+          "stack": 1,
+          "method": "kick"
+        }
+      ]
+    },
+    {
+      "进度": "史莱姆王",
+      "限制物品": [
+        {
+          "id": 3318,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 2430,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 182,
+          "stack": 100,
+          "method": "kick"
+        },
+        {
+          "id": 178,
+          "stack": 100,
+          "method": "log"
+        },
+        {
+          "id": 296,
+          "stack": 100,
+          "method": "kick"
+        },
+        {
+          "id": 298,
+          "stack": 100,
+          "method": "kick"
+        },
+        {
+          "id": 289,
+          "stack": 100,
+          "method": "kick"
+        },
+        {
+          "id": 5070,
+          "stack": 100,
+          "method": "kick"
+        },
+        {
+          "id": 29,
+          "stack": 100,
+          "method": "kick"
+        },
+        {
+          "id": 75,
+          "stack": 500,
+          "method": "kick"
+        },
+        {
+          "id": 3090,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 292,
+          "stack": 100,
+          "method": "kick"
+        }
+      ]
+    },
+    {
+      "进度": "克苏鲁之眼",
+      "限制物品": [
+        {
+          "id": 3097,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 74,
+          "stack": 100,
+          "method": "kick"
+        },
+        {
+          "id": 1257,
+          "stack": 100,
+          "method": "kick"
+        }
+      ]
+    },
+    {
+      "进度": "世界吞噬者",
+      "限制物品": [
+        {
+          "id": 3320,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 3224,
+          "stack": 1,
+          "method": "kick"
+        }
+      ]
+    },
+    {
+      "进度": "克苏鲁之脑",
+      "限制物品": [
+        {
+          "id": 3321,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 3223,
+          "stack": 1,
+          "method": "kick"
+        }
+      ]
+    },
+    {
+      "进度": "蜂后",
+      "限制物品": [
+        {
+          "id": 3322,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 1121,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 1123,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 1130,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 1132,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 2364,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 2888,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 3333,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 2502,
+          "stack": 1,
+          "method": "kick"
+        }
+      ]
+    },
+    {
+      "进度": "骷髅王",
+      "限制物品": [
+        {
+          "id": 5345,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 3323,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 1273,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 1313,
+          "stack": 1,
+          "method": "kick"
+        }
+      ]
+    },
+    {
+      "进度": "血肉墙",
+      "限制物品": [
+        {
+          "id": 74,
+          "stack": 1000,
+          "method": "kick"
+        },
+        {
+          "id": 22,
+          "stack": 1000,
+          "method": "kick"
+        },
+        {
+          "id": 704,
+          "stack": 1000,
+          "method": "kick"
+        },
+        {
+          "id": 175,
+          "stack": 1000,
+          "method": "kick"
+        },
+        {
+          "id": 706,
+          "stack": 1000,
+          "method": "kick"
+        },
+        {
+          "id": 1225,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 1198,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 391,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 675,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 3324,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 3580,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 748,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 492,
+          "stack": 1,
+          "method": "kick"
+        }
+      ]
+    },
+    {
+      "进度": "史莱姆皇后",
+      "限制物品": [
+        {
+          "id": 4758,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 4957,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 4981,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 4980,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 4983,
+          "stack": 1,
+          "method": "kick"
+        }
+      ]
+    },
+    {
+      "进度": "毁灭者",
+      "限制物品": [
+        {
+          "id": 548,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 533,
+          "stack": 1,
+          "method": "kick"
+        }
+      ]
+    },
+    {
+      "进度": "双子魔眼",
+      "限制物品": [
+        {
+          "id": 549,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 495,
+          "stack": 1,
+          "method": "kick"
+        }
+      ]
+    },
+    {
+      "进度": "机械骷髅王",
+      "限制物品": [
+        {
+          "id": 547,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 3327,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 3315,
+          "stack": 1,
+          "method": "kick"
+        }
+      ]
+    },
+    {
+      "进度": "世纪之花",
+      "限制物品": [
+        {
+          "id": 757,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 3328,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 1155,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 1503,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 1504,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 1505,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 1506,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 1507,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 1508,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 1543,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 1544,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 1545,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 2189,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 3261,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 1305,
+          "stack": 1,
+          "method": "kick"
+        }
+      ]
+    },
+    {
+      "进度": "石巨人",
+      "限制物品": [
+        {
+          "id": 1297,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 3329,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 3110,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 6162,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 6158,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 1295,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 1296,
+          "stack": 1,
+          "method": "kick"
+        }
+      ]
+    },
+    {
+      "进度": "猪龙鱼公爵",
+      "限制物品": [
+        {
+          "id": 2609,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 2622,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 2621,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 5526,
+          "stack": 1,
+          "method": "kick"
+        }
+      ]
+    },
+    {
+      "进度": "光之女皇",
+      "限制物品": [
+        {
+          "id": 5005,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 4952,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 4953,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 4989,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 4715,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 4923,
+          "stack": 1,
+          "method": "kick"
+        }
+      ]
+    },
+    {
+      "进度": "拜月教教徒",
+      "限制物品": [
+        {
+          "id": 3549,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 3473,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 3543,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 3475,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 3540,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 3474,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 3531,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 3542,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 3476,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 3456,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 3457,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 3458,
+          "stack": 1,
+          "method": "kick"
+        },
+        {
+          "id": 3459,
+          "stack": 1,
+          "method": "kick"
+        }
+      ]
+    },
+    {
+      "进度": "月亮领主",
+      "限制物品": [
+        {
+          "id": 4956,
+          "stack": 1,
+          "method": "ban"
+        },
+        {
+          "id": 3065,
+          "stack": 1,
+          "method": "ban"
+        },
+        {
+          "id": 3063,
+          "stack": 1,
+          "method": "ban"
+        },
+        {
+          "id": 1553,
+          "stack": 1,
+          "method": "ban"
+        },
+        {
+          "id": 2764,
+          "stack": 1,
+          "method": "ban"
+        },
+        {
+          "id": 3569,
+          "stack": 1,
+          "method": "ban"
+        },
+        {
+          "id": 3541,
+          "stack": 1,
+          "method": "ban"
+        },
+        {
+          "id": 3571,
+          "stack": 1,
+          "method": "ban"
+        },
+        {
+          "id": 1131,
+          "stack": 1,
+          "method": "ban"
+        },
+        {
+          "id": 3389,
+          "stack": 1,
+          "method": "ban"
+        },
+        {
+          "id": 2763,
+          "stack": 1,
+          "method": "ban"
+        },
+        {
+          "id": 2765,
+          "stack": 1,
+          "method": "ban"
+        },
+        {
+          "id": 2784,
+          "stack": 1,
+          "method": "ban"
+        },
+        {
+          "id": 2786,
+          "stack": 1,
+          "method": "ban"
+        },
+        {
+          "id": 3522,
+          "stack": 1,
+          "method": "ban"
+        }
+      ]
+    }
+  ]
+}

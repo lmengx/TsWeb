@@ -63,6 +63,23 @@ export function clearAntiCheatCache() {
   cachedConfig = null
 }
 
+/**
+ * 打开反作弊（启用检测开关 关→开 时调用）：
+ * 后端在插件端无有效配置时下发默认配置（启用=true），已有配置则仅翻转开关。
+ * @param {boolean} item 是否启用物品检测
+ * @param {boolean} proj 是否启用弹幕检测
+ */
+export async function enableAntiCheat(item = false, proj = false) {
+  try {
+    const response = await post('/api/anticheat/enable', { item, proj })
+    const data = await response.json()
+    return data
+  } catch (error) {
+    console.error('Failed to enable anti-cheat:', error)
+    return { status: 'error', error: error.message }
+  }
+}
+
 export function clearProjCache() {
   cachedProjConfig = null
 }

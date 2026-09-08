@@ -1275,6 +1275,23 @@ export class TShockService {
     }
   }
 
+  /**
+   * 反作弊启用开关（物品/弹幕）：直接调用插件 /data/anticheat/enable
+   * @param {string} params 查询串，如 'itemEnabled=true' 或 'projEnabled=true'（可同时传，& 连接）
+   */
+  async setAntiCheatEnabled(params) {
+    if (!this.baseUrl) await this.init()
+    const url = `${this.baseUrl}/data/anticheat/enable?${params}${this.apiKey ? `&token=${encodeURIComponent(this.apiKey)}` : ''}`
+    console.log(`[OUTGOING] POST ${url}`)
+    try {
+      const response = await fetch(url, { method: 'POST', headers: { 'Accept': 'application/json' } })
+      return await response.json()
+    } catch (error) {
+      this.isConnected = false
+      return { status: '500', error: error.message }
+    }
+  }
+
   async getAntiCheatConfig() {
     if (!this.baseUrl) {
       await this.init()

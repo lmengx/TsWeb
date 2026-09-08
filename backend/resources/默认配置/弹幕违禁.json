@@ -1,0 +1,277 @@
+{
+  "启用": false,
+  "伤害上限": 20000,
+  "限制列表": [
+    {
+      "进度": "始终生效",
+      "限制弹幕": [
+        {
+          "id": 108,
+          "method": "ban"
+        },
+        {
+          "id": 136,
+          "method": "kick"
+        },
+        {
+          "id": 137,
+          "method": "kick"
+        },
+        {
+          "id": 138,
+          "method": "kick"
+        },
+        {
+          "id": 142,
+          "method": "kick"
+        },
+        {
+          "id": 143,
+          "method": "kick"
+        },
+        {
+          "id": 144,
+          "method": "kick"
+        },
+        {
+          "id": 164,
+          "method": "ban"
+        }
+      ]
+    },
+    {
+      "进度": "蜂后",
+      "限制弹幕": [
+        {
+          "id": 183,
+          "method": "ban"
+        },
+        {
+          "id": 469,
+          "method": "ban"
+        }
+      ]
+    },
+    {
+      "进度": "血肉墙",
+      "限制弹幕": [
+        {
+          "id": 89,
+          "method": "kick"
+        },
+        {
+          "id": 106,
+          "method": "kick"
+        },
+        {
+          "id": 107,
+          "method": "kick"
+        },
+        {
+          "id": 145,
+          "method": "kick"
+        },
+        {
+          "id": 146,
+          "method": "kick"
+        },
+        {
+          "id": 147,
+          "method": "kick"
+        },
+        {
+          "id": 148,
+          "method": "kick"
+        },
+        {
+          "id": 157,
+          "method": "kick"
+        }
+      ]
+    },
+    {
+      "进度": "双子魔眼",
+      "限制弹幕": [
+        {
+          "id": 79,
+          "method": "kick"
+        }
+      ]
+    },
+    {
+      "进度": "机械骷髅王",
+      "限制弹幕": [
+        {
+          "id": 562,
+          "method": "kick"
+        }
+      ]
+    },
+    {
+      "进度": "世纪之花",
+      "限制弹幕": [
+        {
+          "id": 302,
+          "method": "kick"
+        },
+        {
+          "id": 356,
+          "method": "kick"
+        },
+        {
+          "id": 132,
+          "method": "kick"
+        }
+      ]
+    },
+    {
+      "进度": "石巨人",
+      "限制弹幕": [
+        {
+          "id": 182,
+          "method": "kick"
+        }
+      ]
+    },
+    {
+      "进度": "猪龙鱼公爵",
+      "限制弹幕": [
+        {
+          "id": 405,
+          "method": "kick"
+        },
+        {
+          "id": 409,
+          "method": "kick"
+        }
+      ]
+    },
+    {
+      "进度": "光之女皇",
+      "限制弹幕": [
+        {
+          "id": 915,
+          "method": "kick"
+        },
+        {
+          "id": 931,
+          "method": "kick"
+        }
+      ]
+    },
+    {
+      "进度": "拜月教教徒",
+      "限制弹幕": [
+        {
+          "id": 625,
+          "method": "ban"
+        },
+        {
+          "id": 634,
+          "method": "ban"
+        },
+        {
+          "id": 636,
+          "method": "ban"
+        },
+        {
+          "id": 611,
+          "method": "ban"
+        },
+        {
+          "id": 613,
+          "method": "ban"
+        },
+        {
+          "id": 615,
+          "method": "ban"
+        },
+        {
+          "id": 617,
+          "method": "log"
+        },
+        {
+          "id": 630,
+          "method": "log"
+        },
+        {
+          "id": 631,
+          "method": "log"
+        },
+        {
+          "id": 635,
+          "method": "log"
+        }
+      ]
+    },
+    {
+      "进度": "月亮领主",
+      "限制弹幕": [
+        {
+          "id": 933,
+          "method": "ban"
+        },
+        {
+          "id": 1100,
+          "method": "ban"
+        },
+        {
+          "id": 502,
+          "method": "ban"
+        },
+        {
+          "id": 503,
+          "method": "ban"
+        },
+        {
+          "id": 1035,
+          "method": "ban"
+        },
+        {
+          "id": 603,
+          "method": "ban"
+        },
+        {
+          "id": 645,
+          "method": "ban"
+        },
+        {
+          "id": 643,
+          "method": "ban"
+        },
+        {
+          "id": 715,
+          "method": "ban"
+        },
+        {
+          "id": 716,
+          "method": "ban"
+        },
+        {
+          "id": 717,
+          "method": "ban"
+        },
+        {
+          "id": 718,
+          "method": "ban"
+        },
+        {
+          "id": 609,
+          "method": "ban"
+        },
+        {
+          "id": 610,
+          "method": "ban"
+        },
+        {
+          "id": 633,
+          "method": "ban"
+        },
+        {
+          "id": 946,
+          "method": "ban"
+        }
+      ]
+    }
+  ]
+}
