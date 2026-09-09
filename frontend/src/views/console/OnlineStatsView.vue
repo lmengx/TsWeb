@@ -76,7 +76,7 @@ let statsTimer = null
 const fetchStats = async () => {
   const [activeRes, userRes, banRes] = await Promise.allSettled([
     get('/api/tshock/activeusers'),
-    get('/api/tshock/userdata'),
+    get('/api/tshock/users'),
     get('/api/tshock/banlist'),
   ])
 
@@ -91,9 +91,9 @@ const fetchStats = async () => {
 
   try {
     const u = await userRes.value.json()
-    if (u.users) {
+    if (Array.isArray(u.users)) {
       animateValue(totalUsers, u.users.length)
-      const qq = u.users.filter(x => x.QQ && x.QQ.trim()).length
+      const qq = u.users.filter(x => x.qq && String(x.qq).trim()).length
       animateValue(qqCount, qq)
     }
   } catch {}
