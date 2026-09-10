@@ -1,0 +1,63 @@
+name: Build and Release
+
+on:
+  workflow_dispatch:            # 网页上手动触发
+    inputs:
+      tag:
+        description: 'Release 标签，例如 v1.0.1'
+        required: false
+        default: ''
+  push:
+    tags:
+      - 'v*'                    # 本地推 tag 时自动触发
+
+permissions:
+  contents: write               # 允许创建 Release
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # 装 pnpm（版本与仓库 packageManager 一致）
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      # 1) 进入 frontend，用 pnpm 构建前端产物
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          pnpm install
+          pnpm build
+
+      # 2) 把产物复制进 backend/dist（对应本地 build.bat 第 3 步）
+      - name: Copy dist to backend
+        shell: pwsh
+        run: |
+          if (Test-Path backend/dist) { Remove-Item backend/dist -Recurse -Force }
+          Copy-Item frontend/dist backend/dist -Recurse
+
+      # 3) 进入 backend，用 pnpm 安装依赖（生成 node_modules）
+      - name: Install backend deps
+        working-directory: backend
+        run: pnpm install
+
+      # 4) 打包整个 backend 文件夹（含 dist / node_modules / node.exe / resources）
+      - name: Package backend
+        shell: pwsh
+        run: Compress-Archive -Path backend -DestinationPath tsweb-backend.zip -Force
+
+      # 5) 发布 Release
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          name: ${{ github.event.inputs.tag || github.ref_name }}
+          files: tsweb-backend.zip
