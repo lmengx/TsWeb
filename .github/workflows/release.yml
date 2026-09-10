@@ -5,8 +5,7 @@ on:
     inputs:
       tag:
         description: 'Release 标签，例如 v1.0.1'
-        required: false
-        default: ''
+        required: true
   push:
     tags:
       - 'v*'
