@@ -32,7 +32,7 @@ jobs:
             frontend/pnpm-lock.yaml
             backend/pnpm-lock.yaml
 
-      # 1) 构建前端 → 产出 frontend/dist
+      # 1) 构建前端（pnpm）→ 产出 frontend/dist
       - name: Build frontend
         working-directory: frontend
         run: |
@@ -46,17 +46,17 @@ jobs:
           if (Test-Path backend/dist) { Remove-Item backend/dist -Recurse -Force }
           Copy-Item frontend/dist backend/dist -Recurse
 
-      # 3) backend 安装依赖 → 产出 node_modules
+      # 3) backend 安装依赖 → 用 npm（扁平 node_modules，zip 安全）
       - name: Install backend deps
         working-directory: backend
-        run: pnpm install --frozen-lockfile
+        run: npm install --omit=dev
 
-      # 4) 打包前自检：缺任何一项就失败，不再发布残缺包
+      # 4) 打包前自检：dist 和依赖都必须在
       - name: Verify artifacts
         shell: pwsh
         run: |
           if (-not (Test-Path backend/dist/index.html)) { throw '缺少 backend/dist —— 前端构建未生效' }
-          if (-not (Test-Path backend/node_modules/express)) { throw '缺少 backend/node_modules —— 依赖安装未生效' }
+          if (-not (Test-Path backend/node_modules/express/package.json)) { throw '缺少 backend/node_modules —— 依赖安装未生效' }
 
       # 5) 打包整个 backend 文件夹
       - name: Package backend
