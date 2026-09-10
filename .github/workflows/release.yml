@@ -27,14 +27,17 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: pnpm
+          cache-dependency-path: |     
+            frontend/pnpm-lock.yaml
+            backend/pnpm-lock.yaml
 
       # 1) 进入 frontend，用 pnpm 构建前端产物
       - name: Build frontend
         working-directory: frontend
         run: |
-          pnpm install
+          pnpm install --frozen-lockfile
           pnpm build
 
       # 2) 把产物复制进 backend/dist（对应本地 build.bat 第 3 步）
@@ -47,7 +50,7 @@ jobs:
       # 3) 进入 backend，用 pnpm 安装依赖（生成 node_modules）
       - name: Install backend deps
         working-directory: backend
-        run: pnpm install
+        run: pnpm install --frozen-lockfile
 
       # 4) 打包整个 backend 文件夹（含 dist / node_modules / node.exe / resources）
       - name: Package backend
