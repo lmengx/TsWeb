@@ -1,6 +1,7 @@
 using HouseRegion;
 using Newtonsoft.Json.Linq;
 using Rests;
+using System.Reflection;
 using System.Text;
 using TShockAPI;
 
@@ -14,6 +15,53 @@ public static class HouseApi
 {
     private static readonly string BuildingDir = Path.Combine(TShock.SavePath, "TSWeb", "Buildings");
 
+    /// <summary>由 Main.cs 注入：按配置重新应用房屋系统（启用/停用热切换，无需重启）</summary>
+    public static Action? ReapplyModule;
+
+    // ══════════════════════════════════════════════════════════
+    //  /data/house/config — 房屋系统总开关（默认开，GET 读取 / POST 设置）
+    //  无条件注册（房屋停用时也必须可访问，否则网页端无法重新开启）
+    // ══════════════════════════════════════════════════════════
+
+    /// <summary>GET /data/house/config — 读取房屋系统开关与最小尺寸配置</summary>
+    public static object GetConfigApi(RestRequestArgs args)
+    {
+        return new
+        {
+            status = "200",
+            enabled = Config.Instance.Enabled,
+            minWidth = Config.Instance.MinWidth,
+            minHeight = Config.Instance.MinHeight
+        };
+    }
+
+    /// <summary>POST /data/house/config/set — 设置房屋系统开关（缺省参数保持原值），保存并热应用</summary>
+    public static object SetConfigApi(RestRequestArgs args)
+    {
+        try
+        {
+            var enabled = args.Parameters["enabled"];
+            if (!string.IsNullOrEmpty(enabled))
+            {
+                Config.Instance.Enabled = enabled.ToLower() == "true";
+                Config.Save();
+            }
+
+            ReapplyModule?.Invoke();
+            return new
+            {
+                status = "200",
+                message = "房屋系统配置已保存",
+                enabled = Config.Instance.Enabled
+            };
+        }
+        catch (Exception ex)
+        {
+            TShock.Log.ConsoleError($"[TSWeb] 房屋系统配置保存失败: {ex.Message}");
+            return new RestObject("500") { { "error", ex.Message } };
+        }
+    }
+
     public static void Register()
     {
         TShock.RestApi.Register(new SecureRestCommand("/data/house/list", HandleHouseList, "data.rest.invsee"));
@@ -24,6 +72,39 @@ public static class HouseApi
         TShock.RestApi.Register(new SecureRestCommand("/data/buildings/upload", HandleBuildingsUpload, "data.rest.invsee"));
         TShock.RestApi.Register(new SecureRestCommand("/data/buildings/delete-local", HandleBuildingsDeleteLocal, "data.rest.invsee"));
         TShock.RestApi.Register(new SecureRestCommand("/data/buildings/online-players", HandleBuildingsOnlinePlayers, "data.rest.invsee"));
+    }
+
+    /// <summary>
+    /// 摘除房屋系统注册的全部 REST 路由（配合 HouseRegion.json 的"启用"开关，停用时调用）。
+    /// </summary>
+    public static void Unregister()
+    {
+        var houseRoutes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "/data/house/list",
+            "/data/buildings/list",
+            "/data/buildings/info",
+            "/data/buildings/export",
+            "/data/buildings/import",
+            "/data/buildings/upload",
+            "/data/buildings/delete-local",
+            "/data/buildings/online-players",
+        };
+
+        try
+        {
+            var commandsField = typeof(Rests.Rest).GetField("commands",
+                BindingFlags.NonPublic | BindingFlags.Instance);
+            if (commandsField?.GetValue(TShock.RestApi) is List<Rests.RestCommand> cmdList)
+            {
+                var removed = cmdList.RemoveAll(c => houseRoutes.Contains(c.UriTemplate));
+                TShock.Log.ConsoleInfo($"[TSWeb] 房屋 REST 路由已摘除: {removed} 条");
+            }
+        }
+        catch (Exception ex)
+        {
+            TShock.Log.ConsoleError($"[TSWeb] 房屋 REST 路由摘除失败: {ex.Message}");
+        }
     }
 
     // ══════════════════════════════════════════════════════════

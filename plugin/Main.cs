@@ -67,9 +67,13 @@ namespace TShockData
             TShock.RestApi.Register(new SecureRestCommand("/data/curfew/config", Curfew.GetConfigJson, ""));
             TShock.RestApi.Register(new SecureRestCommand("/data/curfew/config/set", Curfew.SetConfigJson, "data.rest.invsee"));
 
-            // ═══ House 房屋系统（原 plugin-son/House 并入）═══
-            HouseCore.Instance.Initialize(this);
-            HouseApi.Register();
+            // ═══ House 房屋系统（原 plugin-son/House 并入；HouseRegion.json"启用"开关，默认开，可热切换）═══
+            ApplyHouseModule(this);
+
+            // ═══ 房屋系统开关接口（无条件注册：房屋停用时网页端仍可重新开启）═══
+            HouseApi.ReapplyModule = () => ApplyHouseModule(this);
+            TShock.RestApi.Register(new SecureRestCommand("/data/house/config", HouseApi.GetConfigApi, "data.rest.invsee"));
+            TShock.RestApi.Register(new SecureRestCommand("/data/house/config/set", HouseApi.SetConfigApi, "data.rest.invsee"));
 
             // ═══ ShopUI 虚拟旅商商店（原 plugin-son/shopui 并入，内容配置化可前端编辑）═══
             ShopUICore.Initialize(this);
@@ -254,6 +258,36 @@ namespace TShockData
             TShockAPI.Hooks.GeneralHooks.ReloadEvent += OnReload;
         }
 
+        /// <summary>
+        /// 房屋系统是否已启用（HouseRegion.json 的"启用"开关，默认 true）。
+        /// 与 HouseCore.Initialize / HouseApi.Register 联动，避免重复挂载。
+        /// </summary>
+        private static bool _houseActive;
+
+        /// <summary>
+        /// 按配置应用房屋系统：启用时初始化 HouseCore 并注册 REST 路由；
+        /// 停用时整体卸载（Dispose 反注册钩子/detour/命令 + 摘除 REST 路由）。
+        /// 支持 /reload 热切换，无需重启服务器。
+        /// </summary>
+        private void ApplyHouseModule(TerrariaPlugin plugin)
+        {
+            bool enabled = HouseRegion.Config.Instance.Enabled;
+            if (enabled && !_houseActive)
+            {
+                HouseCore.Instance.Initialize(plugin);
+                HouseApi.Register();
+                _houseActive = true;
+                TShock.Log.ConsoleInfo("[TSWeb] 房屋系统已启用（HouseRegion.json 启用=true）");
+            }
+            else if (!enabled && _houseActive)
+            {
+                HouseCore.Instance.Dispose();
+                HouseApi.Unregister();
+                _houseActive = false;
+                TShock.Log.ConsoleInfo("[TSWeb] 房屋系统已停用（HouseRegion.json 启用=false）");
+            }
+        }
+
         private void OnReload(TShockAPI.Hooks.ReloadEventArgs e)
         {
             AntiCheat.LoadConfig();
@@ -272,6 +306,9 @@ namespace TShockData
             ShopUICore.ReloadConfig();
             StatusPanel.LoadConfig();
             PersonalPermissionManager.Reload();
+
+            // ═══ 房屋系统开关（HouseRegion.json"启用"，/reload 动态启用/停用）═══
+            ApplyHouseModule(this);
 
             TShock.Log.ConsoleInfo("[TSWeb] 反作弊配置已重新加载");
         }
@@ -302,7 +339,11 @@ namespace TShockData
                 BypassHelper.UnregisterPermissionHook();
 				PvPLockManager.Dispose();
 				TeamLockManager.Dispose();
-				HouseCore.Instance.Dispose();
+				if (_houseActive)
+                {
+                    HouseCore.Instance.Dispose();
+                    _houseActive = false;
+                }
                 ShopUICore.Dispose();
 				EmoteCommandManager.Dispose();
                 StatusPanel.Dispose();
@@ -435,6 +476,8 @@ namespace TShockData
                 "/data/tasks/log",
                 "/data/tasks/log/detail",
                 "/data/house/list",
+                "/data/house/config",
+                "/data/house/config/set",
                 "/data/buildings/list",
                 "/data/buildings/info",
                 "/data/buildings/export",

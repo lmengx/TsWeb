@@ -3,8 +3,55 @@ import { ref, computed, onMounted } from 'vue'
 import { listHouses, listBuildings, getBuildingInfo,
   exportBuildingToLocal, exportBuildingToBackend, getOnlinePlayers,
   deleteLocalBuilding, listBackendBuildings, sendBuildingToBackend,
-  uploadBuildingToPlugin, importBuildingToWorld, deleteBackendBuilding, downloadBackendBuilding } from '../../api/houseApi.js'
+  uploadBuildingToPlugin, importBuildingToWorld, deleteBackendBuilding, downloadBackendBuilding,
+  getHouseConfig, setHouseEnabled } from '../../api/houseApi.js'
 import Loading from '../../components/Loading.vue'
+
+// ═══ 房屋系统总开关（HouseRegion.json"启用"，默认开）═══
+const houseEnabled = ref(true)
+const configLoading = ref(true)
+const configSaving = ref(false)
+const configError = ref('')
+
+const fetchConfig = async () => {
+  configLoading.value = true
+  configError.value = ''
+  try {
+    const r = await getHouseConfig()
+    if (r.error) configError.value = r.error
+    else if (typeof r.enabled === 'boolean') houseEnabled.value = r.enabled
+  } catch (err) { configError.value = err.message }
+  configLoading.value = false
+}
+
+const doToggleHouse = async () => {
+  configSaving.value = true
+  configError.value = ''
+  const target = !houseEnabled.value
+  try {
+    const r = await setHouseEnabled(target)
+    if (r.error || r.status !== '200') {
+      configError.value = r.error || '设置失败'
+      houseEnabled.value = !target
+    } else {
+      houseEnabled.value = !!r.enabled
+      notify(target ? '房屋系统已启用' : '房屋系统已停用', 'ok')
+      if (target) {
+        fetchHouses()
+        fetchBuildings()
+      } else {
+        houses.value = []
+        houseTotal.value = 0
+        buildings.value = []
+        buildingsTotal.value = 0
+      }
+    }
+  } catch (err) {
+    configError.value = err.message
+    houseEnabled.value = !target
+  }
+  configSaving.value = false
+}
 
 // ═══ 顶部主 Tab ═══
 const mainTab = ref('houses')   // 'houses' | 'buildings'
@@ -269,7 +316,10 @@ const fmtBytes = (n) => {
 }
 const fmtDate = (s) => (s || '-').replace('T', ' ').slice(0, 19)
 
-onMounted(() => { fetchHouses() })
+onMounted(async () => {
+  await fetchConfig()
+  if (houseEnabled.value) fetchHouses()
+})
 </script>
 
 <template>
@@ -279,14 +329,37 @@ onMounted(() => { fetchHouses() })
       <span class="sub">HouseRegion 圈地数据 · .tsb 建筑导入导出</span>
     </div>
 
+    <!-- ═══ 房屋系统总开关 ═══ -->
+    <div class="house-switch-card">
+      <div class="switch-left">
+        <span class="switch-label">房屋系统</span>
+        <span class="switch-hint">总开关（HouseRegion.json「启用」）。停用后立即卸载全部圈地保护与 /house 命令，数据保留，可随时重新开启</span>
+        <span v-if="configError" class="switch-error">{{ configError }}</span>
+      </div>
+      <div class="switch-right">
+        <span :class="['status-pill', houseEnabled ? 'pill-on' : 'pill-off']">
+          {{ configLoading ? '读取中...' : (houseEnabled ? '已启用' : '已停用') }}
+        </span>
+        <label class="switch" :title="configSaving ? '处理中...' : (houseEnabled ? '点击停用房屋系统' : '点击启用房屋系统')">
+          <input type="checkbox" v-model="houseEnabled" :disabled="configLoading || configSaving" @change="doToggleHouse" />
+          <span class="slider"></span>
+        </label>
+      </div>
+    </div>
+
+    <!-- 停用提示 -->
+    <div v-if="!houseEnabled" class="disabled-banner">
+      房屋系统已停用：圈地保护、/house /h /htp 命令与建筑接口均已卸载。开启开关后立即恢复。
+    </div>
+
     <!-- 顶部主 Tab -->
-    <div class="main-tabs">
+    <div class="main-tabs" v-show="houseEnabled">
       <button class="main-tab" :class="{ active: mainTab === 'houses' }" @click="mainTab = 'houses'">🏠 房屋管理</button>
       <button class="main-tab" :class="{ active: mainTab === 'buildings' }" @click="switchMain('buildings')">📦 建筑存档</button>
     </div>
 
     <!-- ═══ Tab1 房屋管理 ═══ -->
-    <div v-if="mainTab === 'houses'" class="section">
+    <div v-if="mainTab === 'houses'" class="section" v-show="houseEnabled">
       <div v-if="housesError" class="error-message">{{ housesError }}</div>
       <div v-if="housesLoading"><Loading text="加载中..." /></div>
       <div v-else-if="houses.length === 0" class="empty-state">暂无房屋数据（游戏中 /h c 圈地创建）</div>
@@ -373,7 +446,7 @@ onMounted(() => { fetchHouses() })
     </div>
 
     <!-- ═══ Tab2 建筑存档 ═══ -->
-    <div v-else class="section">
+    <div v-else class="section" v-show="houseEnabled">
       <div class="sub-tabs">
         <button class="sub-tab" :class="{ active: sourceTab === 'local' }" @click="switchSource('local')">插件本地（TSWeb/Buildings）</button>
         <button class="sub-tab" :class="{ active: sourceTab === 'backend' }" @click="switchSource('backend')">后端（data/transfer/building）</button>
@@ -582,6 +655,41 @@ onMounted(() => { fetchHouses() })
 .page-header { margin-bottom: 16px; display: flex; align-items: baseline; gap: 10px; }
 .page-header h2 { margin: 0; color: var(--text-primary); font-size: 1.5rem; }
 .sub { color: var(--text-muted); font-size: 0.85rem; }
+
+/* ── 房屋系统总开关 ── */
+.house-switch-card {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  background: var(--bg-card); border: 1px solid var(--border-light); border-radius: var(--radius-lg);
+  padding: 14px 18px; margin-bottom: 16px; box-shadow: var(--shadow-sm);
+}
+.switch-left { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 0; }
+.switch-label { color: var(--text-primary); font-weight: 600; font-size: 1rem; }
+.switch-hint { color: var(--text-muted); font-size: 0.8rem; line-height: 1.4; }
+.switch-error { color: var(--accent-error); font-size: 0.8rem; }
+.switch-right { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+.status-pill { padding: 5px 14px; border-radius: 999px; font-size: 0.85rem; font-weight: 600; }
+.pill-on { background: rgba(34,197,94,.15); color: #22c55e; border: 1px solid rgba(34,197,94,.3); }
+.pill-off { background: rgba(239,68,68,.15); color: #ef4444; border: 1px solid rgba(239,68,68,.3); }
+
+.switch { position: relative; display: inline-block; width: 44px; height: 24px; flex-shrink: 0; }
+.switch input { opacity: 0; width: 0; height: 0; }
+.slider {
+  position: absolute; top: 0; left: 0; right: 0; bottom: 0; cursor: pointer;
+  background: var(--bg-hover); border: 2px solid var(--border-color); border-radius: 24px; transition: all .3s ease;
+}
+.slider::before {
+  content: ''; position: absolute; height: 16px; width: 16px; left: 2px; bottom: 2px;
+  background: var(--text-muted); border-radius: 50%; transition: all .3s ease;
+}
+.switch input:checked + .slider { background: var(--accent-primary); border-color: var(--accent-primary); }
+.switch input:checked + .slider::before { transform: translateX(20px); background: white; }
+.switch input:disabled + .slider { cursor: not-allowed; opacity: 0.6; }
+
+.disabled-banner {
+  padding: 12px 16px; margin-bottom: 16px; border-radius: var(--radius-md);
+  background: rgba(245,158,11,.12); color: #f59e0b; border: 1px solid rgba(245,158,11,.35);
+  font-size: 0.85rem;
+}
 
 .main-tabs { display: flex; gap: 8px; margin-bottom: 16px; }
 .main-tab {

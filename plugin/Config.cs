@@ -10,6 +10,10 @@ public class Config
     private static bool _reloadRegistered;
     private static readonly string FilePath = Path.Combine(TShock.SavePath, "HouseRegion.json");
 
+    /// <summary>总开关：false 时房屋系统整体停用（不初始化、不注册钩子/命令/REST 路由）。默认开。</summary>
+    [JsonProperty("启用")]
+    public bool Enabled { get; set; } = true;
+
     [JsonProperty("房屋最小宽度")]
     public int MinWidth { get; set; } = 15;
 

@@ -4,6 +4,20 @@ import { get, post } from '../utils/api.js'
 // 建筑存档：插件本地 TSWeb/Buildings/ 经 /api/tshock/data/buildings/*；
 //          后端 data/transfer/building/ 经 /api/buildings/*
 
+// ═══════════════ 房屋系统总开关 ═══════════════
+
+// 读取房屋系统开关（插件端 /data/house/config，无条件注册，房屋停用时也可访问）
+export async function getHouseConfig() {
+  const res = await get('/api/tshock/data/house/config')
+  return res.json()
+}
+
+// 设置房屋系统开关（enabled: true/false），保存并热应用（无需重启服务器）
+export async function setHouseEnabled(enabled) {
+  const res = await post('/api/tshock/data/house/config/set', { enabled: String(enabled) })
+  return res.json()
+}
+
 export async function listHouses(page = 1, pageSize = 20) {
   const res = await get(`/api/tshock/data/house/list?page=${page}&pageSize=${pageSize}`)
   return res.json()
