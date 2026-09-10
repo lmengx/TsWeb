@@ -45,6 +45,18 @@ process.on('unhandledRejection', (reason) => {
 // 设置控制台标题
 process.title = 'TSWeb--made by lmx12330'
 
+// 跨平台打开浏览器：Windows 用 cmd start，macOS 用 open，Linux 用 xdg-open
+function openBrowser(url) {
+  const cmd = process.platform === 'win32' ? 'start'
+    : process.platform === 'darwin' ? 'open'
+    : 'xdg-open'
+  exec(`${cmd} ${url}`, (err) => {
+    if (err) {
+      console.log('  请手动访问: ' + url)
+    }
+  })
+}
+
 // 实际监听端口，由 listenWithFallback 设置，供控制台命令使用
 let _serverPort = null
 
@@ -263,11 +275,7 @@ async function startServer() {
       console.log('  http://localhost:' + actualPort + '/backend/init?token=' + token)
       console.log('')
       const url = 'http://localhost:' + actualPort + '/backend/init?token=' + token
-      exec('start ' + url, (err) => {
-        if (err) {
-          console.log('  请手动访问: ' + url)
-        }
-      })
+      openBrowser(url)
     })
     return
   }
@@ -350,12 +358,7 @@ function startConsole() {
         const port = _serverPort || 3000
         const token = generateSetupToken()
         const url = `http://localhost:${port}/backend?token=${token}`
-        const { exec } = await import('child_process')
-        exec(`start ${url}`, (err) => {
-          if (err) {
-            console.log('请手动访问: ' + url)
-          }
-        })
+        openBrowser(url)
         console.log('后台管理页面已打开: ' + url)
       } catch (err) {
         console.log('操作失败:', err.message)

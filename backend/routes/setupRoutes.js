@@ -17,6 +17,9 @@ const __dirname = path.dirname(__filename)
 
 const execAsync = promisify(exec)
 
+// 平台判断：Windows 用 tasklist/netstat/powershell；Linux/macOS 用 /proc 文件系统（零外部依赖）
+const IS_WIN = process.platform === 'win32'
+
 // Windows 下子进程输出编码取决于系统代码页（GBK/UTF-8 因机器而异，甚至会话间不同），
 // 不能猜编码：统一强制 UTF-8 输出（cmd 工具前置 chcp 65001；powershell 前置 [Console]::OutputEncoding），
 // Node 端固定按 utf8 解码，彻底避免中文路径乱码。
@@ -164,45 +167,57 @@ router.get('/probe', setupOrAdmin, async (req, res) => {
 
     // ═══ 方式 A：按进程名扫描（默认 TShock.Server.exe，列出全部实例 + 各自监听端口）═══
     if (nameQ) {
-      let tasklistOut = ''
-      try {
-        const { stdout } = await execAsync(`chcp 65001>nul & tasklist /FI "IMAGENAME eq ${nameQ}" /FO CSV /NH`)
-        tasklistOut = stdout
-      } catch {
-        tasklistOut = ''
+      // 平台分支收集 PID：Windows 用 tasklist，Linux/macOS 用 /proc cmdline 匹配
+      let pids = []
+      if (IS_WIN) {
+        let tasklistOut = ''
+        try {
+          const { stdout } = await execAsync(`chcp 65001>nul & tasklist /FI "IMAGENAME eq ${nameQ}" /FO CSV /NH`)
+          tasklistOut = stdout
+        } catch {
+          tasklistOut = ''
+        }
+        // CSV: "ImageName","PID","SessionName","Session#","MemUsage"
+        pids = [...new Set(
+          tasklistOut.split('\n')
+            .map(l => l.trim())
+            .filter(l => l.includes('"'))
+            .map(l => l.split(',')[1]?.replace(/"/g, '').trim())
+            .filter(Boolean)
+        )]
+      } else {
+        pids = await linuxPidsByName(nameQ)
       }
-      // CSV: "ImageName","PID","SessionName","Session#","MemUsage"
-      const pids = [...new Set(
-        tasklistOut.split('\n')
-          .map(l => l.trim())
-          .filter(l => l.includes('"'))
-          .map(l => l.split(',')[1]?.replace(/"/g, '').trim())
-          .filter(Boolean)
-      )]
       if (pids.length === 0) {
         return res.json({ found: false, mode: 'name', name: nameQ, instances: [] })
       }
 
-      // netstat 全量一次，按 PID 分组监听端口（端口总是地址最后一段，IPv6 亦适用）
-      let netstatOut = ''
-      try {
-        const { stdout } = await execAsync(`chcp 65001>nul & netstat -ano | findstr LISTENING`)
-        netstatOut = stdout
-      } catch {
-        netstatOut = ''
-      }
-      const portsByPid = new Map()
-      for (const line of netstatOut.split('\n')) {
-        const parts = line.trim().split(/\s+/)
-        if (parts.length < 5) continue
-        const pid = parts[parts.length - 1]
-        const local = parts[1] || ''
-        const idx = local.lastIndexOf(':')
-        const p = idx >= 0 ? local.slice(idx + 1) : ''
-        if (/^\d+$/.test(p)) {
-          if (!portsByPid.has(pid)) portsByPid.set(pid, [])
-          if (!portsByPid.get(pid).includes(p)) portsByPid.get(pid).push(p)
+      // 按 PID 分组监听端口：Windows 用 netstat，Linux/macOS 用 /proc/net/tcp + fd 反查
+      let portsByPid
+      if (IS_WIN) {
+        portsByPid = new Map()
+        // netstat 全量一次，按 PID 分组监听端口（端口总是地址最后一段，IPv6 亦适用）
+        let netstatOut = ''
+        try {
+          const { stdout } = await execAsync(`chcp 65001>nul & netstat -ano | findstr LISTENING`)
+          netstatOut = stdout
+        } catch {
+          netstatOut = ''
         }
+        for (const line of netstatOut.split('\n')) {
+          const parts = line.trim().split(/\s+/)
+          if (parts.length < 5) continue
+          const pid = parts[parts.length - 1]
+          const local = parts[1] || ''
+          const idx = local.lastIndexOf(':')
+          const p = idx >= 0 ? local.slice(idx + 1) : ''
+          if (/^\d+$/.test(p)) {
+            if (!portsByPid.has(pid)) portsByPid.set(pid, [])
+            if (!portsByPid.get(pid).includes(p)) portsByPid.get(pid).push(p)
+          }
+        }
+      } else {
+        portsByPid = await linuxPortsByPid()
       }
 
       const instances = []
@@ -213,21 +228,29 @@ router.get('/probe', setupOrAdmin, async (req, res) => {
       return res.json({ found: instances.length > 0, mode: 'name', name: nameQ, instances })
     }
 
-    // ═══ 方式 B：按端口扫描（原有逻辑，保留可选项）═══
+    // ═══ 方式 B：按端口扫描（Windows: netstat；Linux/macOS: /proc/net/tcp + fd 反查） ═══
     const port = portQ || '7777'
-    // findstr 无匹配时退出码非 0，需 catch 视为无结果
-    let netstatOut = ''
-    try {
-      const { stdout } = await execAsync(`chcp 65001>nul & netstat -ano | findstr :${port} `)
-      netstatOut = stdout
-    } catch {
-      netstatOut = ''
+    let pids = []
+    if (IS_WIN) {
+      // findstr 无匹配时退出码非 0，需 catch 视为无结果
+      let netstatOut = ''
+      try {
+        const { stdout } = await execAsync(`chcp 65001>nul & netstat -ano | findstr :${port} `)
+        netstatOut = stdout
+      } catch {
+        netstatOut = ''
+      }
+      const lines = netstatOut.trim().split('\n').filter(l => l.includes('LISTENING'))
+      pids = [...new Set(lines.map(l => l.trim().split(/\s+/).pop()))]
+    } else {
+      const portsByPid = await linuxPortsByPid()
+      for (const [pid, ports] of portsByPid) {
+        if (ports.includes(parseInt(port))) pids.push(pid)
+      }
     }
-    const lines = netstatOut.trim().split('\n').filter(l => l.includes('LISTENING'))
-    if (lines.length === 0) {
+    if (pids.length === 0) {
       return res.json({ found: false, mode: 'port', port: parseInt(port), processes: [] })
     }
-    const pids = [...new Set(lines.map(l => l.trim().split(/\s+/).pop()))]
     const processes = []
     for (const pid of pids) {
       const path = await getProcessPath(pid)
@@ -239,8 +262,12 @@ router.get('/probe', setupOrAdmin, async (req, res) => {
   }
 })
 
-/** 获取 PID 的进程路径（首选 CIM，回退 Get-Process / tasklist；强制 UTF-8 输出防中文乱码） */
+/** 获取 PID 的进程路径：Windows 用 CIM/Get-Process/tasklist；Linux/macOS 用 /proc/<pid>/exe 符号链接 */
 async function getProcessPath(pid) {
+  if (!IS_WIN) {
+    const p = await linuxExePath(pid)
+    return p || '未知'
+  }
   let path = '未知'
   // 首选 CIM（wmic 已废弃，Win11 24H2+ 已移除）；强制 UTF-8 输出，解决中文路径乱码
   try {
@@ -266,6 +293,103 @@ async function getProcessPath(pid) {
   }
   return path
 }
+
+// ═══════════════ Linux/macOS 探测实现（纯 /proc 文件系统，零外部依赖、免 root） ═══════════════
+
+/** 列出全部进程 PID（/proc/[0-9]+ 目录名） */
+async function linuxListPids() {
+  const pids = []
+  try {
+    const entries = await fs.readdir('/proc')
+    for (const e of entries) {
+      if (/^\d+$/.test(e)) pids.push(e)
+    }
+  } catch {}
+  return pids
+}
+
+/** 读取进程 cmdline（NUL 分隔 → 空格拼接；读不到返回空串） */
+async function linuxCmdline(pid) {
+  try {
+    const buf = await fs.readFile(`/proc/${pid}/cmdline`)
+    return buf.toString('utf8').split('\0').filter(Boolean).join(' ')
+  } catch {
+    return ''
+  }
+}
+
+/** 读取进程可执行文件路径（/proc/<pid>/exe 符号链接；读不到返回空串） */
+async function linuxExePath(pid) {
+  try {
+    return await fs.readlink(`/proc/${pid}/exe`)
+  } catch {
+    return ''
+  }
+}
+
+/**
+ * Linux/macOS: 构建 pid -> [监听端口] 映射
+ * 解析 /proc/net/tcp(+tcp6) 的 LISTEN 行（st=0A）拿 (local_port, inode)，
+ * 再扫 /proc/<pid>/fd/* 的 socket:[inode] 符号链接反查 pid。
+ * 免 root（同 uid 可读 fd）；比 ss -ltnp 更可靠（ss 非 root 不显示 pid）。
+ */
+async function linuxPortsByPid() {
+  const inodeToPort = new Map() // socket inode -> 端口
+  for (const f of ['/proc/net/tcp', '/proc/net/tcp6']) {
+    let text = ''
+    try { text = await fs.readFile(f, 'utf8') } catch { continue }
+    for (const line of text.split('\n').slice(1)) {
+      const parts = line.trim().split(/\s+/)
+      if (parts.length < 10) continue
+      if (parts[3] !== '0A') continue // 0A = LISTEN
+      const local = parts[1] // "0100007F:1F90" = 127.0.0.1:8080
+      const idx = local.lastIndexOf(':')
+      const hexPort = idx >= 0 ? local.slice(idx + 1) : ''
+      const port = parseInt(hexPort, 16)
+      const inode = parts[9]
+      if (port && /^\d+$/.test(inode)) inodeToPort.set(inode, port)
+    }
+  }
+  const result = new Map() // pid -> [端口]
+  const pids = await linuxListPids()
+  for (const pid of pids) {
+    let fds
+    try { fds = await fs.readdir(`/proc/${pid}/fd`) } catch { continue }
+    for (const fd of fds) {
+      try {
+        const link = await fs.readlink(`/proc/${pid}/fd/${fd}`)
+        const m = link.match(/^socket:\[(\d+)\]$/)
+        if (m && inodeToPort.has(m[1])) {
+          const port = inodeToPort.get(m[1])
+          if (!result.has(pid)) result.set(pid, [])
+          if (!result.get(pid).includes(port)) result.get(pid).push(port)
+        }
+      } catch {}
+    }
+  }
+  return result
+}
+
+/** Linux/macOS: 按命令行关键字匹配 PID（兼容 .exe 后缀，如 TShock.Server.exe → TShock.Server） */
+async function linuxPidsByName(nameQ) {
+  const variants = [nameQ]
+  if (nameQ.toLowerCase().endsWith('.exe')) variants.push(nameQ.slice(0, -4))
+  const pids = []
+  const all = await linuxListPids()
+  for (const pid of all) {
+    const cmd = await linuxCmdline(pid)
+    if (variants.some(v => cmd.includes(v))) pids.push(pid)
+  }
+  return pids
+}
+
+// 后端平台信息：前端"自动·本机"默认进程名平台适配用
+router.get('/platform', setupOrAdmin, async (req, res) => {
+  res.json({
+    platform: process.platform,
+    suggestedName: IS_WIN ? 'TShock.Server.exe' : 'TShock.Server'
+  })
+})
 
 router.post('/auto-read', setupOrAdmin, async (req, res) => {
   try {

@@ -1,5 +1,5 @@
 <script setup>
-import { ref, watch, onBeforeUnmount } from 'vue'
+import { ref, watch, onBeforeUnmount, onMounted } from 'vue'
 import { post, get } from '../utils/api.js'
 import { selectServer, fetchServers } from '../utils/serverStore.js'
 
@@ -82,8 +82,21 @@ const runAdd = async () => {
 
 // ═══════════════ 自动 · 本机（渐进式：扫描 → 配置 → 验证） ═══════════════
 const scanMode = ref('name')          // name=按程序名 | port=按端口
-const probeName = ref('TShock.Server.exe')  // 程序名（默认）
+const probeName = ref('TShock.Server.exe')  // 程序名（默认；按后端平台适配）
+const suggestedName = ref('TShock.Server.exe') // 后端建议的进程名（平台适配用）
 const probePort = ref('7777')
+
+// 后端平台适配：Linux/macOS 上 TShock 进程名无 .exe 后缀
+onMounted(async () => {
+  try {
+    const res = await get('/api/setup/platform')
+    const data = await res.json()
+    if (data?.suggestedName) {
+      suggestedName.value = data.suggestedName
+      probeName.value = data.suggestedName
+    }
+  } catch { /* 平台信息获取失败则保留默认值 */ }
+})
 const localName = ref('')            // 服务器名称（留空自动生成）
 const scanning = ref(false)
 const probeResult = ref(null)      // 名称模式: { mode:'name', instances:[{pid,path,ports}] } / 端口模式: { mode:'port', processes:[{pid,path}] }
@@ -308,7 +321,7 @@ const reset = () => {
   msg.value = null
   // 本机
   scanMode.value = 'name'
-  probeName.value = 'TShock.Server.exe'
+  probeName.value = suggestedName.value
   probePort.value = '7777'
   localName.value = ''
   scanning.value = false
