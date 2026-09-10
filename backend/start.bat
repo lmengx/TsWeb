@@ -1,1 +1,1 @@
-start cmd /k pnpm run start
+node server.js
