@@ -120,18 +120,42 @@ namespace Possess
 			(byte)PacketTypes.CompleteAnglerQuest, // 渔夫任务
 		};
 
-		/// <summary>下行伪装：发给管理员的"玩家角色状态包"（payload[0] 均为 player index）</summary>
+		/// <summary>下行伪装：发给管理员的"玩家角色状态包"（payload[0] 均为 player index）。
+		/// 观战/寄生期间，目标(target index)的这些包发给 viewer 时把 index 改成 viewer →
+		/// viewer 客户端认为"自己"就是目标（虚拟登录）。含 Teleport(65)：目标传送时观战者"自己"跟随瞬移。
+		/// ⚠️ 数值以 TShock PacketTypes 枚举为准（1.4.5.7）：PlayerAnimation=41(ShotAnimationAndSound)、PlayerSlot=5(SyncEquipment)。</summary>
 		private static readonly HashSet<byte> RoleStatePackets = new()
 		{
-			(byte)PacketTypes.PlayerInfo,      // 4 SyncPlayer：外观/属性/背包
-			(byte)PacketTypes.PlayerUpdate,    // 13 位置/控制/选中物品格
-			(byte)PacketTypes.PlayerHp,        // 16 血量
-			(byte)PacketTypes.PlayerAnimation, // 40 攻击动画
-			(byte)PacketTypes.PlayerMana,      // 蓝量
-			(byte)PacketTypes.PlayerSlot,      // 物品栏同步
+			(byte)PacketTypes.PlayerInfo,      // 4 SyncPlayer：外观/难度（不含背包）
+			(byte)PacketTypes.PlayerUpdate,    // 13 PlayerControls：位置/控制/选中物品格 selectedItem
+			(byte)PacketTypes.PlayerHp,        // 16 血量（statLife/statLifeMax）
+			(byte)PacketTypes.PlayerAnimation, // 41 使用物品动画
+			(byte)PacketTypes.PlayerMana,      // 42 蓝量
+			(byte)PacketTypes.PlayerSlot,      // 5 SyncEquipment：单格物品栏/装备/染料/银行
 			(byte)PacketTypes.PlayerTeam,      // 45 队伍
 			(byte)PacketTypes.PlayerBuff,      // 50 buff
+			(byte)PacketTypes.Teleport,        // 65 传送（目标瞬移时观战者"自己"跟随）
 		};
+
+		/// <summary>下行丢弃：发给观战者自己的"本人角色状态包"（payload[0]==viewer）在观战/寄生期间全部丢弃，
+		/// 防止观战者客户端"闪回"自己的真实外观/血量/背包/buff（虚拟登录 = viewer 只能看到目标数据）。
+		/// 注意：viewer 自己的 PlayerControls(13) 丢弃后，观战者客户端的位置/移动完全由伪装的目标包驱动。</summary>
+		private static readonly HashSet<byte> ViewerStatePackets = new()
+		{
+			(byte)PacketTypes.PlayerInfo,      // 4 SyncPlayer：自己换装备/外观变化 → 丢弃（外观恒为目标）
+			(byte)PacketTypes.PlayerUpdate,    // 13 自己的位置/控制 → 丢弃（位置恒为目标）
+			(byte)PacketTypes.PlayerHp,        // 16 自己血量 → 丢弃（血量恒为目标）
+			(byte)PacketTypes.PlayerAnimation, // 41 自己动画 → 丢弃
+			(byte)PacketTypes.PlayerMana,      // 42 自己蓝量 → 丢弃
+			(byte)PacketTypes.PlayerSlot,      // 5 自己物品栏变化 → 丢弃（背包恒为目标）
+			(byte)PacketTypes.PlayerTeam,      // 45 自己队伍 → 丢弃
+			(byte)PacketTypes.PlayerBuff,      // 50 自己 buff → 丢弃
+			(byte)PacketTypes.Teleport,        // 65 自己被传送 → 丢弃（观战者位置恒为目标）
+		};
+
+		/// <summary>反射缓存：NetMessage.SyncOnePlayer(plr, toWho, fromWho) —— 1.4.5.7 private static，
+		/// 服务端主动把 plr 的完整状态（外观/位置/血量/蓝量/buff/队伍/背包59格/装备/染料/饰品/3套配装/弹幕）推给 toWho 客户端。</summary>
+		private static MethodInfo? _m_SyncOnePlayer;
 
 		public PossessPlugin(Main game) : base(game) { }
 
@@ -367,8 +391,9 @@ namespace Possess
 		{
 			try
 			{
-				var buf = args.Instance?.readBuffer;
-				if (buf == null)
+				var instance = args.Instance;
+				var buf = instance?.readBuffer;
+				if (buf == null || instance == null)
 					return;
 				int off = args.ReadOffset;
 				int len = args.Length;
@@ -376,7 +401,7 @@ namespace Possess
 					return;
 
 				// ═══ 1) 目标（寄生中冻结）：丢弃操作类包（聊天走 82 NetModule，不在清单中 → 放行）═══
-				int who = args.Instance.whoAmI;
+				int who = instance.whoAmI;
 				if (_viewer >= 0 && _viewTarget >= 0 && _possessMode && who == _viewTarget && who != _viewer)
 				{
 					byte type = buf[off - 1];
@@ -478,6 +503,7 @@ namespace Possess
 		/// <summary>
 		/// 下行伪装/丢弃。
 		/// 返回 true=已消费；disguised != null 时调用方须发送该伪装版（代替原 data）。
+		/// 虚拟登录核心：目标(target index)的状态包 → 伪装成 viewer；viewer 自己的状态包 → 丢弃（防闪回）。
 		/// </summary>
 		private static bool TryDisguise(byte[] data, int remoteClient, out byte[]? disguised)
 		{
@@ -492,7 +518,12 @@ namespace Possess
 			byte type = data[2];
 			byte payload0 = data[3]; // payload[0]（角色状态包均为 player index）
 
-			// 伪装：目标的状态包 → 管理员自己（复制数组，不改共享 writeBuffer）
+			// 防覆盖：丢弃发给观战者的"自己 index"全部角色状态包（不只 PlayerUpdate）
+			// → 观战者客户端永远只能看到目标数据（虚拟登录）
+			if (payload0 == (byte)_viewer && ViewerStatePackets.Contains(type))
+				return true;
+
+			// 伪装：目标的状态包 → 观战者自己（复制数组，不改共享 writeBuffer）
 			if (payload0 == (byte)_viewTarget && RoleStatePackets.Contains(type))
 			{
 				byte[] nd = new byte[data.Length];
@@ -501,10 +532,6 @@ namespace Possess
 				disguised = nd;
 				return true;
 			}
-
-			// 防覆盖：丢弃发给管理员的"自己 index" PlayerUpdate（旧位置/状态会覆盖伪装）
-			if (payload0 == (byte)_viewer && type == (byte)PacketTypes.PlayerUpdate)
-				return true;
 
 			return false;
 		}
@@ -542,17 +569,51 @@ namespace Possess
 		{
 			_tick++;
 
-			// 寄生保护：管理员或目标死亡/下线 → 自动退出
+			// ═══ 虚拟登录持续同步：每 30 tick（0.5s）主动重推目标 PlayerControls(13) 给观战者
+			// （位置/控制/选中物品格），即使目标静止无广播也保持观战者客户端"自己"=目标最新状态；
+			// 下行 detour 会把 payload[0] 从 target 伪装成 viewer。═══
+			if (_viewer >= 0 && _viewTarget >= 0 && _tick % 30 == 0)
+			{
+				try
+				{
+					NetMessage.SendData((int)PacketTypes.PlayerUpdate, _viewer, -1, null, _viewTarget);
+				}
+				catch { }
+			}
+
+			// 寄生保护：管理员死亡/下线 → 自动退出
 			if (_viewer >= 0)
 			{
 				var viewer = GetPlayer(_viewer);
-				var target = GetPlayer(_viewTarget);
-				if (viewer == null || !viewer.Active || viewer.TPlayer == null || !viewer.TPlayer.active
-					|| target == null || !target.Active || target.TPlayer == null
-					|| !target.TPlayer.active || target.TPlayer.dead)
+				if (viewer == null || !viewer.Active || viewer.TPlayer == null || !viewer.TPlayer.active || viewer.TPlayer.dead)
 				{
 					StopViewing();
 					return;
+				}
+
+				// 目标死亡/下线：寄生模式 → 退出；观战/直播 → 自动切换到下一位存活玩家（保持观战）
+				var target = GetPlayer(_viewTarget);
+				bool targetGone = target == null || !target.Active || target.TPlayer == null
+					|| !target.TPlayer.active || target.TPlayer.dead;
+				if (targetGone)
+				{
+					if (_possessMode)
+					{
+						StopViewing();
+						return;
+					}
+					int next = FindNextTarget(_viewTarget);
+					if (next < 0)
+					{
+						GetPlayer(_viewer)?.SendInfoMessage("[观战] 已无其它存活玩家，退出观战");
+						StopViewing();
+						return;
+					}
+					_viewTarget = next;
+					SyncTargetToViewer(next, _viewer);   // 虚拟登录：全量切换新目标
+					try { NetMessage.SendData((int)PacketTypes.PlayerInfo, -1, -1, null, next); }
+					catch { }
+					GetPlayer(_viewer)?.SendInfoMessage($"[观战] 目标已离开，自动切换到：{GetPlayer(next)?.Name}");
 				}
 			}
 
@@ -628,6 +689,7 @@ namespace Possess
 			}
 
 			_viewTarget = next;
+			SyncTargetToViewer(next, _viewer);   // 虚拟登录：全量同步新目标（外观/背包/装备/血量/位置/选中格）
 			// 广播新目标的 SyncPlayer → 下行伪装自动让管理员"变成"新目标
 			try
 			{
@@ -666,7 +728,7 @@ namespace Possess
 		//  状态切换
 		// ════════════════════════════════════════════════
 
-		/// <summary>进入观看状态（寄生/观战/直播共用）：广播目标 SyncPlayer 触发下行伪装</summary>
+		/// <summary>进入观看状态（寄生/观战/直播共用）：虚拟登录（服务端主动全量推送目标状态给观战者）+ 广播目标 SyncPlayer 触发下行伪装</summary>
 		private static void EnterViewing(int adminWho, int targetWho, bool possessMode, bool liveMode)
 		{
 			StopViewing(quiet: true);
@@ -676,6 +738,22 @@ namespace Possess
 			_possessMode = possessMode;
 			_liveMode = liveMode;
 
+			// ═══ 虚拟登录：服务端主动把目标的完整状态（外观/背包/装备/血量/蓝量/buff/位置/选中格/弹幕）
+			// 推送给观战者 → 观战者客户端认为"自己"就是目标（下行 detour 会把 payload[0] 从 target 伪装成 viewer）═══
+			SyncTargetToViewer(targetWho, adminWho);
+
+			// 观战者服务器角色 ghost 化：原地变幽灵（不可被怪物攻击、穿墙），
+			// 避免观战期间自己的角色在野外被怪打死；viewer 自己的 PlayerControls 被丢弃，观战者客户端感知不到 ghost。
+			try
+			{
+				if (Main.player[adminWho] != null)
+				{
+					Main.player[adminWho].ghost = true;
+					NetMessage.SendData((int)PacketTypes.PlayerUpdate, -1, -1, null, adminWho);
+				}
+			}
+			catch { }
+
 			// 广播目标 SyncPlayer → 下行事件把发给管理员的那份伪装成"管理员自己"
 			try
 			{
@@ -684,6 +762,49 @@ namespace Possess
 			catch { }
 
 			TShock.Log.ConsoleInfo($"[Possess] 进入{(possessMode ? "寄生" : liveMode ? "直播" : "观战")}：管理员 #{adminWho} → 目标 #{targetWho}");
+		}
+
+		/// <summary>
+		/// 虚拟登录核心：反射调用 NetMessage.SyncOnePlayer(target, viewer, -1)，
+		/// 服务端主动构造目标全部状态包发给观战者客户端。
+		/// 随后下行 SendPacket detour（TryDisguise）把这些包 payload[0] 从 target 伪装成 viewer →
+		/// 观战者客户端认为"自己"就是目标（外观/背包/装备/血量/蓝量/buff/位置/选中格/弹幕全同）。
+		/// </summary>
+		private static void SyncTargetToViewer(int targetWho, int viewerWho)
+		{
+			try
+			{
+				if (_m_SyncOnePlayer == null)
+				{
+					_m_SyncOnePlayer = typeof(NetMessage).GetMethod("SyncOnePlayer",
+						BindingFlags.Static | BindingFlags.NonPublic);
+				}
+				if (_m_SyncOnePlayer != null)
+				{
+					_m_SyncOnePlayer.Invoke(null, new object[] { targetWho, viewerWho, -1 });
+					return;
+				}
+				TShock.Log.ConsoleError("[Possess] 未找到 NetMessage.SyncOnePlayer，虚拟登录全量同步不可用，降级为手动补发");
+			}
+			catch (Exception ex)
+			{
+				TShock.Log.ConsoleError($"[Possess] SyncOnePlayer 反射调用失败: {ex.Message}");
+			}
+
+			// 降级：手动补发目标关键状态包（不含完整背包，但保证外观/位置/血量/蓝量/buff/队伍/选中格）
+			try
+			{
+				NetMessage.SendData((int)PacketTypes.PlayerInfo, viewerWho, -1, null, targetWho);
+				NetMessage.SendData((int)PacketTypes.PlayerUpdate, viewerWho, -1, null, targetWho);
+				NetMessage.SendData((int)PacketTypes.PlayerHp, viewerWho, -1, null, targetWho);
+				NetMessage.SendData((int)PacketTypes.PlayerMana, viewerWho, -1, null, targetWho);
+				NetMessage.SendData((int)PacketTypes.PlayerTeam, viewerWho, -1, null, targetWho);
+				NetMessage.SendData((int)PacketTypes.PlayerBuff, viewerWho, -1, null, targetWho);
+			}
+			catch (Exception ex)
+			{
+				TShock.Log.ConsoleError($"[Possess] 手动补发目标状态失败: {ex.Message}");
+			}
 		}
 
 		/// <summary>退出观看状态：恢复管理员角色显示 + 广播目标状态 + 解冻</summary>
@@ -701,11 +822,23 @@ namespace Possess
 
 			var adminTs = GetPlayer(admin);
 
-			// 恢复管理员自己的角色显示（发给自己的 SyncPlayer 不再伪装）
+			// 恢复观战者 ghost 状态（进入时幽灵化，退出恢复实体）
+			try
+			{
+				if (Main.player[admin] != null)
+				{
+					Main.player[admin].ghost = false;
+					NetMessage.SendData((int)PacketTypes.PlayerUpdate, -1, -1, null, admin);
+				}
+			}
+			catch { }
+
+			// 恢复观战者自己的完整角色显示（发给自己的 SyncPlayer/背包不再被丢弃/伪装）
 			if (adminTs != null && adminTs.TPlayer != null && adminTs.TPlayer.active)
 			{
 				try
 				{
+					SyncTargetToViewer(admin, admin);   // 自己 → 自己，全量恢复
 					NetMessage.SendData((int)PacketTypes.PlayerInfo, -1, -1, null, admin);
 				}
 				catch { }
@@ -850,6 +983,7 @@ namespace Possess
 							return;
 						}
 						_viewTarget = next;
+						SyncTargetToViewer(next, _viewer);   // 虚拟登录：全量同步新目标
 						try { NetMessage.SendData((int)PacketTypes.PlayerInfo, -1, -1, null, next); }
 						catch { }
 						admin.SendSuccessMessage($"[观战] 已切换观战目标：{GetPlayer(next)?.Name}");

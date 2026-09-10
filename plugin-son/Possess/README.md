@@ -1,6 +1,6 @@
 # Possess —— 寄生 / 观战 / 直播插件（管理员专用）
 
-TShock 子插件（`plugin-son/Possess`），通过**客户端角色伪装**（复刻多服同步槽位错乱的机制）实现：
+TShock 子插件（`plugin-son/Possess`），通过**虚拟登录（服务端主动发包）+ 客户端角色伪装**实现：
 
 1. **寄生**：管理员客户端"变身为"目标玩家（外观/背包/选中物品格/位置全是目标的），管理员操作直接作用于目标；目标自身完全冻结（移动/放块/开箱/攻击/物品栏等操作全被服务端拒绝，只能聊天），且能看到自己被驱动却无法操作
 2. **观战**：管理员客户端"变身为"目标的第一人称视角，目标正常玩，管理员操作被丢弃
@@ -20,18 +20,21 @@ TShock 子插件（`plugin-son/Possess`），通过**客户端角色伪装**（�
 
 权限 `possess.use` 在插件加载时自动授予 `admin` 组。
 
-## 实现原理（客户端角色伪装）
+## 实现原理（虚拟登录 + 客户端角色伪装）
 
-**灵感**：多服同步时玩家槽位错乱，玩家 B 收到玩家 A 的数据包 → B 客户端认为"自己"是 A
-（外观/背包都是 A 的），但 B 的操作因鉴权失败全被拒。本插件主动复刻该机制：
+**虚拟登录**：进入观战/寄生时，服务端反射调用 `NetMessage.SyncOnePlayer(target, viewer, -1)`，
+主动把目标的**完整状态**（外观/位置/血量/蓝量/buff/队伍/背包 59 格/装备/染料/饰品/3 套配装/弹幕）
+推送给观战者客户端 —— 观战者客户端"自己" = 目标的完整数据（不是只改显示，而是身份级替换）。
+
+**下行伪装**（MonoMod detour `NetMessage.SendPacket`）：发给观战者的、关于目标的所有角色状态包
+（SyncPlayer/PlayerControls/PlayerHp/ItemAnimation/PlayerMana/SyncEquipment/PlayerTeam/PlayerBuffs/Teleport）
+复制数组后把 payload[0] 从"目标"改成"观战者自己" → 观战者客户端认为"自己"就是目标；
+同时**观战者自己 index 的全部角色状态包被丢弃**（防"闪回"自己的真实外观/血量/背包）。
 
 ### 1. 下行伪装（给管理员的出站包）
 
-MonoMod detour `NetMessage.SendPacket`（1.4.5.7 为 public static，Compat1456 同款实证触发；
-广播逐客户端调用，`remoteClient` 必为具体索引）：
-
-- 服务端广播目标的**角色状态包**（`SyncPlayer(4)/PlayerUpdate(13)/PlayerHp(16)/PlayerAnimation(40)/PlayerMana/PlayerSlot/PlayerTeam(45)/PlayerBuff(50)`，payload[0] 均为 player index）时，发给管理员的那一份**复制数组并把 index 改成管理员自己** → 管理员客户端认为"自己"就是目标
-- 丢弃发给管理员的"自己 index" 的 `PlayerUpdate`（防旧位置覆盖伪装）
+- 服务端广播目标的角色状态包时，发给管理员的那一份**复制数组并把 index 改成管理员自己**
+- **丢弃发给管理员的"自己 index"全部角色状态包**（不只是 PlayerUpdate）——防旧位置/血量/背包覆盖伪装
 - ⚠️ `SendData` 广播循环复用同一 writeBuffer → 伪装必须复制数组再改（Compat1456 实证的坑）
 
 ### 2. 上行映射（管理员 → 目标）
@@ -48,7 +51,10 @@ OTAPI.Hooks.MessageBuffer.GetData（主通道）+ MonoMod detour（兜底）：
 
 ### 4. 观战/直播
 
-- 观战/直播 = 同一套下行伪装（管理员变身为目标），但管理员操作类包被丢弃（纯观看，管理员角色冻结）、目标正常玩
+- 观战/直播 = 虚拟登录全量同步 + 下行伪装（管理员变身为目标），管理员操作类包被丢弃（纯观看）、目标正常玩
+- **持续同步**：GameUpdate 每 30 tick（0.5s）主动重推目标 PlayerControls(13)（位置/控制/选中物品格）→ 目标静止时观战者也保持最新状态
+- **目标死亡/下线**：寄生 → 退出；观战/直播 → 自动切换到下一位存活玩家（虚拟登录全量切换）
+- **观战者自身安全**：进入观战时观战者服务器角色 ghost 化（不可被怪物攻击、穿墙），退出恢复
 - 直播 = 观战 + 活跃度统计（TShock PlayerUpdate 事件：位置变化或 control 位非零）+ 每秒检查自动切换（跳过死亡/离线/挂机）
 
 ## 通道与版本
