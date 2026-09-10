@@ -95,7 +95,7 @@ export async function listAccounts() {
  *    登录凭证（QQ/用户名 + 密码）以台账为准（实时校验），不由 TShock 权限决定，仅 admin 手动授予
  *  - 普通模式：手动设置用户名 + 密码（bcrypt 落盘）
  */
-export async function createAccount(username, password, role, { linkedTo } = null) {
+export async function createAccount(username, password, role, { linkedTo } = {}) {
   const targetRole = role === ROLE_ADMIN ? ROLE_ADMIN : ROLE_SUBADMIN
   let name = String(username || '').trim()
   let qq = ''
