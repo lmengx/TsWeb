@@ -1721,6 +1721,290 @@ const goToUser = (username) => {
   router.push(`/console/users/${username}`)
 }
 
+// ═══════════════ PLR 存档导入导出（.plr 角色文件） ═══════════════
+const showPlrModal = ref(false)
+const plrTab = ref('export')
+const plrExporting = ref(false)
+const plrImporting = ref(false)
+const plrMsg = ref('')
+const plrError = ref('')
+const plrConfirmImport = ref(false)
+const backendPlrOpen = ref(false)
+
+// 服务端 PlayerExports 列表
+const serverPlrList = ref([])
+const serverPlrLoading = ref(false)
+const serverPlrSelected = ref('')
+// 后端目录列表
+const backendPlrList = ref([])
+const backendPlrLoading = ref(false)
+const backendPlrSelected = ref('')
+
+const currentUsername = () => userDetails.value?.Username || userDetails.value?.name || route.params.username
+
+const openPlrModal = () => {
+  plrTab.value = 'export'
+  plrMsg.value = ''
+  plrError.value = ''
+  plrConfirmImport.value = false
+  showPlrModal.value = true
+}
+
+const closePlrModal = () => {
+  showPlrModal.value = false
+}
+
+const switchPlrTab = (tab) => {
+  plrTab.value = tab
+  plrMsg.value = ''
+  plrError.value = ''
+  plrConfirmImport.value = false
+  if (tab === 'import') {
+    loadServerPlrList()
+    loadBackendPlrList()
+  }
+}
+
+// base64 → 浏览器下载
+const downloadBase64 = (base64, filename) => {
+  const binary = atob(base64)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+  const blob = new Blob([bytes], { type: 'application/octet-stream' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+// —— 导出：下载到浏览器 ——
+const plrExportDownload = async () => {
+  const username = currentUsername()
+  plrExporting.value = true
+  plrMsg.value = ''
+  plrError.value = ''
+  try {
+    const response = await get(`/api/players/export?username=${encodeURIComponent(username)}&to=download`)
+    const result = await response.json()
+    if (result.error || !result.base64) {
+      plrError.value = result.error || '导出失败'
+      return
+    }
+    downloadBase64(result.base64, result.filename || `${username}.plr`)
+    plrMsg.value = `已下载 ${result.filename}`
+  } catch (err) {
+    plrError.value = err.message || '导出失败'
+  } finally {
+    plrExporting.value = false
+  }
+}
+
+// —— 导出：保存到后端目录 ——
+const plrExportToBackend = async () => {
+  const username = currentUsername()
+  plrExporting.value = true
+  plrMsg.value = ''
+  plrError.value = ''
+  try {
+    const response = await get(`/api/players/export?username=${encodeURIComponent(username)}&to=download`)
+    const result = await response.json()
+    if (result.error || !result.base64) {
+      plrError.value = result.error || '导出失败'
+      return
+    }
+    const saveRes = await post('/api/players/backend-save', {
+      filename: result.filename || `${username}.plr`,
+      base64: result.base64
+    })
+    const saveResult = await saveRes.json()
+    if (saveResult.error) {
+      plrError.value = saveResult.error
+      return
+    }
+    plrMsg.value = `已保存到后端目录: ${saveResult.filename}`
+    loadBackendPlrList()
+  } catch (err) {
+    plrError.value = err.message || '导出失败'
+  } finally {
+    plrExporting.value = false
+  }
+}
+
+// —— 导出：保存到服务端（PlayerExports/<世界名>/） ——
+const plrExportToServer = async () => {
+  const username = currentUsername()
+  plrExporting.value = true
+  plrMsg.value = ''
+  plrError.value = ''
+  try {
+    const response = await get(`/api/players/export?username=${encodeURIComponent(username)}&to=server`)
+    const result = await response.json()
+    if (result.error) {
+      plrError.value = result.error
+      return
+    }
+    plrMsg.value = `已保存到服务端: ${result.filename || result.path || ''}`
+    loadServerPlrList()
+  } catch (err) {
+    plrError.value = err.message || '导出失败'
+  } finally {
+    plrExporting.value = false
+  }
+}
+
+// —— 服务端 PlayerExports 列表 ——
+const loadServerPlrList = async () => {
+  serverPlrLoading.value = true
+  try {
+    const response = await get('/api/players/export-list')
+    const result = await response.json()
+    serverPlrList.value = result.files || []
+  } catch (err) {
+    console.error('Failed to load server plr list:', err)
+    serverPlrList.value = []
+  } finally {
+    serverPlrLoading.value = false
+  }
+}
+
+// —— 后端目录列表 ——
+const loadBackendPlrList = async () => {
+  backendPlrLoading.value = true
+  try {
+    const response = await get('/api/players/backend-list')
+    const result = await response.json()
+    backendPlrList.value = result.files || []
+  } catch (err) {
+    console.error('Failed to load backend plr list:', err)
+    backendPlrList.value = []
+  } finally {
+    backendPlrLoading.value = false
+  }
+}
+
+// —— 导入：浏览器上传 .plr 文件 ——
+const plrImportFile = ref(null)
+const handlePlrFileSelect = (e) => {
+  plrImportFile.value = e.target.files?.[0] || null
+  plrError.value = ''
+  plrMsg.value = ''
+  e.target.value = ''
+}
+const plrImportFromUpload = async () => {
+  if (!plrImportFile.value) {
+    plrError.value = '请先选择 .plr 文件'
+    return
+  }
+  const username = currentUsername()
+  plrImporting.value = true
+  plrMsg.value = ''
+  plrError.value = ''
+  try {
+    const buf = await plrImportFile.value.arrayBuffer()
+    const bytes = new Uint8Array(buf)
+    let binary = ''
+    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i])
+    const base64 = btoa(binary)
+
+    const response = await post('/api/players/import', { username, plrBase64: base64 })
+    const result = await response.json()
+    if (result.error) {
+      plrError.value = result.error
+      return
+    }
+    plrMsg.value = result.response || '导入成功'
+    plrImportFile.value = null
+    fetchInventory(username)
+    fetchPlayerStats(username)
+  } catch (err) {
+    plrError.value = err.message || '导入失败'
+  } finally {
+    plrImporting.value = false
+  }
+}
+
+// —— 导入：从后端目录 ——
+const plrImportFromBackend = async () => {
+  if (!backendPlrSelected.value) {
+    plrError.value = '请先选择后端目录中的 .plr 文件'
+    return
+  }
+  const username = currentUsername()
+  plrImporting.value = true
+  plrMsg.value = ''
+  plrError.value = ''
+  try {
+    const dlRes = await get(`/api/players/backend-download?filename=${encodeURIComponent(backendPlrSelected.value)}`)
+    const dlResult = await dlRes.json()
+    if (dlResult.error || !dlResult.base64) {
+      plrError.value = dlResult.error || '读取后端文件失败'
+      return
+    }
+    const response = await post('/api/players/import', { username, plrBase64: dlResult.base64 })
+    const result = await response.json()
+    if (result.error) {
+      plrError.value = result.error
+      return
+    }
+    plrMsg.value = result.response || '导入成功'
+    fetchInventory(username)
+    fetchPlayerStats(username)
+  } catch (err) {
+    plrError.value = err.message || '导入失败'
+  } finally {
+    plrImporting.value = false
+  }
+}
+
+// —— 导入：从服务端 ——
+const plrImportFromServer = async () => {
+  if (!serverPlrSelected.value) {
+    plrError.value = '请先选择服务端中的 .plr 文件'
+    return
+  }
+  const username = currentUsername()
+  plrImporting.value = true
+  plrMsg.value = ''
+  plrError.value = ''
+  try {
+    const response = await post('/api/players/import-from-server', {
+      username,
+      path: serverPlrSelected.value
+    })
+    const result = await response.json()
+    if (result.error) {
+      plrError.value = result.error
+      return
+    }
+    plrMsg.value = result.response || '导入成功'
+    fetchInventory(username)
+    fetchPlayerStats(username)
+  } catch (err) {
+    plrError.value = err.message || '导入失败'
+  } finally {
+    plrImporting.value = false
+  }
+}
+
+// —— 后端目录文件管理 ——
+const backendPlrDelete = async (filename) => {
+  if (!confirm(`确定删除后端目录中的 ${filename} 吗？`)) return
+  try {
+    const response = await post('/api/players/backend-delete', { filename })
+    const result = await response.json()
+    if (result.error) {
+      plrError.value = result.error
+      return
+    }
+    if (backendPlrSelected.value === filename) backendPlrSelected.value = ''
+    loadBackendPlrList()
+  } catch (err) {
+    plrError.value = err.message || '删除失败'
+  }
+}
+
 watch(() => route.params.username, (newUsername) => {
   if (newUsername) {
     fetchUserDetails(newUsername)
@@ -2003,6 +2287,10 @@ onMounted(() => {
             <button @click="showImportExportModal = true" class="export-btn" title="导入/导出角色数据">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
               导入/导出
+            </button>
+            <button @click="openPlrModal" class="export-btn" title="PLR 存档导入导出（.plr 角色文件）">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+              PLR 存档
             </button>
           </div>
         </div>
@@ -2718,6 +3006,134 @@ onMounted(() => {
             </div>
 
             <div v-if="importSuccess" class="give-success">{{ importSuccess }}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PLR 存档弹窗（.plr 角色文件导入导出） -->
+    <div v-if="showPlrModal" class="modal-overlay" @click.self="closePlrModal">
+      <div class="modal ie-modal">
+        <div class="modal-header">
+          <h3>PLR 存档</h3>
+          <button @click="closePlrModal" class="close-btn">×</button>
+        </div>
+
+        <!-- 选项卡 -->
+        <div class="ie-tabs">
+          <button class="ie-tab" :class="{ active: plrTab === 'export' }" @click="switchPlrTab('export')">导出</button>
+          <button class="ie-tab" :class="{ active: plrTab === 'import' }" @click="switchPlrTab('import')">导入</button>
+        </div>
+
+        <div class="modal-body">
+          <!-- 导出面板 -->
+          <div v-if="plrTab === 'export'">
+            <p class="ie-desc">导出 {{ currentUsername() }} 的完整角色数据（.plr 文件，含背包/装备/属性/外观）。</p>
+
+            <div class="plr-actions">
+              <button @click="plrExportDownload" :disabled="plrExporting" class="ie-action-btn primary">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                {{ plrExporting ? '导出中...' : '下载 .plr 到浏览器' }}
+              </button>
+              <button @click="plrExportToBackend" :disabled="plrExporting" class="ie-action-btn">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                {{ plrExporting ? '导出中...' : '保存到后端目录' }}
+              </button>
+              <button @click="plrExportToServer" :disabled="plrExporting" class="ie-action-btn">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+                {{ plrExporting ? '导出中...' : '保存到服务端' }}
+              </button>
+            </div>
+
+            <div v-if="plrMsg" class="give-success" style="margin-top:10px">{{ plrMsg }}</div>
+            <div v-if="plrError" class="give-error" style="margin-top:10px">{{ plrError }}</div>
+
+            <!-- 后端目录已有文件 -->
+            <div class="plr-backend-section">
+              <div class="ie-preset-header" @click="backendPlrOpen = !backendPlrOpen">
+                <span class="ie-preset-toggle">{{ backendPlrOpen ? '▼' : '▶' }}</span>
+                <span>后端目录已保存的 PLR（{{ backendPlrList.length }}）</span>
+              </div>
+              <div v-if="backendPlrOpen" class="plr-backend-body">
+                <div v-if="backendPlrLoading" class="ie-panel-empty"><p>加载中...</p></div>
+                <div v-else-if="backendPlrList.length === 0" class="ie-panel-empty"><p>后端目录暂无 PLR 文件</p></div>
+                <div v-else class="plr-file-list">
+                  <div v-for="f in backendPlrList" :key="f.filename" class="plr-file-item">
+                    <span class="plr-file-name" :title="f.filename">{{ f.filename }}</span>
+                    <span class="plr-file-meta">{{ (f.size / 1024).toFixed(1) }} KB</span>
+                    <button class="plr-file-del" @click="backendPlrDelete(f.filename)" title="删除">×</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 导入面板 -->
+          <div v-else>
+            <p class="ie-desc">选择一种方式导入 .plr 角色数据到 {{ currentUsername() }}（将覆盖该账号现有角色数据）。</p>
+
+            <div class="plr-import-warn">
+              导入会<strong>覆盖</strong> {{ currentUsername() }} 当前的角色数据，请确认操作。
+            </div>
+
+            <!-- 方式 1：上传文件 -->
+            <div class="plr-import-method">
+              <div class="plr-method-title">从浏览器上传 .plr 文件</div>
+              <div class="ie-upload-zone">
+                <input type="file" accept=".plr" class="ie-file-input" @change="handlePlrFileSelect" />
+                <span class="ie-upload-text">{{ plrImportFile ? plrImportFile.name : '点击选择 .plr 文件' }}</span>
+              </div>
+              <button @click="plrImportFromUpload" :disabled="plrImporting || !plrImportFile" class="ie-action-btn primary">
+                {{ plrImporting ? '导入中...' : '上传并导入' }}
+              </button>
+            </div>
+
+            <!-- 方式 2：从后端目录 -->
+            <div class="plr-import-method">
+              <div class="plr-method-title">从后端目录导入</div>
+              <div v-if="backendPlrLoading" class="ie-panel-empty"><p>加载中...</p></div>
+              <div v-else-if="backendPlrList.length === 0" class="ie-panel-empty"><p>后端目录暂无 PLR 文件</p></div>
+              <div v-else class="plr-file-list">
+                <div
+                  v-for="f in backendPlrList"
+                  :key="f.filename"
+                  class="plr-file-item selectable"
+                  :class="{ selected: backendPlrSelected === f.filename }"
+                  @click="backendPlrSelected = f.filename"
+                >
+                  <span class="plr-file-name" :title="f.filename">{{ f.filename }}</span>
+                  <span class="plr-file-meta">{{ (f.size / 1024).toFixed(1) }} KB</span>
+                </div>
+              </div>
+              <button @click="plrImportFromBackend" :disabled="plrImporting || !backendPlrSelected" class="ie-action-btn primary">
+                {{ plrImporting ? '导入中...' : '从后端目录导入' }}
+              </button>
+            </div>
+
+            <!-- 方式 3：从服务端 -->
+            <div class="plr-import-method">
+              <div class="plr-method-title">从服务端导入（PlayerExports）</div>
+              <div v-if="serverPlrLoading" class="ie-panel-empty"><p>加载中...</p></div>
+              <div v-else-if="serverPlrList.length === 0" class="ie-panel-empty"><p>服务端 PlayerExports 目录暂无 PLR 文件</p></div>
+              <div v-else class="plr-file-list">
+                <div
+                  v-for="f in serverPlrList"
+                  :key="f.filename"
+                  class="plr-file-item selectable"
+                  :class="{ selected: serverPlrSelected === f.filename }"
+                  @click="serverPlrSelected = f.filename"
+                >
+                  <span class="plr-file-name" :title="f.filename">{{ f.filename }}</span>
+                  <span class="plr-file-meta">{{ (f.size / 1024).toFixed(1) }} KB · {{ f.lastModified }}</span>
+                </div>
+              </div>
+              <button @click="plrImportFromServer" :disabled="plrImporting || !serverPlrSelected" class="ie-action-btn primary">
+                {{ plrImporting ? '导入中...' : '从服务端导入' }}
+              </button>
+            </div>
+
+            <div v-if="plrMsg" class="give-success" style="margin-top:10px">{{ plrMsg }}</div>
+            <div v-if="plrError" class="give-error" style="margin-top:10px">{{ plrError }}</div>
           </div>
         </div>
       </div>
@@ -5625,5 +6041,101 @@ onMounted(() => {
   .overview-chart { height: 60px; }
   .daily-cards { gap: 4px; }
   .daily-card { padding: 4px 6px; min-height: 32px; }
+}
+
+/* ── PLR 存档弹窗 ── */
+.plr-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 4px;
+}
+.plr-backend-section {
+  margin-top: 16px;
+  border-top: 1px solid var(--border-light);
+  padding-top: 12px;
+}
+.plr-backend-body {
+  padding: 10px 0 4px;
+}
+.plr-import-warn {
+  background: rgba(255, 152, 0, 0.12);
+  border: 1px solid rgba(255, 152, 0, 0.35);
+  color: #ff9800;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  font-size: 0.85rem;
+  margin-bottom: 14px;
+}
+.plr-import-method {
+  margin-bottom: 18px;
+  padding-bottom: 16px;
+  border-bottom: 1px dashed var(--border-light);
+}
+.plr-import-method:last-child {
+  border-bottom: none;
+}
+.plr-method-title {
+  font-weight: 600;
+  font-size: 0.92rem;
+  margin-bottom: 8px;
+  color: var(--text-primary);
+}
+.plr-file-list {
+  max-height: 180px;
+  overflow-y: auto;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  margin-bottom: 10px;
+}
+.plr-file-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--border-light);
+  font-size: 0.85rem;
+}
+.plr-file-item:last-child {
+  border-bottom: none;
+}
+.plr-file-item.selectable {
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.plr-file-item.selectable:hover {
+  background: var(--bg-tertiary);
+}
+.plr-file-item.selectable.selected {
+  background: rgba(99, 179, 237, 0.15);
+  border-left: 3px solid var(--accent-primary);
+}
+.plr-file-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+.plr-file-meta {
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  flex-shrink: 0;
+}
+.plr-file-del {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+}
+.plr-file-del:hover {
+  color: #e74c3c;
+  background: rgba(231, 76, 60, 0.12);
 }
 </style>

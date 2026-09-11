@@ -212,6 +212,36 @@ const filteredUsers = computed(() => {
 const handleRowClick = (user) => {
   emit('goToUserDetail', user.name)
 }
+
+// ═══ 批量导出 PLR（自动筛选有角色数据的玩家，导出到服务端 PlayerExports/<世界名>/）═══
+const batchExportLoading = ref(false)
+const batchExportResult = ref(null)
+const showBatchExportModal = ref(false)
+
+const executeBatchExport = async () => {
+  if (!confirm('将导出所有有角色数据的玩家的 .plr 存档到服务端 PlayerExports 目录，是否继续？')) return
+  batchExportLoading.value = true
+  batchExportResult.value = null
+  try {
+    const response = await get('/api/players/export-all')
+    const result = await response.json()
+    if (result.error) {
+      alert('批量导出失败: ' + result.error)
+      return
+    }
+    batchExportResult.value = result
+    showBatchExportModal.value = true
+  } catch (err) {
+    alert('批量导出失败: ' + (err.message || '网络错误'))
+  } finally {
+    batchExportLoading.value = false
+  }
+}
+
+const closeBatchExportModal = () => {
+  showBatchExportModal.value = false
+  batchExportResult.value = null
+}
 </script>
 
 <template>
@@ -243,6 +273,9 @@ const handleRowClick = (user) => {
         <span>仅显示有角色数据的玩家</span>
       </label>
       <button @click="openCreateModal" class="create-user-btn">+ 创建用户</button>
+      <button @click="executeBatchExport" :disabled="batchExportLoading" class="batch-export-btn" title="自动筛选有角色数据的玩家，导出 .plr 到服务端 PlayerExports 目录">
+        {{ batchExportLoading ? '批量导出中...' : '批量导出 PLR' }}
+      </button>
       <button @click="openClearAllDataModal" class="clear-all-data-btn">清空全部角色</button>
     </div>
 
@@ -402,6 +435,34 @@ const handleRowClick = (user) => {
           <button class="modal-btn confirm danger-confirm" @click="executeClearAllData" :disabled="clearAllDataLoading">
             {{ clearAllDataLoading ? '执行中...' : '确认清空全部角色' }}
           </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 批量导出 PLR 结果模态框 -->
+    <div v-if="showBatchExportModal" class="modal-overlay" @click.self="closeBatchExportModal">
+      <div class="modal-dialog">
+        <div class="modal-header">
+          <h3>批量导出 PLR</h3>
+          <button class="modal-close" @click="closeBatchExportModal">×</button>
+        </div>
+        <div class="modal-body">
+          <div v-if="batchExportResult" class="batch-export-summary">
+            <p class="batch-export-count">
+              成功导出 <strong>{{ batchExportResult.exported || 0 }}</strong> 个，失败 <strong>{{ batchExportResult.failed || 0 }}</strong> 个
+            </p>
+            <p class="batch-export-dir">目录: {{ batchExportResult.dir }}</p>
+            <div v-if="batchExportResult.files && batchExportResult.files.length" class="batch-export-files">
+              <div v-for="f in batchExportResult.files" :key="f.filename" class="batch-export-file">
+                <span class="batch-export-file-name">{{ f.filename }}</span>
+                <span class="batch-export-file-size">{{ (f.size / 1024).toFixed(1) }} KB</span>
+              </div>
+            </div>
+            <div v-else class="batch-export-empty">没有可导出的角色数据</div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="modal-btn confirm" @click="closeBatchExportModal">关闭</button>
         </div>
       </div>
     </div>
@@ -674,6 +735,89 @@ const handleRowClick = (user) => {
 .clear-all-data-btn:hover {
   transform: translateY(-1px);
   box-shadow: 0 4px 12px rgba(124, 58, 237, 0.4);
+}
+
+.batch-export-btn {
+  padding: 10px 20px;
+  background: linear-gradient(135deg, #0ea5e9, #0284c7);
+  color: white;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 600;
+  transition: all 0.25s ease;
+  white-space: nowrap;
+  box-shadow: var(--shadow-sm);
+  flex-shrink: 0;
+}
+
+.batch-export-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(14, 165, 233, 0.4);
+}
+
+.batch-export-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.batch-export-summary {
+  padding: 4px 0;
+}
+
+.batch-export-count {
+  font-size: 1rem;
+  margin-bottom: 6px;
+  color: var(--text-primary);
+}
+
+.batch-export-dir {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+  word-break: break-all;
+}
+
+.batch-export-files {
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+}
+
+.batch-export-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--border-light);
+  font-size: 0.85rem;
+}
+
+.batch-export-file:last-child {
+  border-bottom: none;
+}
+
+.batch-export-file-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+
+.batch-export-file-size {
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  flex-shrink: 0;
+}
+
+.batch-export-empty {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  padding: 12px 0;
 }
 
 .modal-danger-border {

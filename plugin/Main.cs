@@ -104,6 +104,14 @@ namespace TShockData
             TShock.RestApi.Register(new SecureRestCommand("/data/users/clearcharacter", ClearCharacter.ClearCharacterData, "data.rest.invsee"));
             TShock.RestApi.Register(new SecureRestCommand("/data/users/clearallcharacter", ClearCharacter.ClearAllCharacterData, "data.rest.invsee"));
 
+            // ═══ 玩家角色（.plr）导入导出：下载 base64 / 保存服务端 PlayerExports / 批量导出 / 导入（base64 或服务端文件）═══
+            TShock.RestApi.Register(new SecureRestCommand("/data/players/export", PlayerTransfer.ExportRest, "data.rest.invsee"));
+            TShock.RestApi.Register(new SecureRestCommand("/data/players/export-all", PlayerTransfer.ExportAllRest, "data.rest.invsee"));
+            TShock.RestApi.Register(new SecureRestCommand("/data/players/export-list", PlayerTransfer.ListExportsRest, "data.rest.invsee"));
+            TShock.RestApi.Register(new SecureRestCommand("/data/players/import", PlayerTransfer.ImportRest, "data.rest.invsee"));
+            TShock.RestApi.Register(new SecureRestCommand("/data/players/import-from-server", PlayerTransfer.ImportFromServerRest, "data.rest.invsee"));
+            TShock.RestApi.Register(new SecureRestCommand("/data/players/has-character", PlayerTransfer.HasCharacterRest, "data.rest.invsee"));
+
             TShock.RestApi.Register(new SecureRestCommand("/data/anticheat/proj-config/getprojconfig", ProjConfigHandler.GetProjConfig, "tshock.admin"));
             TShock.RestApi.Register(new SecureRestCommand("/data/anticheat/proj-config/saveprojconfig", ProjConfigHandler.SaveProjConfig, "tshock.admin"));
             TShock.RestApi.Register(new SecureRestCommand("/data/anticheat/item-config/getitemconfig", ItemConfigHandler.GetItemConfigApi, "tshock.admin"));
@@ -497,6 +505,12 @@ namespace TShockData
                 "/data/riskcontrol/proxy/refresh",
                 "/data/curfew/config",
                 "/data/curfew/config/set",
+                "/data/players/export",
+                "/data/players/export-all",
+                "/data/players/export-list",
+                "/data/players/import",
+                "/data/players/import-from-server",
+                "/data/players/has-character",
 			};
 
 			try

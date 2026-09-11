@@ -2040,6 +2040,35 @@ export class TShockService {
       return { error: error.message }
     }
   }
+
+  // ===== 玩家角色（.plr）导入：base64 走 POST form（避免超长 URL） =====
+
+  /**
+   * 导入 .plr 角色数据到指定账号（覆盖）。plrBase64 走 POST body（form-urlencoded），
+   * 与 fileUpload 同模式，避免大 base64 撑爆 URL query。
+   * @param {string} username
+   * @param {string} plrBase64
+   */
+  async importPlayerData(username, plrBase64) {
+    if (!this.baseUrl) await this.init()
+    const url = `${this.baseUrl}/data/players/import${this.apiKey ? `?token=${encodeURIComponent(this.apiKey)}` : ''}`
+    const body = new URLSearchParams({
+      username,
+      plrBase64
+    })
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: body.toString()
+      })
+      const text = await response.text()
+      try { return JSON.parse(text) } catch { return { error: 'Invalid JSON', rawResponse: text } }
+    } catch (error) {
+      this.isConnected = false
+      return { error: error.message }
+    }
+  }
 }
 
 /** 独立连接测试（不依赖服务器实例）：添加向导"仅测试"用 */
