@@ -900,20 +900,39 @@ namespace TShockData
         // 星尘龙段(626/627) 每段仅 0.5 槽、头部(625)/尾部(628) 原版不计（15933 排除），
         // 天然不会把星尘龙误判超限；按槽位求和而非弹幕条数，泰拉棱镜剑刃(946,1槽)也准确。
         // 实现参照 TShockPlugin-master/src/ServerTools 的 NewProj（e.Player 而非包内 owner）。
+        //
+        // 【误判修复（2026 对比其它插件方案后整改）】
+        // 1. 统计循环原样计入"主人已死亡"的残留弹幕（注释声称排除但代码未实现）：
+        //    死亡时召唤物残留（timeLeft 数千帧）在重生后仍 active 被计入 → 正常玩家被误踢。
+        //    修复 a：统计时排除 owner 死亡/幽灵/不活跃的弹幕（与发送者存活检查互补的防御性过滤）；
+        //    修复 b（根治）：GameUpdate 检测重生（dead:true→false）即清理该玩家名下残留召唤物弹幕
+        //            （Kill + 全服广播 ProjectileDestroy，复用 PacketReceive.Clear*Projectiles 模式），
+        //            重生后统计不再含死亡前残留，从根上消除虚高来源。
+        // 2. 边界差 1：NewProjectile 包触发时本次弹幕尚未创建，原判定 slots<=Max 放行后实际超限。
+        //    修复：slots + 本次槽位 > MaxMinions 才拦截。
+        // 3. 硬编码 625/628（星尘龙头/尾）：改为通用 minionSlots > 0f 过滤，自动覆盖 0 槽弹幕，
+        //    版本升级更健壮（对照 Fargo 的 minionSlots > 0f 写法）。
+        // 4. 类型缓存重构为槽位值缓存（-1 未知 / 0 非召唤物或 0 槽 / >0 槽位），
+        //    一次 SetDefaults 同时判定 minion/sentry/minionSlots。
         // ==========================================================================
         public static class MinionLimit
         {
             /// <summary>召唤槽位上限：超过即拦截创建并踢出（正常玩家极限约 11 槽，20 留足余量）</summary>
             private const int MaxMinions = 20;
-            /// <summary>弹幕类型 → 是否为召唤物（0=未知, 1=召唤物, 2=非召唤物）</summary>
-            private static readonly int[] _typeCache = new int[ProjectileID.Count];
+            /// <summary>弹幕类型 → 召唤槽位占用（-1=未知, 0=非召唤物或0槽, &gt;0=召唤槽位）</summary>
+            private static readonly float[] _slotCache = new float[ProjectileID.Count];
+            /// <summary>每位玩家上一帧的死亡状态（用于检测重生并清理残留召唤物弹幕）</summary>
+            private static readonly bool[] _wasDead = new bool[Main.maxPlayers];
             private static bool _initialized;
 
             public static void Initialize(TerrariaPlugin plugin)
             {
                 if (_initialized)
                     return;
+                Array.Fill(_slotCache, -1f);
+                Array.Clear(_wasDead, 0, _wasDead.Length);
                 GetDataHandlers.NewProjectile.Register(OnNewProjectile);
+                ServerApi.Hooks.GameUpdate.Register(plugin, OnGameUpdate);
                 _initialized = true;
                 TShock.Log.ConsoleInfo($"[TSWeb] MinionLimit 已加载 (召唤物上限 {MaxMinions})");
             }
@@ -923,7 +942,48 @@ namespace TShockData
                 if (!_initialized)
                     return;
                 GetDataHandlers.NewProjectile.UnRegister(OnNewProjectile);
+                ServerApi.Hooks.GameUpdate.Deregister(plugin, OnGameUpdate);
                 _initialized = false;
+            }
+
+            /// <summary>
+            /// 每帧检测玩家重生（dead:true → false）：重生即清理其名下残留召唤物弹幕。
+            /// 原版死亡玩家的召唤物弹幕不会立即消失（如飞行小鬼 375 timeLeft*=5 残留数千帧），
+            /// 若不清理会持续占用槽位，导致重生后首次召唤被误判超限。
+            /// 清理后全服广播 ProjectileDestroy，客户端同步消失。
+            /// </summary>
+            private static void OnGameUpdate(EventArgs args)
+            {
+                try
+                {
+                    for (int i = 0; i < Main.maxPlayers; i++)
+                    {
+                        var t = Main.player[i];
+                        if (t == null || !t.active)
+                        {
+                            _wasDead[i] = false;
+                            continue;
+                        }
+                        if (_wasDead[i] && !t.dead)
+                        {
+                            // 重生：清理该玩家名下残留召唤物弹幕（全服广播）
+                            for (int j = 0; j < Main.maxProjectiles; j++)
+                            {
+                                var p = Main.projectile[j];
+                                if (!p.active || p.owner != i || !p.minion || p.sentry)
+                                    continue;
+                                p.Kill();
+                                NetMessage.SendData((int)PacketTypes.ProjectileDestroy, -1, -1, null, j);
+                            }
+                            TShock.Log.ConsoleDebug($"[MinionLimit] 玩家#{i} 重生，已清理残留召唤物弹幕");
+                        }
+                        _wasDead[i] = t.dead;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    TShock.Log.ConsoleError($"[MinionLimit] GameUpdate 异常: {ex.Message}");
+                }
             }
 
             private static void OnNewProjectile(object? sender, GetDataHandlers.NewProjectileEventArgs e)
@@ -931,8 +991,9 @@ namespace TShockData
                 if (e.Handled)
                     return;
 
-                // 只有召唤物弹幕才检查（哨兵/宠物/坐骑不计）
-                if (!IsMinionType(e.Type))
+                // 本次弹幕的召唤槽位（0=非召唤物/0槽，不检查；哨兵/宠物/坐骑不计）
+                float thisSlot = GetMinionSlots(e.Type);
+                if (thisSlot <= 0f)
                     return;
 
                 // 以发送者为准（e.Player），不能用包内 owner 字段（e.Owner 客户端可控，
@@ -943,7 +1004,6 @@ namespace TShockData
 
                 // 死亡/幽灵状态：Player.Update 提前 return 不重置 slotsMinions，
                 // 且残留召唤物弹幕仍每帧累加 → slotsMinions 虚高，此时直接跳过检查。
-                // 实时统计 Main.projectile 也不统计死亡残留（见下：仅统计 owner 存活玩家的弹幕）。
                 if (plr.TPlayer.dead || plr.TPlayer.ghost)
                     return;
 
@@ -956,22 +1016,28 @@ namespace TShockData
                     var p = Main.projectile[i];
                     if (!p.active || p.owner != plr.Index || !p.minion || p.sentry)
                         continue;
-                    // 星尘龙头(625)/尾(628)：原版 slotsMinions 累加同样排除（Projectile.cs 15933）
-                    if (p.type == 625 || p.type == 628)
+                    // 仅统计"主人当前存活"的弹幕：死亡/幽灵/离线的残留召唤物不计入
+                    // （重生瞬间的残留由 OnGameUpdate 重生检测统一清理，双保险）
+                    if (p.owner < 0 || p.owner >= Main.maxPlayers
+                        || !Main.player[p.owner].active || Main.player[p.owner].dead || Main.player[p.owner].ghost)
+                        continue;
+                    // 0 槽弹幕（星尘龙头 625/尾 628 等）不计入 —— 原版 slotsMinions 累加同样排除（Projectile.cs 15933）
+                    if (p.minionSlots <= 0f)
                         continue;
                     slots += p.minionSlots;
                 }
 
-                if (slots <= MaxMinions)
+                // 边界修正：加上本次弹幕的槽位后才判超限（NewProjectile 包触发时本次弹幕尚未创建）
+                if (slots + thisSlot <= MaxMinions)
                     return;
 
                 // 已满 → 拦截本次召唤 + 审计 + 踢出（一次即踢）
                 e.Handled = true;
                 var account = plr.Account?.Name ?? "未登录";
-                TShock.Log.ConsoleInfo($"[MinionLimit][审计] 玩家={plr.Name} 账号={account} IP={plr.IP} 召唤槽位={slots} 上限={MaxMinions} 弹幕类型={e.Type}");
+                TShock.Log.ConsoleInfo($"[MinionLimit][审计] 玩家={plr.Name} 账号={account} IP={plr.IP} 召唤槽位={slots}+{thisSlot} 上限={MaxMinions} 弹幕类型={e.Type}");
                 try
                 {
-                    plr.Kick($"召唤物数量异常 ({slots}/{MaxMinions})", true);
+                    plr.Kick($"召唤物数量异常 ({(slots + thisSlot):0.#}/{MaxMinions})", true);
                 }
                 catch (Exception ex)
                 {
@@ -979,18 +1045,21 @@ namespace TShockData
                 }
             }
 
-            /// <summary>判断弹幕类型是否为召唤物（minion 且非哨兵），结果按类型缓存避免重复 SetDefaults</summary>
-            private static bool IsMinionType(int type)
+            /// <summary>
+            /// 获取弹幕类型占用的召唤槽位（0=非召唤物/0槽，&gt;0=召唤槽位），结果按类型缓存避免重复 SetDefaults。
+            /// minion 且非 sentry 的弹幕才占用槽位；哨兵/宠物/坐骑返回 0。
+            /// </summary>
+            private static float GetMinionSlots(int type)
             {
-                if (type < 0 || type >= _typeCache.Length)
-                    return false;
-                if (_typeCache[type] != 0)
-                    return _typeCache[type] == 1;
+                if (type < 0 || type >= _slotCache.Length)
+                    return 0f;
+                if (_slotCache[type] >= 0f)
+                    return _slotCache[type];
 
                 var p = new Projectile();
                 p.SetDefaults(type);
-                _typeCache[type] = (p.minion && !p.sentry) ? 1 : 2;
-                return _typeCache[type] == 1;
+                _slotCache[type] = (p.minion && !p.sentry) ? p.minionSlots : 0f;
+                return _slotCache[type];
             }
         }
 
