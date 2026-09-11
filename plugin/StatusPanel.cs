@@ -28,9 +28,9 @@ namespace TShockData
     /// </summary>
     public class StatusPanelConfig
     {
-        /// <summary>总开关（默认开启）</summary>
+        /// <summary>总开关（默认关闭，由管理员显式开启）</summary>
         [JsonProperty("enabled")]
-        public bool Enabled { get; set; } = true;
+        public bool Enabled { get; set; } = false;
 
         /// <summary>行尾补空格数：文本块撑宽 → 客户端固定锚点居中（沿用 statuspanel 抓包实证）</summary>
         [JsonProperty("spacerWidth")]

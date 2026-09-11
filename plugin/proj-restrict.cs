@@ -9,7 +9,7 @@ namespace TShockData
     public class ProjRestrictionConfig
     {
         [JsonProperty("启用")]
-        public bool Enabled { get; set; } = true;
+        public bool Enabled { get; set; } = false;
 
         [JsonProperty("伤害上限")]
         public int DamageLimit { get; set; } = 20000;
