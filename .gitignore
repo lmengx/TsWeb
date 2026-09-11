@@ -165,3 +165,4 @@ backend/data/**
 # 三个 mod 仓库合并后的独立开源仓库（Hero / ModLoader / RecipeBrowser）
 /mods-merged
 /plugin-son/PortRouter/bin
+/plugin-son/Spectate/bin
