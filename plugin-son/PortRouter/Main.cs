@@ -23,7 +23,12 @@ namespace PortRouter
         public override string Name => "PortRouter";
         public override Version Version => new Version(1, 0, 0, 0);
 
-        public PortRouterPlugin(Main game) : base(game) { }
+        public PortRouterPlugin(Main game) : base(game)
+        {
+            // 必须在 TShock 之后处理 OTAPI.Hooks.Netplay.CreateTcpListener（TShock 默认 Order=1）。
+            // 只有 Order=1000（最后订阅）才能保证监听器替换生效（ProxyProtocolSocket 同款约束）。
+            this.Order = 1000;
+        }
 
         public override void Initialize()
         {

@@ -15,26 +15,33 @@
 | 游戏端口（默认 7777） | 游戏协议（Terraria 客户端） |
 | REST 端口（默认 7878） | HTTP(REST API，TShock / TSWeb WebRestServer） |
 
-本插件让**游戏端口一个端口同时承载两种流量**，进槽前嗅探首字节判定协议：
+本插件让**游戏端口一个端口同时承载两种流量**，且判定发生在 accept 循环内、任何日志/进槽之前：
 
 ```
-客户端 ──TCP 直连──▶ 游戏端口(7777) 监听器
+客户端 ──TCP 直连──▶ 游戏端口(7777) 协议感知监听器（HttpAwareSocket）
                         │  accept 后 peek 首字节（SocketFlags.Peek，不消费数据）
                         ├─ HTTP（前2字节为 ASCII 字母：GET/POST/HEAD/...）
-                        │     └─▶ 字节泵转发到 REST 端口（127.0.0.1:7878）
+                        │     └─▶ 静默字节泵转发到 REST 端口（127.0.0.1:7878）
+                        │          不打印「xxx正在连接」、不占游戏槽位
                         └─ 游戏协议（[2字节长度][MessageID 0x01]）
-                              └─▶ 原位走原版进槽流程（无转发）
+                              └─▶ 正常打印「正在连接」+ 原版进槽流程（无转发）
 ```
 
-## 二、为什么不是「传统转发」
+## 二、实现机制（非传统转发）
 
-「传统转发」= 前置监听 → 本地中转 → 目标端口再连一次，游戏服看到的是 `127.0.0.1`。
+**不挂钩任何方法、不做任何 detour** —— 直接通过 OTAPI 官方扩展点
+`OTAPI.Hooks.Netplay.CreateTcpListener` 把游戏监听器替换为协议感知监听器
+`HttpAwareSocket`（与 TShock 安装 LinuxTcpSocket、开源插件 ProxyProtocolSocket /
+yaaiomni 完全同款机制）。
 
-本插件对**游戏流量不做任何转发**：客户端 TCP 连接直连游戏端口、终止在游戏服监听器上，
-协议判定后原样交给原版 `Netplay.OnConnectionAccepted` 进槽，`RemoteEndPoint` 即真实来源 IP。
-
-**只有 HTTP 走转发**（用户需求原文即「http 转发到 rest」）——字节泵中转到本地 REST 端口，
-对 HTTP 无感知、SSE 长连接/keep-alive 全部透传。
+关键点：
+- **`Order = 1000`**（Main.cs 构造函数）：TShock 默认 Order=1，本插件 Order=1000
+  保证在 TShock **之后**订阅 CreateTcpListener → `args.Result` 最后写入 → 监听器替换**必然生效**
+  （ProxyProtocolSocket 的硬性约束，注释原文 "Must be the last to handle CreateTcpListener"）。
+- **「正在连接」日志**：由监听器自己打印（`Console.WriteLine`），HTTP 连接在判定后直接静默转发、
+  **根本不走到打印那一步** → 后台不再刷屏；游戏连接照常打印，行为与原来完全一致。
+- **原 IP 保留**：客户端直连游戏端口，游戏流量用同一 TCP 连接进槽，
+  `TcpAddress` 从 `RemoteEndPoint` 读取 → 真实来源 IP，无任何本地中转。
 
 ## 三、判定可靠性
 
@@ -46,16 +53,14 @@
 只有游戏首包长度 ≥ 0x4141（16705 字节）且两个长度字节恰好都是字母才会误判 ——
 对 ConnectRequest 握手包（数十字节）不现实，实际零误判。
 
-## 四、实现与安全
+## 四、安全性
 
-- **接入点**：MonoMod RuntimeDetour 挂钩 `Netplay.OnConnectionAccepted`
-  （与 `plugin-son/ConnectionGuard` 已实证的限流钩子同款模式，编译期引用 TShock NuGet 6.1.0，
-  运行时反射解析真实 1.4.5.7/1.4.5.8 的 `Netplay`）。
-- ⚠ **严禁对监听生命周期方法（StartListening/StopListening/ListenLoop）做 detour** ——
-  ConnectionGuard v4 实测会导致 accept 线程泄漏 + 槽位分配数据竞争 → **内核崩溃**。
-- **fail-open**：嗅探/反射/转发任何异常一律放行进游戏流程（orig），
-  路由逻辑自身故障绝不误伤正常游戏连接。
-- **同步判定**：在 accept 线程上同步完成（与原版顺序语义一致），无槽位竞争。
+- **零 detour**：不挂钩监听生命周期方法（ConnectionGuard v4 实测 detour
+  StartListening/StopListening/ListenLoop 会导致 accept 线程泄漏 + 槽位竞争 → 内核崩溃），
+  本插件是完整的 ISocket 实现，无此风险。
+- **fail-open**：嗅探/转发任何异常一律放行进游戏流程，路由逻辑自身故障绝不误伤正常游戏连接。
+- **兼容性**：`Netplay.Disconnect` 反射安全读取（字段缺失时保守放行，ConnectionGuard 同款模式）；
+  I/O 方法与 LinuxTcpSocket 一致（LegacyNetBufferPool + BeginRead/Write，生产实证）。
 
 ## 五、部署与配置
 
@@ -78,9 +83,14 @@
 ### 启动日志验证
 
 ```
+[PortRouter] 已注册协议感知监听器（Order=1000，替换 TShock 默认监听器；HTTP 不再打印「正在连接」）
 [PortRouter] 端口协议路由已启用：游戏端口同时接受 HTTP(→REST 127.0.0.1:7878) 与游戏流量（游戏流量原 IP 直连保留，嗅探超时 1500ms）
-[PortRouter] 首次捕获 HTTP 连接（来源 1.2.3.4:54321），已转发到 REST；游戏端口协议路由生效
+[PortRouter] 协议感知监听器已生效（HTTP 静默转发 REST / 游戏流量原 IP 进槽）
+[PortRouter] 首次捕获 HTTP 连接（来源 1.2.3.4:54321），已静默转发到 REST；游戏端口协议路由生效
 ```
+
+**验证「不再刷屏」**：HTTP 请求打游戏端口时，后台不再出现「xxx正在连接」；
+游戏玩家连接时该日志照常显示。
 
 ### 使用方式
 
@@ -96,4 +106,5 @@
    若 REST 完全关闭（`RestApiEnabled=false` 且无 WebRestServer），HTTP 转发会失败并记日志。
 3. **转发后 REST 侧来源 IP 为 127.0.0.1**：这是「http 转发到 rest」的固有代价；
    游戏流量不受影响（原 IP 保留）。若需 REST 也见原始 IP，需在插件内自实现 HTTP 处理（不在本插件范围）。
-4. 与 ConnectionGuard 可共存（两者挂钩点相同，MonoMod 多钩子按注册顺序链式调用，互不干扰）。
+4. 监听器替换依赖插件 Order：本插件已设 `Order=1000`（最后处理 CreateTcpListener）。
+   若再安装其他同样替换监听器且 Order 更高的插件，可能互相覆盖，注意排查。

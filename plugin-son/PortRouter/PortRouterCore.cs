@@ -2,13 +2,9 @@ using System;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
-using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
-using MonoMod.RuntimeDetour;
 using Newtonsoft.Json;
-using Terraria;
-using Terraria.Net.Sockets;
 using TShockAPI;
 
 namespace PortRouter
@@ -16,21 +12,17 @@ namespace PortRouter
     /// <summary>
     /// 端口协议路由核心（PortRouterCore）。
     ///
-    /// 原理：
-    ///   客户端直连游戏端口（TCP 连接终止在游戏服监听器上），本模块在
-    ///   Netplay.OnConnectionAccepted 进槽前用 SocketFlags.Peek 嗅探首字节（不消费数据）：
-    ///     - HTTP（GET/POST/HEAD/... 前 2 字节为 ASCII 字母）→ 字节泵转发到 REST 端口
-    ///       （TShock REST / TSWeb WebRestServer，默认 127.0.0.1:7878）—— 用户要求的「http 转发到 rest」
-    ///     - 游戏协议（首包 = [2 字节长度][MessageID 0x01]，长度高字节恒为 0x00）→ 原位走原版进槽流程
-    ///       —— 无任何转发，RemoteEndPoint 即真实来源 IP
+    /// 机制：通过 OTAPI 官方扩展点 OTAPI.Hooks.Netplay.CreateTcpListener 安装协议感知监听器
+    /// HttpAwareSocket（与 TShock 安装 LinuxTcpSocket、开源插件 ProxyProtocolSocket / yaaiomni
+    /// 同款；插件 Order=1000 保证在 TShock 之后订阅 → 替换必然生效）。
     ///
-    /// 实现：MonoMod RuntimeDetour 挂钩 Netplay.OnConnectionAccepted
-    ///   （与 plugin-son/ConnectionGuard 已验证的限流钩子同款模式）。
-    ///   ⚠ 严禁对监听生命周期方法（StartListening/StopListening/ListenLoop）做 detour ——
-    ///   ConnectionGuard v4 实测会导致 accept 线程泄漏 + 槽位分配数据竞争 → 内核崩溃。
+    /// 协议判定发生在监听器 accept 循环内、任何日志/进槽之前（见 HttpAwareSocket.ListenLoop）：
+    ///   - HTTP（GET/POST/HEAD/... 前 2 字节为 ASCII 字母）→ 静默字节泵转发到 REST 端口，
+    ///     不打印「xxx正在连接」、不占游戏槽位；
+    ///   - 游戏协议（首包 = [2 字节长度][MessageID 0x01]，长度高字节恒为 0x00）→ 正常打印
+    ///     「正在连接」并交给原版进槽流程 —— 客户端直连、无转发，RemoteEndPoint 即真实来源 IP。
     ///
-    /// 安全边界（fail-open）：嗅探/反射/转发任何异常一律放行进游戏流程（orig），
-    /// 绝不因路由逻辑自身故障误伤正常游戏连接。
+    /// 安全边界（fail-open）：嗅探/转发任何异常一律放行进游戏流程，绝不误伤正常游戏连接。
     /// </summary>
     public class PortRouterConfig
     {
@@ -57,10 +49,6 @@ namespace PortRouter
         private static readonly string ConfigPath = Path.Combine(TShock.SavePath, "PortRouter", "portrouter.json");
         private static PortRouterConfig _config = new();
         private static bool _initialized;
-
-        // ═══ MonoMod Hook（与 ConnectionGuard 限流钩子同款模式）═══
-        private static Hook? _hook;
-        private delegate void OrigOnConnectionAccepted(ISocket client);
 
         // ═══ HTTP 判定 ═══
         // 嗅探缓冲（只需前 2 字节即可判定）
@@ -89,23 +77,27 @@ namespace PortRouter
 
             try
             {
-                // 1.4.5.x 服务端（OTAPI 注入版）OnConnectionAccepted 为 public/private static 不定
-                // → Public|NonPublic 双查（与 ConnectionGuard 同款）
-                var method = typeof(Netplay).GetMethod("OnConnectionAccepted",
-                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
-                if (method == null)
-                {
-                    TShock.Log.ConsoleWarn("[PortRouter] 未找到 Netplay.OnConnectionAccepted，端口协议路由未启用");
-                    return;
-                }
-                _hook = new Hook(method, OnConnectionAcceptedHook);
-                TShock.Log.ConsoleInfo($"[PortRouter] 端口协议路由已启用：游戏端口同时接受 HTTP(→REST 127.0.0.1:{GetRestPort()}) 与游戏流量（游戏流量原 IP 直连保留，嗅探超时 {_config.HttpDetectTimeoutMs}ms）");
+                // 主机制：安装协议感知监听器（OTAPI 官方扩展点，TShock 装 LinuxTcpSocket 同款）
+                OTAPI.Hooks.Netplay.CreateTcpListener += OnCreateTcpListener;
+                TShock.Log.ConsoleInfo("[PortRouter] 已注册协议感知监听器（Order=1000，替换 TShock 默认监听器；HTTP 不再打印「正在连接」）");
             }
             catch (Exception ex)
             {
-                _hook = null;
-                TShock.Log.ConsoleError($"[PortRouter] 挂钩 Netplay.OnConnectionAccepted 失败: {ex.Message}（端口协议路由未启用）");
+                TShock.Log.ConsoleError($"[PortRouter] 注册 CreateTcpListener 失败: {ex.Message}（端口协议路由未启用）");
+                return;
             }
+
+            TShock.Log.ConsoleInfo($"[PortRouter] 端口协议路由已启用：游戏端口同时接受 HTTP(→REST 127.0.0.1:{GetRestPort()}) 与游戏流量（游戏流量原 IP 直连保留，嗅探超时 {_config.HttpDetectTimeoutMs}ms）");
+        }
+
+        /// <summary>
+        /// OTAPI CreateTcpListener 回调：把游戏监听器替换为协议感知监听器。
+        /// 插件 Order=1000 保证本回调在 TShock 之后订阅 → args.Result 最后写入 → 生效。
+        /// </summary>
+        private static void OnCreateTcpListener(object? sender, OTAPI.Hooks.Netplay.CreateTcpListenerEventArgs args)
+        {
+            args.Result = new HttpAwareSocket();
+            TShock.Log.ConsoleInfo("[PortRouter] 协议感知监听器已生效（HTTP 静默转发 REST / 游戏流量原 IP 进槽）");
         }
 
         public static void Dispose()
@@ -113,8 +105,7 @@ namespace PortRouter
             if (!_initialized) return;
             _initialized = false;
 
-            try { _hook?.Dispose(); } catch { }
-            _hook = null;
+            try { OTAPI.Hooks.Netplay.CreateTcpListener -= OnCreateTcpListener; } catch { }
 
             TShock.Log.ConsoleInfo("[PortRouter] 端口协议路由已卸载");
         }
@@ -164,46 +155,31 @@ namespace PortRouter
         }
 
         // ═══════════════════════════════════════════
-        // 进槽前协议判定
+        // 协议判定与转发（由 HttpAwareSocket.ListenLoop 调用）
         // ═══════════════════════════════════════════
 
-        private static void OnConnectionAcceptedHook(OrigOnConnectionAccepted orig, ISocket client)
+        /// <summary>
+        /// 嗅探并处理一条新连接（accept 后、任何日志/进槽之前）。
+        /// 返回 true = 判定为 HTTP 并已转交 REST（连接所有权转移）；false = 游戏流量，调用方继续原流程。
+        /// fail-open：任何异常返回 false，绝不误伤游戏连接。
+        /// </summary>
+        internal static bool TryHandleHttp(TcpClient tcp)
         {
-            // ═══ fail-open：任何异常都放行进游戏流程 ═══
             try
             {
-                if (_config.Enabled)
+                if (_config.Enabled && PeekHttp(tcp))
                 {
-                    var tcp = GetTcpClient(client);
-                    if (tcp != null && PeekHttp(tcp))
-                    {
-                        // 判定为 HTTP：字节泵转发到 REST（不占游戏槽位，不调 orig）
-                        Interlocked.Increment(ref _httpHandled);
-                        LogHttpOnce(tcp);
-                        _ = RelayHttpAsync(tcp, GetRestPort());
-                        return;
-                    }
+                    Interlocked.Increment(ref _httpHandled);
+                    LogHttpOnce(tcp);
+                    _ = RelayHttpAsync(tcp, GetRestPort());
+                    return true;
                 }
             }
             catch (Exception ex)
             {
                 TShock.Log.ConsoleError($"[PortRouter] 协议判定异常（放行进游戏流程）: {ex.Message}");
             }
-
-            // 游戏流量（或嗅探超时/失败）：原版进槽流程，原 IP 保留
-            orig(client);
-        }
-
-        /// <summary>
-        /// 从 ISocket 提取 TcpClient。兼容 TShock 的 LinuxTcpSocket（_connection 为 public）
-        /// 与原版 TcpSocket（_connection 为 private），统一反射读取，规避程序集身份差异。
-        /// </summary>
-        private static TcpClient? GetTcpClient(ISocket client)
-        {
-            if (client == null) return null;
-            var type = client.GetType();
-            var f = type.GetField("_connection", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-            return f?.GetValue(client) as TcpClient;
+            return false;
         }
 
         /// <summary>
@@ -327,7 +303,7 @@ namespace PortRouter
             if (Interlocked.Exchange(ref _firstHttpLogged, 1) == 0)
             {
                 var ip = GetRemoteIp(tcp);
-                TShock.Log.ConsoleInfo($"[PortRouter] 首次捕获 HTTP 连接（来源 {ip}），已转发到 REST；游戏端口协议路由生效");
+                TShock.Log.ConsoleInfo($"[PortRouter] 首次捕获 HTTP 连接（来源 {ip}），已静默转发到 REST；游戏端口协议路由生效");
             }
             else if (_config.LogHttpDetections)
             {
