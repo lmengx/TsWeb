@@ -1892,6 +1892,13 @@ const handlePlrFileSelect = (e) => {
   plrMsg.value = ''
   e.target.value = ''
 }
+const handlePlrDropFile = (e) => {
+  const file = e.dataTransfer?.files?.[0]
+  if (!file) return
+  plrImportFile.value = file
+  plrError.value = ''
+  plrMsg.value = ''
+}
 const plrImportFromUpload = async () => {
   if (!plrImportFile.value) {
     plrError.value = '请先选择 .plr 文件'
@@ -3079,9 +3086,10 @@ onMounted(() => {
             <!-- 方式 1：上传文件 -->
             <div class="plr-import-method">
               <div class="plr-method-title">从浏览器上传 .plr 文件</div>
-              <div class="ie-upload-zone">
-                <input type="file" accept=".plr" class="ie-file-input" @change="handlePlrFileSelect" />
-                <span class="ie-upload-text">{{ plrImportFile ? plrImportFile.name : '点击选择 .plr 文件' }}</span>
+              <div class="ie-upload-zone" @click="$refs.plrFileInput.click()" @dragover.prevent @drop.prevent="handlePlrDropFile">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                <span class="ie-upload-text">{{ plrImportFile ? plrImportFile.name : '点击选择或拖拽 .plr 文件到此处' }}</span>
+                <input ref="plrFileInput" type="file" accept=".plr" class="ie-file-input" @change="handlePlrFileSelect" />
               </div>
               <button @click="plrImportFromUpload" :disabled="plrImporting || !plrImportFile" class="ie-action-btn primary">
                 {{ plrImporting ? '导入中...' : '上传并导入' }}
