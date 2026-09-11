@@ -38,7 +38,7 @@ export async function exportPlayer(req, res) {
   if (!username) {
     return res.status(400).json({ error: 'username 为必填' })
   }
-  const result = await tshockService.proxyDataRequest(`players/export?username=${encodeURIComponent(username)}&to=${encodeURIComponent(to)}`, 'GET', {})
+  const result = await tshockService.proxyDataRequest('players/export', 'GET', { username, to })
   if (result.error && !result.base64) {
     return res.status(502).json({ error: result.error })
   }
@@ -69,7 +69,7 @@ export async function hasCharacter(req, res) {
   if (!username) {
     return res.status(400).json({ error: 'username 为必填' })
   }
-  const result = await tshockService.proxyDataRequest(`players/has-character?username=${encodeURIComponent(username)}`, 'GET', {})
+  const result = await tshockService.proxyDataRequest('players/has-character', 'GET', { username })
   if (result.error) {
     return res.status(502).json({ error: result.error })
   }
@@ -100,9 +100,7 @@ export async function importFromServer(req, res) {
   if (!username || !fileName) {
     return res.status(400).json({ error: 'username 和 path 为必填' })
   }
-  const result = await tshockService.proxyDataRequest(
-    `players/import-from-server?username=${encodeURIComponent(username)}&path=${encodeURIComponent(fileName)}`,
-    'GET', {})
+  const result = await tshockService.proxyDataRequest('players/import-from-server', 'GET', { username, path: fileName })
   if (result.error) {
     return res.status(502).json({ error: result.error })
   }
