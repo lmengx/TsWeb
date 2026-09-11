@@ -240,6 +240,7 @@ const mapItemConfigToFrontend = (config) => {
     enabled: config['启用'] ?? config.enabled ?? true,
     autoScan: config['自动扫描'] ?? config.autoScan ?? true,
     autoScanInterval: config['扫描间隔'] ?? config.autoScanInterval ?? 600,
+    confiscateItems: config['没收违禁物品'] ?? config.confiscateItems ?? false,
     restrictionsMap
   }
 }
@@ -266,6 +267,7 @@ const mapItemConfigToBackend = (config) => {
     '启用': config.enabled ?? true,
     '自动扫描': config.autoScan ?? true,
     '扫描间隔': config.autoScanInterval ?? 600,
+    '没收违禁物品': config.confiscateItems ?? false,
     '限制列表': restrictionsList
   }
 }
@@ -492,6 +494,14 @@ const handleEnableToggled = async (val) => {
             <label>自动扫描</label>
             <label class="toggle">
               <input type="checkbox" v-model="itemConfigEdit.autoScan">
+              <span class="slider"></span>
+            </label>
+          </div>
+
+          <div class="config-row">
+            <label title="开启后，扫描检测到违禁物品时直接移除（整格清空），并继续按原处理方式执行">没收违禁物品</label>
+            <label class="toggle">
+              <input type="checkbox" v-model="itemConfigEdit.confiscateItems">
               <span class="slider"></span>
             </label>
           </div>

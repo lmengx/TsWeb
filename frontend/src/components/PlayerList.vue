@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { get, post } from '../utils/api.js'
 import Loading from './Loading.vue'
 
@@ -209,6 +209,38 @@ const filteredUsers = computed(() => {
   return list
 })
 
+// ═══ Tab 分页：在线 / 所有玩家（每页 100）═══
+// 在线 Tab：过滤后的在线玩家全部显示，不分页；
+// 所有玩家 Tab：过滤后保持"在线优先"排序，再按每页 100 切片分页。
+const activeTab = ref('all')      // 'online' | 'all'
+const currentPage = ref(1)
+const PAGE_SIZE = 100
+
+const onlineUsers = computed(() => filteredUsers.value.filter(u => isUserOnline(u)))
+
+const totalPages = computed(() =>
+  Math.max(1, Math.ceil(filteredUsers.value.length / PAGE_SIZE))
+)
+
+const pagedAllUsers = computed(() => {
+  const start = (currentPage.value - 1) * PAGE_SIZE
+  return filteredUsers.value.slice(start, start + PAGE_SIZE)
+})
+
+const displayedUsers = computed(() =>
+  activeTab.value === 'online' ? onlineUsers.value : pagedAllUsers.value
+)
+
+const switchTab = (tab) => {
+  activeTab.value = tab
+  currentPage.value = 1
+}
+
+// 搜索/筛选变化时回到第 1 页
+watch([searchQuery, showWithCharacter], () => {
+  currentPage.value = 1
+})
+
 const handleRowClick = (user) => {
   emit('goToUserDetail', user.name)
 }
@@ -261,25 +293,7 @@ const closeBatchExportModal = () => {
       </div>
     </div>
 
-    <div class="search-bar">
-      <input
-        v-model="searchQuery"
-        type="text"
-        placeholder="搜索用户名..."
-        class="search-input"
-      />
-      <label class="char-filter" title="只显示在 tsCharacter 表中有角色数据的玩家">
-        <input type="checkbox" v-model="showWithCharacter" />
-        <span>仅显示有角色数据的玩家</span>
-      </label>
-      <button @click="openCreateModal" class="create-user-btn">+ 创建用户</button>
-      <button @click="executeBatchExport" :disabled="batchExportLoading" class="batch-export-btn" title="自动筛选有角色数据的玩家，导出 .plr 到服务端 PlayerExports 目录">
-        {{ batchExportLoading ? '批量导出中...' : '批量导出 PLR' }}
-      </button>
-      <button @click="openClearAllDataModal" class="clear-all-data-btn">清空全部角色</button>
-    </div>
-
-    <!-- 未登录玩家置顶区块 -->
+    <!-- 未登录玩家置顶区块（两个 Tab 之上） -->
     <div v-if="unverifiedPlayers.length > 0" class="unverified-section">
       <div class="unverified-header">
         <span class="unverified-icon">⚠</span>
@@ -302,10 +316,51 @@ const closeBatchExportModal = () => {
       </div>
     </div>
 
+    <!-- Tab 切换：在线 / 所有玩家 -->
+    <div class="tabs-bar">
+      <button
+        class="tab-btn"
+        :class="{ active: activeTab === 'online' }"
+        @click="switchTab('online')"
+      >
+        在线 ({{ onlineUsers.length }})
+      </button>
+      <button
+        class="tab-btn"
+        :class="{ active: activeTab === 'all' }"
+        @click="switchTab('all')"
+      >
+        所有玩家 ({{ filteredUsers.length }})
+      </button>
+    </div>
+
+    <div class="search-bar">
+      <input
+        v-model="searchQuery"
+        type="text"
+        placeholder="搜索用户名..."
+        class="search-input"
+      />
+      <label class="char-filter" title="只显示在 tsCharacter 表中有角色数据的玩家">
+        <input type="checkbox" v-model="showWithCharacter" />
+        <span>仅显示有角色数据的玩家</span>
+      </label>
+      <button @click="openCreateModal" class="create-user-btn">+ 创建用户</button>
+      <button @click="executeBatchExport" :disabled="batchExportLoading" class="batch-export-btn" title="自动筛选有角色数据的玩家，导出 .plr 到服务端 PlayerExports 目录">
+        {{ batchExportLoading ? '批量导出中...' : '批量导出 PLR' }}
+      </button>
+      <button @click="openClearAllDataModal" class="clear-all-data-btn">清空全部角色</button>
+    </div>
+
     <Loading v-if="loading" size="sm" text="加载中..." />
 
-    <div v-else-if="filteredUsers.length === 0" class="empty-state">
-      <p>{{ searchQuery ? '未找到匹配的用户' : (showWithCharacter ? '没有有角色数据的玩家' : '暂无用户') }}</p>
+    <div v-else-if="displayedUsers.length === 0" class="empty-state">
+      <p v-if="activeTab === 'online'">
+        {{ searchQuery ? '未找到匹配的在线用户' : '暂无在线玩家' }}
+      </p>
+      <p v-else>
+        {{ searchQuery ? '未找到匹配的用户' : (showWithCharacter ? '没有有角色数据的玩家' : '暂无用户') }}
+      </p>
     </div>
 
     <div v-else class="users-table-container">
@@ -320,7 +375,7 @@ const closeBatchExportModal = () => {
         </thead>
         <tbody>
           <tr
-            v-for="user in filteredUsers"
+            v-for="user in displayedUsers"
             :key="user.id"
             @click="handleRowClick(user)"
             class="clickable-row"
@@ -335,6 +390,21 @@ const closeBatchExportModal = () => {
           </tr>
         </tbody>
       </table>
+
+      <!-- 分页栏：仅"所有玩家"Tab 且超过一页时显示 -->
+      <div v-if="activeTab === 'all' && totalPages > 1" class="pagination-bar">
+        <button
+          class="page-btn"
+          :disabled="currentPage <= 1"
+          @click="currentPage--"
+        >上一页</button>
+        <span class="page-info">第 {{ currentPage }} / {{ totalPages }} 页，共 {{ filteredUsers.length }} 人</span>
+        <button
+          class="page-btn"
+          :disabled="currentPage >= totalPages"
+          @click="currentPage++"
+        >下一页</button>
+      </div>
     </div>
     </div>
 
@@ -549,6 +619,72 @@ const closeBatchExportModal = () => {
   opacity: 0.5;
   cursor: not-allowed;
   background: var(--bg-hover);
+}
+
+.tabs-bar {
+  display: flex;
+  gap: 8px;
+  padding: 0 20px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.tab-btn {
+  padding: 10px 20px;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-muted);
+  font-size: 0.92rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.25s ease;
+}
+
+.tab-btn:hover {
+  color: var(--text-primary);
+}
+
+.tab-btn.active {
+  color: var(--accent-primary);
+  border-bottom-color: var(--accent-primary);
+}
+
+.pagination-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 16px 0;
+}
+
+.page-info {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.page-btn {
+  padding: 8px 18px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.25s ease;
+}
+
+.page-btn:hover:not(:disabled) {
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+}
+
+.page-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .search-bar {
