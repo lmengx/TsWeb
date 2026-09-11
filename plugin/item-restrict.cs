@@ -4,6 +4,7 @@ using System.Linq;
 using Newtonsoft.Json;
 using Terraria;
 using TShockAPI;
+using TShockAPI.DB;
 
 namespace TShockData
 {
@@ -262,10 +263,54 @@ namespace TShockData
             // 扫描完成：按处理方式聚合同一玩家的所有违规，避免逐条踢出产生多个断开包
             if (results.Count > 0 && !hasPermission)
             {
+                // 没收开关开启时，先移除违禁物品（整格清空），再按原处理方式执行
+                if (config?.ConfiscateItems == true)
+                {
+                    ConfiscateOnlineItems(player, results);
+                }
                 ExecuteAggregatedViolations(player, results);
             }
 
             return results;
+        }
+
+        /// <summary>
+        /// 没收在线玩家的违禁物品：将命中违禁的槽位整格清空（内存 + 数据库 + 客户端同步）。
+        /// </summary>
+        private static void ConfiscateOnlineItems(TSPlayer player, List<CheatResult> results)
+        {
+            try
+            {
+                var slots = results
+                    .Where(r => r.Slot >= 0)
+                    .Select(r => r.Slot)
+                    .Distinct()
+                    .ToList();
+                if (slots.Count == 0)
+                    return;
+
+                // 将当前内存状态同步到 PlayerData，再清空违禁槽位
+                player.PlayerData.CopyCharacter(player);
+                foreach (var slot in slots)
+                {
+                    if (slot < player.PlayerData.inventory.Length)
+                    {
+                        player.PlayerData.inventory[slot] = new NetItem();
+                    }
+                }
+
+                // 写入数据库
+                TShock.CharacterDB.InsertPlayerData(player);
+
+                // 同步到客户端
+                player.PlayerData.RestoreCharacter(player);
+
+                TShock.Log.ConsoleInfo($"[ItemDetection] 已没收玩家 {player.Name} 的违禁物品，共清空 {slots.Count} 个槽位");
+            }
+            catch (Exception ex)
+            {
+                TShock.Log.ConsoleError($"[ItemDetection] 没收在线玩家物品失败: {ex.Message}");
+            }
         }
 
         /// <summary>
@@ -372,7 +417,56 @@ namespace TShockData
                 }
             }
 
+            // 没收开关开启时，移除离线玩家的违禁物品（仅执行处理模式下生效，避免纯查询产生副作用）
+            if (results.Count > 0 && executeViolations && config.ConfiscateItems)
+            {
+                ConfiscateOfflineItems(accountId, results);
+            }
+
             return results;
+        }
+
+        /// <summary>
+        /// 没收离线玩家的违禁物品：将命中违禁的槽位整格清空（直接写入 tsCharacter 表）。
+        /// </summary>
+        private static void ConfiscateOfflineItems(int accountId, List<CheatResult> results)
+        {
+            try
+            {
+                var slots = results
+                    .Where(r => r.Slot >= 0)
+                    .Select(r => r.Slot)
+                    .Distinct()
+                    .ToList();
+                if (slots.Count == 0)
+                    return;
+
+                var data = TShock.CharacterDB.GetPlayerData(null, accountId);
+                if (data == null || data.inventory == null)
+                    return;
+
+                int cleared = 0;
+                foreach (var slot in slots)
+                {
+                    if (slot < data.inventory.Length && data.inventory[slot].NetId > 0)
+                    {
+                        data.inventory[slot] = new NetItem();
+                        cleared++;
+                    }
+                }
+
+                if (cleared == 0)
+                    return;
+
+                string finalinv = string.Join("~", data.inventory);
+                TShock.DB.Query("UPDATE tsCharacter SET Inventory = @0 WHERE Account = @1", finalinv, accountId);
+
+                TShock.Log.ConsoleInfo($"[ItemDetection] 已没收离线玩家(ID:{accountId})的违禁物品，共清空 {cleared} 个槽位");
+            }
+            catch (Exception ex)
+            {
+                TShock.Log.ConsoleError($"[ItemDetection] 没收离线玩家物品失败: {ex.Message}");
+            }
         }
 
         /// <summary>
