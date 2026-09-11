@@ -28,7 +28,14 @@ export const executeCommand = async (req, res) => {
 }
 
 export const getUsers = async (req, res) => {
-  const result = await tshockService.getUsers()
+  const { page, pageSize, keyword, hasCharacter, onlineOnly } = req.query
+  const result = await tshockService.getUsers({
+    page,
+    pageSize,
+    keyword,
+    hasCharacter,
+    onlineOnly
+  })
   res.json(result)
 }
 

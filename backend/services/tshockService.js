@@ -241,7 +241,7 @@ export class TShockService {
     }
   }
 
-  async getUsers() {
+  async getUsers({ page, pageSize, keyword, hasCharacter, onlineOnly } = {}) {
     if (!this.baseUrl) {
       await this.init()
     }
@@ -253,9 +253,21 @@ export class TShockService {
     // 数据源从官方 /v2/users/list 切换到插件自研 /data/users/query_detail：
     // 后者额外返回 HasCharacter（是否有 SSC 角色数据），供玩家管理页"仅显示有角色数据的玩家"筛选。
     // 返回前做字段映射（ID→id、Username→name、Usergroup→group），保持前端 id/name/group 不变。
+    // 可选参数：page/pageSize（分页，pageSize 上限 500）、keyword（用户名模糊搜索）、
+    // hasCharacter（仅显示有角色数据）、onlineOnly（仅在线玩家）；不传时返回全量（向后兼容）。
+    const params = []
+    if (page !== undefined && page !== null && page !== '') params.push(`page=${encodeURIComponent(page)}`)
+    if (pageSize !== undefined && pageSize !== null && pageSize !== '') params.push(`pageSize=${encodeURIComponent(pageSize)}`)
+    if (keyword !== undefined && keyword !== null && keyword !== '') params.push(`keyword=${encodeURIComponent(keyword)}`)
+    if (hasCharacter !== undefined && hasCharacter !== null && hasCharacter !== '' && hasCharacter !== false) params.push(`hasCharacter=true`)
+    if (onlineOnly !== undefined && onlineOnly !== null && onlineOnly !== '' && onlineOnly !== false) params.push(`onlineOnly=true`)
+
     let url = `${this.baseUrl}/data/users/query_detail`
+    if (params.length > 0) {
+      url += `?${params.join('&')}`
+    }
     if (this.apiKey) {
-      url += `?token=${encodeURIComponent(this.apiKey)}`
+      url += `${params.length > 0 ? '&' : '?'}token=${encodeURIComponent(this.apiKey)}`
     }
 
     console.log(`[OUTGOING] GET ${url}`)
@@ -290,6 +302,9 @@ export class TShockService {
           hasCharacter: !!u.HasCharacter
         }))
         const result = { users }
+        if (data.total !== undefined) result.total = data.total
+        if (data.page !== undefined) result.page = data.page
+        if (data.pageSize !== undefined) result.pageSize = data.pageSize
         if (data.response) result.response = data.response
         return result
       } catch {

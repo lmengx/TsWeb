@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using Rests;
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using Rests;
 using System;
 using System.Collections.Generic;
 using System.Data;
@@ -13,26 +13,51 @@ namespace TShockData
 {
     public class QueryUsers
     {
+        /// <summary>
+        /// 解析布尔参数：支持 1/true/yes（大小写不敏感），空/其他为 false。
+        /// </summary>
+        private static bool ParseBool(string value)
+        {
+            if (string.IsNullOrEmpty(value)) return false;
+            return value.Equals("1") || value.Equals("true", StringComparison.OrdinalIgnoreCase)
+                || value.Equals("yes", StringComparison.OrdinalIgnoreCase);
+        }
+
         public static object QueryUsersList(RestRequestArgs args)
         {
-            string username = null;
-            try
+            // ═══ 参数解析（全部可选；不带分页参数时保持原有"全量返回"行为，向后兼容）═══
+            // username      单查（精确+大小写兜底）
+            // onlineOnly    只看在线玩家（内存过滤，供前端"在线"Tab）
+            // keyword       用户名模糊搜索（服务端 LIKE 语义：子串匹配，大小写不敏感）
+            // hasCharacter  只看有 SSC 角色数据的玩家
+            // page/pageSize 分页（内存切片，pageSize 上限 500）；两者任一提供即启用分页
+            string username = args.Parameters["username"];
+            string keyword = args.Parameters["keyword"];
+            bool onlineOnly = ParseBool(args.Parameters["onlineOnly"]);
+            bool hasCharacterOnly = ParseBool(args.Parameters["hasCharacter"]);
+
+            int page = 1;
+            int pageSize = 100;
+            bool usePaging = false;
+            if (int.TryParse(args.Parameters["page"], out int p) && p >= 1)
             {
-                username = args.Parameters["username"];
+                page = p;
+                usePaging = true;
             }
-            catch
+            if (int.TryParse(args.Parameters["pageSize"], out int ps) && ps >= 1)
             {
-                username = null;
+                pageSize = Math.Min(ps, 500);
+                usePaging = true;
             }
-            
+
             try
             {
                 IDbConnection db = TShock.DB;
                 List<Dictionary<string, object>> users = new List<Dictionary<string, object>>();
-                
+
                 string query;
                 object[] parameters;
-                
+
                 if (!string.IsNullOrEmpty(username))
                 {
                     // 统一大小写匹配规则：先精确后大小写不敏感兜底（UserAccountHelper），
@@ -42,7 +67,10 @@ namespace TShockData
                     {
                         return new RestObject()
                         {
-                            { "users", users }
+                            { "users", users },
+                            { "total", 0 },
+                            { "page", page },
+                            { "pageSize", usePaging ? pageSize : 0 }
                         };
                     }
                     query = "SELECT u.* FROM Users u WHERE u.Username = @0";
@@ -53,7 +81,7 @@ namespace TShockData
                     query = "SELECT u.* FROM Users u";
                     parameters = new object[] { };
                 }
-                
+
                 // 有 SSC 角色数据的账号集合（tsCharacter 表，Account = Users.ID，一个账号可多行）
                 // 用于 HasCharacter 标记：玩家管理页可筛选"仅有角色数据的玩家"
                 HashSet<int> characterAccounts = new HashSet<int>();
@@ -71,42 +99,90 @@ namespace TShockData
                 {
                     // tsCharacter 表不存在/查询失败时降级为全部无角色数据，不影响用户列表主流程
                 }
-                
+
+                // 过滤（keyword / hasCharacter / onlineOnly）+ 收集
                 using (QueryResult res = db.QueryReader(query, parameters))
                 {
                     while (res.Read())
                     {
-                        Dictionary<string, object> user = new Dictionary<string, object>();
-                        user.Add("ID", res.Get<int>("ID"));
-                        user.Add("Username", res.Get<string>("Username"));
-                        user.Add("Usergroup", res.Get<string>("Usergroup"));
-                        user.Add("Registered", res.Get<string>("Registered"));
-                        user.Add("LastAccessed", res.Get<string>("LastAccessed"));
-                        user.Add("UUID", res.Get<string>("UUID") ?? "");
-                        user.Add("KnownIPs", res.Get<string>("KnownIPs") ?? "");
-                        
+                        string resUsername = res.Get<string>("Username");
+                        int resId = res.Get<int>("ID");
+
+                        // 服务端搜索：用户名子串匹配（大小写不敏感）
+                        if (!string.IsNullOrEmpty(keyword) &&
+                            resUsername.IndexOf(keyword, StringComparison.OrdinalIgnoreCase) < 0)
+                        {
+                            continue;
+                        }
+
+                        // 服务端筛选：仅显示有角色数据的玩家
+                        if (hasCharacterOnly && !characterAccounts.Contains(resId))
+                        {
+                            continue;
+                        }
+
                         // 检查玩家是否在线
                         bool isOnline = false;
                         foreach (var plr in TShock.Players)
                         {
-                            if (plr != null && plr.Account != null && 
-                                plr.Account.Name.Equals(res.Get<string>("Username"), StringComparison.OrdinalIgnoreCase) && 
+                            if (plr != null && plr.Account != null &&
+                                plr.Account.Name.Equals(resUsername, StringComparison.OrdinalIgnoreCase) &&
                                 plr.Active)
                             {
                                 isOnline = true;
                                 break;
                             }
                         }
+
+                        // 服务端筛选：仅在线玩家
+                        if (onlineOnly && !isOnline)
+                        {
+                            continue;
+                        }
+
+                        Dictionary<string, object> user = new Dictionary<string, object>();
+                        user.Add("ID", resId);
+                        user.Add("Username", resUsername);
+                        user.Add("Usergroup", res.Get<string>("Usergroup"));
+                        user.Add("Registered", res.Get<string>("Registered"));
+                        user.Add("LastAccessed", res.Get<string>("LastAccessed"));
+                        user.Add("UUID", res.Get<string>("UUID") ?? "");
+                        user.Add("KnownIPs", res.Get<string>("KnownIPs") ?? "");
                         user.Add("IsOnline", isOnline);
-                        user.Add("HasCharacter", characterAccounts.Contains(res.Get<int>("ID")));
-                        
+                        user.Add("HasCharacter", characterAccounts.Contains(resId));
+
                         users.Add(user);
                     }
                 }
-                
+
+                // 按 ID（注册顺序）稳定排序；分页时保证跨页顺序一致
+                users.Sort((a, b) => ((int)a["ID"]).CompareTo((int)b["ID"]));
+
+                int total = users.Count;
+                List<Dictionary<string, object>> pageUsers;
+                if (usePaging)
+                {
+                    int start = (page - 1) * pageSize;
+                    if (start >= total)
+                    {
+                        pageUsers = new List<Dictionary<string, object>>();
+                    }
+                    else
+                    {
+                        pageUsers = users.GetRange(start, Math.Min(pageSize, total - start));
+                    }
+                }
+                else
+                {
+                    pageUsers = users;
+                }
+
                 return new RestObject()
                 {
-                    { "users", users }
+                    { "users", pageUsers },
+                    { "total", total },
+                    { "page", page },
+                    { "pageSize", usePaging ? pageSize : total }
                 };
             }
             catch (Exception ex)

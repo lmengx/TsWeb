@@ -8,9 +8,25 @@ const props = defineProps({
     type: Array,
     default: () => []
   },
-  activeUsers: {
+  onlineUsers: {
     type: Array,
     default: () => []
+  },
+  activeTab: {
+    type: String,
+    default: 'all'
+  },
+  total: {
+    type: Number,
+    default: 0
+  },
+  currentPage: {
+    type: Number,
+    default: 1
+  },
+  pageSize: {
+    type: Number,
+    default: 100
   },
   unverifiedPlayers: {
     type: Array,
@@ -26,10 +42,37 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['refresh', 'goToUserDetail', 'goToUnverified'])
+const emit = defineEmits(['refresh', 'tabChange', 'pageChange', 'searchChange', 'charFilterChange', 'goToUserDetail', 'goToUnverified'])
 
 const searchQuery = ref('')
 const showWithCharacter = ref(false)
+
+// 当前 Tab 显示的数据
+const displayedUsers = computed(() =>
+  props.activeTab === 'online' ? props.onlineUsers : props.users
+)
+
+const totalPages = computed(() =>
+  Math.max(1, Math.ceil(props.total / props.pageSize))
+)
+
+const switchTab = (tab) => {
+  emit('tabChange', tab)
+}
+
+const changePage = (page) => {
+  if (page < 1 || page > totalPages.value) return
+  emit('pageChange', page)
+}
+
+// 搜索/筛选变化 → 上报父级（父级重置到第 1 页并重新请求）
+watch(searchQuery, (val) => {
+  emit('searchChange', val)
+})
+
+watch(showWithCharacter, (val) => {
+  emit('charFilterChange', val)
+})
 
 // 创建用户模态框
 const showCreateModal = ref(false)
@@ -172,74 +215,14 @@ const executeClearAllData = async () => {
   clearAllDataLoading.value = false
 }
 
-// 在线判定：
-// 1) 优先使用插件端按账号名计算的 isOnline（大小写不敏感、按账号归属，多个"仅大小写不同"
-//    的账号不会互相点亮；角色名与账号名大小写不同时也不会误标）；
-// 2) 数据源未提供 isOnline 时（如旧数据/未验证列表），退回角色名大小写不敏感匹配。
+// 在线判定：优先使用插件端按账号名计算的 isOnline
+//（大小写不敏感、按账号归属，多个"仅大小写不同"的账号不会互相点亮；
+//  角色名与账号名大小写不同时也不会误标）。
 const isUserOnline = (user) => {
   if (user && typeof user.isOnline === 'boolean') return user.isOnline
   const name = user ? (user.name || '') : ''
-  return props.activeUsers.some(an => String(an).toLowerCase() === String(name).toLowerCase())
+  return props.onlineUsers.some(an => String(an).toLowerCase() === String(name).toLowerCase())
 }
-
-const sortedUsers = computed(() => {
-  const online = []
-  const offline = []
-  
-  props.users.forEach(user => {
-    if (isUserOnline(user)) {
-      online.push(user)
-    } else {
-      offline.push(user)
-    }
-  })
-  
-  return [...online, ...offline]
-})
-
-const filteredUsers = computed(() => {
-  let list = sortedUsers.value
-  if (showWithCharacter.value) {
-    list = list.filter(user => user.hasCharacter)
-  }
-  if (searchQuery.value.trim()) {
-    const query = searchQuery.value.toLowerCase()
-    list = list.filter(user => user.name.toLowerCase().includes(query))
-  }
-  return list
-})
-
-// ═══ Tab 分页：在线 / 所有玩家（每页 100）═══
-// 在线 Tab：过滤后的在线玩家全部显示，不分页；
-// 所有玩家 Tab：过滤后保持"在线优先"排序，再按每页 100 切片分页。
-const activeTab = ref('all')      // 'online' | 'all'
-const currentPage = ref(1)
-const PAGE_SIZE = 100
-
-const onlineUsers = computed(() => filteredUsers.value.filter(u => isUserOnline(u)))
-
-const totalPages = computed(() =>
-  Math.max(1, Math.ceil(filteredUsers.value.length / PAGE_SIZE))
-)
-
-const pagedAllUsers = computed(() => {
-  const start = (currentPage.value - 1) * PAGE_SIZE
-  return filteredUsers.value.slice(start, start + PAGE_SIZE)
-})
-
-const displayedUsers = computed(() =>
-  activeTab.value === 'online' ? onlineUsers.value : pagedAllUsers.value
-)
-
-const switchTab = (tab) => {
-  activeTab.value = tab
-  currentPage.value = 1
-}
-
-// 搜索/筛选变化时回到第 1 页
-watch([searchQuery, showWithCharacter], () => {
-  currentPage.value = 1
-})
 
 const handleRowClick = (user) => {
   emit('goToUserDetail', user.name)
@@ -282,8 +265,8 @@ const closeBatchExportModal = () => {
     <div class="section-header">
       <div class="header-title">
         <h2>玩家列表</h2>
-        <span class="online-count-badge" :class="{ 'has-online': activeUsers.length > 0 }">
-          ● {{ activeUsers.length }} / {{ users.length }} 在线
+        <span class="online-count-badge" :class="{ 'has-online': onlineUsers.length > 0 }">
+          ● {{ onlineUsers.length }} / {{ total }} 在线
         </span>
       </div>
       <div class="header-actions">
@@ -330,7 +313,7 @@ const closeBatchExportModal = () => {
         :class="{ active: activeTab === 'all' }"
         @click="switchTab('all')"
       >
-        所有玩家 ({{ filteredUsers.length }})
+        所有玩家 ({{ total }})
       </button>
     </div>
 
@@ -396,13 +379,13 @@ const closeBatchExportModal = () => {
         <button
           class="page-btn"
           :disabled="currentPage <= 1"
-          @click="currentPage--"
+          @click="changePage(currentPage - 1)"
         >上一页</button>
-        <span class="page-info">第 {{ currentPage }} / {{ totalPages }} 页，共 {{ filteredUsers.length }} 人</span>
+        <span class="page-info">第 {{ currentPage }} / {{ totalPages }} 页，共 {{ total }} 人</span>
         <button
           class="page-btn"
           :disabled="currentPage >= totalPages"
-          @click="currentPage++"
+          @click="changePage(currentPage + 1)"
         >下一页</button>
       </div>
     </div>
