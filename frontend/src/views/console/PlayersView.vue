@@ -10,7 +10,7 @@ const router = useRouter()
 // ═══ 玩家列表数据源（服务端分页）═══
 // 在线 Tab：onlineOnly 接口一次返回全部在线玩家，10 秒轮询保持实时；
 // 所有玩家 Tab：分页接口（page/pageSize/keyword/hasCharacter），翻页/搜索/筛选时重新请求。
-const activeTab = ref('all')        // 'online' | 'all'
+const activeTab = ref('online')     // 'online' | 'all'（默认在线）
 const currentPage = ref(1)
 const pageSize = 100
 const keyword = ref('')
