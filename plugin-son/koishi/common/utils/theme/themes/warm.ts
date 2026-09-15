@@ -137,8 +137,12 @@ const theme: Theme = {
 }
 .footer-qq{font-family:Georgia,'Times New Roman',serif;font-style:italic}
 .footer-badge{
-  border-radius:4px;border:1px solid var(--tw-warning-border);
-  background:var(--tw-warning-soft);color:var(--tw-warning);
+  font-family:Georgia,'Times New Roman',serif;
+  font-weight:700;font-size:12px;letter-spacing:2px;text-transform:uppercase;
+  color:#2b1a12;
+  background:linear-gradient(135deg,#ffb366,#ff8c2e);
+  border:none;border-radius:2px;padding:6px 14px;
+  box-shadow:0 0 0 1px rgba(255,159,69,0.45),0 2px 5px rgba(0,0,0,0.35);
 }
 
 /* — Boss 卡 — */
