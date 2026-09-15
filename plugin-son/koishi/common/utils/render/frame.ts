@@ -25,6 +25,17 @@ export function escapeHtml(value: unknown): string {
   return String(value ?? '').replace(/[&<>"']/g, ch => ENTITY_MAP[ch])
 }
 
+/**
+ * 数值化（空值与非有限数一律回退 fallback）。
+ * 后端 JSON 的数值字段不可信任：直接插值会渲染出 NaN/Infinity，进了 style 更会破坏样式。
+ * 注意 fallback 语义：null/undefined/空串回退 fallback，合法的 0 原样保留。
+ */
+export function toNum(value: unknown, fallback = 0): number {
+  if (value === null || value === undefined || value === '') return fallback
+  const n = Number(value)
+  return Number.isFinite(n) ? n : fallback
+}
+
 // ── 组件样式表（全部引用令牌变量） ──
 const COMPONENT_CSS = `
 *{margin:0;padding:0;box-sizing:border-box}

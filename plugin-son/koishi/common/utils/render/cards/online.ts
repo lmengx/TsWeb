@@ -1,4 +1,4 @@
-import { escapeHtml, frame } from '../frame'
+import { escapeHtml, frame, toNum } from '../frame'
 
 export interface OnlinePlayer {
   nickname: string
@@ -40,8 +40,8 @@ function loadColorVar(online: number, max: number): string {
 
 /** 单服在线列表卡片（调用方截图选择器：.wrap） */
 export function onlineListCard(data: OnlineStatusData): string {
-  const online = Number(data.playercount) || 0
-  const max = Number(data.maxplayers) || 0
+  const online = toNum(data.playercount)
+  const max = toNum(data.maxplayers)
   const players = (data.players || []).filter(p => p && p.nickname)
   const pct = max > 0 ? Math.min(100, Math.round((online / max) * 100)) : 0
   const color = loadColorVar(online, max)
@@ -78,8 +78,8 @@ export function onlineListCard(data: OnlineStatusData): string {
 export function multiOnlineCard(data: MultiOnlineData): string {
   const servers = data.servers || []
   const blocks = servers.map(s => {
-    const online = s.online ?? '?'
-    const max = s.max ?? '?'
+    const online = s.online == null ? '?' : toNum(s.online)
+    const max = s.max == null ? '?' : toNum(s.max)
     const mainTag = data.mainServer?.id === s.id ? ' · 主服' : ''
     const names = s.players || []
     let rows: string

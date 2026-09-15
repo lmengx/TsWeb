@@ -1,6 +1,6 @@
 import { readFileSync, existsSync } from 'fs'
 import { join } from 'path'
-import { escapeHtml, frame } from '../frame'
+import { escapeHtml, frame, toNum } from '../frame'
 
 // 图标目录：源码/编译产物同级时按相对路径定位；
 // 若插件被打包到别处（__dirname 变化），可用环境变量显式指定。
@@ -84,7 +84,7 @@ export function bossProgressCard(data: BossProgressData): string {
   const tile = (name: string, done: boolean, imgMap: Record<string, string>, count?: number) => {
     const src = loadImageBase64(imgMap[name] || '')
     // 击杀数来自后端 JSON：必须先数值化，非有限数回退 0（不可直接插值）
-    const kills = Number(count) || 0
+    const kills = toNum(count)
     return `<div class="bc ${done ? 'done' : ''}">
       <div class="bc-img">
         ${src ? `<img src="${src}" alt="${escapeHtml(name)}">` : '<div class="bc-placeholder">?</div>'}
@@ -106,17 +106,17 @@ export function bossProgressCard(data: BossProgressData): string {
   <div class="section">
     <div class="section-head">
       <h3>Boss 击杀进度</h3>
-      <span class="pct green">${Number(data.KilledCount) || 0}/${Number(data.TotalBossCount) || 0}</span>
+      <span class="pct green">${toNum(data.KilledCount)}/${toNum(data.TotalBossCount)}</span>
     </div>
-    <div class="bar"><div class="bar-inner green" style="width:${Number(data.BossProgressPercent) || 0}%"></div></div>
+    <div class="bar"><div class="bar-inner green" style="width:${toNum(data.BossProgressPercent)}%"></div></div>
     <div class="grid">${bossCards}</div>
   </div>
   <div class="section">
     <div class="section-head">
       <h3>事件进度</h3>
-      <span class="pct purple">${Number(data.CompletedEventCount) || 0}/${Number(data.TotalEventCount) || 0}</span>
+      <span class="pct purple">${toNum(data.CompletedEventCount)}/${toNum(data.TotalEventCount)}</span>
     </div>
-    <div class="bar"><div class="bar-inner purple" style="width:${Number(data.EventProgressPercent) || 0}%"></div></div>
+    <div class="bar"><div class="bar-inner purple" style="width:${toNum(data.EventProgressPercent)}%"></div></div>
     <div class="grid">${eventCards}</div>
   </div>`, { wrapClass: 'w-wide' })
 }

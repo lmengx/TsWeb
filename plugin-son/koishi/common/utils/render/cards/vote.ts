@@ -1,4 +1,4 @@
-import { escapeHtml, frame } from '../frame'
+import { escapeHtml, frame, toNum } from '../frame'
 
 export interface VoteOptionData {
   id: string
@@ -55,6 +55,8 @@ export interface VoteStateData {
 function fmtDateTime(t?: string | null): string {
   if (!t) return '长期有效'
   const d = new Date(t)
+  // 非法日期字符串会解析出 Invalid Date，直接取字段会渲染成 NaN月NaN日
+  if (Number.isNaN(d.getTime())) return '未知时间'
   const pad = (n: number) => String(n).padStart(2, '0')
   return `${d.getMonth() + 1}月${d.getDate()}日 ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
@@ -62,9 +64,9 @@ function fmtDateTime(t?: string | null): string {
 function ruleLineOf(round: VoteRoundData): string {
   const desc = (round.weightRules || [])
     .filter(r => r && r.field)
-    .map(r => `游玩时长 ${escapeHtml(r.op)} ${escapeHtml(r.threshold)}h 加 ${escapeHtml(r.weight)} 分`)
+    .map(r => `游玩时长 ${escapeHtml(r.op)} ${toNum(r.threshold)}h 加 ${toNum(r.weight)} 分`)
     .join('，')
-  const base = `基础 ${Number(round.baseWeight ?? 1)} 分`
+  const base = `基础 ${toNum(round.baseWeight, 1)} 分`
   return desc ? `${base} · ${desc}` : base
 }
 
@@ -79,7 +81,7 @@ function optionTag(o: VoteOptionData): string {
 export function voteListCard(rounds: VoteRoundData[]): string {
   const rows = (rounds || []).map((r, i) => {
     const opts = r.options || []
-    const totalVotes = opts.reduce((s, o) => s + (Number(o.votes) || 0), 0)
+    const totalVotes = opts.reduce((s, o) => s + toNum(o.votes), 0)
     const open = r.status === 'open'
     const badge = `<span class="rv-badge ${open ? 'open' : 'closed'}">${open ? '进行中' : '已结束'}</span>`
     return `<div class="rv">
@@ -101,14 +103,14 @@ export function voteListCard(rounds: VoteRoundData[]): string {
 export function voteDetailCard(round: VoteRoundData): string {
   const open = round.status === 'open'
   const opts = round.options || []
-  const totalScore = opts.reduce((s, o) => s + (Number(o.score) || 0), 0)
+  const totalScore = opts.reduce((s, o) => s + toNum(o.score), 0)
   const optionRows = opts.map(o => {
-    const pct = totalScore > 0 ? Math.round((Number(o.score || 0) / totalScore) * 1000) / 10 : 0
+    const pct = totalScore > 0 ? Math.round((toNum(o.score) / totalScore) * 1000) / 10 : 0
     return `<div class="vo">
       <div class="vo-head">
         <span class="vo-text">${escapeHtml(o.text)}</span>
         ${optionTag(o)}
-        <span class="vo-score">${Number(o.score || 0)} 分 · ${Number(o.votes || 0)} 票</span>
+        <span class="vo-score">${toNum(o.score)} 分 · ${toNum(o.votes)} 票</span>
       </div>
       <div class="vo-bar"><div class="vo-fill" style="width:${pct}%"></div></div>
       <div class="vo-pct">${pct}%</div>
@@ -128,7 +130,7 @@ export function voteDetailCard(round: VoteRoundData): string {
   <div class="vd-title">${escapeHtml(round.title)}</div>
   ${round.description ? `<div class="vd-desc">${escapeHtml(round.description)}</div>` : ''}
   ${timeLine}
-  <div class="vd-rules">每用户可投 ${Number(round.maxVotesPerUser ?? 1)} 票 · ${ruleLineOf(round)}</div>
+  <div class="vd-rules">每用户可投 ${toNum(round.maxVotesPerUser, 1)} 票 · ${ruleLineOf(round)}</div>
   <div class="vd-options">${optionRows}</div>
 </div>`)
 }
@@ -138,7 +140,7 @@ export function voteStateCard(data: VoteStateData): string {
   const r = data.round || ({} as VoteStateData['round'])
   const my = r.my || {}
   const opts = r.options || []
-  const totalScore = opts.reduce((s, o) => s + (Number(o.score) || 0), 0)
+  const totalScore = opts.reduce((s, o) => s + toNum(o.score), 0)
   const votedIds: string[] = my.votedOptions || []
 
   const identity = data.unbound
@@ -147,17 +149,17 @@ export function voteStateCard(data: VoteStateData): string {
 
   const banner = data.mode === 'proposed'
     ? `<div class="vs-banner">${data.existing ? '提案已存在，已为你定位' : '提案已提交'}：${escapeHtml(data.option?.text || '')}</div>`
-    : `<div class="vs-banner">投票成功 · 本次权重 ${Number(data.weight ?? 0)} 分</div>`
+    : `<div class="vs-banner">投票成功 · 本次权重 ${toNum(data.weight)} 分</div>`
 
   const optionRows = opts.map(o => {
     const voted = votedIds.includes(o.id)
-    const pct = totalScore > 0 ? Math.round((Number(o.score || 0) / totalScore) * 1000) / 10 : 0
+    const pct = totalScore > 0 ? Math.round((toNum(o.score) / totalScore) * 1000) / 10 : 0
     return `<div class="vo ${voted ? 'voted' : ''}">
       <div class="vo-head">
         ${voted ? '<span class="vo-check">✓</span>' : ''}
         <span class="vo-text">${escapeHtml(o.text)}</span>
         ${optionTag(o)}
-        <span class="vo-score">${Number(o.score || 0)} 分 · ${Number(o.votes || 0)} 票</span>
+        <span class="vo-score">${toNum(o.score)} 分 · ${toNum(o.votes)} 票</span>
       </div>
       <div class="vo-bar"><div class="vo-fill" style="width:${pct}%"></div></div>
     </div>`
@@ -171,12 +173,12 @@ export function voteStateCard(data: VoteStateData): string {
   </div>
   ${banner}
   <div class="vs-stats">
-    <div class="vs-stat"><div class="vs-num">${Number(my.votesLeft ?? 0)}</div><div class="vs-label">还可投</div></div>
+    <div class="vs-stat"><div class="vs-num">${toNum(my.votesLeft)}</div><div class="vs-label">还可投</div></div>
     <div class="vs-stat"><div class="vs-num">${(my.votedOptions || []).length}</div><div class="vs-label">已投</div></div>
-    <div class="vs-stat"><div class="vs-num">${Number(my.weight ?? 0)}</div><div class="vs-label">权重 分/票</div></div>
-    <div class="vs-stat"><div class="vs-num">${Number(my.proposalsLeft ?? 0)}</div><div class="vs-label">可提案</div></div>
+    <div class="vs-stat"><div class="vs-num">${toNum(my.weight)}</div><div class="vs-label">权重 分/票</div></div>
+    <div class="vs-stat"><div class="vs-num">${toNum(my.proposalsLeft)}</div><div class="vs-label">可提案</div></div>
   </div>
   <div class="vd-options">${optionRows}</div>
-  <div class="vs-rules"><b>每用户可投 ${Number(r.maxVotesPerUser ?? 1)} 票</b> · ${ruleLineOf(r)}</div>
+  <div class="vs-rules"><b>每用户可投 ${toNum(r.maxVotesPerUser, 1)} 票</b> · ${ruleLineOf(r)}</div>
 </div>`)
 }

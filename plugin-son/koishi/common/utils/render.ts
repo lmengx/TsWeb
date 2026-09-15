@@ -8,7 +8,7 @@
 
 import { chromium } from 'playwright'
 
-export { escapeHtml, frame, componentCss } from './render/frame'
+export { escapeHtml, toNum, frame, componentCss } from './render/frame'
 export { playerInfoCard } from './render/cards/info'
 export { bossProgressCard } from './render/cards/boss'
 export { onlineListCard, multiOnlineCard } from './render/cards/online'
