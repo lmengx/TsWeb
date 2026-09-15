@@ -300,7 +300,7 @@ namespace TShockData
 								Name = "server-b",
 								IP = "127.0.0.1",
 								Port = 7778,
-								VersionNum = 319,
+								VersionNum = Main.curRelease,
 								Secret = "change-me"
 							}
 						}
@@ -1143,6 +1143,11 @@ namespace TShockData
 					Name = Config.SelfServerId,
 					IP = "127.0.0.1",
 					Port = Netplay.ListenPort,
+					// 回环握手连接的是本服自身，必须用本服实际协议版本号（curRelease，
+					// 1.4.5.6=319 / 1.4.5.7=325 / 1.4.5.8=326），否则 ClientHello 版本串
+					// 与服务器校验（MessageBuffer: "Terraria"+curRelease）不符 → 版本门禁
+					// Disconnect → 返回原服连接丢失。禁止回落到类默认值 319。
+					VersionNum = Main.curRelease,
 					Secret = Config.SelfSecret,
 					Password = Config.Servers.FirstOrDefault(
 						s => s.Name.Equals(Config.SelfServerId, StringComparison.OrdinalIgnoreCase))?.Password

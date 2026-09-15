@@ -89,7 +89,9 @@ namespace TShockData
 			try
 			{
 				// 1) ClientHello（协议版本）
-				var version = server.VersionNum > 0 ? $"Terraria{server.VersionNum}" : "Terraria319";
+				// 兜底用本服实际协议版本（Main.curRelease），禁止硬编码 "Terraria319"：
+				// 服务器 MessageBuffer 校验 "Terraria"+curRelease，版本不符直接 Disconnect。
+				var version = server.VersionNum > 0 ? $"Terraria{server.VersionNum}" : $"Terraria{Terraria.Main.curRelease}";
 				await SendPacketAsync(stream, bw =>
 				{
 					bw.Write((byte)1);
