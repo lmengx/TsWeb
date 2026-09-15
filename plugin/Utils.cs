@@ -1,5 +1,6 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.Xna.Framework;
+using Newtonsoft.Json;
 using System.Text;
 using System.Text.RegularExpressions;
 using Terraria;
@@ -304,6 +305,26 @@ public static class HouseManager
         }
     }
 
+    /// <summary>保存领地附加指令列表（JSON 序列化到 Commands 列）。</summary>
+    public static bool UpdateCommands(string houseName, List<HouseCommandConfig> commands)
+    {
+        try
+        {
+            using var conn = Database.GetConnection();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "UPDATE HousingDistrict SET Commands=@val WHERE Name=@name";
+            cmd.Parameters.AddWithValue("@val", JsonConvert.SerializeObject(commands ?? new()));
+            cmd.Parameters.AddWithValue("@name", houseName);
+            cmd.ExecuteNonQuery();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            TShock.Log.Error("房屋插件更新领地指令错误:" + ex);
+            return false;
+        }
+    }
+
     // ── 内部方法 ──
 
     private static House? LoadSingle(string name)
@@ -353,8 +374,26 @@ public static class HouseManager
             SafeGetInt(reader, "AllowGrave"),
             SafeGetInt(reader, "AllowSwitch"),
             SafeGetInt(reader, "AllowDoor"),
-            SafeGetInt(reader, "AllowFragile")
+            SafeGetInt(reader, "AllowFragile"),
+            ReadCommands(reader)
         );
+    }
+
+    /// <summary>读取 Commands 列（JSON 数组），旧库缺列/解析失败时返回空列表。</summary>
+    private static List<HouseCommandConfig> ReadCommands(SqliteDataReader reader)
+    {
+        var raw = SafeGetString(reader, "Commands");
+        if (string.IsNullOrWhiteSpace(raw) || raw == "[]")
+            return new();
+        try
+        {
+            var list = JsonConvert.DeserializeObject<List<HouseCommandConfig>>(raw);
+            return list ?? new();
+        }
+        catch
+        {
+            return new();
+        }
     }
 
     private static bool UpdateListField(string houseName, string field, List<string> list)
@@ -380,6 +419,20 @@ public static class HouseManager
     {
         var val = reader.IsDBNull(reader.GetOrdinal(col)) ? "" : reader.GetString(reader.GetOrdinal(col));
         return string.IsNullOrEmpty(val) ? new List<string>() : val.Split(',').ToList();
+    }
+
+    private static string SafeGetString(SqliteDataReader reader, string col)
+    {
+        try
+        {
+            var ord = reader.GetOrdinal(col);
+            return reader.IsDBNull(ord) ? "" : reader.GetString(ord);
+        }
+        catch
+        {
+            // 列不存在（旧表结构）→ 空字符串
+            return "";
+        }
     }
 
     private static int SafeGetInt(SqliteDataReader reader, string col)

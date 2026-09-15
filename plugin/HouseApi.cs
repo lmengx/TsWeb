@@ -65,6 +65,8 @@ public static class HouseApi
     public static void Register()
     {
         TShock.RestApi.Register(new SecureRestCommand("/data/house/list", HandleHouseList, "data.rest.invsee"));
+        TShock.RestApi.Register(new SecureRestCommand("/data/house/commands", HandleCommandsGet, "house.admin"));
+        TShock.RestApi.Register(new SecureRestCommand("/data/house/commands/save", HandleCommandsSave, "house.admin"));
         TShock.RestApi.Register(new SecureRestCommand("/data/buildings/list", HandleBuildingsList, "data.rest.invsee"));
         TShock.RestApi.Register(new SecureRestCommand("/data/buildings/info", HandleBuildingInfo, "data.rest.invsee"));
         TShock.RestApi.Register(new SecureRestCommand("/data/buildings/export", HandleBuildingsExport, "data.rest.invsee"));
@@ -82,6 +84,8 @@ public static class HouseApi
         var houseRoutes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
             "/data/house/list",
+            "/data/house/commands",
+            "/data/house/commands/save",
             "/data/buildings/list",
             "/data/buildings/info",
             "/data/buildings/export",
@@ -169,7 +173,107 @@ public static class HouseApi
                 ["explosion"] = h.AllowExplosion,
                 ["liquid"] = h.AllowLiquid, ["chest"] = h.AllowChest, ["plant"] = h.AllowPlant, ["spawn"] = h.AllowSpawn,
                 ["grave"] = h.AllowGrave, ["switch"] = h.AllowSwitch, ["door"] = h.AllowDoor, ["fragile"] = h.AllowFragile
-            }
+            },
+            ["commands"] = (h.Commands ?? new())
+                .Select(c => new Dictionary<string, object?>
+                {
+                    ["enabled"] = c.Enabled,
+                    ["command"] = c.Command,
+                    ["escape"] = c.Escape,
+                    ["asSelf"] = c.AsSelf,
+                    ["bypass"] = c.BypassPermission
+                }).ToList()
+        };
+    }
+
+    // ══════════════════════════════════════════════════════════
+    //  /data/house/commands — 领地进入指令（读取/整体保存）
+    //  权限：house.admin（管理权限玩家 / 服务器后台）
+    // ══════════════════════════════════════════════════════════
+
+    /// <summary>GET /data/house/commands?name=屋名 — 读取领地进入指令列表</summary>
+    private static object HandleCommandsGet(RestRequestArgs args)
+    {
+        var name = args.Parameters["name"];
+        if (string.IsNullOrEmpty(name))
+            return new RestObject("400") { { "error", "缺少 name 参数" } };
+
+        var house = HouseRegion.Utils.GetHouseByName(name);
+        if (house == null)
+            return new RestObject("404") { { "error", "房屋不存在" } };
+
+        var list = (house.Commands ?? new())
+            .Select(c => new Dictionary<string, object?>
+            {
+                ["enabled"] = c.Enabled,
+                ["command"] = c.Command,
+                ["escape"] = c.Escape,
+                ["asSelf"] = c.AsSelf,
+                ["bypass"] = c.BypassPermission
+            }).ToList();
+
+        return new RestObject()
+        {
+            { "name", house.Name },
+            { "count", list.Count },
+            { "commands", list }
+        };
+    }
+
+    /// <summary>
+    /// POST /data/house/commands/save?name=屋名&commands=[json数组] — 整体保存领地进入指令。
+    /// commands 为 JSON 数组字符串，元素字段: enabled/command/escape/asSelf/bypass。
+    /// 校验：最多 50 条、指令非空且 ≤512 字符。
+    /// </summary>
+    private static object HandleCommandsSave(RestRequestArgs args)
+    {
+        var name = args.Parameters["name"];
+        if (string.IsNullOrEmpty(name))
+            return new RestObject("400") { { "error", "缺少 name 参数" } };
+
+        var raw = args.Parameters["commands"];
+        if (string.IsNullOrEmpty(raw))
+            return new RestObject("400") { { "error", "缺少 commands 参数" } };
+
+        var house = HouseRegion.Utils.GetHouseByName(name);
+        if (house == null)
+            return new RestObject("404") { { "error", "房屋不存在" } };
+
+        List<HouseCommandConfig> list;
+        try
+        {
+            list = Newtonsoft.Json.JsonConvert.DeserializeObject<List<HouseCommandConfig>>(raw) ?? new();
+        }
+        catch (Exception ex)
+        {
+            return new RestObject("400") { { "error", "commands 解析失败: " + ex.Message } };
+        }
+
+        if (list.Count > 50)
+            return new RestObject("400") { { "error", "领地进入指令最多 50 条" } };
+
+        // 逐条校验并清洗
+        list = list
+            .Where(c => c != null && !string.IsNullOrWhiteSpace(c.Command))
+            .Select(c => new HouseCommandConfig
+            {
+                Enabled = c.Enabled,
+                Command = c.Command.Trim().Length > 512 ? c.Command.Trim().Substring(0, 512) : c.Command.Trim(),
+                Escape = c.Escape,
+                AsSelf = c.AsSelf,
+                BypassPermission = c.BypassPermission
+            })
+            .ToList();
+
+        if (!HouseManager.UpdateCommands(house.Name, list))
+            return new RestObject("500") { { "error", "保存失败" } };
+
+        house.Commands = list;
+        // 注意：不能写 { "status", "200" } —— RestObject 构造函数已预置 status 键，
+        // 集合初始化器再 Add 同键会抛 ArgumentException（被 TShock 兜成 500 Internal server error）
+        return new RestObject()
+        {
+            { "message", $"房屋 {house.Name} 的进入指令已保存（{list.Count} 条）" }
         };
     }
 

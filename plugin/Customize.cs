@@ -76,6 +76,12 @@ public class House
     public int AllowDoor { get; set; }
     public int AllowFragile { get; set; }
 
+    /// <summary>
+    /// 领地附加指令列表（玩家进入领地时触发）。持久化于 HousingDistrict.Commands 列（JSON）。
+    /// 由具有管理权限的玩家（house.admin）/ 服务器后台（REST）添加。
+    /// </summary>
+    public List<HouseCommandConfig> Commands { get; set; } = new();
+
     public House(Rectangle housearea, string author, List<string> owners, string name,
                  List<string> users,
                  int tpX, int tpY,
@@ -84,7 +90,8 @@ public class House
                  int allowEntry, int allowTP,
                  int allowPlace, int allowBreak, int allowExplosion, int allowLiquid, int allowChest,
                  int allowPlant, int allowSpawn, int allowGrave,
-                 int allowSwitch, int allowDoor, int allowFragile)
+                 int allowSwitch, int allowDoor, int allowFragile,
+                 List<HouseCommandConfig>? commands = null)
     {
         HouseArea = housearea;
         Author = author;
@@ -111,5 +118,6 @@ public class House
         AllowSwitch = allowSwitch;
         AllowDoor = allowDoor;
         AllowFragile = allowFragile;
+        Commands = commands ?? new();
     }
 }

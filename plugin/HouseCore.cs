@@ -602,6 +602,9 @@ public class HouseCore
                     {
                         GetDataHandlers.ShowHouseDisplay(ts, currentHouse);
                     }
+
+                    // 领地进入指令：任何进入领地的玩家触发（被驱离者在上面 continue，不会到达这里）
+                    HouseCommandRunner.ExecuteOnEnter(ts, currentHouse);
                 }
 
                 // 离开事件
@@ -757,6 +760,11 @@ public class HouseCore
                 HandleImport(args);
                 break;
 
+            case "cmd":
+            case "指令":
+                HandleCommands(args);
+                break;
+
             default:
                 // 尝试匹配房屋权限设置: /house [屋名] 项目名 0/1
                 TryHandlePermission(args, cmd);
@@ -805,6 +813,7 @@ public class HouseCore
             args.Player.SendMessage("━━━ 管理员 ━━━", Color.Gold);
             args.Player.SendMessage("/h export [屋名] ——导出房屋区域建筑为 .tsb（管理员）", Color.Aqua);
             args.Player.SendMessage("/h import <文件名> ——导入 .tsb 建筑（以你为中心粘贴，管理员）", Color.Aqua);
+            args.Player.SendMessage("/h cmd list|add|remove|clear ——管理领地进入指令（管理员）", Color.Aqua);
         }
     }
 
@@ -1052,7 +1061,8 @@ public class HouseCore
 
         var maxHouses = Utils.MaxCount(args.Player);
         var authorHouses = Houses.Count(h => h.Author == args.Player.Account.ID.ToString());
-        if (authorHouses >= maxHouses && !args.Player.Group.HasPermission("house.bypasscount"))
+        var isAdmin = args.Player.Group.HasPermission(GetDataHandlers.AdminHouse);
+        if (authorHouses >= maxHouses && !isAdmin && !args.Player.Group.HasPermission("house.bypasscount"))
         {
             args.Player.SendErrorMessage($"房屋添加失败:您只能添加{maxHouses}个房屋!");
             return;
@@ -1078,7 +1088,7 @@ public class HouseCore
         var maxSize = Utils.MaxSize(args.Player);
 
         if ((width * height > maxSize || width < Config.Instance.MinWidth || height < Config.Instance.MinHeight) &&
-            !args.Player.Group.HasPermission("house.bypasssize"))
+            !isAdmin && !args.Player.Group.HasPermission("house.bypasssize"))
         {
             args.Player.SendErrorMessage($"您设置的房屋宽:{width} 高:{height} 面积:{width * height} 需重新设置。");
             if (width * height > maxSize) args.Player.SendErrorMessage($"因为您的房子总面积超过了最大限制 {maxSize} 格块。");
@@ -1189,9 +1199,10 @@ public class HouseCore
         var width = Math.Abs(args.Player.TempPoints[0].X - args.Player.TempPoints[1].X) + 1;
         var height = Math.Abs(args.Player.TempPoints[0].Y - args.Player.TempPoints[1].Y) + 1;
         var maxSize = Utils.MaxSize(args.Player);
+        var isAdmin = args.Player.Group.HasPermission(GetDataHandlers.AdminHouse);
 
         if ((width * height > maxSize || width < Config.Instance.MinWidth || height < Config.Instance.MinHeight) &&
-            !args.Player.Group.HasPermission("house.bypasssize"))
+            !isAdmin && !args.Player.Group.HasPermission("house.bypasssize"))
         {
             args.Player.SendErrorMessage("设置的尺寸不符合要求。");
             args.Player.TempPoints[0] = Point.Zero;
@@ -1696,4 +1707,251 @@ public class HouseCore
 
     // ── 辅助方法 ──
     // （原 ParseHouseWithCoords 已移除：传送点/驱离点改为以玩家当前位置设置）
+
+    // ══════════════════════════════════════════════════════════
+    //  领地进入指令管理（/h cmd）
+    //  权限：house.admin 或 该领地房主/共有者（house.edit 基础校验）
+    // ══════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// /h cmd 子命令：
+    ///   /h cmd list [屋名]                        —— 列出领地进入指令
+    ///   /h cmd add [屋名] 指令 [--escape 0/1] [--self 0/1] [--bypass 0/1]
+    ///                                            —— 添加一条指令（缺省屋名=当前所在房屋）
+    ///   /h cmd remove [屋名] 序号                  —— 删除指定序号（从 1 开始）
+    ///   /h cmd clear [屋名]                       —— 清空全部指令
+    /// </summary>
+    private void HandleCommands(CommandArgs args)
+    {
+        if (args.Parameters.Count < 2)
+        {
+            args.Player.SendErrorMessage("用法: /h cmd list|add|remove|clear，输入 /h cmd 查看更多信息。");
+            args.Player.SendMessage("/h cmd list [屋名] —— 列出领地进入指令", Color.White);
+            args.Player.SendMessage("/h cmd add [屋名] 指令 [--escape 0/1] [--self 0/1] [--bypass 0/1] —— 添加", Color.White);
+            args.Player.SendMessage("/h cmd remove [屋名] 序号 —— 删除（从 1 开始）", Color.White);
+            args.Player.SendMessage("/h cmd clear [屋名] —— 清空全部指令", Color.White);
+            args.Player.SendMessage("占位符: {player} {x} {y} {time} {house}；转义=占位符值转义；self=以玩家自身执行；bypass=越过权限", Color.Gray);
+            return;
+        }
+
+        var sub = args.Parameters[1].ToLower();
+        switch (sub)
+        {
+            case "list":
+                HandleCmdList(args);
+                break;
+            case "add":
+                HandleCmdAdd(args);
+                break;
+            case "remove":
+            case "del":
+                HandleCmdRemove(args);
+                break;
+            case "clear":
+                HandleCmdClear(args);
+                break;
+            default:
+                args.Player.SendErrorMessage("未知子命令，可用: list / add / remove / clear");
+                break;
+        }
+    }
+
+    /// <summary>是否可管理该领地的进入指令：house.admin 或 房主/共有者。</summary>
+    private static bool CanManageCommands(TSPlayer player, House house)
+    {
+        if (player == null || !player.IsLoggedIn || player.Account == null)
+            return false;
+        var id = player.Account.ID.ToString();
+        return player.Group.HasPermission(GetDataHandlers.AdminHouse) ||
+               id == house.Author ||
+               Utils.OwnsHouse(id, house);
+    }
+
+    /// <summary>解析屋名：缺省取当前所在房屋；第二个参数若是屋名则消耗掉。</summary>
+    private static House? ResolveCommandHouse(CommandArgs args, ref int index)
+    {
+        if (args.Parameters.Count > index)
+        {
+            var h = Utils.GetHouseByName(args.Parameters[index]);
+            if (h != null)
+            {
+                index++;
+                return h;
+            }
+        }
+        return Utils.CurrentHouse(args.Player);
+    }
+
+    private void HandleCmdList(CommandArgs args)
+    {
+        int idx = 2;
+        var house = ResolveCommandHouse(args, ref idx);
+        if (house == null)
+        {
+            args.Player.SendErrorMessage("未找到房屋。用法: /h cmd list [屋名]（缺省当前所在房屋）");
+            return;
+        }
+        if (!CanManageCommands(args.Player, house))
+        {
+            args.Player.SendErrorMessage("你没有权力管理这个房子的进入指令!");
+            return;
+        }
+
+        var list = house.Commands ?? new();
+        if (list.Count == 0)
+        {
+            args.Player.SendMessage($"房屋 {house.Name} 没有配置进入指令。", Color.Yellow);
+            return;
+        }
+        args.Player.SendMessage($"房屋 {house.Name} 的进入指令（{list.Count} 条）:", Color.Gold);
+        for (var i = 0; i < list.Count; i++)
+        {
+            var c = list[i];
+            var state = c.Enabled ? "开" : "关";
+            var esc = c.Escape ? "转义" : "不转义";
+            var self = c.AsSelf ? "本人" : "服务器";
+            var bypass = c.BypassPermission ? "越过权限" : "权限检查";
+            args.Player.SendMessage(
+                $"[{i + 1}] ({state}/{esc}/{self}/{bypass}) {c.Command}",
+                Color.White);
+        }
+    }
+
+    private void HandleCmdAdd(CommandArgs args)
+    {
+        // 语法: /h cmd add [屋名] 指令 [--escape 0/1] [--self 0/1] [--bypass 0/1]
+        int idx = 2;
+        var house = ResolveCommandHouse(args, ref idx);
+        if (house == null)
+        {
+            args.Player.SendErrorMessage("未找到房屋。用法: /h cmd add [屋名] 指令 [...选项]（缺省当前所在房屋）");
+            return;
+        }
+        if (!CanManageCommands(args.Player, house))
+        {
+            args.Player.SendErrorMessage("你没有权力管理这个房子的进入指令!");
+            return;
+        }
+        if (args.Parameters.Count <= idx)
+        {
+            args.Player.SendErrorMessage("缺少指令内容。用法: /h cmd add [屋名] 指令 [--escape 0/1] [--self 0/1] [--bypass 0/1]");
+            return;
+        }
+
+        var cmdText = args.Parameters[idx];
+        var escape = true;
+        var asSelf = true;
+        var bypass = false;
+
+        // 解析尾部选项
+        for (var i = idx + 1; i < args.Parameters.Count; i++)
+        {
+            var p = args.Parameters[i];
+            if (p == "--escape" && i + 1 < args.Parameters.Count)
+            {
+                if (int.TryParse(args.Parameters[++i], out var v)) escape = v != 0;
+            }
+            else if (p == "--self" && i + 1 < args.Parameters.Count)
+            {
+                if (int.TryParse(args.Parameters[++i], out var v)) asSelf = v != 0;
+            }
+            else if (p == "--bypass" && i + 1 < args.Parameters.Count)
+            {
+                if (int.TryParse(args.Parameters[++i], out var v)) bypass = v != 0;
+            }
+            else
+            {
+                cmdText += " " + p;
+            }
+        }
+
+        cmdText = cmdText.Trim();
+        if (string.IsNullOrEmpty(cmdText))
+        {
+            args.Player.SendErrorMessage("指令内容不能为空。");
+            return;
+        }
+        if (house.Commands == null)
+            house.Commands = new();
+        if (house.Commands.Count >= 50)
+        {
+            args.Player.SendErrorMessage("领地进入指令最多 50 条。");
+            return;
+        }
+
+        house.Commands.Add(new HouseCommandConfig
+        {
+            Enabled = true,
+            Command = cmdText,
+            Escape = escape,
+            AsSelf = asSelf,
+            BypassPermission = bypass
+        });
+
+        if (!HouseManager.UpdateCommands(house.Name, house.Commands))
+        {
+            house.Commands.RemoveAt(house.Commands.Count - 1);
+            args.Player.SendErrorMessage("保存失败。");
+            return;
+        }
+        args.Player.SendSuccessMessage($"房屋 {house.Name} 已添加进入指令: {cmdText}（转义={(escape ? "开" : "关")}, 本人执行={(asSelf ? "开" : "关")}, 越过权限={(bypass ? "开" : "关")}）");
+    }
+
+    private void HandleCmdRemove(CommandArgs args)
+    {
+        int idx = 2;
+        var house = ResolveCommandHouse(args, ref idx);
+        if (house == null)
+        {
+            args.Player.SendErrorMessage("未找到房屋。用法: /h cmd remove [屋名] 序号");
+            return;
+        }
+        if (!CanManageCommands(args.Player, house))
+        {
+            args.Player.SendErrorMessage("你没有权力管理这个房子的进入指令!");
+            return;
+        }
+        if (args.Parameters.Count <= idx || !int.TryParse(args.Parameters[idx], out var index) || index < 1)
+        {
+            args.Player.SendErrorMessage("请指定要删除的序号（从 1 开始）。");
+            return;
+        }
+        var list = house.Commands ?? new();
+        if (index > list.Count)
+        {
+            args.Player.SendErrorMessage($"序号 {index} 超出范围（共 {list.Count} 条）。");
+            return;
+        }
+        var removed = list[index - 1];
+        list.RemoveAt(index - 1);
+        if (!HouseManager.UpdateCommands(house.Name, list))
+        {
+            args.Player.SendErrorMessage("保存失败。");
+            return;
+        }
+        args.Player.SendSuccessMessage($"已删除房屋 {house.Name} 的第 {index} 条进入指令: {removed.Command}");
+    }
+
+    private void HandleCmdClear(CommandArgs args)
+    {
+        int idx = 2;
+        var house = ResolveCommandHouse(args, ref idx);
+        if (house == null)
+        {
+            args.Player.SendErrorMessage("未找到房屋。用法: /h cmd clear [屋名]");
+            return;
+        }
+        if (!CanManageCommands(args.Player, house))
+        {
+            args.Player.SendErrorMessage("你没有权力管理这个房子的进入指令!");
+            return;
+        }
+        house.Commands = new();
+        if (!HouseManager.UpdateCommands(house.Name, house.Commands))
+        {
+            args.Player.SendErrorMessage("保存失败。");
+            return;
+        }
+        args.Player.SendSuccessMessage($"已清空房屋 {house.Name} 的全部进入指令。");
+    }
 }

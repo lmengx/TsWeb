@@ -53,11 +53,23 @@ public static class Database
                 AllowGrave   INTEGER DEFAULT 1,
                 AllowSwitch  INTEGER DEFAULT 1,
                 AllowDoor    INTEGER DEFAULT 1,
-                AllowFragile INTEGER DEFAULT 1
+                AllowFragile INTEGER DEFAULT 1,
+
+                Commands     TEXT    DEFAULT '[]'
             );
         ";
         cmd.ExecuteNonQuery();
-        // 不做 ALTER TABLE 迁移：旧表结构缺列时，读取路径（Utils.ReadHouse 的 SafeGetInt）
-        // 自动兜底为默认值 0，保证任何时刻、任何历史表结构下插件都能正常加载。
+
+        // 旧库补列：SQLite 不支持 IF NOT EXISTS 的 ADD COLUMN，用 try/catch 兜底（列已存在时报错忽略）。
+        try
+        {
+            using var alter = conn.CreateCommand();
+            alter.CommandText = "ALTER TABLE HousingDistrict ADD COLUMN Commands TEXT DEFAULT '[]'";
+            alter.ExecuteNonQuery();
+        }
+        catch
+        {
+            // 列已存在，忽略
+        }
     }
 }

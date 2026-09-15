@@ -486,6 +486,8 @@ namespace TShockData
                 "/data/house/list",
                 "/data/house/config",
                 "/data/house/config/set",
+                "/data/house/commands",
+                "/data/house/commands/save",
                 "/data/buildings/list",
                 "/data/buildings/info",
                 "/data/buildings/export",
