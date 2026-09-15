@@ -6,7 +6,7 @@
 //  卡片函数只负责输出片段，不再自带 <style>。
 // ══════════════════════════════════════════════════════════
 
-import { activeStyleBlock } from '../theme'
+import { activeCssVars, activeExtraCss } from '../theme'
 
 const ENTITY_MAP: Record<string, string> = {
   '&': '&amp;',
@@ -310,8 +310,10 @@ export function frame(bodyHtml: string, options: FrameOptions = {}): string {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
-${activeStyleBlock()}
+/* 发射顺序：CSS 变量 → 组件样式表 → 主题皮肤（皮肤在最后，可自然覆盖组件规则） */
+${activeCssVars()}
 ${COMPONENT_CSS}
+${activeExtraCss()}
 </style>
 </head>
 <body>

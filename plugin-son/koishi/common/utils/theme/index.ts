@@ -101,12 +101,20 @@ export function activeTokensOr(): ThemeTokens {
   return activeTokens
 }
 
-/** 当前主题的完整样式（变量定义 + 主题附加样式），供 frame 使用 */
-export function activeStyleBlock(): string {
-  const vars = buildCssVars(activeTokens)
+/** 当前主题的 CSS 变量定义（必须最先发射，供组件样式表引用） */
+export function activeCssVars(): string {
+  return buildCssVars(activeTokens)
+}
+
+/** 当前主题的附加皮肤样式（在组件样式表之后发射，可覆盖组件规则） */
+export function activeExtraCss(): string {
   // customCss 属于令牌（ThemeTokens.customCss），随主题差异项一起合并
-  const extra = activeTokens.customCss
-    ? `\n/* theme:${activeId} */${activeTokens.customCss}`
+  return activeTokens.customCss
+    ? `/* theme:${activeId} */${activeTokens.customCss}`
     : ''
-  return `${vars}${extra}`
+}
+
+/** 变量 + 皮肤（兼容旧调用，frame 已改成分段发射） */
+export function activeStyleBlock(): string {
+  return `${activeCssVars()}${activeExtraCss()}`
 }
