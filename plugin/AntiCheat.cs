@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System;
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System;
 using System.Collections.Generic;
 using System.Data;
 using System.IO;
@@ -50,8 +50,17 @@ namespace TShockData
         {
             LoadConfig();
             LoadProjConfig();
-            int totalItems = _config.Restrictions.Sum(r => r.Items.Count);
-            TShock.Log.ConsoleInfo($"[TSWeb] 反作弊模块已加载 - 启用: {_config.Enabled}, 自动扫描: {_config.AutoScan}, 违禁物: {totalItems}");
+
+            // 统计当前清单条数（物品 / 弹幕），用于确认是否已收到后端下发的默认配置
+            int totalItems = _config.Restrictions?.Where(r => r?.Items != null).Sum(r => r.Items.Count) ?? 0;
+            int totalProjs = _projConfig.Restrictions?.Where(r => r?.Projectiles != null).Sum(r => r.Projectiles.Count) ?? 0;
+            TShock.Log.ConsoleInfo($"[TSWeb] 反作弊模块已加载 - 启用: {_config.Enabled}, 自动扫描: {_config.AutoScan}, 违禁物: {totalItems}, 违禁弹幕: {totalProjs}");
+
+            // 空清单是首次运行的正常状态：清单以后端下发为唯一来源，插件不再内置任何规则
+            if (totalItems == 0 && totalProjs == 0)
+            {
+                TShock.Log.ConsoleInfo("[TSWeb] 反作弊清单为空，等待后端下发默认配置（网页端打开反作弊开关即自动下发）");
+            }
         }
 
         public static void LoadProjConfig()
@@ -66,118 +75,28 @@ namespace TShockData
 
                 if (!File.Exists(ProjConfigPath))
                 {
-                    var defaultConfig = new ProjRestrictionConfig
+                    // 首次运行只落盘「空配置」占位，绝不写入内置违禁规则：
+                    // 违禁清单以后端下发为唯一来源（backend/resources/默认配置/弹幕违禁.json，
+                    // 由后端 anticheatDefaults.pushDefaultToPlugin 推送，入口为前端「启用检测」开关）。
+                    // 若此处写入非空规则，后端 hasEffectiveConfig 会把插件端判定为「已有配置」而跳过下发，
+                    // 服务器将长期运行在插件内置的旧清单上（即本次修复的问题）。
+                    var emptyConfig = new ProjRestrictionConfig
                     {
                         Enabled = false,
                         DamageLimit = 20000,
-                        Restrictions = new List<ProjRestriction>
-                        {
-                            new ProjRestriction
-                            {
-                                Progress = "始终生效",
-                                Projectiles = new List<RestrictedProj>
-                                {
-                                    new RestrictedProj { ID = 108, Method = "ban" },
-                                    new RestrictedProj { ID = 136, Method = "kick" },
-                                    new RestrictedProj { ID = 137, Method = "kick" },
-                                    new RestrictedProj { ID = 138, Method = "kick" },
-                                    new RestrictedProj { ID = 142, Method = "kick" },
-                                    new RestrictedProj { ID = 143, Method = "kick" },
-                                    new RestrictedProj { ID = 144, Method = "kick" },
-                                    new RestrictedProj { ID = 164, Method = "ban" }
-                                }
-                            },
-                            new ProjRestriction
-                            {
-                                Progress = "蜂后",
-                                Projectiles = new List<RestrictedProj>
-                                {
-                                    new RestrictedProj { ID = 183, Method = "ban" },
-                                    new RestrictedProj { ID = 469, Method = "ban" }
-                                }
-                            },
-                            new ProjRestriction
-                            {
-                                Progress = "血肉墙",
-                                Projectiles = new List<RestrictedProj>
-                                {
-                                    new RestrictedProj { ID = 79, Method = "ban" },
-                                    new RestrictedProj { ID = 91, Method = "ban" },
-                                    new RestrictedProj { ID = 161, Method = "ban" }
-                                }
-                            },
-                            new ProjRestriction
-                            {
-                                Progress = "世纪之花",
-                                Projectiles = new List<RestrictedProj>
-                                {
-                                    new RestrictedProj { ID = 302, Method = "ban" },
-                                    new RestrictedProj { ID = 356, Method = "ban" }
-                                }
-                            },
-                            new ProjRestriction
-                            {
-                                Progress = "石巨人",
-                                Projectiles = new List<RestrictedProj>
-                                {
-                                    new RestrictedProj { ID = 182, Method = "ban" }
-                                }
-                            },
-                            new ProjRestriction
-                            {
-                                Progress = "光之女皇",
-                                Projectiles = new List<RestrictedProj>
-                                {
-                                    new RestrictedProj { ID = 915, Method = "ban" }
-                                }
-                            },
-                            new ProjRestriction
-                            {
-                                Progress = "拜月教教徒",
-                                Projectiles = new List<RestrictedProj>
-                                {
-                                    new RestrictedProj { ID = 625, Method = "ban" },
-                                    new RestrictedProj { ID = 632, Method = "ban" },
-                                    new RestrictedProj { ID = 634, Method = "ban" },
-                                    new RestrictedProj { ID = 636, Method = "ban" },
-                                    new RestrictedProj { ID = 611, Method = "ban" },
-                                    new RestrictedProj { ID = 613, Method = "ban" },
-                                    new RestrictedProj { ID = 615, Method = "ban" }
-                                }
-                            },
-                            new ProjRestriction
-                            {
-                                Progress = "月亮领主",
-                                Projectiles = new List<RestrictedProj>
-                                {
-                                    new RestrictedProj { ID = 933, Method = "ban" },
-                                    new RestrictedProj { ID = 1100, Method = "ban" },
-                                    new RestrictedProj { ID = 502, Method = "ban" },
-                                    new RestrictedProj { ID = 503, Method = "ban" },
-                                    new RestrictedProj { ID = 1035, Method = "ban" },
-                                    new RestrictedProj { ID = 603, Method = "ban" },
-                                    new RestrictedProj { ID = 645, Method = "ban" },
-                                    new RestrictedProj { ID = 643, Method = "ban" },
-                                    new RestrictedProj { ID = 650, Method = "ban" },
-                                    new RestrictedProj { ID = 715, Method = "ban" },
-                                    new RestrictedProj { ID = 716, Method = "ban" },
-                                    new RestrictedProj { ID = 717, Method = "ban" },
-                                    new RestrictedProj { ID = 718, Method = "ban" },
-                                    new RestrictedProj { ID = 609, Method = "ban" },
-                                    new RestrictedProj { ID = 610, Method = "ban" }
-                                }
-                            }
-                        }
+                        Restrictions = new List<ProjRestriction>()
                     };
 
-                    var json = JsonConvert.SerializeObject(defaultConfig, Formatting.Indented);
+                    var json = JsonConvert.SerializeObject(emptyConfig, Formatting.Indented);
                     File.WriteAllText(ProjConfigPath, json);
-                    _projConfig = defaultConfig;
+                    _projConfig = emptyConfig;
+                    TShock.Log.ConsoleInfo("[TSWeb] 弹幕违禁配置不存在，已生成空配置，等待后端下发默认配置");
                 }
                 else
                 {
                     var json = File.ReadAllText(ProjConfigPath);
                     _projConfig = JsonConvert.DeserializeObject<ProjRestrictionConfig>(json) ?? new ProjRestrictionConfig();
+                    _projConfig.Restrictions ??= new List<ProjRestriction>();
                 }
             }
             catch (Exception ex)
@@ -332,37 +251,31 @@ namespace TShockData
 
                 if (!File.Exists(ConfigPath))
                 {
-                    var defaultConfig = new AntiCheatConfig
+                    // 首次运行只落盘「空配置」占位，绝不写入内置违禁规则：
+                    // 违禁清单以后端下发为唯一来源（backend/resources/默认配置/物品违禁.json，
+                    // 由后端 anticheatDefaults.pushDefaultToPlugin 推送，入口为前端「启用检测」开关）。
+                    // 若此处写入非空规则，后端 hasEffectiveConfig 会把插件端判定为「已有配置」而跳过下发，
+                    // 服务器将长期运行在插件内置的旧清单上（即本次修复的问题）。
+                    // 扫描间隔取 10 秒，与后端默认配置资源保持一致（后端下发时会整体覆盖）。
+                    var emptyConfig = new AntiCheatConfig
                     {
                         Enabled = false,
                         AutoScan = true,
-                        AutoScanInterval = 600,
-                        Restrictions = new List<ProgressRestriction>
-                        {
-                            new ProgressRestriction
-                            {
-                                Progress = "始终生效",
-                                Items = new List<RestrictedItem>()
-                            },
-                            new ProgressRestriction
-                            {
-                                Progress = "月亮领主",
-                                Items = new List<RestrictedItem>
-                                {
-                                    new RestrictedItem { ID = 4956, Stack = 1, Method = "ban" }
-                                }
-                            }
-                        }
+                        AutoScanInterval = 10,
+                        ConfiscateItems = false,
+                        Restrictions = new List<ProgressRestriction>()
                     };
 
-                    var json = JsonConvert.SerializeObject(defaultConfig, Formatting.Indented);
+                    var json = JsonConvert.SerializeObject(emptyConfig, Formatting.Indented);
                     File.WriteAllText(ConfigPath, json);
-                    _config = defaultConfig;
+                    _config = emptyConfig;
+                    TShock.Log.ConsoleInfo("[TSWeb] 物品违禁配置不存在，已生成空配置，等待后端下发默认配置");
                 }
                 else
                 {
                     var json = File.ReadAllText(ConfigPath);
                     _config = JsonConvert.DeserializeObject<AntiCheatConfig>(json) ?? new AntiCheatConfig();
+                    _config.Restrictions ??= new List<ProgressRestriction>();
 
                     // 兼容旧配置字段名：旧版为 "自动扫描间隔-秒"，现统一为 "扫描间隔"
                     if (_config.AutoScanInterval <= 0)

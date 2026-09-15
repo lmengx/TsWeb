@@ -28,8 +28,10 @@ router.post('/enable', async (req, res) => {
 })
 
 // 手动下发默认配置（管理端「应用默认配置」按钮，可选）
+//   force=true 时忽略「插件端已有配置则跳过」的保护，强制以权威默认覆盖插件端清单
+//   （用于插件端仍被旧版内置兜底清单占位、或需重置为默认的场景）
 router.post('/apply-defaults', async (req, res) => {
-  const { item, proj } = req.body || {}
+  const { item, proj, force } = req.body || {}
   const kinds = []
   if (item) kinds.push('item')
   if (proj) kinds.push('proj')
@@ -38,7 +40,7 @@ router.post('/apply-defaults', async (req, res) => {
   }
   const results = {}
   try {
-    for (const kind of kinds) results[kind] = await pushDefaultToPlugin(kind)
+    for (const kind of kinds) results[kind] = await pushDefaultToPlugin(kind, !!force)
     const failed = Object.values(results).some(r => r?.status === 'error')
     res.status(failed ? 502 : 200).json({ status: failed ? '502' : '200', results })
   } catch (err) {

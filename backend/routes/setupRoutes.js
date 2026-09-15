@@ -3,6 +3,7 @@ import jwt from 'jsonwebtoken'
 import { getConfig, getServers, addServer } from '../config.js'
 import { validateSetupToken } from '../setupToken.js'
 import tshockService, { runWithServer } from '../services/tshockService.js'
+import { enableAntiCheat } from '../services/anticheatDefaults.js'
 import { exec } from 'child_process'
 import { promisify } from 'util'
 import fs from 'fs/promises'
@@ -597,13 +598,37 @@ router.post('/plugin-init-v2', setupOrAdmin, async (req, res) => {
     }
 
     // 3. 反作弊开关（物品/弹幕）
+    //    开启必须经 anticheatDefaults.enableAntiCheat：插件端无有效配置时先下发后端默认配置（启用=true），
+    //    已有配置时仅翻转开关。插件端已不再内置任何默认清单，若直接调 /data/anticheat/enable，
+    //    会出现「开关已开、清单为空」的假开启状态（旧版靠插件内置清单掩盖了该问题）。
+    //    关闭是纯翻转开关，仍直接调插件轻量接口。
     if (anticheat) {
-      const params = []
-      if (anticheat.itemEnabled !== undefined) params.push(`itemEnabled=${anticheat.itemEnabled}`)
-      if (anticheat.projEnabled !== undefined) params.push(`projEnabled=${anticheat.projEnabled}`)
-      if (params.length > 0) {
-        const r = await tshockFetchFor(target, `/data/anticheat/enable?${params.join('&')}`)
-        results.anticheat = { ok: r?.status === '200' || !r?.error, response: r }
+      const detail = {}
+
+      const enableKinds = []
+      if (anticheat.itemEnabled === true) enableKinds.push('item')
+      if (anticheat.projEnabled === true) enableKinds.push('proj')
+      if (enableKinds.length > 0) {
+        // enableAntiCheat 依赖「当前服务器」上下文读取插件端配置，须绑定本次目标服务器
+        const applied = await runWithServer(target.id, async () => {
+          const out = {}
+          for (const kind of enableKinds) out[kind] = await enableAntiCheat(kind)
+          return out
+        })
+        Object.assign(detail, applied)
+      }
+
+      const offParams = []
+      if (anticheat.itemEnabled === false) offParams.push('itemEnabled=false')
+      if (anticheat.projEnabled === false) offParams.push('projEnabled=false')
+      if (offParams.length > 0) {
+        const r = await tshockFetchFor(target, `/data/anticheat/enable?${offParams.join('&')}`)
+        detail.disable = r?.error ? { status: 'error', error: r.error } : { status: 'ok' }
+      }
+
+      if (Object.keys(detail).length > 0) {
+        const failed = Object.values(detail).some(v => v?.status === 'error')
+        results.anticheat = { ok: !failed, response: detail }
       }
     }
 

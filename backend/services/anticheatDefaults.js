@@ -54,17 +54,21 @@ export async function hasEffectiveConfig(kind) {
 
 /**
  * 将后端默认配置下发到插件端（启用=true）。
- * 仅当插件端无有效限制时执行；已有配置则不覆盖（返回 skipped）。
+ * 默认仅当插件端无有效限制时执行；已有配置则不覆盖（返回 skipped）。
+ * force=true 时跳过该判断，强制以权威默认覆盖插件端清单
+ * （用于插件端仍被旧版内置兜底清单占位、或管理员主动重置为默认的场景）。
  */
-export async function pushDefaultToPlugin(kind) {
+export async function pushDefaultToPlugin(kind, force = false) {
   const server = getCurrentServer()
   if (!server || !server.id) {
     return { status: 'error', error: '当前服务器未连接或未配置（缺少 x-server-id）' }
   }
 
-  const alreadyConfigured = await hasEffectiveConfig(kind)
-  if (alreadyConfigured) {
-    return { status: 'skipped', message: '插件端已有配置，未覆盖' }
+  if (!force) {
+    const alreadyConfigured = await hasEffectiveConfig(kind)
+    if (alreadyConfigured) {
+      return { status: 'skipped', message: '插件端已有配置，未覆盖' }
+    }
   }
 
   const defaultConfig = getDefaultConfigEnabled(kind)
