@@ -39,6 +39,28 @@ export function listThemes(): Array<{ id: string; name: string; description: str
   return THEMES.map(t => ({ id: t.id, name: t.name, description: t.description }))
 }
 
+/** 控制台「样式微调」的中文配置键（与 utils/config.ts 的 ThemePatchConfig 结构一致） */
+export interface ThemePatchConfigLike {
+  主色?: string
+  卡片圆角?: string
+  宽度缩放?: number
+}
+
+/**
+ * 把控制台「样式微调」配置键映射为 ThemePatch。
+ * 配置键是中文，ThemePatch 是内部英文键，历史上直接透传导致微调静默失效；
+ * 此函数独立于 Koishi，可脱离运行环境单测。
+ */
+export function patchFromConfig(cfg?: ThemePatchConfigLike | null): ThemePatch | undefined {
+  if (!cfg) return undefined
+  const patch: ThemePatch = {}
+  if (typeof cfg.主色 === 'string' && cfg.主色.trim()) patch.accent = cfg.主色.trim()
+  if (typeof cfg.卡片圆角 === 'string' && cfg.卡片圆角.trim()) patch.cardRadius = cfg.卡片圆角.trim()
+  const scale = Number(cfg.宽度缩放)
+  if (Number.isFinite(scale) && scale > 0 && scale !== 1) patch.widthScale = scale
+  return Object.keys(patch).length > 0 ? patch : undefined
+}
+
 // ── 当前主题状态 ──
 
 let activeId = DEFAULT_THEME_ID
