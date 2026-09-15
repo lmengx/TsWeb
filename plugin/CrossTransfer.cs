@@ -48,6 +48,12 @@ namespace TShockData
 		[JsonProperty("本服ID")] public string SelfServerId { get; set; } = "server-a";
 		/// <summary>本服密钥：签名时用自己的密钥；其他服在各自配置的对端条目里填这把密钥用于验签</summary>
 		[JsonProperty("本服密钥")] public string SelfSecret { get; set; } = "";
+		/// <summary>
+		/// 切换世界前清理客户端旧世界实体视图（其他玩家/NPC/掉落物/晶塔），参考 Dimensions 的
+		/// clearutils：桥接不重连客户端，客户端实体数组不会自己清空，不清理会残留旧世界显示
+		/// （晶塔残留会导致同类型晶塔挖掉后无法再放置）。默认开启。
+		/// </summary>
+		[JsonProperty("切换时清理客户端实体")] public bool ClearClientEntities { get; set; } = true;
 		[JsonProperty("目标服务器列表")] public System.Collections.Generic.List<TransferServerInfo> Servers { get; set; } = new();
 	}
 
@@ -140,6 +146,9 @@ namespace TShockData
 			_plugin = plugin;
 
 			LoadConfig();
+
+			// ═══ 切换世界时的客户端实体清理（Dimensions 式，解析晶塔 NetModule ID）═══
+			CrossEntitySync.Initialize();
 
 			// ═══ GetData 钩子：捕获玩家首次进入的 PlayerInfo 原始帧（跨服重放用）═══
 			ServerApi.Hooks.NetGetData.Register(plugin, OnNetGetData);
@@ -569,6 +578,11 @@ namespace TShockData
 			                                // 杜绝切换期间旧服残留数据串到客户端（“同时收到两个服的数据包”）。
 			public bool Switching;              // 切换中：旧读循环 finally 不得清理桥接
 			public readonly object WriteLock = new();
+			/// <summary>客户端自认的自身 slot（首次 = A 服 slot，每次握手后 = 目标服 RemoteSlot）。
+			/// 清理实体时必须跳过该槽，否则客户端会把自己当作已下线。</summary>
+			public int SelfSlot = -1;
+			/// <summary>当前目标服世界的晶塔台账（下行转发时更新，切换前据此发 Removed）</summary>
+			public readonly CrossEntitySync.PylonLedger Pylons = new();
 		}
 
 		private static readonly System.Collections.Concurrent.ConcurrentDictionary<int, BridgeSession> Bridges = new();
@@ -608,6 +622,7 @@ namespace TShockData
 			var session = new BridgeSession
 			{
 				PlayerIndex = player.Index,
+				SelfSlot = player.Index,   // 此刻客户端自认的自身 slot = A 服 slot（清理时跳过）
 				PlayerName = player.Name,
 				UUID = player.UUID,
 				RealIP = player.IP,
@@ -710,6 +725,12 @@ namespace TShockData
 				TShock.Log.ConsoleWarn($"[CrossTransfer] 等待 A 服完整退出失败: {ex.Message}");
 			}
 
+			// 0) 清理客户端旧世界实体视图（参考 Dimensions clearutils：玩家 → NPC → 物品 → 晶塔）
+			//    必须早于世界数据重放：客户端此刻仍显示 A 服世界，清空后再接收 B 服完整快照。
+			//    晶塔用本服 Main.PylonSystem（客户端显示的正是本服世界的晶塔）。
+			CrossEntitySync.ClearBeforeSwitch(
+				player.Index, session.SelfSlot, CrossEntitySync.LocalPylonSnapshot(), session.Pylons);
+
 			// 1) 重放握手期缓存的 B 服世界数据快照（WorldInfo/tile/NPC/玩家等）
 			//    关键：必须转发 LoadPlayer(3)[B slot]——客户端据此把 Main.myPlayer 更新为目标服 slot，
 			//    B 服以该 slot 发的包才会被客户端渲染为"自己"（不转发 → 寄生/自身无实体/收别人包）。
@@ -720,6 +741,9 @@ namespace TShockData
 				if (frame.Length >= 3 && frame[2] == 37) continue;
 				SendToPlayerSocket(player.Index, frame);
 			}
+
+			// 1.1) 客户端已按 LoadPlayer(B slot) 切换自身视角 → 记录新的自身 slot 供下次清理跳过
+			session.SelfSlot = result.RemoteSlot;
 
 			// 2) 启动 B 服 → 玩家 下行读循环
 			session.ReadLoop = Task.Run(() => BridgeReadLoop(session));
@@ -781,6 +805,9 @@ namespace TShockData
 						HandleTargetControlPacket(bridge, frame);
 						continue;
 					}
+
+					// 晶塔台账：记录当前目标服世界里「客户端已看到」的晶塔（切换前据此发 Removed）
+					bridge.Pylons.Track(frame);
 
 					SendToPlayerSocket(bridge.PlayerIndex, frame);
 				}
@@ -1084,12 +1111,20 @@ namespace TShockData
 
 					bridge.Switching = false;
 
+					// 4.1) 清理客户端旧世界实体视图（参考 Dimensions clearutils）
+					//      旧世界是「上一目标服」，其晶塔由下行转发时建立的台账提供（无法靠本服状态得知）。
+					CrossEntitySync.ClearBeforeSwitch(
+						who, bridge.SelfSlot, bridge.Pylons.Snapshot(), bridge.Pylons);
+
 					// 5) 重放新世界数据（转发 LoadPlayer 同步 myPlayer 到新目标服 slot，其余照旧）
 					foreach (var frame in result.BufferedPackets)
 					{
 						if (frame.Length >= 3 && frame[2] == 37) continue;
 						SendToPlayerSocket(who, frame);
 					}
+
+					// 5.1) 客户端自身 slot 已切到新目标服 → 记录供下次清理跳过
+					bridge.SelfSlot = result.RemoteSlot;
 
 					// 6) 新读循环
 					bridge.ReadLoop = Task.Run(() => BridgeReadLoop(bridge));
@@ -1202,7 +1237,7 @@ namespace TShockData
 		}
 
 		/// <summary>直发玩家 socket（不走 NetMessage.SendBytes，天然绕过出站拦截钩子）</summary>
-		private static void SendToPlayerSocket(int who, byte[] data)
+		internal static void SendToPlayerSocket(int who, byte[] data)
 		{
 			try
 			{
