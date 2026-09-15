@@ -23,6 +23,24 @@ export async function listHouses(page = 1, pageSize = 20) {
   return res.json()
 }
 
+// ═══════════════ 领地进入指令 ═══════════════
+// 插件端 /data/house/commands（house.admin 权限），经后端通用代理 /api/tshock/data/* 转发
+
+// 读取领地进入指令列表（payload: { name, commands: [{enabled, command, escape, asSelf, bypass}] }）
+export async function getHouseCommands(name) {
+  const res = await get(`/api/tshock/data/house/commands?name=${encodeURIComponent(name)}`)
+  return res.json()
+}
+
+// 整体保存领地进入指令（name 屋名，commands 为数组）
+export async function saveHouseCommands(name, commands) {
+  const res = await post('/api/tshock/data/house/commands/save', {
+    name,
+    commands: JSON.stringify(commands)
+  })
+  return res.json()
+}
+
 export async function listBuildings(page = 1, pageSize = 20) {
   const res = await get(`/api/tshock/data/buildings/list?page=${page}&pageSize=${pageSize}`)
   return res.json()

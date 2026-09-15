@@ -4,7 +4,7 @@ import { listHouses, listBuildings, getBuildingInfo,
   exportBuildingToLocal, exportBuildingToBackend, getOnlinePlayers,
   deleteLocalBuilding, listBackendBuildings, sendBuildingToBackend,
   uploadBuildingToPlugin, importBuildingToWorld, deleteBackendBuilding, downloadBackendBuilding,
-  getHouseConfig, setHouseEnabled } from '../../api/houseApi.js'
+  getHouseConfig, setHouseEnabled, getHouseCommands, saveHouseCommands } from '../../api/houseApi.js'
 import Loading from '../../components/Loading.vue'
 
 // ═══ 房屋系统总开关（HouseRegion.json"启用"，默认开）═══
@@ -88,10 +88,109 @@ const fetchHouses = async () => {
   housesLoading.value = false
 }
 
-const toggleHouse = (name) => { expanded.value[name] = !expanded.value[name] }
+const toggleHouse = (name) => {
+  const next = !expanded.value[name]
+  expanded.value[name] = next
+  if (next && !cmdEditors.value[name] && !cmdLoading.value[name]) {
+    loadHouseCommands({ name })
+  }
+}
 const housePrev = () => { if (housePage.value > 1) { housePage.value--; fetchHouses() } }
 const houseNext = () => { if (housePage.value < houseTotalPages.value) { housePage.value++; fetchHouses() } }
 const areaText = (h) => `(${h.area.x}, ${h.area.y}) → (${h.area.x + h.area.width - 1}, ${h.area.y + h.area.height - 1})`
+
+// ═══ 领地进入指令（house.admin 管理）═══
+const cmdLoading = ref({})       // name → 是否加载中
+const cmdSaving = ref('')        // 正在保存的房屋名
+const cmdError = ref({})         // name → 错误信息
+// 每房屋编辑态：{ name, commands: [{enabled, command, escape, asSelf, bypass}], dirty }
+const cmdEditors = ref({})
+
+const newCmdPlaceholder = '例: /say {player} 进入了 {house}'
+
+const loadHouseCommands = async (house) => {
+  const name = house.name
+  cmdLoading.value = { ...cmdLoading.value, [name]: true }
+  cmdError.value = { ...cmdError.value, [name]: '' }
+  try {
+    const r = await getHouseCommands(name)
+    if (r.error) {
+      cmdError.value = { ...cmdError.value, [name]: r.error }
+    } else {
+      cmdEditors.value = {
+        ...cmdEditors.value,
+        [name]: {
+          name,
+          commands: (r.commands || []).map(c => ({
+            enabled: !!c.enabled, command: c.command || '',
+            escape: !!c.escape, asSelf: !!c.asSelf, bypass: !!c.bypass
+          })),
+          dirty: false
+        }
+      }
+    }
+  } catch (err) {
+    cmdError.value = { ...cmdError.value, [name]: err.message }
+  }
+  cmdLoading.value = { ...cmdLoading.value, [name]: false }
+}
+
+const cmdEditorOf = (house) => cmdEditors.value[house.name] || null
+
+const cmdAddRow = (house) => {
+  const ed = cmdEditors.value[house.name]
+  if (!ed) return
+  ed.commands.push({ enabled: true, command: '', escape: true, asSelf: true, bypass: false })
+  ed.dirty = true
+}
+
+const cmdRemoveRow = (house, idx) => {
+  const ed = cmdEditors.value[house.name]
+  if (!ed) return
+  ed.commands.splice(idx, 1)
+  ed.dirty = true
+}
+
+const cmdMoveRow = (house, idx, dir) => {
+  const ed = cmdEditors.value[house.name]
+  if (!ed) return
+  const to = idx + dir
+  if (to < 0 || to >= ed.commands.length) return
+  const arr = ed.commands
+  ;[arr[idx], arr[to]] = [arr[to], arr[idx]]
+  ed.dirty = true
+}
+
+const cmdMarkDirty = (house) => {
+  const ed = cmdEditors.value[house.name]
+  if (ed) ed.dirty = true
+}
+
+const cmdSave = async (house) => {
+  const ed = cmdEditors.value[house.name]
+  if (!ed) return
+  // 过滤空指令
+  const list = ed.commands.filter(c => (c.command || '').trim() !== '')
+  if (list.length === 0) {
+    notify('至少保留一条非空指令，或清空后保存为空列表', 'error')
+    return
+  }
+  cmdSaving.value = house.name
+  cmdError.value = { ...cmdError.value, [house.name]: '' }
+  try {
+    const r = await saveHouseCommands(house.name, list)
+    if (r.error) {
+      cmdError.value = { ...cmdError.value, [house.name]: r.error }
+    } else {
+      ed.commands = list.map(c => ({ ...c }))
+      ed.dirty = false
+      notify(`房屋 ${house.name} 的进入指令已保存（${list.length} 条）`, 'ok')
+    }
+  } catch (err) {
+    cmdError.value = { ...cmdError.value, [house.name]: err.message }
+  }
+  cmdSaving.value = ''
+}
 
 // 房屋导出（插件本地 / 后端）
 const doExport = async (house, target) => {
@@ -434,6 +533,53 @@ onMounted(async () => {
                 <span class="perm-chip" :class="h.notify.enter === 1 ? 'on' : 'off'">进入通知 {{ h.notify.enter === 1 ? '开' : '关' }}</span>
               </div>
             </div>
+
+            <!-- 领地进入指令（house.admin 管理） -->
+            <div class="detail-row cmd-section">
+              <div class="detail-label">进入指令</div>
+              <div class="cmd-box">
+                <div v-if="cmdLoading[h.name]"><span class="text-muted">加载中...</span></div>
+                <div v-else-if="cmdError[h.name]" class="cmd-error">{{ cmdError[h.name] }}</div>
+                <div v-else-if="!cmdEditorOf(h)" class="text-muted">
+                  展开时未加载，点击
+                  <button class="op-btn small" @click="loadHouseCommands(h)">加载指令</button>
+                </div>
+                <template v-else>
+                  <div v-if="cmdEditorOf(h).commands.length === 0" class="text-muted">该领地暂无进入指令（玩家进入时触发，占位符 {player} {x} {y} {time} {house}）</div>
+                  <div v-for="(c, idx) in cmdEditorOf(h).commands" :key="idx" class="cmd-row">
+                    <div class="cmd-row-head">
+                      <span class="cmd-index">#{{ idx + 1 }}</span>
+                      <label class="cmd-flag" title="是否启用">
+                        <input type="checkbox" v-model="c.enabled" @change="cmdMarkDirty(h)" /> 启用
+                      </label>
+                      <label class="cmd-flag" title="转义字段：占位符文本值转义（空白折叠为下划线、剔除引号）">
+                        <input type="checkbox" v-model="c.escape" @change="cmdMarkDirty(h)" /> 转义
+                      </label>
+                      <label class="cmd-flag" title="以玩家自身执行">
+                        <input type="checkbox" v-model="c.asSelf" @change="cmdMarkDirty(h)" /> 本人执行
+                      </label>
+                      <label class="cmd-flag" title="是否可越过权限（跳过权限检查，仅建议高权限指令）">
+                        <input type="checkbox" v-model="c.bypass" @change="cmdMarkDirty(h)" /> 越过权限
+                      </label>
+                      <span class="cmd-ops">
+                        <button class="op-btn small" title="上移" @click="cmdMoveRow(h, idx, -1)">↑</button>
+                        <button class="op-btn small" title="下移" @click="cmdMoveRow(h, idx, 1)">↓</button>
+                        <button class="op-btn small danger" title="删除" @click="cmdRemoveRow(h, idx)">删除</button>
+                      </span>
+                    </div>
+                    <input class="cmd-input" v-model="c.command" :placeholder="newCmdPlaceholder"
+                           @input="cmdMarkDirty(h)" @keydown.enter.prevent="cmdSave(h)" />
+                  </div>
+                  <div class="cmd-footer">
+                    <button class="op-btn primary" @click="cmdAddRow(h)">+ 添加指令</button>
+                    <button class="op-btn" :disabled="cmdSaving === h.name" @click="cmdSave(h)">
+                      {{ cmdSaving === h.name ? '保存中...' : '保存' }}
+                    </button>
+                    <span v-if="cmdEditorOf(h).dirty" class="cmd-dirty">有未保存修改</span>
+                  </div>
+                </template>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -753,6 +899,22 @@ onMounted(async () => {
 .perm-chip.mid { background: rgba(99,102,241,.12); color: var(--accent-primary); }
 .perm-chip.off { background: rgba(245,158,11,.12); color: #f59e0b; }
 .text-muted { color: var(--text-muted); font-size: 0.85rem; }
+
+/* 领地进入指令 */
+.cmd-section { align-items: flex-start; }
+.cmd-box { flex: 1; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.cmd-error { color: var(--accent-error); font-size: 0.82rem; }
+.cmd-row { border: 1px solid var(--border-light); border-radius: var(--radius-md); background: var(--bg-card); padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
+.cmd-row-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.cmd-index { color: var(--text-muted); font-size: 0.75rem; font-weight: 600; }
+.cmd-flag { display: inline-flex; align-items: center; gap: 4px; color: var(--text-secondary); font-size: 0.78rem; cursor: pointer; }
+.cmd-flag input { cursor: pointer; }
+.cmd-ops { margin-left: auto; display: flex; gap: 4px; }
+.cmd-input { flex: 1; width: 100%; padding: 6px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border-light); background: var(--bg-tertiary); color: var(--text-primary); font-family: ui-monospace, Consolas, monospace; font-size: 0.82rem; }
+.cmd-input:focus { outline: none; border-color: var(--accent-primary); }
+.cmd-footer { display: flex; align-items: center; gap: 8px; margin-top: 2px; }
+.cmd-dirty { color: #f59e0b; font-size: 0.78rem; }
+.op-btn.small { padding: 3px 8px; font-size: 0.72rem; }
 
 /* 表格 */
 .table-wrap { overflow-x: auto; }
