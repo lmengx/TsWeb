@@ -1,4 +1,4 @@
-import { escapeHtml, frame, toNum } from '../frame'
+import { escapeHtml, footerBadgeText, frame, toNum } from '../frame'
 
 export interface OnlinePlayer {
   nickname: string
@@ -69,7 +69,7 @@ export function onlineListCard(data: OnlineStatusData): string {
   <div class="list">${rows}</div>
   <div class="foot">
     <span class="foot-name">在线玩家列表</span>
-    <span class="foot-tag">LIVE</span>
+    <span class="foot-tag">${escapeHtml(footerBadgeText('LIVE'))}</span>
   </div>
 </div>`)
 }

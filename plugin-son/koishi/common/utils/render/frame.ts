@@ -36,6 +36,20 @@ export function toNum(value: unknown, fallback = 0): number {
   return Number.isFinite(n) ? n : fallback
 }
 
+// ── 右下角徽标文字（模块级，由入口 apply() 注入配置） ──
+
+let footerBadgeOverride = ''
+
+/** 设置自定义徽标文字（配置项「徽标文字」，留空则各卡用默认值） */
+export function setFooterBadge(text: unknown) {
+  footerBadgeOverride = String(text ?? '').trim()
+}
+
+/** 取徽标文字：配置了自定义则用之，否则用各卡自己的默认值 */
+export function footerBadgeText(fallback: string): string {
+  return footerBadgeOverride || fallback
+}
+
 // ── 组件样式表（全部引用令牌变量） ──
 const COMPONENT_CSS = `
 *{margin:0;padding:0;box-sizing:border-box}

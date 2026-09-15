@@ -18,6 +18,8 @@ export interface Config {
   样式主题: string
   /** 卡片样式微调 */
   样式微调: ThemePatchConfig
+  /** 右下角徽标文字（信息卡 TSHOCK / 在线卡 LIVE 统一替换），留空用各卡默认 */
+  徽标文字: string
 }
 
 export const Config: Schema<Config> = Schema.object({
@@ -32,6 +34,7 @@ export const Config: Schema<Config> = Schema.object({
     卡片圆角: Schema.string().description('覆盖卡片圆角，如 12px；留空用主题默认'),
     宽度缩放: Schema.number().min(0.6).max(1.6).step(0.05).description('卡片整体宽度缩放').default(1),
   }).description('主题微调（可选）'),
+  徽标文字: Schema.string().description('右下角徽标文字（信息卡 TSHOCK / 在线卡 LIVE），留空用各卡默认').default(''),
 })
 
 /** 安全调用 REST API（GET），不暴露地址、密钥等调试信息 */

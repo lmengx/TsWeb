@@ -1,4 +1,4 @@
-import { escapeHtml, frame, toNum } from '../frame'
+import { escapeHtml, footerBadgeText, frame, toNum } from '../frame'
 
 export interface PlayerInfoData {
   player: string
@@ -54,7 +54,7 @@ export function playerInfoCard(data: PlayerInfoData): string {
   </div>
   <div class="footer">
     <span class="footer-qq">QQ ${escapeHtml(data.qq)}</span>
-    <span class="footer-badge">TSHOCK</span>
+    <span class="footer-badge">${escapeHtml(footerBadgeText('TSHOCK'))}</span>
   </div>
 </div>`, { wrapClass: 'w-info' })
 }
