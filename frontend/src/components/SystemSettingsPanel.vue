@@ -34,6 +34,11 @@ const onLinkedBlur = () => {
 // 当前登录用户（自己不可被删除/改角色）
 const currentUser = getUserFromStorage() || {}
 const isSelf = (a) => String(a.username || '').toLowerCase() === String(currentUser.username || '').toLowerCase()
+// 账户名首字符（列表头像块用；QQ 关联账户取首位数字同样成立）
+const initialOf = (name) => {
+  const s = String(name || '').trim()
+  return s ? s[0].toUpperCase() : '?'
+}
 
 // 按名称或 QQ 号过滤可选绑定用户
 const filteredLinkable = computed(() => {
@@ -311,7 +316,7 @@ onMounted(load)
 
     <!-- Tab2 账户管理 -->
     <div v-else class="sys-grid">
-      <div class="sys-card">
+      <div class="sys-card sys-card-wide">
         <h3>后端账户管理</h3>
         <p class="hint">管理员可用用户名或 QQ 号 + 密码登录。可从现有 QQ 绑定中选取用户（密码与游戏同源），也可手动创建独立账号。</p>
         <div class="card-toolbar">
@@ -319,45 +324,73 @@ onMounted(load)
         </div>
         <div class="account-table-wrap">
           <table class="account-table">
+            <colgroup>
+              <col />
+              <col class="col-role" />
+              <col class="col-qq" />
+              <col class="col-op" />
+            </colgroup>
             <thead>
-              <tr><th>用户名</th><th>角色</th><th>QQ</th><th>操作</th></tr>
+              <tr>
+                <th>账户</th>
+                <th>角色</th>
+                <th>QQ</th>
+                <th class="th-op">操作</th>
+              </tr>
             </thead>
             <tbody>
               <tr v-if="accounts.length === 0">
-                <td colspan="4" class="account-empty">暂无账户</td>
-              </tr>
-              <tr v-for="a in pagedAccounts" :key="a.username">
-                <td class="user-cell">
-                  {{ a.username }}
-                  <span v-if="a.linkedTo" class="tag-qq" title="密码由 QQ 绑定数据托管">QQ 关联</span>
-                  <span v-if="isSelf(a)" class="tag-self">当前</span>
+                <td colspan="4" class="account-empty">
+                  <div class="empty-title">暂无账户</div>
+                  <div class="empty-sub">点击右上角「添加管理员」创建第一个管理账户</div>
                 </td>
-                <td>
+              </tr>
+              <tr v-for="a in pagedAccounts" :key="a.username" :class="{ 'row-self': isSelf(a) }">
+                <td class="user-cell">
+                  <div class="user-main">
+                    <span class="user-avatar" :class="{ 'avatar-qq': !!a.linkedTo }">{{ initialOf(a.username) }}</span>
+                    <div class="user-meta">
+                      <div class="user-name-row">
+                        <span class="user-name">{{ a.username }}</span>
+                        <span v-if="a.linkedTo" class="tag-qq" title="密码由 QQ 绑定数据托管">QQ 关联</span>
+                        <span v-if="isSelf(a)" class="tag-self">当前</span>
+                      </div>
+                      <div class="user-sub">{{ a.linkedTo ? '密码随 QQ 绑定数据同步' : '本地独立账户' }}</div>
+                    </div>
+                  </div>
+                </td>
+                <td class="role-cell">
                   <select
                     class="role-select"
                     :class="a.role"
                     :value="a.role"
                     :disabled="isSelf(a)"
+                    :title="isSelf(a) ? '当前登录账户，不可修改自身角色' : '切换角色（admin 需二次确认）'"
                     @change="changeRole(a, $event.target.value)"
                   >
                     <option value="admin">admin</option>
                     <option value="subadmin">subadmin</option>
                   </select>
                 </td>
-                <td class="qq-cell">{{ a.qq || '—' }}</td>
+                <td class="qq-cell">
+                  <span v-if="a.qq" class="qq-text">{{ a.qq }}</span>
+                  <span v-else class="qq-empty">—</span>
+                </td>
                 <td class="op-cell">
-                  <button
-                    class="mini-btn"
-                    :disabled="isSelf(a) || !!a.linkedTo"
-                    :title="isSelf(a) ? '当前登录账户' : (a.linkedTo ? '密码由 QQ 绑定数据托管，请通过游戏内渠道修改' : '')"
-                    @click="resetAccount(a)"
-                  >重置密码</button>
-                  <button
-                    class="mini-btn danger"
-                    :disabled="isSelf(a)"
-                    :title="isSelf(a) ? '当前登录账户' : ''"
-                    @click="removeAccount(a)"
-                  >删除</button>
+                  <div class="op-actions">
+                    <button
+                      class="mini-btn"
+                      :disabled="isSelf(a) || !!a.linkedTo"
+                      :title="isSelf(a) ? '当前登录账户' : (a.linkedTo ? '密码由 QQ 绑定数据托管，请通过游戏内渠道修改' : '')"
+                      @click="resetAccount(a)"
+                    >重置密码</button>
+                    <button
+                      class="mini-btn danger"
+                      :disabled="isSelf(a)"
+                      :title="isSelf(a) ? '当前登录账户' : ''"
+                      @click="removeAccount(a)"
+                    >删除</button>
+                  </div>
                 </td>
               </tr>
             </tbody>
@@ -365,9 +398,11 @@ onMounted(load)
         </div>
         <!-- 分页 -->
         <div v-if="accounts.length > 0" class="account-pagination">
-          <button @click="accountPrev" :disabled="accountPage <= 1">← 上一页</button>
-          <span class="account-page-info">第 {{ accountPage }} / {{ accountTotalPages }} 页（共 {{ accounts.length }} 个账户）</span>
-          <button @click="accountNext" :disabled="accountPage >= accountTotalPages">下一页 →</button>
+          <button class="page-btn" @click="accountPrev" :disabled="accountPage <= 1">← 上一页</button>
+          <span class="account-page-info">
+            第 <b>{{ accountPage }}</b> / {{ accountTotalPages }} 页<span class="page-sep">·</span>共 {{ accounts.length }} 个账户
+          </span>
+          <button class="page-btn" @click="accountNext" :disabled="accountPage >= accountTotalPages">下一页 →</button>
         </div>
       </div>
     </div>
@@ -498,6 +533,8 @@ onMounted(load)
 }
 .settings-tab.active { background: linear-gradient(135deg, var(--accent-primary), #4f46e5); color: #fff; border-color: transparent; }
 .sys-card { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 14px; padding: 20px; box-shadow: var(--shadow-sm); }
+/* 账户管理卡片：跨满整行，避免被 sys-grid 的 320px 轨道挤窄表格 */
+.sys-card-wide { grid-column: 1 / -1; }
 .sys-card h3 { margin: 0 0 14px; color: var(--text-primary); font-size: 1rem; }
 .form-row { display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px; }
 .form-row label { font-size: .82rem; color: var(--text-muted); }
@@ -536,68 +573,150 @@ onMounted(load)
 .card-toolbar { display: flex; justify-content: flex-end; margin-bottom: 4px; }
 .card-toolbar .add-btn.small { margin-bottom: 0; }
 
-/* ═══ 账户表格美化 ═══ */
+/* ═══ 账户表格（卡片内宽版）═══ */
 .account-table-wrap {
   border: 1px solid var(--border-color);
-  border-radius: 12px;
-  overflow: hidden;
-  margin-top: 8px;
-  background: var(--bg-card);
+  border-radius: var(--radius-lg);
+  overflow: auto;
+  margin-top: 10px;
+  background: var(--bg-secondary);
 }
-.account-table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+.account-table {
+  width: 100%;
+  min-width: 660px;
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+  font-size: .875rem;
+}
+.account-table .col-role { width: 132px; }
+.account-table .col-qq { width: 152px; }
+.account-table .col-op { width: 200px; }
+
 .account-table thead th {
   background: var(--bg-tertiary);
   color: var(--text-secondary);
-  font-weight: 600;
+  font-weight: 700;
   text-align: left;
-  padding: 10px 14px;
+  padding: 11px 16px;
   border-bottom: 1px solid var(--border-color);
-  font-size: .76rem;
-  letter-spacing: .03em;
+  font-size: .74rem;
+  letter-spacing: .08em;
   white-space: nowrap;
 }
+.account-table thead th.th-op { text-align: right; }
+
 .account-table tbody td {
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--border-color);
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-light);
   vertical-align: middle;
+  background: transparent;
+  transition: background .18s ease;
 }
 .account-table tbody tr:last-child td { border-bottom: none; }
-.account-table tbody tr:hover { background: rgba(99, 102, 241, .05); }
-.account-table .user-cell { font-weight: 600; color: var(--text-primary); white-space: nowrap; }
-.account-table .qq-cell { font-family: Consolas, Menlo, monospace; color: var(--text-secondary); }
+.account-table tbody tr td:first-child { position: relative; }
+.account-table tbody tr td:first-child::before {
+  content: '';
+  position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+  background: var(--accent-primary);
+  opacity: 0;
+  transition: opacity .18s ease;
+}
+.account-table tbody tr:not(.row-self):hover td { background: var(--bg-hover); }
+.account-table tbody tr:not(.row-self):hover td:first-child::before { opacity: 1; }
+.account-table tbody tr.row-self td { background: rgba(99, 102, 241, .06); }
+.account-table tbody tr.row-self td:first-child::before { opacity: .6; }
+
+/* 账户列：头像 + 名称 + 说明 */
+.account-table .user-cell { white-space: nowrap; }
+.user-main { display: flex; align-items: center; gap: 11px; min-width: 0; }
+.user-avatar {
+  flex-shrink: 0;
+  width: 34px; height: 34px; border-radius: 10px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: linear-gradient(135deg, var(--accent-primary), var(--accent-violet));
+  color: #fff; font-size: .88rem; font-weight: 700; line-height: 1;
+  box-shadow: var(--shadow-sm);
+}
+.user-avatar.avatar-qq { background: linear-gradient(135deg, #0891b2, var(--accent-cyan)); }
+.user-meta { min-width: 0; overflow: hidden; }
+.user-name-row { display: flex; align-items: center; min-width: 0; overflow: hidden; }
+.user-name {
+  color: var(--text-primary); font-weight: 600; font-size: .92rem;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.user-name-row .tag-qq, .user-name-row .tag-self { flex-shrink: 0; }
+.user-sub { margin-top: 3px; color: var(--text-muted); font-size: .72rem; }
+
+/* 角色列 */
 .account-table select.role-select {
-  background: var(--bg-tertiary);
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  background-color: var(--bg-tertiary);
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%2394a3b8' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 9px center;
+  background-size: 9px 6px;
   border: 1px solid var(--border-color);
   color: var(--text-primary);
-  padding: 5px 10px;
-  border-radius: 8px;
+  padding: 6px 26px 6px 11px;
+  border-radius: 9px;
   font-size: .8rem;
   font-weight: 600;
   cursor: pointer;
-  transition: border-color .2s ease;
+  transition: border-color .18s ease, background-color .18s ease;
 }
-.account-table select.role-select:disabled { opacity: .55; cursor: not-allowed; }
+.account-table select.role-select:hover:not(:disabled) { border-color: var(--accent-primary); }
+.account-table select.role-select:focus { outline: none; border-color: var(--accent-primary); }
+.account-table select.role-select:disabled { cursor: not-allowed; border-style: dashed; }
 .account-table select.role-select.admin {
   border-color: rgba(239, 68, 68, .45);
   color: #f87171;
-  background: rgba(239, 68, 68, .08);
+  background-color: rgba(239, 68, 68, .1);
 }
 .account-table select.role-select.subadmin {
   border-color: rgba(59, 130, 246, .45);
   color: #60a5fa;
-  background: rgba(59, 130, 246, .08);
+  background-color: rgba(59, 130, 246, .1);
 }
-.account-empty { text-align: center; color: var(--text-muted); padding: 22px 0; }
-.account-pagination { display: flex; align-items: center; justify-content: center; gap: 12px; margin-top: 14px; }
-.account-pagination button {
-  background: var(--accent-primary); color: #fff; border: none;
-  padding: 6px 14px; border-radius: 8px; cursor: pointer; font-size: .8rem;
-  transition: opacity .2s ease;
+
+/* QQ 列 */
+.account-table .qq-cell { font-family: Consolas, Menlo, monospace; font-size: .82rem; }
+.qq-text { color: var(--text-secondary); }
+.qq-empty { color: var(--text-muted); }
+
+/* 操作列 */
+.op-cell { text-align: right; white-space: nowrap; }
+.op-actions { display: inline-flex; align-items: center; gap: 6px; }
+.op-actions .mini-btn { padding: 6px 12px; border-radius: 8px; }
+
+/* 空态 */
+.account-table tbody td.account-empty { padding: 0; }
+.empty-title { padding-top: 34px; color: var(--text-secondary); font-size: .92rem; font-weight: 600; text-align: center; }
+.empty-sub { padding: 6px 16px 34px; color: var(--text-muted); font-size: .78rem; text-align: center; }
+
+/* 分页 */
+.account-pagination {
+  display: flex; align-items: center; justify-content: center; gap: 14px;
+  margin-top: 14px; padding-top: 14px;
+  border-top: 1px solid var(--border-light);
 }
-.account-pagination button:hover:not(:disabled) { opacity: .88; }
-.account-pagination button:disabled { opacity: .45; cursor: not-allowed; }
+.page-btn {
+  background: var(--bg-tertiary); color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+  padding: 6px 14px; border-radius: 9px; cursor: pointer;
+  font-size: .8rem; font-weight: 600;
+  transition: all var(--dur-fast) var(--ease-out);
+}
+.page-btn:hover:not(:disabled) {
+  color: var(--accent-primary); border-color: var(--accent-primary);
+  background: var(--bg-hover);
+}
+.page-btn:disabled { opacity: .4; cursor: not-allowed; }
 .account-page-info { color: var(--text-muted); font-size: .8rem; }
-.op-cell { display: flex; gap: 6px; white-space: nowrap; align-items: center; }
+.account-page-info b { color: var(--text-primary); font-weight: 600; }
+.page-sep { margin: 0 7px; opacity: .5; }
 .mini-btn:disabled { opacity: .35; cursor: not-allowed; }
 .mini-btn:disabled:hover { border-color: var(--border-color); color: var(--text-primary); }
 .mini-btn.danger:disabled:hover { border-color: var(--border-color); color: var(--text-primary); }
