@@ -83,13 +83,15 @@ export function bossProgressCard(data: BossProgressData): string {
 
   const tile = (name: string, done: boolean, imgMap: Record<string, string>, count?: number) => {
     const src = loadImageBase64(imgMap[name] || '')
+    // 击杀数来自后端 JSON：必须先数值化，非有限数回退 0（不可直接插值）
+    const kills = Number(count) || 0
     return `<div class="bc ${done ? 'done' : ''}">
       <div class="bc-img">
         ${src ? `<img src="${src}" alt="${escapeHtml(name)}">` : '<div class="bc-placeholder">?</div>'}
         <div class="bc-badge ${done ? 'bc-ok' : 'bc-no'}">${done ? '✓' : '✗'}</div>
       </div>
       <div class="bc-name">${escapeHtml(name)}</div>
-      ${done && count ? `<div class="bc-count">${count} 击杀</div>` : ''}
+      ${done && kills ? `<div class="bc-count">${kills} 击杀</div>` : ''}
     </div>`
   }
 

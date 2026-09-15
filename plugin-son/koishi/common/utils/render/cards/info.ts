@@ -12,8 +12,10 @@ export interface PlayerInfoData {
 
 /** 玩家信息卡片（调用方截图选择器：.card） */
 export function playerInfoCard(data: PlayerInfoData): string {
-  const hours = Math.floor(data.online_minutes / 60)
-  const mins = data.online_minutes % 60
+  // 时长来自后端 JSON：先数值化，非有限数回退 0（否则会渲染出 NaN小时）
+  const minutes = Number(data.online_minutes) || 0
+  const hours = Math.floor(minutes / 60)
+  const mins = minutes % 60
   const onlineStr = hours > 0 ? `${hours}小时${mins}分钟` : `${mins}分钟`
 
   return frame(`
