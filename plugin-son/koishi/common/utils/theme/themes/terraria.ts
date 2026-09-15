@@ -113,49 +113,6 @@ body{
 }
 @keyframes twTerraRainbow{to{background-position:36px 0}}
 
-/* — 左下角像素精灵：彩虹猫之刃（粉白剑身+灰猫剑格+彩虹尾迹）+ 泰拉树（绿叶树冠+棕树干） — */
-.card::before,.card.glow::before,.wrap.w-wide::before{
-  content:'';position:absolute;top:auto;right:auto;left:14px;bottom:14px;
-  width:2px;height:2px;pointer-events:none;background:transparent;
-  box-shadow:
-    /* 剑刃（粉白） */
-    20px -22px 0 0 #ffb6c1,
-    18px -20px 0 0 #ffb6c1,20px -20px 0 0 #ffb6c1,
-    16px -18px 0 0 #ffb6c1,18px -18px 0 0 #ffb6c1,
-    14px -16px 0 0 #ffb6c1,16px -16px 0 0 #ffb6c1,
-    12px -14px 0 0 #ffb6c1,14px -14px 0 0 #ffb6c1,
-    10px -12px 0 0 #ffb6c1,12px -12px 0 0 #ffb6c1,
-    /* 剑柄猫头（灰） */
-    8px -10px 0 0 #9aa0a6,10px -10px 0 0 #9aa0a6,
-    6px -8px 0 0 #9aa0a6,8px -8px 0 0 #9aa0a6,10px -8px 0 0 #9aa0a6,
-    4px -6px 0 0 #9aa0a6,6px -6px 0 0 #9aa0a6,
-    2px -4px 0 0 #9aa0a6,4px -4px 0 0 #9aa0a6,
-    2px -2px 0 0 #9aa0a6,4px -2px 0 0 #9aa0a6,
-    2px 0 0 0 #9aa0a6,
-    /* 彩虹尾迹（红橙黄绿蓝紫） */
-    22px -18px 0 0 #e74c3c,
-    22px -16px 0 0 #e67e22,
-    20px -14px 0 0 #f1c40f,22px -14px 0 0 #2ecc71,
-    18px -12px 0 0 #3498db,20px -12px 0 0 #9b59b6,22px -12px 0 0 #e74c3c,
-    16px -10px 0 0 #e67e22,18px -10px 0 0 #f1c40f,20px -10px 0 0 #2ecc71,
-    14px -8px 0 0 #3498db,16px -8px 0 0 #9b59b6,
-    12px -6px 0 0 #e74c3c,
-    /* 泰拉树：树冠（绿） */
-    38px -22px 0 0 #3f9d3f,40px -22px 0 0 #3f9d3f,42px -22px 0 0 #3f9d3f,44px -22px 0 0 #3f9d3f,
-    36px -20px 0 0 #3f9d3f,38px -20px 0 0 #3f9d3f,40px -20px 0 0 #3f9d3f,42px -20px 0 0 #3f9d3f,44px -20px 0 0 #3f9d3f,46px -20px 0 0 #3f9d3f,
-    36px -18px 0 0 #2e7d32,38px -18px 0 0 #3f9d3f,40px -18px 0 0 #3f9d3f,42px -18px 0 0 #3f9d3f,44px -18px 0 0 #3f9d3f,46px -18px 0 0 #2e7d32,
-    36px -16px 0 0 #2e7d32,38px -16px 0 0 #3f9d3f,40px -16px 0 0 #3f9d3f,42px -16px 0 0 #3f9d3f,44px -16px 0 0 #3f9d3f,46px -16px 0 0 #2e7d32,
-    34px -14px 0 0 #3f9d3f,36px -14px 0 0 #3f9d3f,38px -14px 0 0 #3f9d3f,40px -14px 0 0 #3f9d3f,42px -14px 0 0 #3f9d3f,44px -14px 0 0 #3f9d3f,46px -14px 0 0 #3f9d3f,48px -14px 0 0 #3f9d3f,
-    34px -12px 0 0 #2e7d32,36px -12px 0 0 #3f9d3f,38px -12px 0 0 #3f9d3f,40px -12px 0 0 #3f9d3f,42px -12px 0 0 #3f9d3f,44px -12px 0 0 #3f9d3f,46px -12px 0 0 #3f9d3f,48px -12px 0 0 #2e7d32,
-    38px -10px 0 0 #3f9d3f,40px -10px 0 0 #3f9d3f,42px -10px 0 0 #3f9d3f,44px -10px 0 0 #3f9d3f,
-    /* 树干（棕） */
-    40px -8px 0 0 #8a5a2b,
-    40px -6px 0 0 #8a5a2b,
-    38px -4px 0 0 #8a5a2b,40px -4px 0 0 #8a5a2b,42px -4px 0 0 #8a5a2b,
-    40px -2px 0 0 #8a5a2b,
-    40px 0 0 0 #8a5a2b;
-}
-
 /* — Boss 卡无 .card 容器，由 .wrap.w-wide 承担面板（含底部装饰带） — */
 .wrap.w-wide{
   position:relative;
