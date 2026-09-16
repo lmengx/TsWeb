@@ -7,6 +7,8 @@ const error = ref('')
 const success = ref('')
 const saving = ref(false)
 let saveTimer = null
+// 配置是否已成功从服务器加载；加载失败时禁止保存，防止把初始默认豁免组写回服务器
+let loaded = false
 
 // ═══ 配置 ═══
 const config = ref({
@@ -38,6 +40,17 @@ function blankForm() {
 
 const globalExemptText = ref('')
 
+// 去重豁免组（忽略大小写，trim 并剔除空项；保留首现顺序）
+const dedupList = (arr) => {
+  const seen = new Set()
+  return (arr || []).filter(g => {
+    const k = String(g).trim().toLowerCase()
+    if (!k || seen.has(k)) return false
+    seen.add(k)
+    return true
+  })
+}
+
 // ═══ 计算状态 ═══
 const activeCount = computed(() => config.value.entries.filter(e => e.active).length)
 const curfewActive = computed(() => activeCount.value > 0)
@@ -59,6 +72,10 @@ const groupsText = (e) => (e.resolvedGroups && e.resolvedGroups.length ? e.resol
 // ═══ 配置读写 ═══
 const doSave = async (silent = false) => {
   error.value = ''
+  if (!loaded) {
+    error.value = '配置尚未加载成功，请刷新页面后重试'
+    return
+  }
   if (!silent) success.value = ''
   saving.value = true
   try {
@@ -109,15 +126,16 @@ const fetchConfig = async () => {
     const data = await res.json()
     if (data.entries) {
       config.value.defaultMessage = data.defaultMessage || ''
-      config.value.exemptGroups = data.exemptGroups || []
+      config.value.exemptGroups = dedupList(data.exemptGroups)
       config.value.entries = (data.entries || []).map(e => ({
         ...e,
-        exemptGroups: e.exemptGroups || [],
+        exemptGroups: dedupList(e.exemptGroups),
       }))
       now.value = data.now || ''
       nextOpen.value = data.nextOpen || ''
       allowedGroups.value = data.allowedGroups || []
       globalExemptText.value = (config.value.exemptGroups || []).join(', ')
+      loaded = true
     } else {
       error.value = data.error || '加载配置失败'
     }
@@ -205,7 +223,7 @@ const removeEntry = async (e) => {
 }
 
 const applyGlobalGroups = () => {
-  config.value.exemptGroups = globalExemptText.value.split(',').map(s => s.trim()).filter(Boolean)
+  config.value.exemptGroups = dedupList(globalExemptText.value.split(','))
   saveDebounced()
 }
 

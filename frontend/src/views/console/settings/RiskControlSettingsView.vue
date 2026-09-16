@@ -144,7 +144,7 @@ const fetchConfig = async () => {
     if (data.blockEnter) config.value.blockEnter = { enabled: !!data.blockEnter.enabled, targets: data.blockEnter.targets || [] }
     if (data.blockChat) config.value.blockChat = { enabled: !!data.blockChat.enabled, targets: data.blockChat.targets || [] }
     if (data.qqBindExempt !== undefined) config.value.qqBindExempt = !!data.qqBindExempt
-    if (data.exemptGroups) config.value.exemptGroups = data.exemptGroups
+    if (data.exemptGroups) config.value.exemptGroups = dedupList(data.exemptGroups)
     if (data.proxy) {
       config.value.proxy = {
         enabled: data.proxy.enabled !== false,
@@ -252,8 +252,17 @@ const refreshProxy = async () => {
 }
 
 // ═══ 高级设置应用 ═══
+const dedupList = (arr) => {
+  const seen = new Set()
+  return (arr || []).filter(g => {
+    const k = String(g).trim().toLowerCase()
+    if (!k || seen.has(k)) return false
+    seen.add(k)
+    return true
+  })
+}
 const applyExemptGroups = () => {
-  config.value.exemptGroups = exemptGroupsText.value.split(',').map(s => s.trim()).filter(Boolean)
+  config.value.exemptGroups = dedupList(exemptGroupsText.value.split(','))
   saveConfig()
 }
 const applyAllowIsps = () => {

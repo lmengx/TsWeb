@@ -94,6 +94,21 @@ namespace TShockData
                 JsonConvert.SerializeObject(_config));
         }
 
+        /// <summary>去重忽略组（忽略大小写，trim 并剔除空项；保留首现顺序；null 入参返回空列表）</summary>
+        private static List<string> DedupIgnoreGroups(List<string> groups)
+        {
+            if (groups == null) return new List<string>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var result = new List<string>();
+            foreach (var g in groups)
+            {
+                var name = g?.Trim();
+                if (string.IsNullOrWhiteSpace(name)) continue;
+                if (seen.Add(name)) result.Add(name);
+            }
+            return result;
+        }
+
         public static void LoadConfig()
         {
             try
@@ -106,6 +121,7 @@ namespace TShockData
                 {
                     var json = File.ReadAllText(ConfigPath);
                     _config = JsonConvert.DeserializeObject<PromotionConfig>(json) ?? new PromotionConfig();
+                    _config.IgnoreGroups = DedupIgnoreGroups(_config.IgnoreGroups); // 自愈历史重复忽略组
                     TShock.Log.ConsoleInfo("[TSWeb] 权限提升配置已加载");
                 }
                 else
@@ -207,7 +223,7 @@ namespace TShockData
                 {
                     var parsed = Newtonsoft.Json.JsonConvert.DeserializeObject<List<string>>(ignoreGroupsJson);
                     if (parsed != null)
-                        _config.IgnoreGroups = parsed;
+                        _config.IgnoreGroups = DedupIgnoreGroups(parsed);
                 }
 
                 SaveConfig();

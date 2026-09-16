@@ -97,6 +97,7 @@ namespace TShockData
 				{
 					var json = File.ReadAllText(ConfigPath);
 					Config = JsonConvert.DeserializeObject<CurfewConfig>(json) ?? new CurfewConfig();
+					SanitizeConfig(Config); // 自愈历史重复/空项豁免组
 					TShock.Log.ConsoleInfo($"[TSWeb] 宵禁配置已加载: {Config.Entries.Count} 个条目");
 				}
 				else
@@ -241,6 +242,30 @@ namespace TShockData
 			return e.ExemptGroups != null && e.ExemptGroups.Count > 0
 				? e.ExemptGroups
 				: Config.ExemptGroups;
+		}
+
+		/// <summary>去重豁免组（忽略大小写，trim 并剔除空项；保留首现顺序；null 入参返回 null）</summary>
+		private static List<string> DedupGroups(List<string> groups)
+		{
+			if (groups == null) return null;
+			var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+			var result = new List<string>();
+			foreach (var g in groups)
+			{
+				var name = g?.Trim();
+				if (string.IsNullOrWhiteSpace(name)) continue;
+				if (seen.Add(name)) result.Add(name);
+			}
+			return result;
+		}
+
+		/// <summary>清理配置中的豁免组：全局与条目级统一去重（自愈历史重复数据，防止再次累积）</summary>
+		private static void SanitizeConfig(CurfewConfig cfg)
+		{
+			if (cfg == null) return;
+			cfg.ExemptGroups = DedupGroups(cfg.ExemptGroups) ?? new List<string>();
+			foreach (var e in cfg.Entries)
+				e.ExemptGroups = DedupGroups(e.ExemptGroups);
 		}
 
 		/// <summary>组是否在豁免列表（不区分大小写）</summary>
@@ -527,6 +552,7 @@ namespace TShockData
 					return new RestObject("400") { { "error", string.Join("；", errors) } };
 
 				Config = incoming;
+				SanitizeConfig(Config); // 保存前对全局/条目级豁免组去重
 				SaveConfig();
 				TShock.Log.ConsoleInfo($"[TSWeb] REST 更新宵禁配置: {Config.Entries.Count} 个条目");
 

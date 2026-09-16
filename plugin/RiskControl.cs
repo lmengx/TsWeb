@@ -117,6 +117,7 @@ namespace TShockData
                     Config = new RiskConfig();
                     SaveConfig();
                 }
+                Config.ExemptGroups = DedupGroups(Config.ExemptGroups); // 自愈历史重复豁免组
                 TShock.Log.ConsoleInfo(
                     $"[TSWeb] 风控配置已加载: 禁入={Config.BlockEnter.Enabled}[{string.Join(",", Config.BlockEnter.Targets)}], " +
                     $"禁言={Config.BlockChat.Enabled}[{string.Join(",", Config.BlockChat.Targets)}], " +
@@ -738,6 +739,21 @@ namespace TShockData
             return val.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
+        }
+
+        /// <summary>去重组列表（忽略大小写，trim 并剔除空项；保留首现顺序；null 入参返回空列表）</summary>
+        private static List<string> DedupGroups(List<string> groups)
+        {
+            if (groups == null) return new List<string>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var result = new List<string>();
+            foreach (var g in groups)
+            {
+                var name = g?.Trim();
+                if (string.IsNullOrWhiteSpace(name)) continue;
+                if (seen.Add(name)) result.Add(name);
+            }
+            return result;
         }
 
         /// <summary>安全踢出（处理 player 可能已断开连接的情况）</summary>

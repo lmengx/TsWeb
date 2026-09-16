@@ -98,7 +98,13 @@ const fetchData = async () => {
       }))
     }
     if (data.ignoreGroups) {
-      config.value.ignoreGroups = data.ignoreGroups
+      const seen = new Set()
+      config.value.ignoreGroups = data.ignoreGroups.filter(g => {
+        const k = String(g).trim().toLowerCase()
+        if (!k || seen.has(k)) return false
+        seen.add(k)
+        return true
+      })
     }
 
     await nextTick()
