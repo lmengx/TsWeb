@@ -109,18 +109,55 @@ const pieSlices = computed(() => {
   return slices
 })
 
-const pieStyle = computed(() => {
-  const slices = pieSlices.value
-  if (slices.length === 0) return {}
+// ── SVG 饼图（每扇区一个 path，支持 hover 外扩 + 气泡）──
+const PIE_CX = 100, PIE_CY = 100, PIE_R = 80, PIE_OFFSET = 7
+
+const piePaths = computed(() => {
   let acc = 0
-  const stops = slices.map(s => {
-    const from = acc
+  return pieSlices.value.map(s => {
+    const startPct = acc
     acc += s.pct
-    return `${s.color} ${from}% ${acc}%`
+    const start = (startPct / 100) * 2 * Math.PI - Math.PI / 2
+    const end = (acc / 100) * 2 * Math.PI - Math.PI / 2
+    const x1 = PIE_CX + PIE_R * Math.cos(start)
+    const y1 = PIE_CY + PIE_R * Math.sin(start)
+    const x2 = PIE_CX + PIE_R * Math.cos(end)
+    const y2 = PIE_CY + PIE_R * Math.sin(end)
+    const largeArc = s.pct > 50 ? 1 : 0
+    // 角平分线方向（hover 外扩位移用）
+    const midPct = (startPct + s.pct / 2) / 100
+    const midRad = midPct * 2 * Math.PI - Math.PI / 2
+    const dx = PIE_OFFSET * Math.cos(midRad)
+    const dy = PIE_OFFSET * Math.sin(midRad)
+    return {
+      ...s,
+      d: `M ${PIE_CX} ${PIE_CY} L ${x1} ${y1} A ${PIE_R} ${PIE_R} 0 ${largeArc} 1 ${x2} ${y2} Z`,
+      dx, dy
+    }
   })
-  // 不满 100% 时补满底色（理论上 byPrimary 覆盖全部，防御）
-  if (acc < 100) stops.push(`#1e293b ${acc}% 100%`)
-  return { background: `conic-gradient(${stops.join(', ')})` }
+})
+
+// hover 状态：扇区外扩 + 中心详情 + 气泡
+const hoveredKey = ref('')
+const hovered = computed(() => piePaths.value.find(s => s.key === hoveredKey.value) || null)
+
+// 气泡定位（相对 .pie-wrap 容器，百分比坐标，中心 50%/50% + 扇区方向偏移）
+const hoverTip = computed(() => {
+  if (!hovered.value) return null
+  const s = hovered.value
+  const midPct = (() => {
+    let acc = 0
+    for (const x of piePaths.value) {
+      if (x.key === s.key) return (acc + x.pct / 2) / 100
+      acc += x.pct
+    }
+    return 0.5
+  })()
+  const rad = midPct * 2 * Math.PI - Math.PI / 2
+  // 距中心 62% 半径处（饼图外缘略外），气泡锚点
+  const x = 50 + 66 * Math.cos(rad)
+  const y = 50 + 66 * Math.sin(rad)
+  return { x, y, ...s }
 })
 
 // ── 属性标签分布（可重叠，保留）──
@@ -354,11 +391,11 @@ const jumpToPlayer = (username) => {
           :key="a.key"
           class="chip"
           :class="{ active: filters.attrs.includes(a.key) }"
-          :style="filters.attrs.includes(a.key) ? { background: a.color, borderColor: a.color } : {}"
+          :style="filters.attrs.includes(a.key) ? { background: a.color + '26', borderColor: a.color, color: '#fff' } : {}"
           :title="a.desc"
           @click="toggleAttr(a.key)"
         >
-          <span class="chip-dot" :style="{ background: a.color }"></span>
+          <span class="chip-dot" :class="{ active: filters.attrs.includes(a.key) }" :style="{ background: a.color }"></span>
           {{ a.label }}
         </button>
       </div>
@@ -425,17 +462,51 @@ const jumpToPlayer = (username) => {
       <div class="chart-card">
         <div class="chart-title">主属性占比（当前选中项内）</div>
         <div class="pie-wrap">
-          <div class="pie" :style="pieStyle">
+          <div class="pie">
+            <svg viewBox="0 0 200 200" class="pie-svg">
+              <g v-for="s in piePaths" :key="s.key">
+                <path
+                  class="pie-slice"
+                  :d="s.d"
+                  :fill="s.color"
+                  :style="{ '--dx': s.dx + 'px', '--dy': s.dy + 'px' }"
+                  :class="{ active: hoveredKey === s.key }"
+                  @mouseenter="hoveredKey = s.key"
+                  @mouseleave="hoveredKey = ''"
+                ></path>
+              </g>
+            </svg>
             <div class="pie-hole">
-              <div class="pie-total">{{ filteredSummary.total }}</div>
-              <div class="pie-total-label">账号</div>
+              <template v-if="hovered">
+                <div class="pie-total" :style="{ color: hovered.color }">{{ hovered.label }}</div>
+                <div class="pie-total-sub">{{ hovered.count }} 个 · {{ hovered.pct }}%</div>
+              </template>
+              <template v-else>
+                <div class="pie-total">{{ filteredSummary.total }}</div>
+                <div class="pie-total-label">账号</div>
+              </template>
+            </div>
+            <!-- hover 气泡：显示比例 -->
+            <div v-if="hoverTip" class="pie-tip" :style="{ left: hoverTip.x + '%', top: hoverTip.y + '%' }">
+              <span class="tip-dot" :style="{ background: hoverTip.color }"></span>
+              {{ hoverTip.label }}
+              <b>{{ hoverTip.pct }}%</b>
             </div>
           </div>
           <div class="pie-legend">
-            <div v-for="s in pieSlices" :key="s.key" class="legend-row">
+            <div
+              v-for="s in pieSlices"
+              :key="s.key"
+              class="legend-row"
+              :class="{ active: hoveredKey === s.key }"
+              @mouseenter="hoveredKey = s.key"
+              @mouseleave="hoveredKey = ''"
+            >
               <span class="legend-dot" :style="{ background: s.color }"></span>
               <span class="legend-label">{{ s.label }}</span>
-              <span class="legend-count">{{ s.count }}</span>
+              <div class="legend-bar">
+                <div class="legend-bar-fill" :style="{ width: s.pct + '%', background: s.color }"></div>
+              </div>
               <span class="legend-pct">{{ s.pct }}%</span>
             </div>
             <div v-if="pieSlices.length === 0" class="legend-empty">当前筛选无数据</div>
@@ -768,6 +839,11 @@ const jumpToPlayer = (username) => {
   height: 8px;
   border-radius: 50%;
   flex-shrink: 0;
+  transition: box-shadow 0.15s var(--ease-out);
+}
+/* 选中时色点加白色描边，避免与同色背景重合 */
+.chip-dot.active {
+  box-shadow: 0 0 0 2px var(--bg-secondary), 0 0 0 3.5px rgba(255, 255, 255, 0.85);
 }
 
 .filter-row {
@@ -888,46 +964,119 @@ const jumpToPlayer = (username) => {
   flex-wrap: wrap;
 }
 .pie {
-  width: 180px;
-  height: 180px;
-  border-radius: 50%;
+  width: 200px;
+  height: 200px;
   flex-shrink: 0;
   position: relative;
   box-shadow: var(--glow-primary);
+  border-radius: 50%;
+}
+.pie-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.pie-slice {
+  transition: transform 0.22s var(--ease-out), filter 0.22s var(--ease-out), opacity 0.22s var(--ease-out);
+  transform-origin: 100px 100px;
+  cursor: pointer;
+}
+.pie-slice:hover,
+.pie-slice.active {
+  transform: translate(var(--dx, 0), var(--dy, 0));
+  filter: brightness(1.18) saturate(1.1);
+}
+/* 非 hover 时其它扇区轻微压暗，突出 hover 块 */
+.pie:hover .pie-slice:not(:hover):not(.active) {
+  opacity: 0.78;
 }
 .pie-hole {
   position: absolute;
-  inset: 32px;
+  inset: 34px;
   border-radius: 50%;
   background: var(--bg-primary);
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  pointer-events: none;
+  text-align: center;
+  padding: 6px;
+  overflow: hidden;
 }
 .pie-total {
-  font-size: 1.8rem;
+  font-size: 1.1rem;
   font-weight: 700;
   color: var(--text-primary);
-  line-height: 1;
+  line-height: 1.2;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pie-total-sub {
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  margin-top: 3px;
+  white-space: nowrap;
 }
 .pie-total-label {
   font-size: 0.72rem;
   color: var(--text-muted);
   margin-top: 4px;
 }
+/* hover 气泡 */
+.pie-tip {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  padding: 5px 10px;
+  font-size: 0.78rem;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 5;
+  animation: tip-in 0.15s var(--ease-out);
+}
+.pie-tip b {
+  color: var(--accent-cyan);
+  font-weight: 600;
+}
+.tip-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+@keyframes tip-in {
+  from { opacity: 0; transform: translate(-50%, -50%) scale(0.85); }
+  to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
 .pie-legend {
   display: flex;
   flex-direction: column;
   gap: 7px;
   flex: 1;
-  min-width: 180px;
+  min-width: 190px;
 }
 .legend-row {
   display: flex;
   align-items: center;
   gap: 8px;
   font-size: 0.82rem;
+  padding: 3px 6px;
+  border-radius: var(--radius-sm);
+  cursor: default;
+  transition: background 0.15s var(--ease-out);
+}
+.legend-row.active {
+  background: var(--bg-hover);
 }
 .legend-dot {
   width: 10px;
@@ -935,13 +1084,33 @@ const jumpToPlayer = (username) => {
   border-radius: 3px;
   flex-shrink: 0;
 }
-.legend-label { color: var(--text-primary); flex: 1; }
-.legend-count { color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.legend-label {
+  color: var(--text-primary);
+  width: 78px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* 比例条 */
+.legend-bar {
+  flex: 1;
+  height: 8px;
+  background: var(--bg-tertiary);
+  border-radius: 4px;
+  overflow: hidden;
+  min-width: 40px;
+}
+.legend-bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.4s var(--ease-out);
+}
 .legend-pct {
-  color: var(--text-muted);
-  width: 48px;
+  color: var(--text-secondary);
+  width: 46px;
   text-align: right;
   font-variant-numeric: tabular-nums;
+  font-size: 0.78rem;
 }
 .legend-empty { color: var(--text-muted); font-size: 0.82rem; padding: 12px 0; }
 
