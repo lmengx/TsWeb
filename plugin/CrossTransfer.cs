@@ -12,6 +12,11 @@ using MonoMod.RuntimeDetour;
 using Newtonsoft.Json;
 using Rests;
 using Terraria;
+using Terraria.DataStructures;
+using Terraria.GameContent;
+using Terraria.GameContent.NetModules;
+using Terraria.GameContent.Tile_Entities;
+using Terraria.ID;
 using Terraria.Localization;
 using Terraria.Net;
 using Terraria.Net.Sockets;
@@ -557,6 +562,8 @@ namespace TShockData
 			public string UUID = "";
 			public string RealIP = "";
 			public byte[]? PlayerInfoFrame;
+			public List<byte[]>? LastBufferedPackets; // 当前桥接目标服（旧服）的握手快照：切换目标服时据此反向清理客户端残留实体
+			public int CurrentRemoteSlot = -1;          // 当前桥接目标服中玩家自己占用的 slot（客户端 Main.myPlayer 值）：清理旧服实体时须排除
 			public string? CurrentServerName;   // 当前桥接目标服名（用于判断"你已在该服务器"）
 			public TcpClient? Target;
 			public NetworkStream? Stream;
@@ -612,6 +619,8 @@ namespace TShockData
 				UUID = player.UUID,
 				RealIP = player.IP,
 				PlayerInfoFrame = playerInfoFrame,
+				LastBufferedPackets = result.BufferedPackets, // 记录目标服握手快照：切换目标/返回时据此清理客户端残留实体
+				CurrentRemoteSlot = result.RemoteSlot,       // 目标服中玩家自己的 slot（客户端 Main.myPlayer）
 				CurrentServerName = server.Name,
 				Target = result.Connection,
 				Stream = result.Connection.GetStream(),
@@ -709,6 +718,13 @@ namespace TShockData
 			{
 				TShock.Log.ConsoleWarn($"[CrossTransfer] 等待 A 服完整退出失败: {ex.Message}");
 			}
+
+			// 0) 清理客户端残留实体：A 服世界（晶塔/NPC/玩家/弹幕/物品）在客户端本机仍有显示，
+			//    但客户端 WorldGen.clearWorld() 只在首次进服执行（State 4→5 只走一次），换世界不会重走
+			//    → 必须由服务端发"旧世界下线"包逐个清除，否则 A 服晶塔/NPC/玩家会叠在 B 服世界上。
+			//    对照 UnifierTSL SyncServerOfflineToPlayer：PylonWasRemoved + PlayerActive(slot,0) + KillProjectile
+			//    + ItemOwner/151 + SyncNPC(life=0)。必须在重放 B 服数据【之前】发（先清后放，避免误删 B 服实体）。
+			ClearSourceWorldEntities(player.Index);
 
 			// 1) 重放握手期缓存的 B 服世界数据快照（WorldInfo/tile/NPC/玩家等）
 			//    关键：必须转发 LoadPlayer(3)[B slot]——客户端据此把 Main.myPlayer 更新为目标服 slot，
@@ -1069,7 +1085,11 @@ namespace TShockData
 					bridge.Stream = result.Connection.GetStream();
 					bridge.Cts = new CancellationTokenSource();
 					bridge.CurrentServerName = server.Name;
-
+					// 暂存旧服握手快照（稍后清理客户端残留实体用），再替换为新房快照
+					var oldBuffered = bridge.LastBufferedPackets;
+					var oldRemoteSlot = bridge.CurrentRemoteSlot; // 旧服中玩家自己的 slot（客户端 Main.myPlayer）
+					bridge.LastBufferedPackets = result.BufferedPackets;
+					bridge.CurrentRemoteSlot = result.RemoteSlot;
 					// 4) 玩家若在切换期间真断线（上行自读循环已退出）→ 立即清理新连接，
 					//    避免目标服以为玩家在线而产生幽灵玩家/持续广播。
 					//    注意：必须在 Switching 仍为 true 时检查——UpstreamLoop 的 finally
@@ -1083,6 +1103,12 @@ namespace TShockData
 					}
 
 					bridge.Switching = false;
+
+					// 4.5) 清理客户端残留实体：当前客户端显示的是旧服（桥接前目标）世界，
+					//      换世界时客户端 clearWorld 不会重走 → 旧服实体（晶塔/NPC/玩家/弹幕/物品）残留。
+					//      用旧服握手快照（oldBuffered）反向发"下线"包清除；必须在重放新服数据之前发。
+					//      注：NPC 因快照无完整 SyncNPC 数据无法构造 life=0 帧，依赖新服重放覆盖 slot。
+					ClearBufferedWorldEntities(who, oldBuffered, (byte)Math.Max(0, oldRemoteSlot));
 
 					// 5) 重放新世界数据（转发 LoadPlayer 同步 myPlayer 到新目标服 slot，其余照旧）
 					foreach (var frame in result.BufferedPackets)
@@ -1206,6 +1232,361 @@ namespace TShockData
 			}
 		}
 
+		// ════════════════════════════════════════════
+		// 客户端残留实体清理（换世界时 clearWorld 不会重走，须发"旧世界下线"包逐个清除）
+		// 对照 UnifierTSL ServerContext.SyncPlayer.cs SyncServerOfflineToPlayer：
+		//   晶塔 NetTeleportPylonModule.PylonWasRemoved + 玩家 PlayerActive(slot,0)
+		//   + 弹幕 KillProjectile(29) + 物品 SyncItemDespawn(151) + NPC SyncNPC(life=0)
+		// ════════════════════════════════════════════
+
+		/// <summary>构造 [ushort 帧长][byte msgId][payload] 的完整协议帧（与 BuildFrame 同格式）</summary>
+		private static byte[] BuildSimpleFrame(byte msgId, Action<BinaryWriter> write)
+		{
+			using var ms = new MemoryStream();
+			using (var bw = new BinaryWriter(ms, Encoding.UTF8, leaveOpen: true))
+			{
+				bw.Write((byte)0); // 占位：帧长低字节（最后回填）
+				bw.Write((byte)0); // 占位：帧长高字节
+				bw.Write(msgId);
+				write(bw);
+			}
+			var total = (int)ms.Length;
+			ms.GetBuffer()[0] = (byte)(total & 0xFF);
+			ms.GetBuffer()[1] = (byte)((total >> 8) & 0xFF);
+			return ms.ToArray();
+		}
+
+		/// <summary>把 NetPacket（晶塔等 NetModule 包，已含 长度头+82+moduleId+payload）直发玩家 socket</summary>
+		private static void SendNetPacketToPlayer(int who, NetPacket packet)
+		{
+			packet.ShrinkToFit();
+			var frame = new byte[packet.Length];
+			Array.Copy(packet.Buffer.Data, frame, packet.Length);
+			SendToPlayerSocket(who, frame);
+			packet.Recycle();
+		}
+
+		/// <summary>
+		/// 构造 SyncNPC(23) 帧：照抄 NetMessage.SendData case 23 的 payload 布局，
+		/// 但 life 强制 0（客户端 case 23：num178=life &lt;= 0 → nPC5.active=false）。
+		/// 用 A 服 Main.npc[slot] 的现有数据（generation 取当前值，保证与客户端不同 →
+		/// NewNPCInstanceInSlot 重建后置 life=0）。
+		/// </summary>
+		private static byte[] BuildNpcDeathFrame(int slot)
+		{
+			var npc = Main.npc[slot];
+			return BuildSimpleFrame(23, w =>
+			{
+				w.Write((byte)slot);
+				w.Write((byte)(npc.generation + 1)); // 强制不同代：客户端 flag17 → 重建该 slot
+				var anchor = npc.type >= 0 && npc.type < NPCID.Sets.SyncAnchor.Length
+					? NPCID.Sets.SyncAnchor[npc.type] : Vector2.Zero;
+				w.WriteVector2(npc.position + npc.Size * anchor);
+				w.WriteVector2(npc.velocity);
+				w.Write((ushort)Math.Max(0, npc.target)); // target=-1 时写 0，避免 65535 触发客户端 assert
+				BitsByte bits28 = (byte)0;
+				BitsByte bits29 = (byte)0;
+				bits28[0] = npc.direction > 0;
+				bits28[1] = npc.directionY > 0;
+				bits28[2] = npc.ai[0] != 0f;
+				bits28[3] = npc.ai[1] != 0f;
+				bits28[4] = npc.ai[2] != 0f;
+				bits28[5] = npc.ai[3] != 0f;
+				bits28[6] = npc.spriteDirection > 0;
+				bits28[7] = false;          // 非满血 → 后续写 life 字段
+				bits29[0] = npc.statsAreScaledForThisManyPlayers > 1;
+				bits29[1] = npc.SpawnedFromStatue;
+				bits29[2] = npc.difficulty != 1f;
+				bits29[3] = false;          // spawnNeedsSyncing=false：不额外触发重建（generation 已不同）
+				bits29[4] = false;
+				w.Write(bits28);
+				w.Write(bits29);
+				for (int i = 0; i < NPC.maxAI; i++)
+				{
+					if (bits28[i + 2]) w.Write(npc.ai[i]);
+				}
+				w.Write((short)npc.netID);
+				if (bits29[0]) w.Write((byte)npc.statsAreScaledForThisManyPlayers);
+				if (bits29[2]) w.Write(npc.difficulty);
+				// life：宽度标记 b5=1（sbyte）+ 值 0
+				w.Write((byte)1);
+				w.Write((sbyte)0);
+				if (npc.type >= 0 && npc.type < NPCID.Count && Main.npcCatchable[npc.type])
+					w.Write((byte)npc.releaseOwner);
+			});
+		}
+
+		/// <summary>
+		/// 清 A 服残留实体（首次传送 A→B 用）：枚举 A 服 Main.* 给玩家客户端发"旧世界下线"包。
+		/// 必须在重放 B 服数据【之前】调用。
+		/// </summary>
+		private static void ClearSourceWorldEntities(int who)
+		{
+			try
+			{
+				int count = 0;
+				int aliveNpc = 0, alivePlayer = 0, aliveProj = 0;
+				for (int i = 0; i < Main.maxNPCs; i++) if (Main.npc[i].active) aliveNpc++;
+				for (int i = 0; i < Main.maxPlayers; i++) if (i != who && Main.player[i].active) alivePlayer++;
+				for (int i = 0; i < Main.maxProjectiles; i++) if (Main.projectile[i].active) aliveProj++;
+				int alivePylonTe = TileEntity.ByID.Values.Count(te => te is TETeleportationPylon);
+				TShock.Log.ConsoleInfo($"[CrossTransfer] 开始清理玩家#{who} 客户端 A 服残留实体" +
+					$"（存活 NPC={aliveNpc} 其他玩家={alivePlayer} 弹幕={aliveProj}" +
+					$" 晶塔TileEntity={alivePylonTe} PylonSystem.Pylons={Main.PylonSystem.Pylons.Count}" +
+					$" 桥接存在={Bridges.ContainsKey(who)} socket通={Bridges.TryGetValue(who, out var _b0) && _b0.PlayerSocket != null && _b0.PlayerSocket.IsConnected()}）");
+
+				// 0) 世界晶塔 TileEntity：客户端世界里的晶塔实体（TETeleportationPylon）由
+				//    TileEntitySharing(86) 同步显示，须逐个发 [86][id int32][flag=false] 移除
+				//    （客户端 case 86：flag=false → TileEntity.Remove(id) → 世界晶塔实体消失）。
+				//    与 PylonWasRemoved（清传送网络/小地图图标）互补，二者都要发。
+				foreach (var te in TileEntity.ByID.Values.ToList())
+				{
+					if (te is TETeleportationPylon)
+					{
+						var id = te.ID;
+						SendToPlayerSocket(who, BuildSimpleFrame(86, w => { w.Write(id); w.Write(false); }));
+						count++;
+					}
+				}
+
+				// 1) 晶塔传送网络：Main.PylonSystem.Pylons 全量 PylonWasRemoved
+				int pylonCount = 0;
+				foreach (var pylon in Main.PylonSystem.Pylons.ToList())
+				{
+					SendNetPacketToPlayer(who, NetTeleportPylonModule.SerializePylonWasAddedOrRemoved(
+						pylon, NetTeleportPylonModule.SubPacketType.PylonWasRemoved));
+					pylonCount++;
+					count++;
+				}
+
+				// 2) A 服其他玩家：PlayerActive(14, slot, 0)
+				int playerCount = 0;
+				for (int i = 0; i < Main.maxPlayers; i++)
+				{
+					if (i == who || !Main.player[i].active) continue;
+					var slot = (byte)i;
+					SendToPlayerSocket(who, BuildSimpleFrame(14, w => { w.Write(slot); w.Write((byte)0); }));
+					playerCount++;
+					count++;
+				}
+
+				// 3) 弹幕：KillProjectile(29, key, position)
+				int projCount = 0;
+				for (int i = 0; i < Main.maxProjectiles; i++)
+				{
+					var p = Main.projectile[i];
+					if (!p.active) continue;
+					var key = p.key;
+					var pos = p.position;
+					SendToPlayerSocket(who, BuildSimpleFrame(29, w => { w.Write(key); w.WriteVector2(pos); }));
+					projCount++;
+					count++;
+				}
+
+				// 4) 物品：SyncItemDespawn(151, index)——仅清传送者专属掉落物（避免误清公共物品，
+				//    公共物品由 B 服重放/后续包覆盖 slot 显示）
+				int itemCount = 0;
+				for (int i = 0; i < Main.maxItems; i++)
+				{
+					var item = Main.item[i];
+					if (!item.active || item.playerIndexTheItemIsReservedFor != who) continue;
+					var idx = (short)i;
+					SendToPlayerSocket(who, BuildSimpleFrame(151, w => w.Write(idx)));
+					itemCount++;
+					count++;
+				}
+
+				// 5) NPC：SyncNPC(23, slot, life=0)——A 服全部 active NPC 标记死亡
+				int npcCount = 0;
+				for (int i = 0; i < Main.maxNPCs; i++)
+				{
+					if (!Main.npc[i].active) continue;
+					SendToPlayerSocket(who, BuildNpcDeathFrame(i));
+					npcCount++;
+					count++;
+				}
+
+				TShock.Log.ConsoleInfo($"[CrossTransfer] 清理玩家#{who} 客户端 A 服残留实体 {count} 个" +
+					$"（晶塔TileEntity/TileEntity.ByID 晶塔网络 PylonSystem.Pylons={pylonCount} 玩家={playerCount}" +
+					$" 弹幕={projCount} 物品={itemCount} NPC={npcCount}）");
+			}
+			catch (Exception ex)
+			{
+				TShock.Log.ConsoleError($"[CrossTransfer] 清理 A 服残留实体失败: {ex}");
+			}
+		}
+
+		/// <summary>
+		/// 把快照里的 SyncNPC(23) 帧改成 life=0 的"死亡帧"（复制后修改，不污染快照共享引用）。
+		/// 客户端 case 23：num178=life &lt;= 0 → nPC5.active=false → NPC 从客户端消失。
+		/// 处理两种帧：非满血（帧内已有 life 字段 → 原位清零）；满血（bits28[7]=1 无 life 字段
+		/// → 重构：改 bits28[7]=0 并在尾部追加 marker=1 + sbyte 0）。
+		/// </summary>
+		private static byte[]? BuildDeathFrameFromSyncNpcFrame(byte[] frame)
+		{
+			if (frame.Length < 24) return null; // 最小：len2+id1+slot1+gen1+pos8+vel8+target2+bits2+netID2
+			var copy = (byte[])frame.Clone();
+			int off = 3;   // 跳过 [len 2][msgId 1]
+			off += 2;      // slot + generation
+			off += 16;     // position + velocity
+			off += 2;      // target
+			if (off >= copy.Length) return null;
+			byte bits28 = copy[off];
+			byte bits29 = copy[off + 1];
+			off += 2;
+			for (int i = 0; i < 4; i++)
+				if (((bits28 >> (i + 2)) & 1) != 0) off += 4; // ai[i]
+			off += 2;      // netID
+			if ((bits29 & 1) != 0) off += 1;                    // scaledPlayers
+			if (((bits29 >> 2) & 1) != 0) off += 4;             // difficulty
+
+			if (((bits28 >> 7) & 1) != 0)
+			{
+				// 满血帧：无 life 字段 → 重构：清满血位，追加 marker=1 + sbyte 0
+				if (off > copy.Length) return null;
+				copy[3 + 20] = (byte)(bits28 & ~0x80); // bits28 在 payload 偏移 20（slot1+gen1+pos8+vel8+target2）
+				var result = new byte[copy.Length + 2];
+				Array.Copy(copy, result, off);
+				result[off] = 0x01;  // marker=1 → sbyte
+				result[off + 1] = 0; // life=0
+				Array.Copy(copy, off, result, off + 2, copy.Length - off);
+				int total = result.Length;
+				result[0] = (byte)(total & 0xFF);
+				result[1] = (byte)((total >> 8) & 0xFF);
+				return result;
+			}
+
+			// 非满血帧：读 marker，把 life 清零
+			if (off >= copy.Length) return null;
+			byte marker = copy[off];
+			off++;
+			switch (marker)
+			{
+				case 2:
+					if (off + 2 > copy.Length) return null;
+					copy[off] = 0; copy[off + 1] = 0;
+					break;
+				case 4:
+					if (off + 4 > copy.Length) return null;
+					copy[off] = 0; copy[off + 1] = 0; copy[off + 2] = 0; copy[off + 3] = 0;
+					break;
+				default:
+					copy[off] = 0;
+					break;
+			}
+			return copy;
+		}
+
+		/// <summary>
+		/// 清旧服残留实体（切换目标/返回源服用）：解析旧服握手快照 BufferedPackets，
+		/// 把其中"实体存在"包反向化为"下线"包发给客户端。必须在重放新服数据【之前】调用。
+		/// 能清：玩家(14)、晶塔(82 PylonWasAdded→Removed / 86 TileEntitySharing→移除)、
+		/// 弹幕(27→29)、物品(21→151)、NPC(23→life=0 死亡帧)。
+		/// </summary>
+		private static void ClearBufferedWorldEntities(int who, List<byte[]>? buffered, byte mySlot)
+		{
+			if (buffered == null || buffered.Count == 0) return;
+			try
+			{
+				int count = 0;
+				ushort pylonModuleId = NetManager.Instance.GetId<NetTeleportPylonModule>();
+
+				foreach (var frame in buffered)
+				{
+					if (frame.Length < 3) continue;
+					var type = frame[2];
+					try
+					{
+						switch (type)
+						{
+							case 14: // PlayerActive：[slot][active]
+							{
+								if (frame.Length < 5) break;
+								var slot = frame[3];
+								var active = frame[4];
+								if (active != 0 && slot != mySlot)
+								{
+									var s = slot;
+									SendToPlayerSocket(who, BuildSimpleFrame(14, w => { w.Write(s); w.Write((byte)0); }));
+									count++;
+								}
+								break;
+							}
+							case 82: // NetModule：[moduleId u16][payload...]
+							{
+								if (frame.Length < 6) break;
+								var moduleId = (ushort)(frame[3] | (frame[4] << 8));
+								if (moduleId != pylonModuleId) break;
+								// 晶塔模块 payload：[subType byte][posX i16][posY i16][type byte]
+								// subType==0(PylonWasAdded) → 反向发 PylonWasRemoved
+								if (frame[5] != (byte)NetTeleportPylonModule.SubPacketType.PylonWasAdded) break;
+								if (frame.Length < 11) break;
+								var info = new TeleportPylonInfo
+								{
+									PositionInTiles = new Point16(
+										(short)(frame[6] | (frame[7] << 8)),
+										(short)(frame[8] | (frame[9] << 8))),
+									TypeOfPylon = (TeleportPylonType)frame[10]
+								};
+								SendNetPacketToPlayer(who, NetTeleportPylonModule.SerializePylonWasAddedOrRemoved(
+									info, NetTeleportPylonModule.SubPacketType.PylonWasRemoved));
+								count++;
+								break;
+							}
+							case 27: // SyncProjectile：[key int32][position v2]... → KillProjectile(29)
+							{
+								if (frame.Length < 13) break;
+								var key = BitConverter.ToInt32(frame, 3);
+								var px = BitConverter.ToSingle(frame, 7);
+								var py = BitConverter.ToSingle(frame, 11);
+								var k = key; var pos = new Vector2(px, py);
+								SendToPlayerSocket(who, BuildSimpleFrame(29, w => { w.Write(k); w.WriteVector2(pos); }));
+								count++;
+								break;
+							}
+							case 21: // SyncItem：[index i16]... → SyncItemDespawn(151)
+							{
+								if (frame.Length < 5) break;
+								var idx = (short)(frame[3] | (frame[4] << 8));
+								var i2 = idx;
+								SendToPlayerSocket(who, BuildSimpleFrame(151, w => w.Write(i2)));
+								count++;
+								break;
+							}
+							case 86: // TileEntitySharing：[id int32][flag bool] → 反向移除（晶塔等 TileEntity）
+							{
+								if (frame.Length < 8) break;
+								var teId = BitConverter.ToInt32(frame, 3);
+								if (frame[7] != 0) // flag=true（添加）→ 反向发 flag=false 移除
+								{
+									var id = teId;
+									SendToPlayerSocket(who, BuildSimpleFrame(86, w => { w.Write(id); w.Write(false); }));
+									count++;
+								}
+								break;
+							}
+							case 23: // SyncNPC：复制帧改 life=0 → 客户端 active=false
+							{
+								var death = BuildDeathFrameFromSyncNpcFrame(frame);
+								if (death == null) break;
+								SendToPlayerSocket(who, death);
+								count++;
+								break;
+							}
+						}
+					}
+					catch { /* 单包解析失败跳过 */ }
+				}
+
+				if (count > 0)
+					TShock.Log.ConsoleInfo($"[CrossTransfer] 清理玩家#{who} 客户端旧服残留实体 {count} 个（玩家/晶塔/TileEntity/弹幕/物品/NPC）");
+			}
+			catch (Exception ex)
+			{
+				TShock.Log.ConsoleWarn($"[CrossTransfer] 清理旧服残留实体失败: {ex.Message}");
+			}
+		}
+
 		/// <summary>直发玩家 socket（不走 NetMessage.SendBytes，天然绕过出站拦截钩子）</summary>
 		private static void SendToPlayerSocket(int who, byte[] data)
 		{
@@ -1241,13 +1622,21 @@ namespace TShockData
 			//     会触发本 ServerLeave；若在此清理会误关玩家真 socket 并移除桥接 →
 			//     玩家断联、B 服数据无处送达。切换期间桥接生命周期由 SwitchTarget 统一接管，
 			//     切换完成后它会检查玩家是否存活并决定是否清理。
-			// 桥接生命周期由上行自读循环管理：真 socket 真正断开时，自读循环 finally 自己 CleanupBridge。
+			//  3) 玩家真 socket 仍连通（b.PlayerSocket.IsConnected()==true）——本 ServerLeave
+			//     触发的是"桥接链路某端"断开（如切换时断开回环连接/旧目标服连接），
+			//     并非玩家真正下线；此时不得清理，否则误关真 socket 导致玩家断联。
+			//     玩家真断开由上行自读循环 finally 自己 CleanupBridge（真 socket FIN →
+			//     IsConnected() 变 false → 本条件不成立 → 正常清理）。
 			if (args.Who >= 0 && args.Who < Netplay.Clients.Length
 				&& Bridges.TryGetValue(args.Who, out var b)
-				&& (Netplay.Clients[args.Who]?.Socket is RetainedSocket || b.Switching))
+				&& (Netplay.Clients[args.Who]?.Socket is RetainedSocket
+					|| b.Switching
+					|| b.PlayerSocket?.IsConnected() == true))
 			{
+				TShock.Log.ConsoleDebug($"[CrossTransfer] ServerLeave slot#{args.Who} 桥接保护跳过（socket={Netplay.Clients[args.Who]?.Socket?.GetType().Name} switching={b.Switching} playerAlive={b.PlayerSocket?.IsConnected()}）");
 				return;
 			}
+			TShock.Log.ConsoleInfo($"[CrossTransfer] ServerLeave slot#{args.Who} 桥接不存在或玩家已断，执行清理");
 			CleanupBridge(args.Who); // 非桥接玩家的正常下线清理
 		}
 
@@ -1255,6 +1644,15 @@ namespace TShockData
 		private static void CleanupBridge(int who)
 		{
 			if (!Bridges.TryRemove(who, out var bridge)) return;
+			// 诊断：记录触发来源（调用栈首帧）便于定位误清理路径
+			var caller = "";
+			try
+			{
+				var st = new System.Diagnostics.StackTrace(1, false);
+				caller = st.GetFrame(0)?.GetMethod()?.Name ?? "";
+			}
+			catch { }
+			TShock.Log.ConsoleInfo($"[CrossTransfer] CleanupBridge slot#{who} 触发来源: {caller}");
 			bridge.Cts.Cancel();
 			bridge.UpstreamCts.Cancel();
 			// 优雅关闭到目标服的连接：先 Shutdown(Both) 发 FIN，让对端正常走下线流程
