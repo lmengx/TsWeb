@@ -78,8 +78,7 @@ export function apply(ctx: Context, config: Config) {
             player: res.data.player || playerName,
             qq: senderQQ,
             server: res.data.server || serverName,
-            uuidSync: res.data.uuidSync,
-            message: res.data.message
+            uuidSync: res.data.uuidSync
           })
           const buf = await renderHtml(html, 2, '.card')
           await session.send(h('image', { url: `base64://${buf.toString('base64')}` }))
@@ -109,8 +108,7 @@ export function apply(ctx: Context, config: Config) {
         try {
           const html = registerSuccessCard({
             player: res.data.player || playerName,
-            qq: senderQQ,
-            message: res.data.message
+            qq: senderQQ
           })
           const buf = await renderHtml(html, 2, '.card')
           await session.send(h('image', { url: `base64://${buf.toString('base64')}` }))

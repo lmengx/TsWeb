@@ -5,8 +5,6 @@ export interface RegisterSuccessData {
   player: string
   /** QQ 号 */
   qq: string
-  /** 后端 message（提示改密文案，可覆盖默认） */
-  message?: string
 }
 
 export interface BindSuccessData {
@@ -18,8 +16,6 @@ export interface BindSuccessData {
   server?: string
   /** 绑定即时 UUID 同步结果（非空 = 已开通全服免密） */
   uuidSync?: unknown
-  /** 后端 message */
-  message?: string
 }
 
 const FOOTER = 'TSHOCK'
@@ -27,9 +23,8 @@ const FOOTER = 'TSHOCK'
 /** 注册成功卡片（调用方截图选择器：.card） */
 export function registerSuccessCard(data: RegisterSuccessData): string {
   const qq = escapeHtml(data.qq)
-  const hint = data.message
-    ? escapeHtml(data.message)
-    : '私聊发送「改密码 密码」设置你的登录密码'
+  // 「私聊」用强调徽标突出（颜色走主题令牌，不用后端 message，避免出现「请发送」文案）
+  const hint = '<span style="display:inline-block;background:var(--tw-accent-soft);color:var(--tw-accent);border:1px solid var(--tw-accent-border);font-size:13px;font-weight:800;padding:2px 12px;border-radius:16px;letter-spacing:1px">私聊</span> 发送「改密码 密码」设置你的登录密码'
 
   return frame(`
 <div class="card glow">
