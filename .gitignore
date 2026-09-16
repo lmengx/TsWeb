@@ -167,3 +167,4 @@ backend/data/**
 /plugin-son/PortRouter/bin
 /plugin-son/Spectate/bin
 /.dsh-vision-toolkit
+/plugin-son/PeaceMode/bin
