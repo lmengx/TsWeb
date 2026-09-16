@@ -205,6 +205,7 @@ namespace TShockData
             var syncAccounts = sseQuery.TryGetValue("syncQQAccounts", out var sa) && sa == "1";
             var syncUuid = sseQuery.TryGetValue("syncUUID", out var su) && su == "1";
             AccountSync.SetFlags(syncAccounts, syncUuid);
+            TShock.Log.ConsoleInfo($"[TSWeb] SSE 握手: serverId={sid ?? ""} syncQQAccounts={syncAccounts} syncUUID={syncUuid} (raw syncUUID='{su ?? "?"}')");
             // 跨服聊天配置（后端 config servers[i].crossChat / crossChatPrefix / crossChatColor / name）
             var crossChat = sseQuery.TryGetValue("crossChat", out var cc) && cc == "1";
             var crossPrefix = sseQuery.TryGetValue("crossChatPrefix", out var cp) ? Uri.UnescapeDataString(cp) : "";

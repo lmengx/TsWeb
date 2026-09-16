@@ -294,12 +294,12 @@ namespace TShockData
 
             if (string.IsNullOrEmpty(p.Name) || string.IsNullOrEmpty(p.UUID))
             {
-                TShock.Log.ConsoleDebug($"[AccountSync] 登录上报跳过：Name/UUID 为空 (name='{p.Name}', uuid='{p.UUID}')");
+                TShock.Log.ConsoleInfo($"[AccountSync] 登录上报跳过：Name/UUID 为空 (name='{p.Name}', uuid='{p.UUID}')");
                 return;
             }
             if (!IsValidUuid(p.UUID))
             {
-                TShock.Log.ConsoleDebug($"[AccountSync] 登录上报跳过：非法 UUID (name={p.Name}, uuid='{p.UUID}')");
+                TShock.Log.ConsoleInfo($"[AccountSync] 登录上报跳过：非法 UUID (name={p.Name}, uuid='{p.UUID}')");
                 return;
             }
 
@@ -319,7 +319,7 @@ namespace TShockData
                 }
                 else
                 {
-                    TShock.Log.ConsoleDebug($"[AccountSync] 已上报登录设备: {name} ({clients} 条 SSE 连接)");
+                    TShock.Log.ConsoleInfo($"[AccountSync] 已上报登录设备: {name} ({clients} 条 SSE 连接)");
                 }
             }
             catch (Exception ex)
