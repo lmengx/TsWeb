@@ -17,7 +17,7 @@ const loading = ref(false)
 const error = ref('')
 const data = ref(null)
 
-// ── 属性字典（key -> 中文标签/色值/说明），chips/饼图/条形图/表格标签统一取色 ──
+// ── 属性字典（key -> 中文标签/色值/说明），分布图/饼图/表格标签统一取色 ──
 const ATTRS = [
   { key: 'alt', label: '小号', color: '#f43f5e', desc: '在关联组内 且 累计时长 <= 30 分钟' },
   { key: 'guest', label: '游客账号', color: '#64748b', desc: '非关联账号 且 累计时长 <= 30 分钟' },
@@ -26,11 +26,14 @@ const ATTRS = [
   { key: 'returning', label: '回流玩家', color: '#22d3ee', desc: '曾活跃 且 活跃段间空档 >= 14 天 且 最后访问距今 <= 3 天' },
   { key: 'sustained', label: '持续活跃', color: '#06b6d4', desc: '近 14 天活跃 >= 7 天 且 最后访问距今 <= 3 天' },
   { key: 'dormant', label: '长期沉睡', color: '#a16207', desc: '累计时长 > 10 小时 且 最后访问距今 >= 30 天' },
-  { key: 'high_risk_group', label: '高风险关联组', color: '#b91c1c', desc: '所在关联组账号数 >= 3' },
+  { key: 'high_risk_group', label: '高风险关联组', color: '#b91c1c', desc: '所在关联组账号数 >= 3（仅标签，不参与筛选）' },
   { key: 'normal', label: '普通账号', color: '#475569', desc: '未命中任何属性的账号' }
 ]
 const ATTR_MAP = Object.fromEntries(ATTRS.map(a => [a.key, a]))
-const ALL_ATTR_KEYS = ATTRS.map(a => a.key)
+
+// 可筛选属性（高风险关联组只作可重叠标签，不参与筛选）
+const FILTER_ATTRS = ATTRS.filter(a => a.key !== 'high_risk_group')
+const ALL_ATTR_KEYS = FILTER_ATTRS.map(a => a.key)
 
 // ── 筛选状态 ──
 const servers = ref([])
@@ -85,29 +88,50 @@ const statCards = computed(() => {
   return [
     { label: '账号总数', value: summary.value.total, sub: `${summary.value.qqBound} 个已绑定 QQ`, color: '#22d3ee' },
     { label: '实际玩家数', value: summary.value.actualPlayers, sub: '关联账号组合并后', color: '#10b981' },
-    { label: '关联账号组', value: summary.value.altGroupCount, sub: `${summary.value.highRiskGroupCount} 个高风险组(>=3账号)`, color: '#8b5cf6' },
-    { label: '当前筛选', value: filteredSummary.value?.total ?? 0, sub: '选中项目内账号数', color: '#f59e0b' }
+    { label: '关联账号组', value: summary.value.altGroupCount, sub: `${summary.value.highRiskGroupCount} 个高风险组(>=3账号)`, color: '#8b5cf6' }
   ]
 })
 
-// ── 饼图（主属性占比，互斥分区）──
+// ── 全局属性标签分布（可重叠 · 不受筛选影响；含高风险关联组标签）──
+const globalBars = computed(() => {
+  const by = summary.value?.byAttribute || {}
+  const normalCount = summary.value?.byPrimary?.normal || 0
+  const total = Math.max(1, summary.value?.total || 0)
+  const items = ATTRS.map(a => ({
+    key: a.key,
+    label: a.label,
+    color: a.color,
+    count: a.key === 'normal' ? normalCount : (by[a.key] || 0)
+  })).filter(x => x.count > 0)
+  for (const x of items) {
+    x.pct = Math.round((x.count / total) * 1000) / 10
+  }
+  return items.sort((a, b) => b.count - a.count)
+})
+
+// ── 饼图：选中属性的标签命中占比（未选中属性不占比例；normal 用主属性 normal 计数）──
 const pieSlices = computed(() => {
-  const by = filteredSummary.value?.byPrimary || {}
-  const total = Math.max(1, filteredSummary.value?.total || 0)
-  // 只显示当前选中的主属性类别；normal 仅在全选或选中 normal 时显示
+  const byAttr = filteredSummary.value?.byAttribute || {}
+  const byPrimary = filteredSummary.value?.byPrimary || {}
+  // 选中属性集合；全选 = 全部可筛选属性
   const keys = filters.attrs.length === 0 ? [] : (allSelected.value ? ALL_ATTR_KEYS : filters.attrs)
   const slices = keys
-    .filter(k => by[k])
     .map(k => ({
       key: k,
       label: ATTR_MAP[k]?.label || k,
       color: ATTR_MAP[k]?.color || '#475569',
-      count: by[k],
-      pct: Math.round((by[k] / total) * 1000) / 10
+      count: k === 'normal' ? (byPrimary.normal || 0) : (byAttr[k] || 0)
     }))
-    .sort((a, b) => b.count - a.count)
-  return slices
+    .filter(s => s.count > 0)
+  const totalHits = slices.reduce((s, x) => s + x.count, 0)
+  for (const s of slices) {
+    s.pct = totalHits > 0 ? Math.round((s.count / totalHits) * 1000) / 10 : 0
+  }
+  return slices.sort((a, b) => b.count - a.count)
 })
+
+// 选中属性命中总数（饼图中心显示；扇区可重叠，总和可 > 100%）
+const pieTotalHits = computed(() => pieSlices.value.reduce((s, x) => s + x.count, 0))
 
 // ── SVG 饼图（每扇区一个 path，支持 hover 外扩 + 气泡）──
 const PIE_CX = 100, PIE_CY = 100, PIE_R = 80, PIE_OFFSET = 7
@@ -158,23 +182,6 @@ const hoverTip = computed(() => {
   const x = 50 + 66 * Math.cos(rad)
   const y = 50 + 66 * Math.sin(rad)
   return { x, y, ...s }
-})
-
-// ── 属性标签分布（可重叠，保留）──
-const tagBars = computed(() => {
-  const by = filteredSummary.value?.byAttribute || {}
-  const total = Math.max(1, filteredSummary.value?.total || 0)
-  const keys = filters.attrs.length === 0 ? [] : (allSelected.value ? ALL_ATTR_KEYS : filters.attrs)
-  return keys
-    .filter(k => by[k])
-    .map(k => ({
-      key: k,
-      label: ATTR_MAP[k]?.label || k,
-      color: ATTR_MAP[k]?.color || '#475569',
-      count: by[k],
-      pct: Math.round((by[k] / total) * 1000) / 10
-    }))
-    .sort((a, b) => b.count - a.count)
 })
 
 // ── 服务器 ──
@@ -374,6 +381,24 @@ const jumpToPlayer = (username) => {
       </div>
     </div>
 
+    <!-- 全局属性标签分布（可重叠 · 不受筛选影响） -->
+    <div v-if="summary" class="chart-card global-bars">
+      <div class="chart-title">
+        属性标签分布（可重叠 · 全局）
+        <span class="chart-tip">一个账号可命中多个属性，占比基于全量账号，不受筛选影响</span>
+      </div>
+      <div v-if="globalBars.length" class="bar-list">
+        <div v-for="b in globalBars" :key="b.key" class="bar-row" :title="ATTR_MAP[b.key]?.desc || ''">
+          <span class="bar-label">{{ b.label }}</span>
+          <div class="bar-track">
+            <div class="bar-fill" :style="{ width: b.pct + '%', background: b.color }"></div>
+          </div>
+          <span class="bar-count">{{ b.count }}（{{ b.pct }}%）</span>
+        </div>
+      </div>
+      <div v-else class="bar-empty">暂无数据</div>
+    </div>
+
     <!-- 筛选区：属性 chips 默认全选 -->
     <div class="filter-panel">
       <div class="filter-head">
@@ -387,7 +412,7 @@ const jumpToPlayer = (username) => {
       </div>
       <div class="attr-chips">
         <button
-          v-for="a in ATTRS"
+          v-for="a in FILTER_ATTRS"
           :key="a.key"
           class="chip"
           :class="{ active: filters.attrs.includes(a.key) }"
@@ -457,74 +482,62 @@ const jumpToPlayer = (username) => {
       </div>
     </div>
 
-    <!-- 图表区：饼图 + 可重叠分布 -->
-    <div v-if="filteredSummary" class="chart-grid">
-      <div class="chart-card">
-        <div class="chart-title">主属性占比（当前选中项内）</div>
-        <div class="pie-wrap">
-          <div class="pie">
-            <svg viewBox="0 0 200 200" class="pie-svg">
-              <g v-for="s in piePaths" :key="s.key">
-                <path
-                  class="pie-slice"
-                  :d="s.d"
-                  :fill="s.color"
-                  :style="{ '--dx': s.dx + 'px', '--dy': s.dy + 'px' }"
-                  :class="{ active: hoveredKey === s.key }"
-                  @mouseenter="hoveredKey = s.key"
-                  @mouseleave="hoveredKey = ''"
-                ></path>
-              </g>
-            </svg>
-            <div class="pie-hole">
-              <template v-if="hovered">
-                <div class="pie-total" :style="{ color: hovered.color }">{{ hovered.label }}</div>
-                <div class="pie-total-sub">{{ hovered.count }} 个 · {{ hovered.pct }}%</div>
-              </template>
-              <template v-else>
-                <div class="pie-total">{{ filteredSummary.total }}</div>
-                <div class="pie-total-label">账号</div>
-              </template>
-            </div>
-            <!-- hover 气泡：显示比例 -->
-            <div v-if="hoverTip" class="pie-tip" :style="{ left: hoverTip.x + '%', top: hoverTip.y + '%' }">
-              <span class="tip-dot" :style="{ background: hoverTip.color }"></span>
-              {{ hoverTip.label }}
-              <b>{{ hoverTip.pct }}%</b>
-            </div>
-          </div>
-          <div class="pie-legend">
-            <div
-              v-for="s in pieSlices"
-              :key="s.key"
-              class="legend-row"
-              :class="{ active: hoveredKey === s.key }"
-              @mouseenter="hoveredKey = s.key"
-              @mouseleave="hoveredKey = ''"
-            >
-              <span class="legend-dot" :style="{ background: s.color }"></span>
-              <span class="legend-label">{{ s.label }}</span>
-              <div class="legend-bar">
-                <div class="legend-bar-fill" :style="{ width: s.pct + '%', background: s.color }"></div>
-              </div>
-              <span class="legend-pct">{{ s.pct }}%</span>
-            </div>
-            <div v-if="pieSlices.length === 0" class="legend-empty">当前筛选无数据</div>
-          </div>
-        </div>
+    <!-- 饼图：选中属性占比（未选中属性不占比例） -->
+    <div v-if="filteredSummary" class="chart-card pie-card">
+      <div class="chart-title">
+        选中属性占比
+        <span class="chart-tip">仅统计当前选中的属性标签命中占比（命中数 / 选中属性命中总数）；未选中属性不占比例</span>
       </div>
-      <div class="chart-card">
-        <div class="chart-title">属性标签分布（可重叠）</div>
-        <div v-if="tagBars.length" class="bar-list">
-          <div v-for="b in tagBars" :key="b.key" class="bar-row" :title="ATTR_MAP[b.key]?.desc || ''">
-            <span class="bar-label">{{ b.label }}</span>
-            <div class="bar-track">
-              <div class="bar-fill" :style="{ width: b.pct + '%', background: b.color }"></div>
-            </div>
-            <span class="bar-count">{{ b.count }}（{{ b.pct }}%）</span>
+      <div class="pie-wrap">
+        <div class="pie">
+          <svg viewBox="0 0 200 200" class="pie-svg">
+            <g v-for="s in piePaths" :key="s.key">
+              <path
+                class="pie-slice"
+                :d="s.d"
+                :fill="s.color"
+                :style="{ '--dx': s.dx + 'px', '--dy': s.dy + 'px' }"
+                :class="{ active: hoveredKey === s.key }"
+                @mouseenter="hoveredKey = s.key"
+                @mouseleave="hoveredKey = ''"
+              ></path>
+            </g>
+          </svg>
+          <div class="pie-hole">
+            <template v-if="hovered">
+              <div class="pie-total" :style="{ color: hovered.color }">{{ hovered.label }}</div>
+              <div class="pie-total-sub">{{ hovered.count }} 个 · {{ hovered.pct }}%</div>
+            </template>
+            <template v-else>
+              <div class="pie-total">{{ pieTotalHits }}</div>
+              <div class="pie-total-label">属性命中</div>
+            </template>
+          </div>
+          <!-- hover 气泡：显示比例 -->
+          <div v-if="hoverTip" class="pie-tip" :style="{ left: hoverTip.x + '%', top: hoverTip.y + '%' }">
+            <span class="tip-dot" :style="{ background: hoverTip.color }"></span>
+            {{ hoverTip.label }}
+            <b>{{ hoverTip.pct }}%</b>
           </div>
         </div>
-        <div v-else class="bar-empty">当前筛选无数据</div>
+        <div class="pie-legend">
+          <div
+            v-for="s in pieSlices"
+            :key="s.key"
+            class="legend-row"
+            :class="{ active: hoveredKey === s.key }"
+            @mouseenter="hoveredKey = s.key"
+            @mouseleave="hoveredKey = ''"
+          >
+            <span class="legend-dot" :style="{ background: s.color }"></span>
+            <span class="legend-label">{{ s.label }}</span>
+            <div class="legend-bar">
+              <div class="legend-bar-fill" :style="{ width: s.pct + '%', background: s.color }"></div>
+            </div>
+            <span class="legend-pct">{{ s.pct }}%</span>
+          </div>
+          <div v-if="pieSlices.length === 0" class="legend-empty">当前筛选无数据</div>
+        </div>
       </div>
     </div>
 
@@ -935,12 +948,6 @@ const jumpToPlayer = (username) => {
 .range-sep { color: var(--text-muted); }
 
 /* ── 图表区 ── */
-.chart-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 14px;
-}
-@media (max-width: 900px) { .chart-grid { grid-template-columns: 1fr; } }
 .chart-card {
   background: var(--glass-bg);
   backdrop-filter: var(--glass-blur);
@@ -955,6 +962,16 @@ const jumpToPlayer = (username) => {
   font-size: 0.9rem;
   margin-bottom: 14px;
 }
+.chart-tip {
+  font-weight: 400;
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  margin-left: 10px;
+}
+/* 全局可重叠分布（顶部全宽卡片） */
+.global-bars { width: 100%; }
+/* 饼图卡片 */
+.pie-card { width: 100%; }
 
 /* 饼图 */
 .pie-wrap {
