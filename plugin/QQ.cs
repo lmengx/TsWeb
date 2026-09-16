@@ -17,8 +17,11 @@ namespace TShockData
     {
         /// <summary>
         /// REST API: 绑定流程查询账号（后端 /api/bot/bind 广播调用）
-        /// 返回本地是否存在该角色名、密码哈希与本地数据库 UUID 真值
-        /// 入参: name (角色名)
+        /// 返回本地是否存在该角色名、密码哈希与本地数据库 UUID 真值。
+        /// 附加返回本服同名在线玩家信息（online / onlineUuid）：
+        ///   绑定即时 UUID 同步用——若角色在线，后端取当前会话 UUID 广播到所有启用 syncUUID 的服务器，
+        ///   使各服（含来源服）立即免密，无需等玩家下次登录触发上报。
+        /// 入参: name (角色名/账号名)
         /// </summary>
         public static object FindAccount(RestRequestArgs args)
         {
@@ -32,10 +35,35 @@ namespace TShockData
 
             try
             {
+                // 本服同名在线玩家（大小写不敏感：优先匹配账号名，其次角色名——
+                // 未登录玩家 Account 为空，只有角色名可匹配）
+                TSPlayer online = null;
+                foreach (var p in TShock.Players)
+                {
+                    if (p == null || !p.Active) continue;
+                    if (p.Account != null &&
+                        p.Account.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
+                    {
+                        online = p;
+                        break;
+                    }
+                    if (p.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
+                    {
+                        online = p;
+                        break;
+                    }
+                }
+
                 var account = TShock.UserAccounts.GetUserAccountByName(name);
                 if (account == null)
                 {
-                    return new RestObject() { { "found", false } };
+                    // 账号不存在也返回在线状态（未注册的在线玩家），供后端按在线条件决定是否同步
+                    return new RestObject()
+                    {
+                        { "found", false },
+                        { "online", online != null },
+                        { "onlineUuid", online?.UUID ?? "" }
+                    };
                 }
 
                 return new RestObject()
@@ -43,7 +71,9 @@ namespace TShockData
                     { "found", true },
                     { "passwordHash", account.Password },
                     { "uuid", AccountSync.GetUuid(name) },
-                    { "group", account.Group }
+                    { "group", account.Group },
+                    { "online", online != null },
+                    { "onlineUuid", online?.UUID ?? "" }
                 };
             }
             catch (Exception ex)

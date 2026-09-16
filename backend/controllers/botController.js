@@ -1,7 +1,7 @@
 import crypto from 'crypto'
 import bcrypt from 'bcrypt'
 import { getConfig, getServers, updateBotSettings } from '../config.js'
-import { upsertAccount, getAccountByQq, getAccountByUsername, removeAccount, broadcastFullAll, getAccounts } from '../services/qqAccountService.js'
+import { upsertAccount, getAccountByQq, getAccountByUsername, removeAccount, broadcastFullAll, broadcastUuid, getAccounts } from '../services/qqAccountService.js'
 import { getPlaytime, getPlaytimeRecords, aggregateAll, startAggregation, stopAggregation } from '../services/qqPlaytimeService.js'
 import audit from '../services/auditLogger.js'
 import voteService from '../services/voteService.js'
@@ -145,11 +145,14 @@ export const bind = async (req, res) => {
     const targets = serverId ? servers.filter(s => s.id === serverId) : servers
     if (targets.length === 0) return res.status(404).json({ error: '没有可查询的服务器' })
 
-    // 广播查询
+    // 广播查询：收集所有响应（含在线状态，供绑定即时 UUID 同步用），results 仅含账号命中
+    const responses = []
     const results = []
     for (const s of targets) {
       const r = await pluginFetch(s, '/data/qq/find-account', { name: player })
-      if (r && r.found) results.push({ server: s, data: r })
+      if (!r) continue
+      responses.push({ server: s, data: r })
+      if (r.found) results.push({ server: s, data: r })
     }
 
     if (results.length === 0) {
@@ -177,7 +180,42 @@ export const bind = async (req, res) => {
     audit.record('qq_account.bind', { serverId: hitServer.id, username: player, qq })
     console.log(`[QQ台账] 绑定: ${player} (QQ:${qq}) 来自 ${hitServer.name}, 广播 ${result.ok}/${result.total}`)
 
-    res.json({ status: 'ok', server: hitServer.name, message: '绑定成功' })
+    // ═══ 绑定即时 UUID 同步 ═══
+    // 条件：角色当前在线，且所在服务器启用了 syncUUID（UUID 同步生态内的服务器才有同步意义）。
+    // 取在线会话 UUID（而非数据库旧 UUID）→ 广播到所有启用 syncUUID 的服务器（含来源服），
+    // 各服立即落盘该账号 UUID，实现绑定即全服免密，无需等玩家下次登录触发上报。
+    // 不在线 → 只建号不同步 UUID（在线条件为硬条件，Q2/Q3 确认）。
+    const onlineHit = responses.find(x => x.data?.online === true && x.server.syncUUID === true)
+    let uuidSync = null
+
+    // 可观测性：所有响应都缺失 online 字段 = 插件 DLL 未更新（旧版 find-account 不返回在线状态）→ 明确告警
+    const anyHasOnlineField = responses.some(x => x.data && Object.prototype.hasOwnProperty.call(x.data, 'online'))
+    if (!anyHasOnlineField && responses.length > 0) {
+      console.warn(`[QQ台账] 绑定跳过 UUID 同步: ${player} 的 find-account 响应均无 online 字段——插件 DLL 可能未更新（需重新编译部署）`)
+    }
+
+    if (onlineHit && onlineHit.data?.onlineUuid) {
+      const onlineUuid = String(onlineHit.data.onlineUuid).trim()
+      if (onlineUuid) {
+        // kick: false —— 绑定场景不踢任何服（含来源服）；excludeServerId: null —— 全服落盘（含来源服）
+        uuidSync = await broadcastUuid(player, onlineUuid, { kick: false, excludeServerId: null })
+        if (uuidSync.total === 0) {
+          console.warn(`[QQ台账] 绑定即时 UUID 同步: ${player} 在线于 ${onlineHit.server.name}, 但无启用 syncUUID 的目标服务器`)
+        } else if (uuidSync.ok === uuidSync.total) {
+          console.log(`[QQ台账] 绑定即时 UUID 同步: ${player} 在线于 ${onlineHit.server.name}, 已同步 ${uuidSync.ok}/${uuidSync.total} 台`)
+        } else {
+          console.warn(`[QQ台账] 绑定即时 UUID 同步部分失败: ${player} 同步 ${uuidSync.ok}/${uuidSync.total} 台`)
+        }
+      }
+    }
+    if (!uuidSync) {
+      const reason = responses.length === 0
+        ? '无服务器响应'
+        : (onlineHit ? '在线 UUID 为空' : '角色不在线或所在服未启用 syncUUID')
+      console.log(`[QQ台账] 绑定跳过 UUID 同步: ${player} — ${reason}`)
+    }
+
+    res.json({ status: 'ok', server: hitServer.name, message: '绑定成功', uuidSync: uuidSync || null })
   } catch (err) {
     console.error('[QQ台账] 绑定失败:', err.message)
     res.status(500).json({ error: err.message })
