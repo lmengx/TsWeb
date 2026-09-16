@@ -1,7 +1,7 @@
 import { Context, Session, h } from 'koishi'
 import type { Config } from '../utils/config'
 import { safeHttpGet, safeHttpPost } from '../utils/config'
-import { renderHtml, playerInfoCard, bossProgressCard, onlineListCard, multiOnlineCard, voteListCard, voteDetailCard, voteStateCard } from '../utils/render'
+import { renderHtml, playerInfoCard, bossProgressCard, onlineListCard, multiOnlineCard, voteListCard, voteDetailCard, voteStateCard, registerSuccessCard, bindSuccessCard } from '../utils/render'
 
 export const name = 'tshock-group'
 
@@ -73,7 +73,20 @@ export function apply(ctx: Context, config: Config) {
         qq: senderQQ, player: playerName, serverId
       })
       if (res.ok) {
-        await session.send(`✅绑定成功✅\n角色名：${res.data.player || playerName}\n可在所有服务器使用该角色登录`)
+        try {
+          const html = bindSuccessCard({
+            player: res.data.player || playerName,
+            qq: senderQQ,
+            server: res.data.server || serverName,
+            uuidSync: res.data.uuidSync,
+            message: res.data.message
+          })
+          const buf = await renderHtml(html, 2, '.card')
+          await session.send(h('image', { url: `base64://${buf.toString('base64')}` }))
+        } catch (err: any) {
+          ctx.logger.error('[绑定] 截图失败:', err.message)
+          await session.send(`✅绑定成功✅\n角色名：${res.data.player || playerName}\n可在所有服务器使用该角色登录`)
+        }
       } else {
         await session.send(h('at', { id: senderQQ }) + res.msg)
       }
@@ -93,7 +106,18 @@ export function apply(ctx: Context, config: Config) {
         qq: senderQQ, player: playerName
       })
       if (res.ok) {
-        await session.send(`✅注册成功✅\n角色名：${playerName}\n私聊发送「改密码 密码」设密码`)
+        try {
+          const html = registerSuccessCard({
+            player: res.data.player || playerName,
+            qq: senderQQ,
+            message: res.data.message
+          })
+          const buf = await renderHtml(html, 2, '.card')
+          await session.send(h('image', { url: `base64://${buf.toString('base64')}` }))
+        } catch (err: any) {
+          ctx.logger.error('[注册] 截图失败:', err.message)
+          await session.send(`✅注册成功✅\n角色名：${playerName}\n私聊发送「改密码 密码」设密码`)
+        }
         ctx.logger.info('[注册]QQ', senderQQ, '注册角色', playerName, '成功')
       } else {
         await session.send(h('at', { id: senderQQ }) + res.msg)
