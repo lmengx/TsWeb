@@ -95,6 +95,7 @@ const serverSection = [
   { id: 'terminal', name: '控制台', path: '/console/terminal', managerOnly: true, icon: 'terminal' },
   { id: 'progress', name: '世界信息', path: '/console/progress', managerOnly: true, icon: 'globe' },
   { id: 'players', name: '玩家管理', path: '/console/players', managerOnly: true, icon: 'users' },
+  { id: 'account-attributes', name: '账号属性', path: '/console/account-attributes', managerOnly: true, icon: 'search' },
   { id: 'groups', name: '组管理', path: '/console/groups', managerOnly: true, icon: 'layers' },
   { id: 'houses', name: '房屋与建筑', path: '/console/houses', managerOnly: true, icon: 'home' },
   { id: 'tasks', name: '自动任务', path: '/console/tasks', managerOnly: true, icon: 'clock' },

@@ -287,6 +287,12 @@ const routes = [
         meta: { requiresAuth: true, requiresManager: true }
       },
       {
+        path: 'account-attributes',
+        name: 'AccountAttributes',
+        component: () => import('../views/console/AccountAttributesView.vue'),
+        meta: { requiresAuth: true, requiresManager: true }
+      },
+      {
         path: 'banlist',
         name: 'BanList',
         component: () => import('../views/console/BanListView.vue'),

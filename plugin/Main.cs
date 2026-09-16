@@ -87,6 +87,9 @@ namespace TShockData
             TShock.RestApi.Register(new SecureRestCommand("/data/shopui/config", ShopUIConfigManager.GetConfigJson, ""));
             TShock.RestApi.Register(new SecureRestCommand("/data/shopui/config/set", ShopUIConfigManager.SetConfigJson, "data.rest.invsee"));
 
+            // ═══ 账号属性判定（小号/游客/流失/新增活跃/回流/持续活跃 + 长期沉睡/高风险关联组）═══
+            TShock.RestApi.Register(new SecureRestCommand("/data/account/attributes", AccountAttributes.GetAttributes, "data.rest.invsee"));
+
 			TShock.RestApi.Register(new SecureRestCommand("/data/users/invsee", GetPlayerInv.GetInv, "data.rest.invsee"));
 			TShock.RestApi.Register(new SecureRestCommand("/data/users/editinv", GetPlayerInv.EditInv, "data.rest.invsee"));
 			TShock.RestApi.Register(new SecureRestCommand("/data/users/batch-edit", GetPlayerInv.BatchEdit, "data.rest.invsee"));
@@ -416,6 +419,7 @@ namespace TShockData
 		{
 			var tswebRoutes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
 			{
+				"/data/account/attributes",
 				"/data/users/invsee",
 				"/data/users/editinv",
 				"/data/users/batch-edit",
