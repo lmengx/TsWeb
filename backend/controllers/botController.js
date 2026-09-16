@@ -1,7 +1,7 @@
 import crypto from 'crypto'
 import bcrypt from 'bcrypt'
 import { getConfig, getServers, updateBotSettings } from '../config.js'
-import { upsertAccount, getAccountByQq, getAccountByUsername, removeAccount, broadcastFullAll, broadcastUuid, getAccounts } from '../services/qqAccountService.js'
+import { upsertAccount, getAccountByQq, getAccountByUsername, getAccountByUsernameCI, removeAccount, broadcastFullAll, broadcastUuid, getAccounts } from '../services/qqAccountService.js'
 import { getPlaytime, getPlaytimeRecords, aggregateAll, startAggregation, stopAggregation } from '../services/qqPlaytimeService.js'
 import audit from '../services/auditLogger.js'
 import voteService from '../services/voteService.js'
@@ -659,6 +659,100 @@ export const qqUnbind = async (req, res) => {
     console.log(`[QQ台账] 解绑: ${name} (QQ:${rec.qq || ''}), 广播 ${result.ok}/${result.total}`)
     res.json({ status: 'ok', message: '解绑成功' })
   } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+}
+
+/**
+ * 管理员手动绑定：POST /api/bot/qq-bind  { qq, player, serverId? }
+ * 与机器人 bind 同流程（广播 find-account → 唯一命中 → 建台账 → 广播全量 → UUID 即时同步），
+ * 差异：
+ *   - 鉴权为管理端 JWT（requireAdmin），非机器人 token
+ *   - 校验角色是否已绑定其它 QQ（已绑定需走改绑）
+ *   - 审计记录操作管理员（qq_account.bind_admin）
+ */
+export const qqBind = async (req, res) => {
+  try {
+    const qq = String(req.body?.qq || '').trim()
+    const player = String(req.body?.player || '').trim()
+    const serverId = String(req.body?.serverId || '').trim() || null
+    if (!qq || !player) return res.status(400).json({ error: '缺少参数: qq / player' })
+    if (!/^\d{5,15}$/.test(qq)) return res.status(400).json({ error: 'QQ 号格式不正确' })
+
+    if (await getAccountByQq(qq)) {
+      return res.status(409).json({ error: '该 QQ 已绑定角色' })
+    }
+    // 角色已绑定其它 QQ → 走改绑，避免一条角色两条 QQ 记录
+    const existing = await getAccountByUsernameCI(player)
+    if (existing && String(existing.qq || '')) {
+      return res.status(409).json({ error: `该角色已绑定 QQ：${existing.qq}（如需更换请用「改绑」）` })
+    }
+
+    const servers = (await getServers()).filter(s => s.enabled && s.host && s.port && s.apiKey)
+    const targets = serverId ? servers.filter(s => s.id === serverId) : servers
+    if (targets.length === 0) return res.status(404).json({ error: '没有可查询的服务器' })
+
+    // 广播查询：收集所有响应（含在线状态，供绑定即时 UUID 同步用），results 仅含账号命中
+    const responses = []
+    const results = []
+    for (const s of targets) {
+      const r = await pluginFetch(s, '/data/qq/find-account', { name: player })
+      if (!r) continue
+      responses.push({ server: s, data: r })
+      if (r.found) results.push({ server: s, data: r })
+    }
+
+    if (results.length === 0) {
+      return res.status(404).json({ error: '该角色名在所有可查询的服务器中都不存在' })
+    }
+    if (results.length > 1) {
+      return res.status(409).json({
+        conflict: true,
+        error: '该角色名在多个服务器存在，请指定服务器后重试',
+        servers: results.map(({ server: s }) => ({ id: s.id, name: s.name }))
+      })
+    }
+
+    const { server: hitServer, data } = results[0]
+    if (!data.passwordHash) {
+      return res.status(500).json({ error: `服务器「${hitServer.name}」未返回密码哈希` })
+    }
+
+    await upsertAccount({
+      username: player,
+      qq,
+      passwordHash: data.passwordHash
+    })
+    const result = await broadcastFullAll()
+    audit.record('qq_account.bind_admin', {
+      serverId: hitServer.id,
+      username: player,
+      qq,
+      actor: req.user?.username || 'admin'
+    })
+    console.log(`[QQ台账] 管理员绑定: ${player} (QQ:${qq}) 来自 ${hitServer.name}, 广播 ${result.ok}/${result.total} (操作: ${req.user?.username || 'admin'})`)
+
+    // ═══ 绑定即时 UUID 同步（与机器人 bind 一致）═══
+    // 条件：角色当前在线，且所在服务器启用了 syncUUID。
+    // 取在线会话 UUID → 广播到所有启用 syncUUID 的服务器（含来源服），绑定即全服免密。
+    const onlineHit = responses.find(x => x.data?.online === true && x.server.syncUUID === true)
+    let uuidSync = null
+    if (onlineHit && onlineHit.data?.onlineUuid) {
+      const onlineUuid = String(onlineHit.data.onlineUuid).trim()
+      if (onlineUuid) {
+        uuidSync = await broadcastUuid(player, onlineUuid, { kick: false, excludeServerId: null })
+      }
+    }
+    if (!uuidSync) {
+      const reason = responses.length === 0
+        ? '无服务器响应'
+        : (onlineHit ? '在线 UUID 为空' : '角色不在线或所在服未启用 syncUUID')
+      console.log(`[QQ台账] 管理员绑定跳过 UUID 同步: ${player} — ${reason}`)
+    }
+
+    res.json({ status: 'ok', server: hitServer.name, message: '绑定成功', uuidSync: uuidSync || null })
+  } catch (err) {
+    console.error('[QQ台账] 管理员绑定失败:', err.message)
     res.status(500).json({ error: err.message })
   }
 }

@@ -2,7 +2,7 @@ import { Router } from 'express'
 import {
   register, changePassword, bind, listServers, requireBotToken,
   playerInfo, online, bossProgress, votes, voteCast, votePropose,
-  qqList, qqUnbind, qqRebind, getBotSettings, setBotSettings, refreshPlaytime
+  qqList, qqBind, qqUnbind, qqRebind, getBotSettings, setBotSettings, refreshPlaytime
 } from '../controllers/botController.js'
 import { verifyToken, requireAdmin } from '../middlewares/authMiddleware.js'
 
@@ -26,6 +26,9 @@ router.post('/qq-unbind', verifyToken, requireAdmin, qqUnbind)
 
 // 改绑 QQ：POST /api/bot/qq-rebind  { username, qq }
 router.post('/qq-rebind', verifyToken, requireAdmin, qqRebind)
+
+// 管理员手动绑定：POST /api/bot/qq-bind  { qq, player, serverId? }
+router.post('/qq-bind', verifyToken, requireAdmin, qqBind)
 
 // 机器人设置读取：GET /api/bot/settings
 router.get('/settings', verifyToken, requireAdmin, getBotSettings)
