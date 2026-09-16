@@ -114,7 +114,17 @@ export async function aggregateAttributes(filters = {}) {
   let filtered = accounts
   if (attr) {
     const attrSet = new Set(String(attr).split(',').map(a => a.trim().toLowerCase()).filter(Boolean))
-    filtered = filtered.filter(a => (a.attributes || []).some(x => attrSet.has(x)))
+    if (attrSet.has('__none__')) {
+      // 前端"全不选"：不显示任何账号
+      filtered = []
+    } else {
+      const showNormal = attrSet.has('normal')
+      filtered = filtered.filter(a => {
+        const attrs = a.attributes || []
+        if (attrs.length === 0) return showNormal            // 无属性标签账号 = 普通账号
+        return attrs.some(x => attrSet.has(x))
+      })
+    }
   }
   if (keyword) {
     const kw = String(keyword).toLowerCase()
@@ -131,6 +141,22 @@ export async function aggregateAttributes(filters = {}) {
   if (activeDays14Min != null && !Number.isNaN(Number(activeDays14Min))) {
     const m = Number(activeDays14Min)
     filtered = filtered.filter(a => (a.activeDays14 || 0) >= m)
+  }
+
+  // 筛选后分布（饼图/条形图数据：当前选中项目内各属性占比）
+  //   byPrimary   主属性分布（互斥分区，饼图用）
+  //   byAttribute 属性标签分布（可重叠，一个账号可命中多个属性，条形图用）
+  const filteredSummary = {
+    total: filtered.length,
+    byPrimary: {},
+    byAttribute: {}
+  }
+  for (const a of filtered) {
+    const primary = a.primaryAttribute || 'normal'
+    filteredSummary.byPrimary[primary] = (filteredSummary.byPrimary[primary] || 0) + 1
+    for (const attr of a.attributes || []) {
+      filteredSummary.byAttribute[attr] = (filteredSummary.byAttribute[attr] || 0) + 1
+    }
   }
 
   const getSortVal = (a) => {
@@ -160,6 +186,7 @@ export async function aggregateAttributes(filters = {}) {
     generatedAt: new Date().toISOString(),
     servers: serverInfo,
     summary,
+    filteredSummary,
     total,
     page,
     pageSize,
@@ -227,8 +254,15 @@ function buildSummary(accounts) {
     if (size >= 3) highRiskGroupCount++
   }
 
+  // 实际玩家数：每个关联账号组合并为一个玩家（组内 size 个账号只算 1 人），无关联账号各算 1 人
+  let actualPlayers = total
+  for (const size of relGroups.values()) {
+    actualPlayers -= (size - 1)
+  }
+
   return {
     total,
+    actualPlayers,
     qqBound,
     altGroupCount,
     highRiskGroupCount,
