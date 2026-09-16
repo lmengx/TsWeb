@@ -85,9 +85,11 @@ const filteredSummary = computed(() => data.value?.filteredSummary || null)
 
 const statCards = computed(() => {
   if (!summary.value) return []
+  const avgH = (summary.value.avgMinutesExclAlt || 0) / 60
   return [
     { label: '账号总数', value: summary.value.total, sub: `${summary.value.qqBound} 个已绑定 QQ`, color: '#22d3ee' },
     { label: '实际玩家数', value: summary.value.actualPlayers, sub: '关联账号组合并后', color: '#10b981' },
+    { label: '实际平均时长（去小号）', value: avgH.toFixed(1), sub: '小时 · 排除小号账号', color: '#f59e0b' },
     { label: '关联账号组', value: summary.value.altGroupCount, sub: `${summary.value.highRiskGroupCount} 个高风险组(>=3账号)`, color: '#8b5cf6' }
   ]
 })
@@ -133,12 +135,18 @@ const pieSlices = computed(() => {
 // 选中属性命中总数（饼图中心显示；扇区可重叠，总和可 > 100%）
 const pieTotalHits = computed(() => pieSlices.value.reduce((s, x) => s + x.count, 0))
 
-// ── SVG 饼图（每扇区一个 path，支持 hover 外扩 + 气泡）──
-const PIE_CX = 100, PIE_CY = 100, PIE_R = 80, PIE_OFFSET = 7
+// ── SVG 饼图（每扇区一个 path；单扇区时用 circle 画整圆；hover 等比缩放突出）──
+const PIE_CX = 100, PIE_CY = 100, PIE_R = 80
 
 const piePaths = computed(() => {
+  const slices = pieSlices.value
+  // 单选：整圆（arc 画不出完整圆，改用 circle）
+  if (slices.length === 1) {
+    const s = slices[0]
+    return [{ ...s, isFull: true }]
+  }
   let acc = 0
-  return pieSlices.value.map(s => {
+  return slices.map(s => {
     const startPct = acc
     acc += s.pct
     const start = (startPct / 100) * 2 * Math.PI - Math.PI / 2
@@ -148,15 +156,10 @@ const piePaths = computed(() => {
     const x2 = PIE_CX + PIE_R * Math.cos(end)
     const y2 = PIE_CY + PIE_R * Math.sin(end)
     const largeArc = s.pct > 50 ? 1 : 0
-    // 角平分线方向（hover 外扩位移用）
-    const midPct = (startPct + s.pct / 2) / 100
-    const midRad = midPct * 2 * Math.PI - Math.PI / 2
-    const dx = PIE_OFFSET * Math.cos(midRad)
-    const dy = PIE_OFFSET * Math.sin(midRad)
     return {
       ...s,
-      d: `M ${PIE_CX} ${PIE_CY} L ${x1} ${y1} A ${PIE_R} ${PIE_R} 0 ${largeArc} 1 ${x2} ${y2} Z`,
-      dx, dy
+      isFull: false,
+      d: `M ${PIE_CX} ${PIE_CY} L ${x1} ${y1} A ${PIE_R} ${PIE_R} 0 ${largeArc} 1 ${x2} ${y2} Z`
     }
   })
 })
@@ -384,7 +387,7 @@ const jumpToPlayer = (username) => {
     <!-- 全局属性标签分布（可重叠 · 不受筛选影响） -->
     <div v-if="summary" class="chart-card global-bars">
       <div class="chart-title">
-        属性标签分布（可重叠 · 全局）
+        属性标签分布（可重叠）
         <span class="chart-tip">一个账号可命中多个属性，占比基于全量账号，不受筛选影响</span>
       </div>
       <div v-if="globalBars.length" class="bar-list">
@@ -492,11 +495,20 @@ const jumpToPlayer = (username) => {
         <div class="pie">
           <svg viewBox="0 0 200 200" class="pie-svg">
             <g v-for="s in piePaths" :key="s.key">
+              <circle
+                v-if="s.isFull"
+                class="pie-slice"
+                :cx="100" :cy="100" :r="80"
+                :fill="s.color"
+                :class="{ active: hoveredKey === s.key }"
+                @mouseenter="hoveredKey = s.key"
+                @mouseleave="hoveredKey = ''"
+              ></circle>
               <path
+                v-else
                 class="pie-slice"
                 :d="s.d"
                 :fill="s.color"
-                :style="{ '--dx': s.dx + 'px', '--dy': s.dy + 'px' }"
                 :class="{ active: hoveredKey === s.key }"
                 @mouseenter="hoveredKey = s.key"
                 @mouseleave="hoveredKey = ''"
@@ -994,18 +1006,18 @@ const jumpToPlayer = (username) => {
   display: block;
 }
 .pie-slice {
-  transition: transform 0.22s var(--ease-out), filter 0.22s var(--ease-out), opacity 0.22s var(--ease-out);
+  transition: transform 0.22s var(--ease-out), filter 0.22s var(--ease-out);
   transform-origin: 100px 100px;
   cursor: pointer;
 }
 .pie-slice:hover,
 .pie-slice.active {
-  transform: translate(var(--dx, 0), var(--dy, 0));
-  filter: brightness(1.18) saturate(1.1);
+  transform: scale(1.04);
+  filter: brightness(1.1) saturate(1.05);
 }
-/* 非 hover 时其它扇区轻微压暗，突出 hover 块 */
+/* 非 hover 时其它扇区轻微降饱和，突出 hover 块（不位移） */
 .pie:hover .pie-slice:not(:hover):not(.active) {
-  opacity: 0.78;
+  filter: saturate(0.75);
 }
 .pie-hole {
   position: absolute;

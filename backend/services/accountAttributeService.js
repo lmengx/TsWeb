@@ -231,6 +231,8 @@ function buildSummary(accounts) {
   let altGroupCount = 0      // 关联组总数（组大小 > 1）
   let highRiskGroupCount = 0 // 高风险组数（>= 3 账号）
   let qqBound = 0
+  let nonAltSum = 0   // 非小号账号累计时长（分）
+  let nonAltCount = 0 // 非小号账号数
 
   const relGroups = new Map() // serverId:groupIndex -> size
 
@@ -238,11 +240,18 @@ function buildSummary(accounts) {
     const primary = a.primaryAttribute || 'normal'
     byPrimary[primary] = (byPrimary[primary] || 0) + 1
 
-    for (const attr of a.attributes || []) {
+    const attrs = a.attributes || []
+    for (const attr of attrs) {
       byAttribute[attr] = (byAttribute[attr] || 0) + 1
     }
 
     if (a.qq) qqBound++
+
+    // 排除小号（alt）后的实际平均游玩时长
+    if (!attrs.includes('alt')) {
+      nonAltSum += (a.totalMinutes || 0)
+      nonAltCount++
+    }
 
     if ((a.relGroupSize || 1) > 1) {
       const key = `${a.serverId}:${a.relGroupIndex}`
@@ -266,6 +275,7 @@ function buildSummary(accounts) {
     qqBound,
     altGroupCount,
     highRiskGroupCount,
+    avgMinutesExclAlt: nonAltCount > 0 ? Math.round(nonAltSum / nonAltCount) : 0,
     byPrimary,
     byAttribute
   }
