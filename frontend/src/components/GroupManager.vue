@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, onUnmounted, computed } from 'vue'
+import { ref, nextTick, onMounted, onUnmounted, computed } from 'vue'
 import { get, post } from '../utils/api.js'
 import { getPermissionName, searchPermissions, permissionMap } from '../utils/permissionMap.js'
 import Loading from './Loading.vue'
@@ -32,6 +32,7 @@ const permissionContextMenu = ref({
   permission: '',
   groupName: ''
 })
+const permissionMenuRef = ref(null)
 const quickAddModal = ref(false)
 const quickAddTargetGroup = ref('')
 const quickAddLoading = ref(false)
@@ -205,6 +206,24 @@ const openPermissionMenu = (event, groupName, permission) => {
     permission,
     groupName
   }
+  // 菜单已 Teleport 到 body（脱离 .content-area.glass 的 backdrop-filter 包含块，fixed 恢复视口定位）。
+  // 等待渲染完成后测量实际尺寸，靠右/靠下边缘时向内翻转，避免菜单溢出视口。
+  nextTick(() => {
+    const el = permissionMenuRef.value
+    if (!el) return
+    const rect = el.getBoundingClientRect()
+    const pad = 8
+    let x = event.clientX
+    let y = event.clientY
+    if (x + rect.width > window.innerWidth - pad) {
+      x = Math.max(pad, window.innerWidth - rect.width - pad)
+    }
+    if (y + rect.height > window.innerHeight - pad) {
+      y = Math.max(pad, window.innerHeight - rect.height - pad)
+    }
+    permissionContextMenu.value.x = x
+    permissionContextMenu.value.y = y
+  })
 }
 const closePermissionMenu = () => {
   permissionContextMenu.value.show = false
@@ -469,20 +488,23 @@ onUnmounted(() => {
         <p>暂无组数据</p>
       </div>
     </div>
-    <div
-      v-if="permissionContextMenu.show"
-      class="context-menu"
-      :style="{ left: permissionContextMenu.x + 'px', top: permissionContextMenu.y + 'px' }"
-    >
-      <div class="context-menu-item" @click="copyPermission(permissionContextMenu.permission)">
-        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-        复制权限名称
+    <Teleport to="body">
+      <div
+        v-if="permissionContextMenu.show"
+        ref="permissionMenuRef"
+        class="context-menu"
+        :style="{ left: permissionContextMenu.x + 'px', top: permissionContextMenu.y + 'px' }"
+      >
+        <div class="context-menu-item" @click="copyPermission(permissionContextMenu.permission)">
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          复制权限名称
+        </div>
+        <div class="context-menu-item danger" @click="deletePermission">
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+          删除权限
+        </div>
       </div>
-      <div class="context-menu-item danger" @click="deletePermission">
-        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-        删除权限
-      </div>
-    </div>
+    </Teleport>
     <div v-if="showModal" class="modal-overlay" @click.self="closeModal">
       <div class="modal">
         <div class="modal-header">
