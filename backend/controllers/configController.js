@@ -317,3 +317,23 @@ export const setCurfewConfig = async (req, res) => {
     res.status(500).json({ status: '500', error: error.message })
   }
 }
+
+// ═══ 命令别名（配置驱动命令映射）═══
+
+export const getAliasesConfig = async (req, res) => {
+  try {
+    const result = await tshockService.getAliasesConfig()
+    res.json(result)
+  } catch (error) {
+    res.status(500).json({ status: '500', error: error.message })
+  }
+}
+
+export const setAliasesConfig = async (req, res) => {
+  try {
+    const result = await tshockService.setAliasesConfig(req.body)
+    res.json(result)
+  } catch (error) {
+    res.status(500).json({ status: '500', error: error.message })
+  }
+}

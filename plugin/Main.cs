@@ -67,6 +67,12 @@ namespace TShockData
             TShock.RestApi.Register(new SecureRestCommand("/data/curfew/config", Curfew.GetConfigJson, ""));
             TShock.RestApi.Register(new SecureRestCommand("/data/curfew/config/set", Curfew.SetConfigJson, "data.rest.invsee"));
 
+            // ═══ 命令别名（配置驱动：任意命令映射自定义别名，可阻止原始/条件/冷却，对齐插件库 ShortCommand）═══
+            CommandAlias.Initialize(this);
+            TShockAPI.Commands.ChatCommands.Add(new Command("tshock.admin", CommandAlias.AliasCommand, "alias", "命令别名") { HelpText = "管理命令别名映射（status/list/add/del/reload）" });
+            TShock.RestApi.Register(new SecureRestCommand("/data/aliases/config", CommandAlias.GetConfigJson, "data.rest.invsee"));
+            TShock.RestApi.Register(new SecureRestCommand("/data/aliases/config/set", CommandAlias.SetConfigJson, "data.rest.invsee"));
+
             // ═══ House 房屋系统（原 plugin-son/House 并入；HouseRegion.json"启用"开关，默认开，可热切换）═══
             ApplyHouseModule(this);
 
@@ -314,6 +320,7 @@ namespace TShockData
             ShopUICore.ReloadConfig();
             StatusPanel.LoadConfig();
             PersonalPermissionManager.Reload();
+            CommandAlias.Reload();
 
             // ═══ 房屋系统开关（HouseRegion.json"启用"，/reload 动态启用/停用）═══
             ApplyHouseModule(this);
@@ -356,6 +363,7 @@ namespace TShockData
 				EmoteCommandManager.Dispose();
                 StatusPanel.Dispose();
                 PersonalPermissionManager.Dispose();
+                CommandAlias.Dispose();
 
 				CleanupChatCommands();
 				CleanupRestApiRoutes();
@@ -393,7 +401,8 @@ namespace TShockData
                 "statustext", "st",
 				"bosslimit", "进度锁",
                 "shopui", "旅商",
-                "curfew", "宵禁",			};
+                "curfew", "宵禁",
+                "alias", "命令别名",			};
 			Commands.ChatCommands.RemoveAll(cmd =>
 				cmd.Names.Any(name => tswebCommandNames.Contains(name)));
 
@@ -513,6 +522,8 @@ namespace TShockData
                 "/data/players/import",
                 "/data/players/import-from-server",
                 "/data/players/has-character",
+                "/data/aliases/config",
+                "/data/aliases/config/set",
 			};
 
 			try

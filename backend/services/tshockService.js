@@ -2030,6 +2030,34 @@ export class TShockService {
     }
   }
 
+  // ===== 命令别名（配置驱动命令映射）=====
+
+  async getAliasesConfig() {
+    if (!this.baseUrl) await this.init()
+    const url = `${this.baseUrl}/data/aliases/config${this.apiKey ? `?token=${encodeURIComponent(this.apiKey)}` : ''}`
+    console.log(`[OUTGOING] GET ${url}`)
+    try {
+      const response = await fetch(url, { method: 'GET', headers: { 'Accept': 'application/json' } })
+      return await response.json()
+    } catch (error) {
+      return { status: '500', error: error.message }
+    }
+  }
+
+  async setAliasesConfig(params) {
+    if (!this.baseUrl) await this.init()
+    // 整体配置作为一个 JSON 字符串参数下发（与宵禁同构）
+    const query = `config=${encodeURIComponent(JSON.stringify(params || {}))}`
+    const url = `${this.baseUrl}/data/aliases/config/set?${query}${this.apiKey ? `&token=${encodeURIComponent(this.apiKey)}` : ''}`
+    console.log(`[OUTGOING] POST ${url.substring(0, 600)}`)
+    try {
+      const response = await fetch(url, { method: 'POST', headers: { 'Accept': 'application/json' } })
+      return await response.json()
+    } catch (error) {
+      return { status: '500', error: error.message }
+    }
+  }
+
   // ===== 通用数据代理：/data/tasks/* 等自定义端点 =====
 
   async proxyDataRequest(subPath, method = 'GET', params = {}) {

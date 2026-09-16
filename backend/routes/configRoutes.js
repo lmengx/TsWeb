@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { getConfigFile, saveConfigFile, getTsWebConfig, setTsWebConfig, getBossConfig, setBossConfig, getBackupConfig, setBackupConfig, postLicenseClose, getBossLimitStatus, getPromotionConfig, setPromotionConfig, getListenConfig, saveListenConfig, getSingleLoginConfig, setSingleLoginConfig, getStatusPanelConfig, setStatusPanelConfig, getShopUIConfig, setShopUIConfig, getRiskControlConfig, setRiskControlConfig, riskControlAction, riskControlPlayers, riskControlProxyRefresh, getCurfewConfig, setCurfewConfig } from '../controllers/configController.js'
+import { getConfigFile, saveConfigFile, getTsWebConfig, setTsWebConfig, getBossConfig, setBossConfig, getBackupConfig, setBackupConfig, postLicenseClose, getBossLimitStatus, getPromotionConfig, setPromotionConfig, getListenConfig, saveListenConfig, getSingleLoginConfig, setSingleLoginConfig, getStatusPanelConfig, setStatusPanelConfig, getShopUIConfig, setShopUIConfig, getRiskControlConfig, setRiskControlConfig, riskControlAction, riskControlPlayers, riskControlProxyRefresh, getCurfewConfig, setCurfewConfig, getAliasesConfig, setAliasesConfig } from '../controllers/configController.js'
 import { verifyToken, requireRole, requireAdmin, requireManager } from '../middlewares/authMiddleware.js'
 
 const router = Router()
@@ -39,5 +39,8 @@ router.post('/risk-control/proxy/refresh', verifyToken, requireManager, riskCont
 // 宵禁（禁止进服）：条目化排期 + 豁免组 + 模板消息
 router.get('/curfew', verifyToken, requireManager, getCurfewConfig)
 router.post('/curfew', verifyToken, requireManager, setCurfewConfig)
+// 命令别名：配置驱动命令映射（新命令名 → 原始命令，可阻止原始/条件/冷却）
+router.get('/aliases', verifyToken, requireManager, getAliasesConfig)
+router.post('/aliases', verifyToken, requireManager, setAliasesConfig)
 
 export default router

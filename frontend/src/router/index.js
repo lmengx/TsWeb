@@ -160,6 +160,12 @@ const routes = [
             name: 'CurfewSettings',
             component: () => import('../views/console/settings/CurfewSettingsView.vue'),
             meta: { requiresAuth: true, requiresAdmin: true }
+          },
+          {
+            path: 'aliases',
+            name: 'AliasSettings',
+            component: () => import('../views/console/settings/AliasSettingsView.vue'),
+            meta: { requiresAuth: true, requiresAdmin: true }
           }
         ]
       },
