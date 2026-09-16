@@ -193,7 +193,12 @@ function handleFrame(conn, frame) {
 async function handleQqUuidEvent(conn, parsed) {
   const username = String(parsed?.username || '').trim()
   const uuid = String(parsed?.uuid || '').trim()
-  if (!username || !uuid) return
+  if (!username || !uuid) {
+    // 原实现静默 return：来源插件上报了空 username/uuid，转发链路无任何痕迹。
+    // 明确告警，便于区分「上报数据缺失」与「转发失败」。
+    console.warn(`[SSE] ${conn.server.name} 上报的 uuid 数据不完整: username='${username}' uuid='${uuid}'`)
+    return
+  }
 
   // uuid 同步与 QQ 台账无关：上报侧只显示「xxx 的 uuid 已上传」，不暴露具体 uuid 值
   console.log(`[SSE] ${username} 的 uuid 已上传`)

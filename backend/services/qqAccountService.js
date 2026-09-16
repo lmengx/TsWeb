@@ -150,13 +150,25 @@ export async function postToServer(server, payloadObj) {
       signal: AbortSignal.timeout(15000)
     })
     const text = await res.text()
-    if (!res.ok) {
-      console.warn(`[QQ台账] 推送失败 ${server.name}: HTTP ${res.status} ${text.slice(0, 200)}`)
-      return { ok: false, status: res.status, error: text }
+    // 插件端 HandleQqSync 返回 {"status":"200"|"400"|"401"|"404"|"409"|"500", ...}，
+    // 且 WebRestServer 已把该 status 映射为真实 HTTP 状态码。这里解析 body 里的 status 一并报告，
+    // 让「syncUUID 未开启(409)/本地无账号(404)/参数非法(400)/签名失败(401)」等失败原因可直接可见。
+    let bodyStatus = null
+    try {
+      const parsed = JSON.parse(text)
+      if (parsed && parsed.status) bodyStatus = parsed.status
+    } catch { /* body 非 JSON，忽略 */ }
+
+    if (!res.ok || (bodyStatus && Number(bodyStatus) >= 400)) {
+      const detail = bodyStatus
+        ? `HTTP ${res.status} body-status=${bodyStatus} ${text.slice(0, 200)}`
+        : `HTTP ${res.status} ${text.slice(0, 200)}`
+      console.warn(`[QQ台账] 推送失败 ${server.name} (${server.id}): ${detail}`)
+      return { ok: false, status: res.status, bodyStatus, error: text }
     }
-    return { ok: true, status: res.status }
+    return { ok: true, status: res.status, bodyStatus }
   } catch (e) {
-    console.warn(`[QQ台账] 推送失败 ${server.name}: ${e.message}`)
+    console.warn(`[QQ台账] 推送失败 ${server.name} (${server.id}): ${e.message}`)
     return { ok: false, error: e.message }
   }
 }
@@ -210,14 +222,31 @@ export async function broadcastUuid(username, uuid, { kick = false, excludeServe
   // 踢人只作用于启用 syncUUID 的服务器：转发目标保持不变（不开 uuid 同步的服不收不踢）
   const targets = servers.filter(s =>
     s.enabled !== false && s.id !== excludeServerId && s.syncUUID === true)
+
+  // ⚠️ 原实现：无目标时 okCount(0) === targets.length(0)，不触发"转发异常"警告，全链路静默。
+  // 现在明确提示：是「没有启用 syncUUID 的目标服」而不是"成功转发到 0 台"。
+  if (targets.length === 0) {
+    console.warn(`[SSE] UUID 转发跳过: ${username} 无启用 syncUUID 的目标服务器 (排除来源 ${excludeServerId || '无'}, 共 ${servers.length} 台配置)`)
+    return { ok: 0, total: 0 }
+  }
+
   const payload = kick
     ? { type: 'uuid', username, uuid, kick: true }
     : { type: 'uuid', username, uuid }
   const results = await Promise.allSettled(targets.map(s => postToServer(s, payload)))
   const okCount = results.filter(r => r.status === 'fulfilled' && r.value.ok).length
-  // uuid 同步日志保持简洁：成功不刷屏，仅转发不全时警告（不暴露具体 uuid 值）
+  // uuid 同步日志保持简洁：成功不刷屏，仅转发不全时警告（不暴露具体 uuid 值）。
+  // 失败明细（含插件端返回的 bodyStatus：409 未开 syncUUID / 404 无账号 / 400 非法等）逐一列出，便于定位"没写入"环节。
   if (okCount !== targets.length) {
-    console.warn(`[SSE] UUID 转发异常: ${okCount}/${targets.length}`)
+    const details = results
+      .map((r, i) => {
+        const s = targets[i]
+        if (r.status === 'rejected') return `${s.name}: 请求异常`
+        if (!r.value.ok) return `${s.name}: ${r.value.bodyStatus ? `status=${r.value.bodyStatus}` : (r.value.error || r.value.status || 'unknown')}`
+        return null
+      })
+      .filter(Boolean)
+    console.warn(`[SSE] UUID 转发异常: ${okCount}/${targets.length} (${username})${details.length ? ' — ' + details.join('; ') : ''}`)
   }
   return { ok: okCount, total: targets.length }
 }

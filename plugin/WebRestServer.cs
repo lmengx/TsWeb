@@ -272,7 +272,21 @@ namespace TShockData
             }
             var resp = AccountSync.HandleQqSync(body ?? "", headers);
             var bytes = Encoding.UTF8.GetBytes(resp);
-            await WriteResponseAsync(stream, 200, "OK", "application/json; charset=utf-8", bytes, ct);
+
+            // 把 JSON body 中的 status 映射为真实 HTTP 状态码：
+            // HandleQqSync 返回 {"status":"200"|"400"|"401"|"404"|"409"|"500", ...}，
+            // 后端 postToServer 依据 HTTP 状态码（res.ok）判定推送成败——若这里永远回 200，
+            // 后端会把"syncUUID 未开启/本地无账号/写库失败"全部误判为成功，产生"没写入也没日志"的假象。
+            int httpStatus = 200;
+            try
+            {
+                if (JObject.Parse(resp)["status"] is JValue st && int.TryParse(st.ToString(), out var parsed))
+                    httpStatus = parsed;
+            }
+            catch { /* body 非 JSON 时保持 200 */ }
+
+            await WriteResponseAsync(stream, httpStatus, StatusText((HttpStatusCode)httpStatus),
+                "application/json; charset=utf-8", bytes, ct);
         }
 
         /// <summary>
@@ -433,16 +447,19 @@ namespace TShockData
                 Encoding.UTF8.GetBytes(body), ct);
         }
 
-        /// <summary>向所有 SSE 连接广播一条事件</summary>
-        public static void Broadcast(string eventName, string jsonData)
+        /// <summary>向所有 SSE 连接广播一条事件，返回投递到的连接数（0 = 无连接，事件静默丢弃）</summary>
+        public static int Broadcast(string eventName, string jsonData)
         {
+            int delivered = 0;
             lock (_clientsLock)
             {
                 foreach (var c in _clients)
                 {
                     _ = SendSafeAsync(c, eventName, jsonData);
+                    delivered++;
                 }
             }
+            return delivered;
         }
 
         /// <summary>

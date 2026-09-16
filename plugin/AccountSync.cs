@@ -100,14 +100,13 @@ namespace TShockData
                 {
                     case "full":
                         ApplyFull(payload);
-                        break;
+                        return "{\"status\":\"200\",\"ok\":true}";
                     case "uuid":
-                        ApplyUuid(payload);
-                        break;
+                        // 返回可区分的状态：成功 / 开关关闭 / 本地无账号 / 参数非法，后端据此精确知道失败环节
+                        return ApplyUuid(payload);
                     default:
                         return "{\"status\":\"400\",\"error\":\"Unknown type\"}";
                 }
-                return "{\"status\":\"200\",\"ok\":true}";
             }
             catch (Exception ex)
             {
@@ -198,8 +197,10 @@ namespace TShockData
         /// TShock 原生免密判断 account.UUID == player.UUID 由此命中。
         /// 若后端带 kick 标志（禁止多服登录全局开关），先踢掉本服同名在线角色。
         /// 注意：后端只转发给启用 syncUUID 的服务器，故此处天然满足"不开 uuid 同步就不踢"。
+        /// 返回可区分状态 JSON（成功 200 / 参数非法 400 / 本地无账号 404 / 开关关闭 409 / 写库失败 500），
+        /// 后端据此精确知道 UUID 落盘失败的环节，而不是收到"200 OK"误以为成功。
         /// </summary>
-        private static void ApplyUuid(JObject payload)
+        private static string ApplyUuid(JObject payload)
         {
             var username = payload["username"]?.ToString();
             var uuid = payload["uuid"]?.ToString();
@@ -209,13 +210,23 @@ namespace TShockData
             if (kick)
                 TryKickDuplicate(username);
 
-            if (string.IsNullOrEmpty(username) || string.IsNullOrEmpty(uuid)) return;
+            if (string.IsNullOrEmpty(username) || string.IsNullOrEmpty(uuid))
+            {
+                TShock.Log.ConsoleWarn($"[AccountSync] UUID 落盘跳过：username/uuid 为空 (username='{username}', uuid='{uuid}')");
+                return "{\"status\":\"400\",\"error\":\"Missing username or uuid\"}";
+            }
             if (!IsValidUuid(uuid))
             {
-                TShock.Log.ConsoleWarn($"[AccountSync] 忽略非法 UUID: {uuid}");
-                return;
+                TShock.Log.ConsoleWarn($"[AccountSync] 忽略非法 UUID: {uuid} (username={username})");
+                return "{\"status\":\"400\",\"error\":\"Invalid uuid\"}";
             }
-            if (!_syncUuid) return;
+            if (!_syncUuid)
+            {
+                // ⚠️ 此处原为静默 return：后端 HTTP 收到 200 却未落盘，双方无任何日志。
+                // 现在明确告警 + 返回 409，后端能据此发现「该服未开 syncUUID」。
+                TShock.Log.ConsoleWarn($"[AccountSync] UUID 落盘跳过：本服未启用 syncUUID，忽略 {username} 的转发 (syncUUID=false)");
+                return "{\"status\":\"409\",\"error\":\"syncUUID disabled on this server\"}";
+            }
 
             try
             {
@@ -224,15 +235,18 @@ namespace TShockData
                 if (account == null)
                 {
                     TShock.Log.ConsoleWarn($"[AccountSync] UUID 落盘跳过：本地无账号 {username}");
-                    return;
+                    return "{\"status\":\"404\",\"error\":\"No local account: " + JsonConvert.ToString(username) + "\"}";
                 }
 
                 // 接收端静默落盘（无需刷屏）；仅异常时输出错误
                 TShock.DB.Query("UPDATE Users SET UUID=@0 WHERE Username=@1", uuid, account.Name);
+                TShock.Log.ConsoleInfo($"[AccountSync] 已落盘 UUID: {account.Name}");
+                return "{\"status\":\"200\",\"ok\":true}";
             }
             catch (Exception ex)
             {
                 TShock.Log.ConsoleError($"[AccountSync] UUID 落盘失败 {username}: {ex.Message}");
+                return "{\"status\":\"500\",\"error\":\"DB write failed\"}";
             }
         }
 
@@ -278,8 +292,16 @@ namespace TShockData
                 TShock.Log.ConsoleWarn($"[AccountSync] QQ 登录晋升失败 {p.Name}: {ex.Message}");
             }
 
-            if (string.IsNullOrEmpty(p.Name) || string.IsNullOrEmpty(p.UUID)) return;
-            if (!IsValidUuid(p.UUID)) return;
+            if (string.IsNullOrEmpty(p.Name) || string.IsNullOrEmpty(p.UUID))
+            {
+                TShock.Log.ConsoleDebug($"[AccountSync] 登录上报跳过：Name/UUID 为空 (name='{p.Name}', uuid='{p.UUID}')");
+                return;
+            }
+            if (!IsValidUuid(p.UUID))
+            {
+                TShock.Log.ConsoleDebug($"[AccountSync] 登录上报跳过：非法 UUID (name={p.Name}, uuid='{p.UUID}')");
+                return;
+            }
 
             // 上报账号名（登录者已登录，Account 必非空）而不是角色名：
             // 角色名大小写/内容可与账号名不同，若上报角色名会导致其他服务器按错误名字落盘 UUID
@@ -289,7 +311,16 @@ namespace TShockData
             {
                 // 通过已建立的 SSE 连接推送给后端（复用日志通道，插件无需知道后端地址）
                 var body = JsonConvert.SerializeObject(new { username = name, uuid });
-                WebRestServer.Broadcast("qq-uuid", body);
+                var clients = WebRestServer.Broadcast("qq-uuid", body);
+                if (clients == 0)
+                {
+                    // SSE 未建立/已断开 → 上报静默丢失（原实现无日志）。明确告警便于定位"没有写入"根因
+                    TShock.Log.ConsoleWarn($"[AccountSync] 登录设备上报失败：无 SSE 连接可投递 (name={name})");
+                }
+                else
+                {
+                    TShock.Log.ConsoleDebug($"[AccountSync] 已上报登录设备: {name} ({clients} 条 SSE 连接)");
+                }
             }
             catch (Exception ex)
             {
