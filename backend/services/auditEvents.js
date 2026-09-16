@@ -282,6 +282,16 @@ export const AUDIT_EVENTS = {
     fields: ['cleaned', 'serverId', 'actor'], ip: false, sensitive: []
   },
 
+  // ═══ account_attr 类 — 账号属性判定（多服聚合查看/导出）═══
+  'account.attributes.view': {
+    level: 'info', category: 'account_attr', title: '查看账号属性明细',
+    fields: ['serverId', 'attr', 'keyword', 'total', 'actor'], ip: false, sensitive: []
+  },
+  'account.attributes.export': {
+    level: 'info', category: 'account_attr', title: '导出账号属性 CSV',
+    fields: ['serverId', 'attr', 'rows', 'actor'], ip: false, sensitive: []
+  },
+
   // ═══ worldmodify 类 — 世界修改器（单服直连，读/写插件端 /data/worldmodify/*）═══
   'worldModify.apply': {
     level: 'warn', category: 'worldmodify', title: '修改世界参数（已击败标记/时间/天气等）',
