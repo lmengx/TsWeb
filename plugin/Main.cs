@@ -197,6 +197,11 @@ namespace TShockData
             ItemConfigHandler.LoadItemConfig();
             ItemDetection.Initialize();
 
+            // ═══ 反作弊检测日志（每次检测命中落库，网页端反作弊日志页查询）═══
+            AntiCheatLog.Initialize();
+            TShock.RestApi.Register(new SecureRestCommand("/data/anticheat/logs", AntiCheatLog.GetLogsApi, "data.rest.invsee"));
+            TShock.RestApi.Register(new SecureRestCommand("/data/anticheat/logs/stats", AntiCheatLog.GetStatsApi, "data.rest.invsee"));
+
             // ═══ 粒子防线（由 BugFixes 统一管理，按配置 lightning 子功能开关）═══
             // ParticleGuard.Initialize(this) 已移至 BugFixes.ApplySubmodules
 
@@ -447,6 +452,8 @@ namespace TShockData
 				"/data/anticheat/item-config/scanall",
 				"/data/anticheat/item-config/scan-by-id",
 				"/data/anticheat/enable",
+				"/data/anticheat/logs",
+				"/data/anticheat/logs/stats",
 				"/data/bugfix",
 				"/data/bugfix/set",
                 "/data/boss/progress",

@@ -91,6 +91,29 @@ namespace TShockData
 		private static readonly Dictionary<int, List<DateTime>> _highFreqTimestamps = new Dictionary<int, List<DateTime>>();
 		private static readonly object SyncLock = new object();
 
+		/// <summary>丢弃类粒子请求的控制台输出节流间隔（秒）：超高频/超频丢弃不视为作弊，
+		/// 仅防刷屏，同玩家同类型在此间隔内至多输出一条；数据库日志不受节流影响，仍逐条记录。</summary>
+		private const int DropConsoleThrottleSeconds = 30;
+		// 键: "userId:particleType" → 上次控制台输出时间
+		private static readonly Dictionary<string, DateTime> _dropLogLastPrinted = new Dictionary<string, DateTime>();
+
+		/// <summary>丢弃类控制台日志节流判断：命中节流窗口返回 false（本次不输出）</summary>
+		private static bool ShouldPrintDropLog(int userId, byte particleType)
+		{
+			var key = $"{userId}:{particleType}";
+			lock (SyncLock)
+			{
+				var now = DateTime.Now;
+				if (_dropLogLastPrinted.TryGetValue(key, out var last)
+					&& (now - last).TotalSeconds < DropConsoleThrottleSeconds)
+				{
+					return false;
+				}
+				_dropLogLastPrinted[key] = now;
+				return true;
+			}
+		}
+
 		/// <summary>NetParticlesModule.Deserialize(BinaryReader, int) 原始委托签名（override 虚方法，首个参数为 this）</summary>
 		private delegate bool OrigNetParticlesDeserialize(NetParticlesModule self, BinaryReader reader, int userId);
 
@@ -193,6 +216,7 @@ namespace TShockData
 			{
 				_timestamps.Clear();
 				_highFreqTimestamps.Clear();
+				_dropLogLastPrinted.Clear();
 			}
 			_initialized = false;
 			TShock.Log.ConsoleInfo("[ParticleGuard] 粒子防线已卸载");
@@ -263,8 +287,12 @@ namespace TShockData
 				if (overLimit)
 				{
 					// 超限：丢弃该请求（不调 orig → 不广播），仅记日志，绝不踢出
+					// 控制台输出节流（防刷屏），数据库日志仍逐条记录
 					var name = userId >= 0 && userId < TShock.Players.Length ? TShock.Players[userId]?.Name : null;
-					TShock.Log.ConsoleInfo($"[ParticleGuard] 丢弃 {name ?? "#" + userId} 的超高频粒子请求 Type={particleType}（> {HighFrequencyLimitPerSecond}/s）");
+					if (ShouldPrintDropLog(userId, particleType))
+						TShock.Log.ConsoleInfo($"[ParticleGuard] 丢弃 {name ?? "#" + userId} 的超高频粒子请求 Type={particleType}（> {HighFrequencyLimitPerSecond}/s）");
+					AntiCheatLog.Record(name ?? $"#{userId}", userId, "particle", "drop",
+						$"超高频粒子请求被丢弃 Type={particleType}（>{HighFrequencyLimitPerSecond}/s）");
 					return false;
 				}
 
@@ -297,8 +325,12 @@ namespace TShockData
 
 			// ═══ 普通类型超频：丢弃该请求（不调 orig → 不广播），仅记日志，绝不踢出 ═══
 			// 合法特效（武器剑气、换装、弹幕粒子等）被插件批量弹幕放大频率是正常现象，不视为作弊
+			// 控制台输出节流（防刷屏），数据库日志仍逐条记录
 			var p = userId >= 0 && userId < TShock.Players.Length ? TShock.Players[userId] : null;
-			TShock.Log.ConsoleInfo($"[ParticleGuard] 丢弃 {p?.Name ?? "#" + userId} 的超频粒子请求 Type={particleType}（> {MaxParticlesPerSecond}/s）");
+			if (ShouldPrintDropLog(userId, particleType))
+				TShock.Log.ConsoleInfo($"[ParticleGuard] 丢弃 {p?.Name ?? "#" + userId} 的超频粒子请求 Type={particleType}（> {MaxParticlesPerSecond}/s）");
+			AntiCheatLog.Record(p?.Name ?? $"#{userId}", userId, "particle", "drop",
+				$"超频粒子请求被丢弃 Type={particleType}（>{MaxParticlesPerSecond}/s）");
 			return false;
 		}
 
@@ -312,6 +344,8 @@ namespace TShockData
 				: $"未知类型({particleType})";
 
 			TShock.Log.ConsoleInfo($"[ParticleGuard] 玩家 {name} 发送恶意粒子数据包 Type={typeName}，踢出服务器");
+			AntiCheatLog.Record(name, player?.Account?.ID ?? 0, "particle", "kick",
+				$"发送恶意粒子数据包 {typeName}");
 			try
 			{
 				player?.Kick($"发送恶意粒子数据包（{typeName}）", true);

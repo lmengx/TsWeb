@@ -182,4 +182,42 @@ router.post('/check-anomaly', (req, res) => {
     })
 })
 
+// ═══════════════════════════════════════════════════════════
+// 反作弊检测日志（插件端 AntiCheatLog.sqlite）
+// ═══════════════════════════════════════════════════════════
+
+// 分页查询：?page=&pageSize=&player=&category=&method=&timeFrom=&timeTo=&q=
+router.get('/logs', (req, res) => {
+  const params = {}
+  for (const k of ['page', 'pageSize', 'player', 'category', 'method', 'timeFrom', 'timeTo', 'q']) {
+    if (req.query[k] !== undefined && req.query[k] !== '') params[k] = req.query[k]
+  }
+  tshockService.proxyDataRequest('anticheat/logs', 'GET', params)
+    .then(data => {
+      if (data.error && data.status !== 200 && data.status !== '200') {
+        res.status(500).json({ status: '500', error: data.error })
+      } else {
+        res.json(data)
+      }
+    })
+    .catch(error => {
+      res.status(500).json({ status: '500', error: error.message })
+    })
+})
+
+// 统计：总量 / 今日 / 按分类 / 按处理方式 / 最近 10 条
+router.get('/logs/stats', (req, res) => {
+  tshockService.proxyDataRequest('anticheat/logs/stats', 'GET', {})
+    .then(data => {
+      if (data.error && data.status !== 200 && data.status !== '200') {
+        res.status(500).json({ status: '500', error: data.error })
+      } else {
+        res.json(data)
+      }
+    })
+    .catch(error => {
+      res.status(500).json({ status: '500', error: error.message })
+    })
+})
+
 export default router

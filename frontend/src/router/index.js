@@ -327,6 +327,12 @@ const routes = [
             name: 'ItemRestrict',
             component: () => import('../views/console/ItemRestrictView.vue'),
             meta: { requiresAuth: true, requiresManager: true }
+          },
+          {
+            path: 'logs',
+            name: 'AntiCheatLog',
+            component: () => import('../views/console/AntiCheatLogView.vue'),
+            meta: { requiresAuth: true, requiresManager: true }
           }
         ]
       },

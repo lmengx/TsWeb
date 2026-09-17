@@ -238,10 +238,15 @@ namespace TShockData
                         if (hasPermission)
                         {
                             TShock.Log.ConsoleError($"[ItemDetection] [豁免] 玩家: {player.Name} 持有违禁物品但有权限豁免 - 物品ID: {item.netID}, 数量: {item.stack}, 限制: {matchedItem.Stack}");
+                            AntiCheatLog.Record(player.Name, player.Account?.ID ?? 0, "item", "exempt",
+                                $"持有违禁物品但权限豁免", item.netID, AntiCheat.GetItemName(item.netID));
                         }
                         else
                         {
                             TShock.Log.ConsoleError($"[ItemDetection] 检测到违禁物品! 玩家: {player.Name}, 物品ID: {item.netID}, 数量: {item.stack}, 限制: {matchedItem.Stack}, 处理方式: {matchedItem.Method}");
+                            AntiCheatLog.Record(player.Name, player.Account?.ID ?? 0, "item", matchedItem.Method,
+                                $"扫描背包命中违禁物品，持有 {item.stack} 个，限制 {matchedItem.Stack} 个",
+                                item.netID, AntiCheat.GetItemName(item.netID));
                         }
 
                         results.Add(new CheatResult
@@ -391,6 +396,9 @@ namespace TShockData
                     foreach (var matchedItem in matchedItems)
                     {
                         TShock.Log.ConsoleError($"[ItemDetection] 检测到违禁物品! 玩家: {playerName}, 物品ID: {item.netID}, 数量: {item.stack}, 限制: {matchedItem.Stack}, 处理方式: {matchedItem.Method}");
+                        AntiCheatLog.Record(playerName, accountId, "item", matchedItem.Method,
+                            $"扫描离线背包命中违禁物品，持有 {item.stack} 个，限制 {matchedItem.Stack} 个",
+                            item.netID, AntiCheat.GetItemName(item.netID));
 
                         if (executeViolations)
                         {
@@ -598,6 +606,10 @@ namespace TShockData
 
                     TShock.Log.ConsoleError($"[TSWeb] 阻止丢出违禁物品! 玩家: {e.Player.Name}, 物品ID: {e.Type}, 数量: {e.Stacks}, 限制: {matchedItem.Stack}, 处理: {matchedItem.Method}");
 
+                    AntiCheatLog.Record(e.Player.Name, e.Player.Account?.ID ?? 0, "item", matchedItem.Method,
+                        $"阻止丢出违禁物品，数量 {e.Stacks} 个，限制 {matchedItem.Stack} 个",
+                        e.Type, AntiCheat.GetItemName(e.Type));
+
                     ViolationExecutor.ExecuteViolation(e.Player, matchedItem.Method,
                         playerName: e.Player.Name,
                         itemId: e.Type,
@@ -641,6 +653,10 @@ namespace TShockData
                     e.Player.SendErrorMessage($"违禁物品({AntiCheat.GetItemName(e.Type)})无法存入箱子!");
 
                     TShock.Log.ConsoleError($"[TSWeb] 阻止存入箱子违禁物品! 玩家: {e.Player.Name}, 物品ID: {e.Type}, 数量: {e.Stacks}, 限制: {matchedItem.Stack}, 处理: {matchedItem.Method}");
+
+                    AntiCheatLog.Record(e.Player.Name, e.Player.Account?.ID ?? 0, "item", matchedItem.Method,
+                        $"阻止存入箱子违禁物品，数量 {e.Stacks} 个，限制 {matchedItem.Stack} 个",
+                        e.Type, AntiCheat.GetItemName(e.Type));
 
                     ViolationExecutor.ExecuteViolation(e.Player, matchedItem.Method,
                         playerName: e.Player.Name,

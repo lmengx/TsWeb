@@ -108,6 +108,8 @@ namespace TShockData
             if (damage > config.DamageLimit || damage < -10)
             {
                 TShock.Log.ConsoleError($"[ProjDetection] 检测到异常伤害弹幕! 玩家: {player.Name}, 弹幕ID: {type}, 伤害: {damage}");
+                AntiCheatLog.Record(player.Name, player.Account?.ID ?? 0, "proj", "ban",
+                    $"异常伤害弹幕，伤害 {damage}，上限 {config.DamageLimit}", projId: type);
 
                 if (player.HasPermission("tshock.projectiles.usebanned"))
                     return true;
@@ -129,6 +131,8 @@ namespace TShockData
                     foreach (var confirmedProj in confirmedProjs)
                     {
                         TShock.Log.ConsoleError($"[ProjDetection] 检测到违禁弹幕! 玩家: {player.Name}, 弹幕ID: {type}, 伤害: {damage}, 处理方式: {confirmedProj.Method}");
+                        AntiCheatLog.Record(player.Name, player.Account?.ID ?? 0, "proj", confirmedProj.Method,
+                            $"使用违禁弹幕，伤害 {damage}", projId: type);
                         ViolationExecutor.ExecuteViolation(player, confirmedProj.Method, projId: type);
                     }
                     return true;
