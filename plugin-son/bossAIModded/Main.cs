@@ -37,7 +37,7 @@ public class BossAIModded : TerrariaPlugin
 
         _cmd = new Command("bossaimod.admin", Toggle, "bossai")
         {
-            HelpText = "切换 bossAIModded 全局开关（当前：史莱姆王 Eternity-lite）"
+            HelpText = "切换 bossAIModded 全局开关（当前：史莱姆王/克眼/世界吞噬者/骷髅王 Eternity-lite）"
         };
         Commands.ChatCommands.Add(_cmd);
 
@@ -166,6 +166,9 @@ public class BossAIModded : TerrariaPlugin
                     case EaterOfWorldsHead eow:
                         eow.OnPlayerDamage(who, e.PlayerDeathReason);
                         break;
+                    case SkeletronHeadEternity skh:
+                        skh.OnPlayerDamage(who, e.PlayerDeathReason);
+                        break;
                 }
             }
         }
@@ -206,6 +209,8 @@ public class BossAIModded : TerrariaPlugin
             Terraria.ID.NPCID.EaterofWorldsHead => typeof(EaterOfWorldsHead),
             Terraria.ID.NPCID.EaterofWorldsBody => typeof(EaterOfWorldsSegment),
             Terraria.ID.NPCID.EaterofWorldsTail => typeof(EaterOfWorldsSegment),
+            Terraria.ID.NPCID.SkeletronHead => typeof(SkeletronHeadEternity),
+            Terraria.ID.NPCID.SkeletronHand => typeof(SkeletronHandEternity),
             _ => null,
         };
     }
@@ -220,6 +225,8 @@ public class BossAIModded : TerrariaPlugin
             Terraria.ID.NPCID.EaterofWorldsHead => new EaterOfWorldsHead(),
             Terraria.ID.NPCID.EaterofWorldsBody => new EaterOfWorldsSegment(),
             Terraria.ID.NPCID.EaterofWorldsTail => new EaterOfWorldsSegment(),
+            Terraria.ID.NPCID.SkeletronHead => new SkeletronHeadEternity(),
+            Terraria.ID.NPCID.SkeletronHand => new SkeletronHandEternity(),
             _ => null,
         };
     }

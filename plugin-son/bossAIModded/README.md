@@ -2,7 +2,7 @@
 
 将 **Fargo Souls（Eternity Mode）** 的 Boss 魔改按"原版客户端可达"原则迁移到 **TShock + Terraria 1.4.5.8** 的独立子插件。
 
-当前 Boss：**史莱姆王（KingSlime）**、**克眼（Eye of Cthulhu）**、**世界吞噬者（Eater of Worlds）** 均实现 Eternity-lite。
+当前 Boss：**史莱姆王（KingSlime）**、**克眼（Eye of Cthulhu）**、**世界吞噬者（Eater of Worlds）**、**骷髅王（Skeletron）** 均实现 Eternity-lite。
 
 ## 设计原则
 
@@ -87,11 +87,29 @@
 ### 实机待调参点（EaterOfWorldsHead.cs 顶部常量）
 `FireballInterval / FireballIntervalEnraged / FireballIntervalBerserk / EnragedLifeRatio(=0.6) / BerserkLifeRatio(=0.3) / ShotsPerRoundNormal/Enraged/Berserk / SpreadAngleDeg / IntervalJitterMax / ShotGapTicks / SegmentEvery / RingSpeed / FireballHitDamage / IchorDuration / CursedDuration / DazedDuration / SpawnDamageCapDuration`。96 弹为原版直线弹（撞墙消失），弹速 = `RingSpeed` 恒定；期望结算写 `FireballHitDamage`（默认 110），字段 = 期望 ÷ `BossAIModBase.ResultBias`；出场免伤时长 `SpawnDamageCapDuration`（默认 10s）。
 
+## Boss 4：骷髅王 Eternity-lite（对照 FargoSouls v1.7.3.9 SkeletronHead/SkeletronHand）
+
+原版骷髅王 AI（aiStyle 11/12）状态备忘：头 `ai[1]==0` 盘旋（ai[2] 计数 800 后切旋转）、`ai[1]==1` 旋转攻击（低头俯冲旋转，计数 400 回盘旋）、`ai[1]==2` 地牢守卫形态、`ai[1]==3` 脱战消失；手 `ai[0]=±1` 左右手、`ai[1]=头 whoAmI`，头旋转时手跟随、头消失则手消失。
+
+### 已实现（后插桩安全子集）
+- **8 向骨弹环（SkeletronHead）**：头处于旋转/守卫模式（ai[1]==1/2）时，每 `20+100×生命比例` tick 以玩家为中心 8 向发射骨头（换壳：原版 `SkeletonBone`=471，hostile 敌弹，aiStyle 2 重力抛物线）；弹道 = 朝向玩家×6 旋转 45° + 叠加头速度×(1-生命比例) + Y 修正 -|X|×0.2（Fargo 数值原样）；伤害查表化：期望单发结算 `BoneHitDamage=60`，字段 = 期望 ÷ `ResultBias`（471 原生 tileCollide=true 且 27 网络包不同步该字段 → 无法服务端改穿墙，贴墙/向下骨弹会撞墙消失，定案接受）
+- **手重生（SkeletronHead，仅一次）**：头血首次跌破 50% 时——无手在场则生成一对新手（左右手 ai[0]=±1，ai[1]=头 whoAmI）；有手在场则把头血锁到 50%+10 防掉太快（Fargo 原样，防"手未拆就触发"）
+- **命中眩晕（骨头/头/手）**：骨弹(471)命中（134 受伤上报 + 活跃窗归因）或 头/手本体接触（每 tick 碰撞箱相交判定）→ 眩晕 `Dazed`(160) 3 秒（180 tick），同一玩家 30 tick 节流（Fargo 原接触 debuff 为自定义 Defenseless/Lethargic，无原版等价 → 换壳眩晕）
+
+### 未迁移（详见类头注释）
+- **减伤护甲（ArmDR）**：手活着时头按生命比例减伤（Fargo `ModifyIncomingHit`），后插桩无对应钩子，暂不迁
+- **瞄准框 / 十字守护者墙 / 追踪小鬼魂 / 扇形鬼魂弹**：Fargo 自定义实体与追加弹幕（本期不迁）
+- **濒死锁血变地牢守卫**（CheckDead 拦截 + AI 冻结，后插桩无法复刻）
+- **手旋转扫击 / 突进 / 双倍重生（Masochist）**：需 SafePreAI 接管手行为
+
+### 实机待调参点（SkeletronHeadEternity.cs / SkeletronHandEternity.cs 顶部常量）
+`BoneRingWays / BoneSpeed / BoneIntervalBase / BoneIntervalPerLife / BoneHitDamage / RegrowLifeRatio(=0.5) / DazedDuration(180) / DebuffApplyInterval / ThrowArcGravity / ThrowMinHeadLifeRatio(=0.5)`。
+
 ## 命令与权限
 
 | 命令 | 权限 | 说明 |
 |---|---|---|
-| `/bossai` | `bossaimod.admin` | 切换全局开关（默认开启；切换仅影响之后生成的魔改 Boss：史莱姆王/克眼） |
+| `/bossai` | `bossaimod.admin` | 切换全局开关（默认开启；切换仅影响之后生成的魔改 Boss：史莱姆王/克眼/世界吞噬者/骷髅王） |
 
 ## 构建
 
