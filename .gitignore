@@ -168,3 +168,4 @@ backend/data/**
 /plugin-son/Spectate/bin
 /.dsh-vision-toolkit
 /plugin-son/PeaceMode/bin
+/plugin-son/DiscoveryLog/bin
