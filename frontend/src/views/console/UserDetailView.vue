@@ -127,6 +127,7 @@ const uuidSuccess = ref('')
 
 const showQqBindModal = ref(false)
 const qqNewValue = ref('')
+const qqNewPlayer = ref('')
 const qqBindLoading = ref(false)
 const qqBindError = ref('')
 const qqBindSuccess = ref('')
@@ -788,6 +789,7 @@ const executeUuid = async () => {
 
 const openQqBindModal = () => {
   qqNewValue.value = ''
+  qqNewPlayer.value = ''
   qqBindError.value = ''
   qqBindSuccess.value = ''
   showQqBindModal.value = true
@@ -837,7 +839,12 @@ const executeQqBind = async () => {
 const executeQqRebind = async () => {
   if (!userDetails.value) return
   const qq = qqNewValue.value.trim()
-  if (!/^\d{5,15}$/.test(qq)) {
+  const newPlayer = qqNewPlayer.value.trim()
+  if (!qq && !newPlayer) {
+    qqBindError.value = '请填写新 QQ 号或新绑定玩家（至少一项）'
+    return
+  }
+  if (qq && !/^\d{5,15}$/.test(qq)) {
     qqBindError.value = 'QQ 号格式不正确（5-15 位数字）'
     return
   }
@@ -850,7 +857,8 @@ const executeQqRebind = async () => {
     const username = userDetails.value.Username || userDetails.value.name
     const response = await post('/api/bot/qq-rebind', {
       username,
-      qq
+      qq,
+      newPlayer
     })
     const result = await response.json()
 
@@ -2711,6 +2719,7 @@ onMounted(() => {
       </div>
     </template>
 
+<Teleport to="body">
     <div v-if="showKickModal" class="modal-overlay" @click.self="closeKickModal">
       <div class="modal">
         <div class="modal-header">
@@ -2745,7 +2754,9 @@ onMounted(() => {
         </div>
       </div>
     </div>
+</Teleport>
 
+<Teleport to="body">
     <div v-if="showGroupModal" class="modal-overlay" @click.self="closeGroupModal">
       <div class="modal">
         <div class="modal-header">
@@ -2800,7 +2811,9 @@ onMounted(() => {
         </div>
       </div>
     </div>
+</Teleport>
 
+<Teleport to="body">
     <div v-if="showWhisperModal" class="modal-overlay" @click.self="closeWhisperModal">
       <div class="modal">
         <div class="modal-header">
@@ -2835,7 +2848,9 @@ onMounted(() => {
         </div>
       </div>
     </div>
+</Teleport>
 
+<Teleport to="body">
     <div v-if="showTpModal" class="modal-overlay" @click.self="closeTpModal">
       <div class="modal tp-modal">
         <div class="modal-header">
@@ -2902,7 +2917,9 @@ onMounted(() => {
         </div>
       </div>
     </div>
+</Teleport>
 
+<Teleport to="body">
     <div v-if="showBanModal" class="modal-overlay" @click.self="closeBanModal">
       <div class="modal">
         <div class="modal-header">
@@ -2941,7 +2958,9 @@ onMounted(() => {
         </div>
       </div>
     </div>
+</Teleport>
 
+<Teleport to="body">
     <div v-if="showClearCharacterModal" class="modal-overlay" @click.self="closeClearCharacterModal">
       <div class="modal modal-danger">
         <div class="modal-header">
@@ -2989,7 +3008,9 @@ onMounted(() => {
         </div>
       </div>
     </div>
+</Teleport>
 
+<Teleport to="body">
     <div v-if="showPasswordModal" class="modal-overlay" @click.self="closePasswordModal">
       <div class="modal">
         <div class="modal-header">
@@ -3039,8 +3060,10 @@ onMounted(() => {
         </div>
       </div>
     </div>
+</Teleport>
 
     <!-- 账号改名模态 -->
+<Teleport to="body">
     <div v-if="showRenameModal" class="modal-overlay" @click.self="closeRenameModal">
       <div class="modal">
         <div class="modal-header">
@@ -3096,8 +3119,10 @@ onMounted(() => {
         </div>
       </div>
     </div>
+</Teleport>
 
     <!-- UUID 管理模态 -->
+<Teleport to="body">
     <div v-if="showUuidModal" class="modal-overlay" @click.self="closeUuidModal">
       <div class="modal">
         <div class="modal-header">
@@ -3142,8 +3167,12 @@ onMounted(() => {
         </div>
       </div>
     </div>
+</Teleport>
 
-    <!-- QQ 绑定管理模态（手动绑定 / 换绑 / 解绑） -->
+    <!-- QQ 绑定管理模态（手动绑定 / 换绑 / 解绑）
+         Teleport 到 body：脱离 .content-area.glass 的 backdrop-filter 包含块，
+         fixed 定位恢复视口，不再随滚动容器滚出画面 -->
+    <Teleport to="body">
     <div v-if="showQqBindModal" class="modal-overlay" @click.self="closeQqBindModal">
       <div class="modal">
         <div class="modal-header">
@@ -3162,13 +3191,23 @@ onMounted(() => {
               />
             </div>
             <div class="form-row">
-              <label>新 QQ 号（换绑）</label>
+              <label>新 QQ 号（换绑，留空 = 不变）</label>
               <input
                 v-model="qqNewValue"
                 type="text"
                 placeholder="输入新 QQ 号"
                 class="form-input"
               />
+            </div>
+            <div class="form-row">
+              <label>新绑定玩家（转移绑定，留空 = 不变）</label>
+              <input
+                v-model="qqNewPlayer"
+                type="text"
+                :placeholder="`输入新绑定玩家名（当前 ${userDetails.Username || userDetails.name}）`"
+                class="form-input"
+              />
+              <p class="form-hint">转移后原玩家账号数据保留，仅解除 QQ 绑定；新玩家免密哈希从服务器重新获取。</p>
             </div>
           </div>
           <div v-else class="qq-manage-unbound">
@@ -3214,8 +3253,10 @@ onMounted(() => {
         </div>
       </div>
     </div>
+    </Teleport>
 
     <!-- 删除账号模态 -->
+<Teleport to="body">
     <div v-if="showDeleteModal" class="modal-overlay" @click.self="closeDeleteModal">
       <div class="modal modal-danger">
         <div class="modal-header">
@@ -3265,7 +3306,9 @@ onMounted(() => {
         </div>
       </div>
     </div>
+</Teleport>
 
+<Teleport to="body">
     <div v-if="showGiveModal" class="modal-overlay" @click.self="closeGiveModal">
       <div class="modal">
         <div class="modal-header">
@@ -3369,8 +3412,10 @@ onMounted(() => {
         </div>
       </div>
     </div>
+</Teleport>
 
     <!-- 关联账号检测结果弹窗 -->
+<Teleport to="body">
     <div v-if="duplicateIPResult" class="modal-overlay" @click.self="resetDuplicateIPResult">
       <div class="modal">
         <div class="modal-header">
@@ -3416,9 +3461,11 @@ onMounted(() => {
         </div>
       </div>
     </div>
+</Teleport>
     </div>
 
     <!-- 导入/导出弹窗 -->
+<Teleport to="body">
     <div v-if="showImportExportModal" class="modal-overlay" @click.self="showImportExportModal = false">
       <div class="modal ie-modal">
         <div class="modal-header">
@@ -3551,8 +3598,10 @@ onMounted(() => {
         </div>
       </div>
     </div>
+</Teleport>
 
     <!-- PLR 存档弹窗（.plr 角色文件导入导出） -->
+<Teleport to="body">
     <div v-if="showPlrModal" class="modal-overlay" @click.self="closePlrModal">
       <div class="modal ie-modal">
         <div class="modal-header">
@@ -3680,8 +3729,10 @@ onMounted(() => {
         </div>
       </div>
     </div>
+</Teleport>
 
     <!-- 封禁详情弹窗（玩家详情页封禁徽标点击打开） -->
+<Teleport to="body">
     <div v-if="showBanDetailModal" class="modal-overlay" @click.self="closeBanDetailModal">
       <div class="modal ban-detail-modal">
         <div class="modal-header">
@@ -3745,6 +3796,7 @@ onMounted(() => {
         </div>
       </div>
     </div>
+</Teleport>
 
   <Teleport to="body">
     <Transition name="toast-fade">

@@ -104,28 +104,34 @@ const doUnbind = async () => {
   } catch (e) { flashMsg(e.message, true) }
 }
 
-// ── 改绑 QQ ──
+// ── 改绑 QQ（可改 QQ 号，也可改绑定玩家）──
 const rebindTarget = ref(null)
 const newQq = ref('')
+const newPlayer = ref('')
 
 const showRebind = (row) => {
   rebindTarget.value = row
   newQq.value = ''
+  newPlayer.value = ''
 }
 
 const doRebind = async () => {
   const row = rebindTarget.value
   const qq = newQq.value.trim()
-  if (!row || !qq) return
-  if (!/^\d{5,15}$/.test(qq)) { flashMsg('QQ 号格式不正确', true); return }
+  const player = newPlayer.value.trim()
+  if (!row) return
+  if (!qq && !player) { flashMsg('请填写新 QQ 号或新绑定玩家（至少一项）', true); return }
+  if (qq && !/^\d{5,15}$/.test(qq)) { flashMsg('QQ 号格式不正确', true); return }
   try {
     const res = await apiRequest('/api/bot/qq-rebind', {
       method: 'POST',
-      body: JSON.stringify({ username: row.username, qq })
+      body: JSON.stringify({ username: row.username, qq, newPlayer: player })
     })
     const d = await res.json().catch(() => ({}))
     if (res.ok) {
-      flashMsg(`${row.username} 已改绑为 ${qq}`)
+      const qqText = qq ? ` QQ 改为 ${qq}` : ''
+      const playerText = player ? ` 绑定玩家改为 ${player}` : ''
+      flashMsg(`${row.username} 改绑成功：${qqText || playerText}`)
       rebindTarget.value = null
       loadList()
     } else {
@@ -386,7 +392,8 @@ onMounted(() => {
       </div>
     </div>
 
-    <!-- ═══ 解绑确认模态 ═══ -->
+    <!-- ═══ 解绑确认模态（Teleport 到 body，防滚出画面）═══ -->
+    <Teleport to="body">
     <div v-if="unbindTarget" class="modal-overlay" @click.self="unbindTarget = null">
       <div class="modal">
         <h3>确认解绑</h3>
@@ -397,21 +404,28 @@ onMounted(() => {
         </div>
       </div>
     </div>
+    </Teleport>
 
-    <!-- ═══ 改绑 QQ 模态 ═══ -->
+    <!-- ═══ 改绑 QQ 模态（Teleport 到 body，脱离 .content-area.glass 的 backdrop-filter 包含块，
+          fixed 定位恢复视口，不再随滚动容器滚出画面）═══ -->
+    <Teleport to="body">
     <div v-if="rebindTarget" class="modal-overlay" @click.self="rebindTarget = null">
       <div class="modal">
         <h3>改绑 QQ</h3>
         <p>玩家「{{ rebindTarget.username }}」当前绑定 QQ：{{ rebindTarget.qq }}</p>
-        <input v-model="newQq" placeholder="输入新的 QQ 号" class="modal-input" />
+        <input v-model="newQq" placeholder="输入新的 QQ 号（仅改 QQ 号时填写）" class="modal-input" />
+        <input v-model="newPlayer" placeholder="输入新绑定玩家名（转移绑定时填写，原玩家数据保留）" class="modal-input" />
+        <p class="modal-hint">至少填写一项。转移绑定后，原玩家的账号数据保留，仅解除 QQ 绑定；新绑定玩家的免密登录哈希将从服务器重新获取。</p>
         <div class="modal-actions">
           <button class="btn" @click="rebindTarget = null">取消</button>
           <button class="btn primary" @click="doRebind">确认改绑</button>
         </div>
       </div>
     </div>
+    </Teleport>
 
-    <!-- ═══ 改名模态（QQ 联动：改台账 + 广播各服）═══ -->
+    <!-- ═══ 改名模态（QQ 联动：改台账 + 广播各服；Teleport 防滚出画面）═══ -->
+    <Teleport to="body">
     <div v-if="renameTarget" class="modal-overlay" @click.self="renameTarget = null">
       <div class="modal">
         <h3>账号改名（QQ 联动）</h3>
@@ -426,8 +440,10 @@ onMounted(() => {
         </div>
       </div>
     </div>
+    </Teleport>
 
-    <!-- ═══ 管理员手动绑定模态 ═══ -->
+    <!-- ═══ 管理员手动绑定模态（Teleport 防滚出画面）═══ -->
+    <Teleport to="body">
     <div v-if="bindModalOpen" class="modal-overlay" @click.self="closeBindModal">
       <div class="modal modal-bind">
         <h3>手动绑定 QQ</h3>
@@ -482,6 +498,7 @@ onMounted(() => {
         </div>
       </div>
     </div>
+    </Teleport>
   </div>
 </template>
 

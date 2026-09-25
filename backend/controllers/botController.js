@@ -762,37 +762,93 @@ export const qqBind = async (req, res) => {
 }
 
 /**
- * 改绑 QQ：POST /api/bot/qq-rebind  { username, qq }
- * 校验新 QQ 未被其它角色绑定 → 更新台账 → 广播全量
+ * 改绑 QQ：POST /api/bot/qq-rebind  { username, qq?, newPlayer? }
+ * 支持两种变更（可同时）：
+ *   - 改 QQ 号：qq 传新值（角色不变，沿用原密码哈希）
+ *   - 转移绑定玩家：newPlayer 传另一角色名（QQ 不变或同时变；新角色 B 必须存在且未绑其他 QQ，
+ *     密码哈希从服务器重新拉取；原角色 A 的账号数据保留，仅解除 QQ 绑定）
+ * 约束：QQ↔角色 1:1（目标 QQ 已被其他角色占用、目标角色已绑其他 QQ 均拒绝）。
  */
 export const qqRebind = async (req, res) => {
   try {
     const username = String(req.body?.username || '').trim()
     const newQq = String(req.body?.qq || '').trim()
-    if (!username || !newQq) return res.status(400).json({ error: '缺少参数: username / qq' })
-    if (!/^\d{5,15}$/.test(newQq)) return res.status(400).json({ error: 'QQ 号格式不正确' })
+    const newPlayer = String(req.body?.newPlayer || '').trim()
+    if (!username) return res.status(400).json({ error: '缺少参数: username' })
+    if (newQq && !/^\d{5,15}$/.test(newQq)) return res.status(400).json({ error: 'QQ 号格式不正确' })
+    if (!newQq && !newPlayer) return res.status(400).json({ error: '至少提供一项变更：新 QQ 号或新绑定玩家' })
 
-    const rec = await getAccountByUsername(username)
+    const rec = await getAccountByUsernameCI(username)
     if (!rec) return res.status(404).json({ error: '该角色未绑定 QQ' })
     const oldQq = rec.qq || ''
-    if (oldQq === newQq) return res.status(400).json({ error: 'QQ 号未变化' })
+    const oldPlayer = rec.username
 
-    const other = await getAccountByQq(newQq)
-    if (other && other.username !== username) {
-      return res.status(409).json({ error: `该 QQ 已绑定角色：${other.username}` })
+    // 目标绑定（newPlayer 缺省 = 原角色；qq 缺省 = 原 QQ）
+    const targetPlayer = newPlayer || oldPlayer
+    const targetQq = newQq || oldQq
+
+    // 校验 1：目标 QQ 已被其他角色绑定（QQ 1:1）
+    if (targetQq) {
+      const qqOwner = await getAccountByQq(targetQq)
+      if (qqOwner && qqOwner.username !== oldPlayer) {
+        return res.status(409).json({ error: `该 QQ 已绑定角色：${qqOwner.username}` })
+      }
     }
 
-    await upsertAccount({ username, qq: newQq, passwordHash: rec.passwordHash })
-    await broadcastFullAll()
+    // 校验 2：目标角色 B 已绑定其他 QQ（角色 1:1）
+    if (targetPlayer !== oldPlayer) {
+      const bRec = await getAccountByUsernameCI(targetPlayer)
+      if (bRec && String(bRec.qq || '')) {
+        return res.status(409).json({ error: `角色「${targetPlayer}」已绑定 QQ：${bRec.qq}（需先解绑）` })
+      }
+    }
+
+    // 转移绑定：从服务器拉取目标角色 B 的密码哈希（不能沿用 A 的，否则 B 登录校验失败）
+    let passwordHash = rec.passwordHash || ''
+    let hitServerName = ''
+    if (targetPlayer !== oldPlayer) {
+      const servers = (await getServers()).filter(s => s.enabled && s.host && s.port && s.apiKey)
+      const results = []
+      for (const s of servers) {
+        const r = await pluginFetch(s, '/data/qq/find-account', { name: targetPlayer })
+        if (r?.found) results.push({ server: s, data: r })
+      }
+      if (results.length === 0) {
+        return res.status(404).json({ error: `角色「${targetPlayer}」在所有可查询的服务器中都不存在` })
+      }
+      if (results.length > 1) {
+        return res.status(409).json({
+          conflict: true,
+          error: `角色「${targetPlayer}」在多个服务器存在，请指定服务器后重试`,
+          servers: results.map(({ server: s }) => ({ id: s.id, name: s.name }))
+        })
+      }
+      if (!results[0].data.passwordHash) {
+        return res.status(500).json({ error: `服务器「${results[0].server.name}」未返回密码哈希` })
+      }
+      passwordHash = results[0].data.passwordHash
+      hitServerName = results[0].server.name
+      // 原角色 A 解除 QQ 绑定（账号数据保留）
+      await removeAccount(oldPlayer)
+    }
+
+    // 无实际变更（QQ 与绑定角色都未变）
+    if (targetPlayer === oldPlayer && targetQq === oldQq) {
+      return res.status(400).json({ error: 'QQ 号与绑定玩家均未变化' })
+    }
+
+    await upsertAccount({ username: targetPlayer, qq: targetQq, passwordHash })
+    const result = await broadcastFullAll()
     audit.record('qq_account.rebind', {
-      username,
-      qq: newQq,
-      from: oldQq,
+      username: targetPlayer,
+      qq: targetQq,
+      from: oldPlayer === targetPlayer ? oldQq : `${oldPlayer}(${oldQq})`,
       actor: req.user?.username || 'system'
     })
-    console.log(`[QQ台账] 改绑: ${username} ${oldQq} → ${newQq}`)
+    console.log(`[QQ台账] 改绑: ${oldPlayer}(${oldQq}) → ${targetPlayer}(${targetQq})${hitServerName ? `, 哈希来自 ${hitServerName}` : ''}, 广播 ${result.ok}/${result.total} (操作: ${req.user?.username || 'system'})`)
     res.json({ status: 'ok', message: '改绑成功' })
   } catch (err) {
+    console.error('[QQ台账] 改绑失败:', err.message)
     res.status(500).json({ error: err.message })
   }
 }
