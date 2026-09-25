@@ -82,6 +82,25 @@
 
 ---
 
+## 热重载约定（HotReload，重要）
+
+**项目的"热重载" = HotReload 插件（`plugin-son/HotReload/`）的 `/hr` 命令机制，与 TShock 的 `/reload` 命令完全是两回事。禁止把两者混为一谈。**
+
+- **机制**：`/hr load <名称>` 或 `/hr reload-all`（HotReload 插件），对 `ServerPlugins` 目录下的 DLL 做反射热加载：
+  - `Core.cs` `LoadPluginFromDisk`：`Assembly.Load(asmBytes, pdbBytes)`（从字节数组加载，不锁文件）→ `Activator.CreateInstance` 创建插件 → `new PluginContainer(...)` → **直接调用该插件的 `Initialize()`**（世界早已加载，`Main.gameMenu == false`）。
+  - 受保护名单 `ProtectedAssemblyNames`（TShockAPI/Terraria/OTAPI/MonoMod/Newtonsoft/HotReload 等）禁止操作；TSWeb 主插件（TShockData）不在名单内，**可以用 `/hr load` 热重载**。
+- **另一条链路**：`plugin/tsweb-host/TsWebHost.cs`（cordis 后端插件下发接收端，SSE + DLL 反射热加载，落盘 `ServerPlugins/tsweb/*.dll`），同样直接调用插件 `Initialize()`。
+- **对插件开发的关键影响**：
+  - 热重载时插件的 `Initialize()` 会被直接调用，但**一次性启动事件不会再次触发**（如 `ServerApi.Hooks.GamePostInitialize` 只在冷启动、世界加载完成时触发一次）。
+  - 若插件需要在热重载场景下初始化"世界已加载"的数据（如记录 `Main.worldID`），正确写法是 House 插件同款：
+    ```csharp
+    ServerApi.Hooks.GamePostInitialize.Register(plugin, OnWorldReady); // 冷启动
+    if (!Main.gameMenu) OnWorldReady(null); // 热重载：世界已加载，立即执行
+    ```
+  - 实测教训（2026-09）：`BossTimeLock`（`plugin/BossTimeLock.cs`）曾只挂 `GamePostInitialize`，热重载后地图 ID 一直"未记录"，原因正是该事件在热重载下不触发。
+
+---
+
 ## 工具使用与路径约定（Windows 中文环境，必读）
 
 本机为 Windows + 中文目录名（如 `参考源码`），命令工具有严格使用约束：

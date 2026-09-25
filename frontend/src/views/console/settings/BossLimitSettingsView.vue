@@ -14,9 +14,10 @@ const bossLimitMinPlayers = ref(7)
 const quitLimitEnabled = ref(false)
 const lateCompEnabled = ref(false)
 
-// 进度锁 · 按时间锁
-const progressLockMode = ref('killbased')
+// 进度锁 · 按时间锁（叠加开关）
+const timeLockEnabled = ref(false)
 const serverStartTime = ref('')
+const serverStartTimeInput = ref('') // datetime-local 编辑值（yyyy-MM-ddTHH:mm）
 const worldId = ref('')
 const blockLockedBossSpawn = ref(true)
 const timeSchedule = ref([])
@@ -30,11 +31,6 @@ const bossModeOptions = [
   { value: 'disabled', label: '不做任何限制' },
   { value: 'playerlimit', label: '按最低人数限制' },
   { value: 'killrequired', label: '不允许召唤未击败的 Boss' }
-]
-
-const progressLockOptions = [
-  { value: 'killbased', label: '按击杀进度' },
-  { value: 'timelock', label: '按时间锁' }
 ]
 
 // 进度档名（与反作弊进度档一致，供解锁计划下拉选择）
@@ -62,7 +58,7 @@ const autoSave = () => {
         bossLimitMinPlayers: bossLimitMinPlayers.value,
         quitLimitEnabled: quitLimitEnabled.value,
         lateCompEnabled: lateCompEnabled.value,
-        progressLockMode: progressLockMode.value,
+        timeLockEnabled: timeLockEnabled.value,
         blockLockedBossSpawn: blockLockedBossSpawn.value,
         schedule: JSON.stringify(timeSchedule.value.map(s => ({
           Name: s.name,
@@ -87,7 +83,7 @@ watch(bossLimitMode, autoSave)
 watch(bossLimitMinPlayers, autoSave)
 watch(quitLimitEnabled, autoSave)
 watch(lateCompEnabled, autoSave)
-watch(progressLockMode, autoSave)
+watch(timeLockEnabled, autoSave)
 watch(blockLockedBossSpawn, autoSave)
 watch(timeSchedule, autoSave, { deep: true })
 
@@ -116,8 +112,12 @@ const fetchConfig = async () => {
     if (data.quitLimitEnabled !== undefined) quitLimitEnabled.value = data.quitLimitEnabled
     if (data.lateCompEnabled !== undefined) lateCompEnabled.value = data.lateCompEnabled
 
-    if (data.progressLockMode !== undefined) progressLockMode.value = data.progressLockMode
-    if (data.serverStartTime !== undefined) serverStartTime.value = data.serverStartTime
+    if (data.timeLockEnabled !== undefined) timeLockEnabled.value = data.timeLockEnabled
+    if (data.serverStartTime !== undefined) {
+      serverStartTime.value = data.serverStartTime
+      // 服务端 "yyyy-MM-dd HH:mm:ss" → datetime-local "yyyy-MM-ddTHH:mm"
+      serverStartTimeInput.value = (data.serverStartTime || '').replace(' ', 'T').slice(0, 16)
+    }
     if (data.worldId !== undefined) worldId.value = data.worldId
     if (data.blockLockedBossSpawn !== undefined) blockLockedBossSpawn.value = data.blockLockedBossSpawn
     if (Array.isArray(data.timeSchedule)) timeSchedule.value = data.timeSchedule
@@ -134,12 +134,14 @@ const fetchConfig = async () => {
 // ═══ 时间锁操作 ═══
 
 const setServerStartTime = async () => {
-  if (!serverStartTime.value) {
-    error.value = '请先输入开服时间'
+  if (!serverStartTimeInput.value) {
+    error.value = '请先选择开服时间'
     return
   }
+  // datetime-local "yyyy-MM-ddTHH:mm" → 服务端 "yyyy-MM-dd HH:mm:ss"
+  const formatted = serverStartTimeInput.value.replace('T', ' ') + ':00'
   try {
-    const res = await post('/api/config/boss', { serverStartTime: serverStartTime.value })
+    const res = await post('/api/config/boss', { serverStartTime: formatted })
     const data = await res.json()
     if (data.status === '200') {
       success.value = '开服时间已更新'
@@ -240,89 +242,83 @@ onUnmounted(() => {
         <!-- 进度锁 · 按时间锁 -->
         <div class="section-card">
           <h3>进度锁 · 按时间锁</h3>
-          <p class="section-desc">进度锁可配置为按时间解锁：开服后第 N 天指定时刻自动解锁对应 Boss 档（纯按时间，不看击杀）</p>
+          <p class="section-desc">按时间锁是叠加开关：开启后，解锁计划中配置了时间的 Boss 档按时间解锁（不看击杀）；未配置的档仍按击杀进度判定</p>
 
-          <div class="radio-group">
-            <label
-              v-for="opt in progressLockOptions"
-              :key="opt.value"
-              class="radio-item"
-              :class="{ active: progressLockMode === opt.value }"
-            >
-              <input
-                type="radio"
-                v-model="progressLockMode"
-                :value="opt.value"
-                class="radio-input"
-              />
-              <span class="radio-label">{{ opt.label }}</span>
+          <div class="toggle-row">
+            <span class="toggle-label">按时间锁</span>
+            <span class="toggle-hint">开启后叠加时间解锁；关闭则恢复纯击杀进度判定</span>
+            <label class="switch">
+              <input type="checkbox" v-model="timeLockEnabled" />
+              <span class="slider"></span>
             </label>
           </div>
 
-          <template v-if="progressLockMode === 'timelock'">
-            <!-- 开服时间 -->
-            <div class="toggle-row">
-              <span class="toggle-label">开服时间</span>
-              <span class="toggle-hint">地图更换时自动重置为当前时间，也可手动指定</span>
+          <!-- 开服时间 -->
+          <div class="toggle-row">
+            <span class="toggle-label">开服时间</span>
+            <span class="toggle-hint">地图更换时自动重置为当前时间，也可手动指定</span>
+          </div>
+          <div class="inline-control">
+            <input
+              v-model="serverStartTimeInput"
+              type="datetime-local"
+              class="text-input"
+            />
+            <button class="btn-primary" @click="setServerStartTime">手动指定</button>
+          </div>
+
+          <!-- 世界 ID -->
+          <div class="toggle-row">
+            <span class="toggle-label">地图 ID</span>
+            <span class="toggle-value">{{ worldId || '未记录（启动后自动记录）' }}</span>
+          </div>
+
+          <!-- BOSS 生成/召唤拦截 -->
+          <div class="toggle-row">
+            <span class="toggle-label">BOSS 生成/召唤拦截</span>
+            <span class="toggle-hint">拦截未解锁档 Boss 的召唤与自然生成</span>
+            <label class="switch">
+              <input type="checkbox" v-model="blockLockedBossSpawn" />
+              <span class="slider"></span>
+            </label>
+          </div>
+
+          <!-- 解锁计划（始终可见；未开启按时间锁时不生效） -->
+          <div class="schedule-block">
+            <div class="schedule-header">
+              <span class="toggle-label">解锁计划</span>
+              <span class="toggle-hint">{{ timeLockEnabled ? '开服后第 N 天 HH:mm 解锁对应档' : '已关闭按时间锁，需开启后才生效' }}</span>
             </div>
-            <div class="inline-control">
-              <input
-                v-model="serverStartTime"
-                type="text"
-                placeholder="yyyy-MM-dd HH:mm:ss"
-                class="text-input"
-              />
-              <button class="btn-primary" @click="setServerStartTime">手动指定</button>
+
+            <div v-if="timeSchedule.length === 0" class="schedule-empty">
+              暂无解锁计划，添加一个进度档：
             </div>
 
-            <!-- 世界 ID -->
-            <div class="toggle-row">
-              <span class="toggle-label">地图 ID</span>
-              <span class="toggle-value">{{ worldId || '未记录（启动后自动记录）' }}</span>
+            <div
+              v-for="(s, idx) in timeSchedule"
+              :key="idx"
+              class="schedule-row"
+              :class="{ dimmed: !timeLockEnabled }"
+            >
+              <span class="schedule-name">{{ s.name }}</span>
+              <span class="schedule-desc">开服后第 {{ s.day }} 天 {{ s.time }}</span>
+              <span class="schedule-status" :class="{ done: s.unlocked }">
+                {{ s.unlocked ? '已解锁' : s.unlockAt ? s.unlockAt + ' 解锁' : '未计算' }}
+              </span>
+              <button class="btn-icon" @click="removeSchedule(idx)">✕</button>
             </div>
 
-            <!-- BOSS 生成/召唤拦截 -->
-            <div class="toggle-row">
-              <span class="toggle-label">BOSS 生成/召唤拦截</span>
-              <span class="toggle-hint">拦截未解锁档 Boss 的召唤与自然生成</span>
-              <label class="switch">
-                <input type="checkbox" v-model="blockLockedBossSpawn" />
-                <span class="slider"></span>
-              </label>
+            <div class="schedule-add">
+              <select v-model="newScheduleName" class="select-input">
+                <option v-for="n in bossNameOptions" :key="n" :value="n">{{ n }}</option>
+              </select>
+              <span class="schedule-add-label">开服后第</span>
+              <input v-model.number="newScheduleDay" type="number" min="1" class="num-input" />
+              <span class="schedule-add-label">天</span>
+              <input v-model="newScheduleTime" type="time" class="time-input" />
+              <button class="btn-primary" @click="addSchedule">添加</button>
             </div>
-
-            <!-- 解锁计划 -->
-            <div class="schedule-block">
-              <div class="schedule-header">
-                <span class="toggle-label">解锁计划</span>
-                <span class="toggle-hint">开服后第 N 天 HH:mm 解锁对应档</span>
-              </div>
-
-              <div v-if="timeSchedule.length === 0" class="schedule-empty">
-                暂无解锁计划，添加一个进度档：
-              </div>
-
-              <div v-for="(s, idx) in timeSchedule" :key="idx" class="schedule-row">
-                <span class="schedule-name">{{ s.name }}</span>
-                <span class="schedule-desc">开服后第 {{ s.day }} 天 {{ s.time }}</span>
-                <span class="schedule-status" :class="{ done: s.unlocked }">
-                  {{ s.unlocked ? '已解锁' : s.unlockAt ? s.unlockAt + ' 解锁' : '未计算' }}
-                </span>
-                <button class="btn-icon" @click="removeSchedule(idx)">✕</button>
-              </div>
-
-              <div class="schedule-add">
-                <select v-model="newScheduleName" class="select-input">
-                  <option v-for="n in bossNameOptions" :key="n" :value="n">{{ n }}</option>
-                </select>
-                <span class="schedule-add-label">开服后第</span>
-                <input v-model.number="newScheduleDay" type="number" min="1" class="num-input" />
-                <span class="schedule-add-label">天</span>
-                <input v-model="newScheduleTime" type="time" class="time-input" />
-                <button class="btn-primary" @click="addSchedule">添加</button>
-              </div>
-            </div>
-          </template>
+          </div>
         </div>
 
         <!-- Boss 退出惩罚 + 晚入补偿 -->
@@ -771,6 +767,10 @@ onUnmounted(() => {
   border-radius: var(--radius-md);
   border: 1px solid var(--border-light);
   font-size: 0.85rem;
+}
+
+.schedule-row.dimmed {
+  opacity: 0.55;
 }
 
 .schedule-name {

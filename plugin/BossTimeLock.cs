@@ -10,14 +10,14 @@ using Rests;
 namespace TShockData;
 
 /// <summary>
-/// 进度锁 · 按时间锁模式（BossTimeLock）
+/// 进度锁 · 按时间锁（BossTimeLock，叠加开关）
 ///
 /// 功能：
-/// 1. 无论开关，每次启动（GamePostInitialize）都记录地图 ID（Main.worldID）；
+/// 1. 无论开关，每次启动（GamePostInitialize / 热重载）都记录地图 ID（Main.worldID）；
 ///    时间锁开启后对比地图 ID，若地图已更换则视为重新开服，开服时间重置为当前时间。
 /// 2. 解锁计划（TimeSchedule）：档名 → 开服后第 N 天 HH:mm 纯按时间解锁（不看击杀）。
-/// 3. 时间锁模式下，配置了时间的档由 <see cref="BossProgress.GetWorldStatus"/> 按时间判定；
-///    未配置时间的档保持原击杀判定。
+/// 3. 按时间锁开启（TimeLockEnabled）时，配置了时间的档由 <see cref="BossProgress.GetWorldStatus"/> 按时间判定；
+///    未配置时间的档保持原击杀判定（叠加，不互斥）。
 /// 4. BlockLockedBossSpawn=true 时，未解锁档的 BOSS 召唤（BossLimitSummon）与自然生成（NpcSpawn）均被拦截。
 /// </summary>
 public static class BossTimeLock
@@ -60,8 +60,12 @@ public static class BossTimeLock
         ServerApi.Hooks.GamePostInitialize.Register(plugin, OnGamePostInitialize);
         ServerApi.Hooks.NpcSpawn.Register(plugin, OnNpcSpawn);
 
+        // 热重载（HotReload /hr 或 TsWebHost 下发）场景：世界已加载，立即记录地图 ID；
+        // 冷启动仍由 GamePostInitialize（世界加载完成后）触发
+        if (!Main.gameMenu) SyncWorldId();
+
         _initialized = true;
-        TShock.Log.ConsoleInfo("[BossTimeLock] 进度锁·按时间锁模式已初始化（地图ID记录 + 解锁计划 + BOSS生成拦截）");
+        TShock.Log.ConsoleInfo("[BossTimeLock] 进度锁·按时间锁已初始化（地图ID记录 + 解锁计划 + BOSS生成拦截）");
     }
 
     public static void Dispose()
@@ -154,7 +158,7 @@ public static class BossTimeLock
         lock (CacheLock)
         {
             UnlockCache.Clear();
-            if (BossConfigManager.Config.ProgressLockMode != "timelock")
+            if (!BossConfigManager.Config.TimeLockEnabled)
                 return;
 
             foreach (var item in BossConfigManager.Config.TimeSchedule)
@@ -165,17 +169,17 @@ public static class BossTimeLock
         }
     }
 
-    /// <summary>某档的解锁时刻；未配置 / 非时间锁模式返回 null</summary>
+    /// <summary>某档的解锁时刻；未配置 / 按时间锁未开启返回 null</summary>
     public static DateTime? GetUnlockTime(string name)
     {
         if (string.IsNullOrEmpty(name)) return null;
-        if (BossConfigManager.Config.ProgressLockMode != "timelock")
+        if (!BossConfigManager.Config.TimeLockEnabled)
             return null;
         lock (CacheLock)
             return UnlockCache.TryGetValue(name, out var t) ? t : null;
     }
 
-    /// <summary>时间锁模式开启 + 该档配置了时间 + 当前未到解锁时刻 → 该档处于锁定状态</summary>
+    /// <summary>按时间锁开启 + 该档配置了时间 + 当前未到解锁时刻 → 该档处于锁定状态</summary>
     public static bool IsTimelocked(string name)
     {
         var unlock = GetUnlockTime(name);
@@ -197,7 +201,7 @@ public static class BossTimeLock
     /// <summary>按 NPCID 判定该 BOSS 是否处于时间锁锁定状态（召唤/生成拦截用）</summary>
     public static bool IsNpcTimelocked(int npcNetId)
     {
-        if (BossConfigManager.Config.ProgressLockMode != "timelock")
+        if (!BossConfigManager.Config.TimeLockEnabled)
             return false;
         if (!BossConfigManager.Config.BlockLockedBossSpawn)
             return false;
@@ -286,17 +290,17 @@ public static class BossTimeLock
                 Time = item.Time,
                 UnlockAt = unlock?.ToString("yyyy-MM-dd HH:mm:ss"),
                 Unlocked = unlock.HasValue && DateTime.Now >= unlock.Value,
-                TimeManaged = BossConfigManager.Config.ProgressLockMode == "timelock"
+                TimeManaged = BossConfigManager.Config.TimeLockEnabled
             });
         }
         return list;
     }
 
     /// <summary>时间锁总体状态（命令用）</summary>
-    public static (string Mode, string ServerStart, string WorldId, bool BlockSpawn, int ScheduleCount) GetStatus()
+    public static (bool Enabled, string ServerStart, string WorldId, bool BlockSpawn, int ScheduleCount) GetStatus()
     {
         var cfg = BossConfigManager.Config;
-        return (cfg.ProgressLockMode, cfg.ServerStartTime, cfg.WorldId, cfg.BlockLockedBossSpawn, cfg.TimeSchedule.Count);
+        return (cfg.TimeLockEnabled, cfg.ServerStartTime, cfg.WorldId, cfg.BlockLockedBossSpawn, cfg.TimeSchedule.Count);
     }
 
     // ═══════════════════════════════════════════
@@ -315,9 +319,10 @@ public static class BossTimeLock
 
         switch (args.Parameters[1].ToLower())
         {
-            case "mode":
-            case "模式":
-                HandleModeCommand(args);
+            case "on":
+            case "off":
+            case "开关":
+                HandleSwitchCommand(args);
                 break;
 
             case "start":
@@ -348,7 +353,7 @@ public static class BossTimeLock
                 break;
 
             default:
-                args.Player.SendErrorMessage("无效参数！可用: mode / start / add / del / spawnblock / reload");
+                args.Player.SendErrorMessage("无效参数！可用: on / off / start / add / del / spawnblock / reload");
                 ShowHelp(args);
                 break;
         }
@@ -356,34 +361,25 @@ public static class BossTimeLock
 
     public static void ShowStatus(CommandArgs args)
     {
-        var (mode, start, worldId, blockSpawn, count) = GetStatus();
+        var (enabled, start, worldId, blockSpawn, count) = GetStatus();
 
-        string modeDesc = mode switch
-        {
-            "killbased" => "[c/00ff00:按击杀进度]",
-            "timelock" => "[c/00ff00:按时间锁]",
-            _ => $"[c/ffff00:{mode}]"
-        };
-
-        args.Player.SendInfoMessage($"[进度锁·按时间] 模式: {modeDesc}");
+        args.Player.SendInfoMessage($"[进度锁·按时间] 开关: {(enabled ? "[c/00ff00:开启]" : "[c/ff0000:关闭]")}（开启后叠加时间解锁，不看击杀）");
         args.Player.SendInfoMessage($"  开服时间: {(string.IsNullOrEmpty(start) ? "[c/ff0000:未设置]" : start)}");
         args.Player.SendInfoMessage($"  地图 ID: {(string.IsNullOrEmpty(worldId) ? "未记录" : worldId)}");
         args.Player.SendInfoMessage($"  BOSS 生成拦截: {(blockSpawn ? "[c/00ff00:开启]" : "[c/ff0000:关闭]")}");
 
-        if (mode == "timelock")
+        args.Player.SendInfoMessage($"  解锁计划（{count} 项）:");
+        foreach (var s in GetScheduleStatus())
         {
-            args.Player.SendInfoMessage($"  解锁计划（{count} 项）:");
-            foreach (var s in GetScheduleStatus())
-            {
-                string unlocked = s.Unlocked ? "[c/00ff00:已解锁]" : "[c/ff0000:锁定]";
-                args.Player.SendInfoMessage($"    {s.Name} — 开服后第 {s.Day} 天 {s.Time}（{s.UnlockAt}）{unlocked}");
-            }
+            string unlocked = s.Unlocked ? "[c/00ff00:已解锁]" : "[c/ff0000:锁定]";
+            string managed = s.TimeManaged ? "" : "（未开启不生效）";
+            args.Player.SendInfoMessage($"    {s.Name} — 开服后第 {s.Day} 天 {s.Time}（{s.UnlockAt}）{unlocked}{managed}");
         }
     }
 
     public static void ShowHelp(CommandArgs args)
     {
-        args.Player.SendInfoMessage("  time mode <killbased|timelock>  — 切换进度锁模式（timelock=按时间）");
+        args.Player.SendInfoMessage("  time on|off                — 按时间锁开关（开启=叠加时间解锁，不看击杀）");
         args.Player.SendInfoMessage("  time start <yyyy-MM-dd HH:mm>  — 手动指定开服时间");
         args.Player.SendInfoMessage("  time add <档名> <第N天> <HH:mm> — 添加解锁计划项");
         args.Player.SendInfoMessage("  time del <档名>               — 删除解锁计划项");
@@ -391,33 +387,35 @@ public static class BossTimeLock
         args.Player.SendInfoMessage("  time reload                   — 重新加载时间锁配置");
     }
 
-    private static void HandleModeCommand(CommandArgs args)
+    private static void HandleSwitchCommand(CommandArgs args)
     {
-        if (args.Parameters.Count < 3)
+        if (args.Parameters.Count < 2)
         {
-            args.Player.SendInfoMessage($"当前进度锁模式: {BossConfigManager.Config.ProgressLockMode}");
-            args.Player.SendInfoMessage("可用模式: killbased / timelock");
+            args.Player.SendInfoMessage($"按时间锁: {(BossConfigManager.Config.TimeLockEnabled ? "[c/00ff00:开启]" : "[c/ff0000:关闭]")}");
+            args.Player.SendInfoMessage("用法: time on|off");
             return;
         }
 
-        var newMode = args.Parameters[2].ToLower();
-        if (newMode != "killbased" && newMode != "timelock")
+        var flag = args.Parameters[1].ToLower();
+        if (flag != "on" && flag != "off" && flag != "开关")
         {
-            args.Player.SendErrorMessage("无效模式！可用: killbased / timelock");
+            args.Player.SendErrorMessage("用法: time on|off");
             return;
         }
 
+        // on / 开关 → 开启；off → 关闭
+        var turnOn = flag != "off";
         var cfg = BossConfigManager.Config;
-        cfg.ProgressLockMode = newMode;
-        if (newMode == "timelock")
+        if (turnOn && !cfg.TimeLockEnabled)
             SyncWorldId(); // 开启时同步一次地图 ID（若已换图则重置开服时间）
+        cfg.TimeLockEnabled = turnOn;
         BossConfigManager.SaveConfig();
         RebuildCache();
 
-        args.Player.SendSuccessMessage(newMode == "timelock"
-            ? "进度锁已切换为按时间锁模式（解锁计划见 time status）"
-            : "进度锁已切换为按击杀进度模式（原判定）");
-        TShock.Log.ConsoleInfo($"[BossTimeLock] {args.Player.Name} 设置进度锁模式为 {newMode}");
+        args.Player.SendSuccessMessage(cfg.TimeLockEnabled
+            ? "按时间锁已开启（配置了时间的档将按时间解锁，不看击杀）"
+            : "按时间锁已关闭（恢复纯击杀进度判定）");
+        TShock.Log.ConsoleInfo($"[BossTimeLock] {args.Player.Name} 设置按时间锁: {cfg.TimeLockEnabled}");
     }
 
     private static void HandleStartCommand(CommandArgs args)

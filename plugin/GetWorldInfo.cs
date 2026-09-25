@@ -275,8 +275,8 @@ namespace TShockData
             if (name == "始终生效")
                 return true;
 
-            // 时间锁模式：配置了解锁时间的档 → 纯按时间判定（不看击杀）
-            if (BossConfigManager.Config.ProgressLockMode == "timelock")
+            // 按时间锁开启（叠加）：配置了解锁时间的档 → 纯按时间判定（不看击杀）
+            if (BossConfigManager.Config.TimeLockEnabled)
             {
                 var unlock = BossTimeLock.GetUnlockTime(name);
                 if (unlock.HasValue)

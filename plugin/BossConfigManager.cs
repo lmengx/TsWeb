@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using Rests;
 using TShockAPI;
 
@@ -37,12 +38,12 @@ namespace TShockData
         public bool LateCompEnabled { get; set; } = false;
 
         // ═══════════════════════════════════════════
-        // 进度锁 · 按时间锁模式
+        // 进度锁 · 按时间锁（叠加开关：开启后，配置了时间的档在击杀判定基础上叠加时间解锁）
         // ═══════════════════════════════════════════
 
-        /// <summary>进度锁模式：killbased（按击杀进度，默认）/ timelock（按时间解锁）</summary>
-        [JsonProperty("ProgressLockMode")]
-        public string ProgressLockMode { get; set; } = "killbased";
+        /// <summary>按时间锁开关：false=纯击杀进度（默认）；true=配置了时间的档按时间解锁（叠加，不看击杀）</summary>
+        [JsonProperty("TimeLockEnabled")]
+        public bool TimeLockEnabled { get; set; } = false;
 
         /// <summary>最近一次记录的地图 ID（无论开关，每次启动都记录；变化视为重新开服）</summary>
         [JsonProperty("WorldId")]
@@ -61,7 +62,7 @@ namespace TShockData
             new TimeScheduleItem { Name = "拜月教教徒", Day = 3, Time = "06:00" }
         };
 
-        /// <summary>时间锁模式下，是否拦截未解锁档 BOSS 的生成/召唤（含自然生成），默认开启</summary>
+        /// <summary>按时间锁开启时，是否拦截未解锁档 BOSS 的生成/召唤（含自然生成），默认开启</summary>
         [JsonProperty("BlockLockedBossSpawn")]
         public bool BlockLockedBossSpawn { get; set; } = true;
     }
@@ -86,7 +87,9 @@ namespace TShockData
                 if (File.Exists(ConfigPath))
                 {
                     var json = File.ReadAllText(ConfigPath);
-                    Config = JsonConvert.DeserializeObject<BossConfig>(json) ?? new BossConfig();
+                    // ensure 默认配置模式：缺失字段补默认值并落盘（兼容旧配置逐步升级，不覆盖用户已有值）
+                    Config = EnsureDefaults(json) ?? new BossConfig();
+                    SaveConfig();
                 }
                 else
                 {
@@ -94,13 +97,55 @@ namespace TShockData
                     SaveConfig();
                 }
 
-                TShock.Log.ConsoleInfo($"[TSWeb] Boss配置已加载 - 召唤限制:{(Config.BossLimitEnabled ? Config.BossLimitMode : "关闭")}, 退出惩罚:{(Config.QuitLimitEnabled ? "开启" : "关闭")}, 晚入补偿:{(Config.LateCompEnabled ? "开启" : "关闭")}");
+                TShock.Log.ConsoleInfo($"[TSWeb] Boss配置已加载 - 召唤限制:{(Config.BossLimitEnabled ? Config.BossLimitMode : "关闭")}, 退出惩罚:{(Config.QuitLimitEnabled ? "开启" : "关闭")}, 晚入补偿:{(Config.LateCompEnabled ? "开启" : "关闭")}, 按时间锁:{(Config.TimeLockEnabled ? "开启" : "关闭")}");
             }
             catch (Exception ex)
             {
                 TShock.Log.ConsoleError($"[TSWeb] 加载Boss配置失败: {ex.Message}");
                 Config = new BossConfig();
             }
+        }
+
+        /// <summary>
+        /// ensure 默认配置：解析 JSON 为 JObject，对缺失字段写入默认值（已有值不动），
+        /// 返回反序列化结果。旧配置升级时新字段自动获得默认值并随 SaveConfig 落盘。
+        /// </summary>
+        private static BossConfig EnsureDefaults(string json)
+        {
+            var obj = JObject.Parse(json);
+
+            Ensure(obj, "Boss限制模式", "disabled");
+            Ensure(obj, "BOSS限制", false);
+            Ensure(obj, "新BOSS召唤最低人数", 7);
+            Ensure(obj, "QuitLimitEnabled", false);
+            Ensure(obj, "LateCompEnabled", false);
+
+            // 进度锁 · 按时间锁
+            Ensure(obj, "TimeLockEnabled", false);
+            Ensure(obj, "WorldId", "");
+            Ensure(obj, "ServerStartTime", "");
+            Ensure(obj, "BlockLockedBossSpawn", true);
+            EnsureSchedule(obj);
+
+            return obj.ToObject<BossConfig>() ?? new BossConfig();
+        }
+
+        private static void Ensure(JObject obj, string key, object defaultValue)
+        {
+            if (obj[key] == null)
+                obj[key] = JToken.FromObject(defaultValue);
+        }
+
+        /// <summary>解锁计划缺失时写入默认两项（血肉墙 D2 12:00 / 拜月教教徒 D3 06:00）；已有则保留</summary>
+        private static void EnsureSchedule(JObject obj)
+        {
+            if (obj["TimeSchedule"] != null)
+                return;
+            obj["TimeSchedule"] = JArray.FromObject(new[]
+            {
+                new { Name = "血肉墙", Day = 2, Time = "12:00" },
+                new { Name = "拜月教教徒", Day = 3, Time = "06:00" }
+            });
         }
 
         public static void SaveConfig()
@@ -141,8 +186,8 @@ namespace TShockData
                 quitLimitEnabled = Config.QuitLimitEnabled,
                 lateCompEnabled = Config.LateCompEnabled,
 
-                // 进度锁 · 按时间锁
-                progressLockMode = Config.ProgressLockMode,
+                // 进度锁 · 按时间锁（叠加开关）
+                timeLockEnabled = Config.TimeLockEnabled,
                 serverStartTime = Config.ServerStartTime,
                 worldId = Config.WorldId,
                 blockLockedBossSpawn = Config.BlockLockedBossSpawn,
@@ -177,18 +222,14 @@ namespace TShockData
                 if (!string.IsNullOrEmpty(lce))
                     Config.LateCompEnabled = lce.ToLower() == "true";
 
-                // ═══ 进度锁 · 按时间锁 ═══
-                var plm = args.Parameters["progressLockMode"];
-                if (!string.IsNullOrEmpty(plm))
+                // ═══ 进度锁 · 按时间锁（叠加开关）═══
+                var tle = args.Parameters["timeLockEnabled"];
+                if (!string.IsNullOrEmpty(tle))
                 {
-                    var m = plm.ToLower();
-                    if (m == "killbased" || m == "timelock")
-                    {
-                        Config.ProgressLockMode = m;
-                        // 首次切换到时间锁：同步一次世界 ID（若地图已变则重置开服时间）
-                        if (m == "timelock")
-                            BossTimeLock.SyncWorldId();
-                    }
+                    var on = tle.ToLower() == "true";
+                    if (on && !Config.TimeLockEnabled)
+                        BossTimeLock.SyncWorldId(); // 首次开启：同步一次世界 ID（若地图已变则重置开服时间）
+                    Config.TimeLockEnabled = on;
                 }
                 var sst = args.Parameters["serverStartTime"];
                 if (!string.IsNullOrEmpty(sst) && DateTime.TryParse(sst, out var startTime))
@@ -225,7 +266,7 @@ namespace TShockData
                 SaveConfig();
                 // 解锁时间缓存重算（计划/开服时间变化后立即生效）
                 BossTimeLock.RebuildCache();
-                TShock.Log.ConsoleInfo($"[TSWeb] REST 更新Boss配置: mode={Config.BossLimitMode}, minPlayers={Config.BossLimitMinPlayers}, quitLimit={Config.QuitLimitEnabled}, lateComp={Config.LateCompEnabled}, progressLock={Config.ProgressLockMode}");
+                TShock.Log.ConsoleInfo($"[TSWeb] REST 更新Boss配置: mode={Config.BossLimitMode}, minPlayers={Config.BossLimitMinPlayers}, quitLimit={Config.QuitLimitEnabled}, lateComp={Config.LateCompEnabled}, timeLock={Config.TimeLockEnabled}");
                 return new { status = "200", message = "配置已保存" };
             }
             catch (Exception ex)
