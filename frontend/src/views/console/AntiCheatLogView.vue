@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { apiRequest } from '../../utils/api.js'
+import { loadProjectileData } from '../../api/projectileDataApi.js'
 import Loading from '../../components/Loading.vue'
 
 // ═══════════════════════════════════════════════════════════
@@ -8,6 +9,19 @@ import Loading from '../../components/Loading.vue'
 // ═══════════════════════════════════════════════════════════
 const loading = ref(false)
 const error = ref('')
+
+// 弹幕名称字典（前端本地 ProjectileData.json；日志只记录弹幕 ID，此处由前端转名称）
+const projData = ref({ list: [], dict: {} })
+const projNameById = (id) => {
+  if (id === undefined || id === null || id === '' || id <= 0) return ''
+  return projData.value.dict[String(id)]?.chinese || ''
+}
+
+const initProjData = async () => {
+  try {
+    projData.value = await loadProjectileData()
+  } catch { /* 字典加载失败时仅显示弹幕 ID */ }
+}
 
 const stats = ref({ total: 0, today: 0, byCategory: {}, byMethod: {}, recent: [] })
 
@@ -64,10 +78,14 @@ const formatTime = (t) => {
 }
 
 // 日志行主展示文本：分类 + 物品/弹幕 + 处理方式 + 详情
+// 物品名随日志落库（ItemName）；弹幕日志只记录 ID，此处用前端 ProjectileData.json 转名称
 const rowTitle = (r) => {
   const parts = []
   if (r.itemName) parts.push(`[i:${r.itemId}] ${r.itemName}`)
-  if (r.projId > 0) parts.push(`弹幕#${r.projId}`)
+  if (r.projId > 0) {
+    const pName = projNameById(r.projId)
+    parts.push(pName ? `弹幕#${r.projId} ${pName}` : `弹幕#${r.projId}`)
+  }
   if (parts.length === 0) parts.push(r.category === 'particle' ? '粒子请求' : '检测事件')
   return parts.join(' / ')
 }
@@ -141,6 +159,7 @@ const refresh = () => { loadLogs(); loadStats() }
 onMounted(() => {
   loadLogs()
   loadStats()
+  initProjData()
 })
 </script>
 

@@ -340,6 +340,29 @@ namespace TShockData
         }
 
         /// <summary>
+        /// 获取弹幕名称（TShock 引用的原版 Terraria API：Lang.GetProjectileName）。
+        /// 越界 / 无名称 / 异常时回退为 "弹幕ID:{projId}"。
+        /// 用途：公屏播报等需要人类可读名称的场合；日志仍只记录 ID，前端自建表转名称。
+        /// </summary>
+        public static string GetProjectileName(int projId)
+        {
+            try
+            {
+                if (projId > 0)
+                {
+                    var name = Lang.GetProjectileName(projId).Value;
+                    if (!string.IsNullOrEmpty(name))
+                        return name;
+                }
+                return $"弹幕ID:{projId}";
+            }
+            catch
+            {
+                return $"弹幕ID:{projId}";
+            }
+        }
+
+        /// <summary>
         /// POST /data/anticheat/enable — 反作弊轻量开关（仅开关，不动配置列表）
         /// 参数：itemEnabled（物品违禁总开关）/ projEnabled（弹幕违禁总开关），缺省保持原值
         /// </summary>
@@ -604,7 +627,8 @@ namespace TShockData
         {
             if (projId > 0)
             {
-                return $"使用违禁弹幕(ID:{projId})";
+                // 公屏/踢出界面消息用 TShock 侧弹幕名称（日志仍只记 ID，前端自建表转名称）
+                return $"使用违禁弹幕{AntiCheat.GetProjectileName(projId)}";
             }
             if (itemId > 0)
             {
