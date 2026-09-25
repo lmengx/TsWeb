@@ -64,6 +64,11 @@ public static class BossLimit
             case "退出":
                 BossLimitQuit.HandleCommand(args);
                 return;
+
+            case "time":
+            case "时间锁":
+                BossTimeLock.HandleCommand(args);
+                return;
         }
 
         // 兼容旧版：直接 mode / playernum / on / off → 派发给 summon
@@ -90,6 +95,7 @@ public static class BossLimit
         args.Player.SendInfoMessage("══════════ BOSS 限制 ══════════");
         BossLimitSummon.ShowStatus(args, BossConfigManager.Config);
         BossLimitQuit.ShowStatus(args);
+        BossTimeLock.ShowStatus(args);
         args.Player.SendInfoMessage("─ 子命令 ─────────────────────");
         ShowHelp(args);
     }
@@ -98,6 +104,7 @@ public static class BossLimit
     {
         args.Player.SendInfoMessage("/bosslimit summon ...   — 召唤限制相关");
         args.Player.SendInfoMessage("/bosslimit quit ...     — 退出惩罚相关");
+        args.Player.SendInfoMessage("/bosslimit time ...     — 进度锁·按时间锁相关");
         args.Player.SendInfoMessage("/bosslimit              — 显示总状态");
     }
 }

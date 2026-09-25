@@ -14,6 +14,13 @@ const bossLimitMinPlayers = ref(7)
 const quitLimitEnabled = ref(false)
 const lateCompEnabled = ref(false)
 
+// 进度锁 · 按时间锁
+const progressLockMode = ref('killbased')
+const serverStartTime = ref('')
+const worldId = ref('')
+const blockLockedBossSpawn = ref(true)
+const timeSchedule = ref([])
+
 // BossLimit 活跃追踪状态
 const bossLimitStatus = ref(null)
 const statusLoading = ref(false)
@@ -24,6 +31,23 @@ const bossModeOptions = [
   { value: 'playerlimit', label: '按最低人数限制' },
   { value: 'killrequired', label: '不允许召唤未击败的 Boss' }
 ]
+
+const progressLockOptions = [
+  { value: 'killbased', label: '按击杀进度' },
+  { value: 'timelock', label: '按时间锁' }
+]
+
+// 进度档名（与反作弊进度档一致，供解锁计划下拉选择）
+const bossNameOptions = [
+  '史莱姆王', '克苏鲁之眼', '世界吞噬者', '克苏鲁之脑', '蜂后', '巨鹿', '骷髅王',
+  '血肉墙', '史莱姆皇后', '毁灭者', '机械骷髅王', '双子魔眼', '世纪之花',
+  '石巨人', '猪龙鱼公爵', '光之女皇', '拜月教教徒', '月亮领主'
+]
+
+// 新增解锁计划行（临时编辑用）
+const newScheduleName = ref('血肉墙')
+const newScheduleDay = ref(2)
+const newScheduleTime = ref('12:00')
 
 const autoSave = () => {
   if (!ready) return
@@ -37,7 +61,14 @@ const autoSave = () => {
         bossLimitEnabled: bossLimitMode.value !== 'disabled',
         bossLimitMinPlayers: bossLimitMinPlayers.value,
         quitLimitEnabled: quitLimitEnabled.value,
-        lateCompEnabled: lateCompEnabled.value
+        lateCompEnabled: lateCompEnabled.value,
+        progressLockMode: progressLockMode.value,
+        blockLockedBossSpawn: blockLockedBossSpawn.value,
+        schedule: JSON.stringify(timeSchedule.value.map(s => ({
+          Name: s.name,
+          Day: s.day,
+          Time: s.time
+        })))
       })
       const data = await res.json()
       if (data.status === '200') {
@@ -56,6 +87,9 @@ watch(bossLimitMode, autoSave)
 watch(bossLimitMinPlayers, autoSave)
 watch(quitLimitEnabled, autoSave)
 watch(lateCompEnabled, autoSave)
+watch(progressLockMode, autoSave)
+watch(blockLockedBossSpawn, autoSave)
+watch(timeSchedule, autoSave, { deep: true })
 
 const fetchBossLimitStatus = async () => {
   statusLoading.value = true
@@ -81,6 +115,12 @@ const fetchConfig = async () => {
     if (data.bossLimitMinPlayers !== undefined) bossLimitMinPlayers.value = data.bossLimitMinPlayers
     if (data.quitLimitEnabled !== undefined) quitLimitEnabled.value = data.quitLimitEnabled
     if (data.lateCompEnabled !== undefined) lateCompEnabled.value = data.lateCompEnabled
+
+    if (data.progressLockMode !== undefined) progressLockMode.value = data.progressLockMode
+    if (data.serverStartTime !== undefined) serverStartTime.value = data.serverStartTime
+    if (data.worldId !== undefined) worldId.value = data.worldId
+    if (data.blockLockedBossSpawn !== undefined) blockLockedBossSpawn.value = data.blockLockedBossSpawn
+    if (Array.isArray(data.timeSchedule)) timeSchedule.value = data.timeSchedule
   } catch (err) {
     error.value = '加载配置失败: ' + err.message
   }
@@ -89,6 +129,65 @@ const fetchConfig = async () => {
 
   // 加载 bosslimit 活跃追踪状态
   fetchBossLimitStatus()
+}
+
+// ═══ 时间锁操作 ═══
+
+const setServerStartTime = async () => {
+  if (!serverStartTime.value) {
+    error.value = '请先输入开服时间'
+    return
+  }
+  try {
+    const res = await post('/api/config/boss', { serverStartTime: serverStartTime.value })
+    const data = await res.json()
+    if (data.status === '200') {
+      success.value = '开服时间已更新'
+      setTimeout(() => { success.value = '' }, 1500)
+      await fetchConfig()
+    } else {
+      error.value = data.error || '设置失败'
+    }
+  } catch (err) {
+    error.value = '设置失败: ' + err.message
+  }
+}
+
+const addSchedule = () => {
+  if (!newScheduleName.value) {
+    error.value = '请选择进度档'
+    return
+  }
+  if (newScheduleDay.value < 1) {
+    error.value = '第N天必须 ≥ 1'
+    return
+  }
+  const idx = timeSchedule.value.findIndex(s => s.name === newScheduleName.value)
+  if (idx >= 0) {
+    // 重名覆盖
+    timeSchedule.value[idx] = {
+      name: newScheduleName.value,
+      day: newScheduleDay.value,
+      time: newScheduleTime.value
+    }
+  } else {
+    timeSchedule.value.push({
+      name: newScheduleName.value,
+      day: newScheduleDay.value,
+      time: newScheduleTime.value
+    })
+  }
+  autoSave()
+}
+
+const removeSchedule = (idx) => {
+  timeSchedule.value.splice(idx, 1)
+  autoSave()
+}
+
+const formatUnlockAt = (s) => {
+  if (!s.unlockAt) return '未计算'
+  return s.unlocked ? `${s.unlockAt} 已解锁` : `${s.unlockAt} 解锁`
 }
 
 onMounted(() => {
@@ -136,6 +235,94 @@ onUnmounted(() => {
               <button class="num-btn" @click="bossLimitMinPlayers = Math.min(999, bossLimitMinPlayers + 1)">+</button>
             </div>
           </div>
+        </div>
+
+        <!-- 进度锁 · 按时间锁 -->
+        <div class="section-card">
+          <h3>进度锁 · 按时间锁</h3>
+          <p class="section-desc">进度锁可配置为按时间解锁：开服后第 N 天指定时刻自动解锁对应 Boss 档（纯按时间，不看击杀）</p>
+
+          <div class="radio-group">
+            <label
+              v-for="opt in progressLockOptions"
+              :key="opt.value"
+              class="radio-item"
+              :class="{ active: progressLockMode === opt.value }"
+            >
+              <input
+                type="radio"
+                v-model="progressLockMode"
+                :value="opt.value"
+                class="radio-input"
+              />
+              <span class="radio-label">{{ opt.label }}</span>
+            </label>
+          </div>
+
+          <template v-if="progressLockMode === 'timelock'">
+            <!-- 开服时间 -->
+            <div class="toggle-row">
+              <span class="toggle-label">开服时间</span>
+              <span class="toggle-hint">地图更换时自动重置为当前时间，也可手动指定</span>
+            </div>
+            <div class="inline-control">
+              <input
+                v-model="serverStartTime"
+                type="text"
+                placeholder="yyyy-MM-dd HH:mm:ss"
+                class="text-input"
+              />
+              <button class="btn-primary" @click="setServerStartTime">手动指定</button>
+            </div>
+
+            <!-- 世界 ID -->
+            <div class="toggle-row">
+              <span class="toggle-label">地图 ID</span>
+              <span class="toggle-value">{{ worldId || '未记录（启动后自动记录）' }}</span>
+            </div>
+
+            <!-- BOSS 生成/召唤拦截 -->
+            <div class="toggle-row">
+              <span class="toggle-label">BOSS 生成/召唤拦截</span>
+              <span class="toggle-hint">拦截未解锁档 Boss 的召唤与自然生成</span>
+              <label class="switch">
+                <input type="checkbox" v-model="blockLockedBossSpawn" />
+                <span class="slider"></span>
+              </label>
+            </div>
+
+            <!-- 解锁计划 -->
+            <div class="schedule-block">
+              <div class="schedule-header">
+                <span class="toggle-label">解锁计划</span>
+                <span class="toggle-hint">开服后第 N 天 HH:mm 解锁对应档</span>
+              </div>
+
+              <div v-if="timeSchedule.length === 0" class="schedule-empty">
+                暂无解锁计划，添加一个进度档：
+              </div>
+
+              <div v-for="(s, idx) in timeSchedule" :key="idx" class="schedule-row">
+                <span class="schedule-name">{{ s.name }}</span>
+                <span class="schedule-desc">开服后第 {{ s.day }} 天 {{ s.time }}</span>
+                <span class="schedule-status" :class="{ done: s.unlocked }">
+                  {{ s.unlocked ? '已解锁' : s.unlockAt ? s.unlockAt + ' 解锁' : '未计算' }}
+                </span>
+                <button class="btn-icon" @click="removeSchedule(idx)">✕</button>
+              </div>
+
+              <div class="schedule-add">
+                <select v-model="newScheduleName" class="select-input">
+                  <option v-for="n in bossNameOptions" :key="n" :value="n">{{ n }}</option>
+                </select>
+                <span class="schedule-add-label">开服后第</span>
+                <input v-model.number="newScheduleDay" type="number" min="1" class="num-input" />
+                <span class="schedule-add-label">天</span>
+                <input v-model="newScheduleTime" type="time" class="time-input" />
+                <button class="btn-primary" @click="addSchedule">添加</button>
+              </div>
+            </div>
+          </template>
         </div>
 
         <!-- Boss 退出惩罚 + 晚入补偿 -->
@@ -503,5 +690,183 @@ onUnmounted(() => {
 .toast-leave-to {
   opacity: 0;
   transform: translateY(-10px);
+}
+
+/* ═══ 进度锁 · 按时间锁 ═══ */
+.toggle-value {
+  flex: 1;
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  font-family: var(--font-mono);
+}
+
+.inline-control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+}
+
+.text-input {
+  flex: 1;
+  padding: 8px 12px;
+  background: var(--bg-tertiary);
+  border: 2px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  font-family: var(--font-mono);
+  outline: none;
+  transition: border-color 0.2s ease;
+}
+
+.text-input:focus {
+  border-color: var(--accent-primary);
+}
+
+.btn-primary {
+  padding: 8px 16px;
+  background: var(--accent-primary);
+  border: none;
+  border-radius: var(--radius-sm);
+  color: #fff;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: filter 0.2s ease;
+  flex-shrink: 0;
+}
+
+.btn-primary:hover {
+  filter: brightness(1.1);
+}
+
+.schedule-block {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.schedule-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.schedule-empty {
+  padding: 12px;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-md);
+  border: 1px dashed var(--border-color);
+}
+
+.schedule-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-light);
+  font-size: 0.85rem;
+}
+
+.schedule-name {
+  color: var(--text-primary);
+  font-weight: 500;
+  min-width: 90px;
+}
+
+.schedule-desc {
+  color: var(--text-muted);
+}
+
+.schedule-status {
+  flex: 1;
+  text-align: right;
+  color: var(--accent-error);
+  font-size: 0.8rem;
+}
+
+.schedule-status.done {
+  color: var(--accent-secondary);
+}
+
+.btn-icon {
+  width: 26px;
+  height: 26px;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.btn-icon:hover {
+  color: var(--accent-error);
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.schedule-add {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 0;
+  flex-wrap: wrap;
+}
+
+.select-input {
+  padding: 8px 10px;
+  background: var(--bg-tertiary);
+  border: 2px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  outline: none;
+  min-width: 110px;
+}
+
+.select-input:focus {
+  border-color: var(--accent-primary);
+}
+
+.schedule-add-label {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.num-input {
+  width: 64px;
+  padding: 8px 10px;
+  background: var(--bg-tertiary);
+  border: 2px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  outline: none;
+}
+
+.num-input:focus {
+  border-color: var(--accent-primary);
+}
+
+.time-input {
+  padding: 8px 10px;
+  background: var(--bg-tertiary);
+  border: 2px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  outline: none;
+}
+
+.time-input:focus {
+  border-color: var(--accent-primary);
 }
 </style>

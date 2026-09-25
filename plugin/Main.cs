@@ -25,6 +25,10 @@ namespace TShockData
             BossLimit.InitQuit(this);
             BossConfigManager.LoadConfig();
 
+            // 进度锁 · 按时间锁模式（地图ID记录 + 解锁计划 + BOSS生成拦截）
+            // 世界 ID 在 GamePostInitialize（世界加载完成后）记录，此处只注册钩子
+            BossTimeLock.Initialize(this);
+
             BypassHelper.RegisterPermissionHook();
 
             PvPLockManager.Initialize(this);
@@ -352,6 +356,7 @@ namespace TShockData
                 AutoBackup.Dispose();
 				RuntimeHooks.Dispose();
 				BossLimit.Dispose();
+				BossTimeLock.Dispose();
 				ItemDetection.StopAutoScan();
 				ParticleGuard.Dispose();
                 AccountSync.Dispose(this);
@@ -460,6 +465,8 @@ namespace TShockData
                 "/data/bosslimit/status",
 				"/data/config/tsweb",
 				"/data/config/tsweb/set",
+				"/data/config/boss",
+				"/data/config/boss/set",
 				"/data/config/backup",
 				"/data/config/backup/set",
 				"/data/online/hourly",

@@ -52,12 +52,16 @@ public static class BossLimitSummon
         finally { args.Data.Position = pos; }
 
         string playerName = args.Player?.Name ?? "???";
+        var config = BossConfigManager.Config;
+
+        // 时间锁优先：未解锁档的 BOSS 召唤直接拦截（对玩家召唤包生效）
+        if (BossTimeLock.TryBlockSpawn(args.Player, thingType))
+            return true;
 
         if (thingType < 0)
             return orig(args);
 
         string bossName = Lang.GetNPCNameValue(thingType);
-        var config = BossConfigManager.Config;
 
         switch (config.BossLimitMode)
         {
