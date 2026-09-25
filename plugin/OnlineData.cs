@@ -36,30 +36,28 @@ namespace TShockData
 
         private static void CreateTables()
         {
+            // uid/date 用 VARCHAR：MySQL 的 TEXT 列不能直接作主键/索引（需前缀长度），
+            // VARCHAR 在 SQLite/MySQL 均可用，且现有 SQLite 库已存在表时本语句为 no-op，不破坏存量。
             TShock.DB.Query(@"
                 CREATE TABLE IF NOT EXISTS player_daily_stat (
-                    uid TEXT NOT NULL,
-                    date TEXT NOT NULL,
+                    uid VARCHAR(64) NOT NULL,
+                    date VARCHAR(10) NOT NULL,
                     daily_min INTEGER NOT NULL DEFAULT 0,
                     PRIMARY KEY (uid, date)
                 );
             ");
-            TShock.DB.Query(@"
-                CREATE INDEX IF NOT EXISTS idx_pds_uid ON player_daily_stat(uid);
-            ");
-            TShock.DB.Query(@"
-                CREATE INDEX IF NOT EXISTS idx_pds_date ON player_daily_stat(date);
-            ");
+            SqlCompat.CreateIndexIfNotExists("idx_pds_uid", "player_daily_stat", "uid");
+            SqlCompat.CreateIndexIfNotExists("idx_pds_date", "player_daily_stat", "date");
 
+            // online_names 用 VARCHAR(2048)：MySQL 8.0.13 之前 TEXT 列不允许 DEFAULT，
+            // VARCHAR 两库通用且无需前缀长度即可建索引。
             TShock.DB.Query(@"
                 CREATE TABLE IF NOT EXISTS hourly_online_snapshot (
                     hour_ts INTEGER PRIMARY KEY,
-                    online_names TEXT NOT NULL DEFAULT ''
+                    online_names VARCHAR(2048) NOT NULL DEFAULT ''
                 );
             ");
-            TShock.DB.Query(@"
-                CREATE INDEX IF NOT EXISTS idx_hour_ts ON hourly_online_snapshot(hour_ts);
-            ");
+            SqlCompat.CreateIndexIfNotExists("idx_hour_ts", "hourly_online_snapshot", "hour_ts");
 
             TShock.Log.ConsoleInfo("[TSWeb] 在线统计表已创建/确认");
         }
@@ -110,7 +108,10 @@ namespace TShockData
                 string onlineNames = string.Join(" ", nameList);
                 TShock.DB.Query(
                     "INSERT INTO hourly_online_snapshot (hour_ts, online_names) VALUES (@0, @1) " +
-                    "ON CONFLICT(hour_ts) DO UPDATE SET online_names = @1",
+                    SqlCompat.UpsertClause(
+                        "hour_ts",
+                        "online_names = @1",
+                        "online_names = VALUES(online_names)"),
                     hourTs, onlineNames);
             }
             catch (Exception ex)
@@ -246,7 +247,10 @@ namespace TShockData
                 {
                     TShock.DB.Query(
                         "INSERT INTO player_daily_stat (uid, date, daily_min) VALUES (@0, @1, 1) " +
-                        "ON CONFLICT(uid, date) DO UPDATE SET daily_min = daily_min + 1",
+                        SqlCompat.UpsertClause(
+                            "uid, date",
+                            "daily_min = daily_min + 1",
+                            "daily_min = daily_min + 1"),
                         name, today);
                 }
             }
@@ -274,7 +278,10 @@ namespace TShockData
                 string onlineNames = string.Join(" ", nameList);
                 TShock.DB.Query(
                     "INSERT INTO hourly_online_snapshot (hour_ts, online_names) VALUES (@0, @1) " +
-                    "ON CONFLICT(hour_ts) DO UPDATE SET online_names = @1",
+                    SqlCompat.UpsertClause(
+                        "hour_ts",
+                        "online_names = @1",
+                        "online_names = VALUES(online_names)"),
                     hourTs, onlineNames);
             }
             catch (Exception ex)

@@ -84,21 +84,25 @@ namespace TShockData
         {
             try
             {
+                // Id 用 SqlCompat.AutoIncrementIdColumn：SQLite AUTOINCREMENT / MySQL AUTO_INCREMENT。
+                // PlayerName/Permission/Note/GrantedBy/CreatedAt/ExpireAt 用 VARCHAR：
+                //   - MySQL 的 TEXT 列不能直接作索引/UNIQUE（需前缀长度），VARCHAR 两库通用；
+                //   - 存量 SQLite 库已存在表时本语句为 no-op，不破坏旧表。
                 TShock.DB.Query($@"
                     CREATE TABLE IF NOT EXISTS {Table} (
-                        Id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                        Id         {SqlCompat.AutoIncrementIdColumn},
                         UserId     INTEGER NOT NULL,
-                        PlayerName TEXT    NOT NULL,
-                        Permission TEXT    NOT NULL,
-                        GrantedBy  TEXT    NOT NULL DEFAULT '',
-                        Note       TEXT    DEFAULT '',
-                        CreatedAt  TEXT    NOT NULL,
-                        ExpireAt   TEXT    DEFAULT NULL,
+                        PlayerName VARCHAR(64) NOT NULL,
+                        Permission VARCHAR(191) NOT NULL,
+                        GrantedBy  VARCHAR(64) NOT NULL DEFAULT '',
+                        Note       VARCHAR(255) DEFAULT '',
+                        CreatedAt  VARCHAR(19) NOT NULL,
+                        ExpireAt   VARCHAR(19) DEFAULT NULL,
                         UNIQUE(UserId, Permission)
                     );");
-                TShock.DB.Query($"CREATE INDEX IF NOT EXISTS idx_pp_player ON {Table}(PlayerName);");
-                TShock.DB.Query($"CREATE INDEX IF NOT EXISTS idx_pp_perm ON {Table}(Permission);");
-                TShock.DB.Query($"CREATE INDEX IF NOT EXISTS idx_pp_expire ON {Table}(ExpireAt);");
+                SqlCompat.CreateIndexIfNotExists($"idx_pp_player", Table, "PlayerName");
+                SqlCompat.CreateIndexIfNotExists($"idx_pp_perm", Table, "Permission");
+                SqlCompat.CreateIndexIfNotExists($"idx_pp_expire", Table, "ExpireAt");
             }
             catch (Exception ex)
             {
@@ -222,12 +226,10 @@ namespace TShockData
             TShock.DB.Query($@"
                 INSERT INTO {Table} (UserId, PlayerName, Permission, GrantedBy, Note, CreatedAt, ExpireAt)
                 VALUES (@0, @1, @2, @3, @4, @5, @6)
-                ON CONFLICT(UserId, Permission) DO UPDATE SET
-                    PlayerName = excluded.PlayerName,
-                    GrantedBy  = excluded.GrantedBy,
-                    Note       = excluded.Note,
-                    CreatedAt  = excluded.CreatedAt,
-                    ExpireAt   = excluded.ExpireAt",
+                " + SqlCompat.UpsertClause(
+                    "UserId, Permission",
+                    "PlayerName = excluded.PlayerName, GrantedBy = excluded.GrantedBy, Note = excluded.Note, CreatedAt = excluded.CreatedAt, ExpireAt = excluded.ExpireAt",
+                    "PlayerName = VALUES(PlayerName), GrantedBy = VALUES(GrantedBy), Note = VALUES(Note), CreatedAt = VALUES(CreatedAt), ExpireAt = VALUES(ExpireAt)"),
                 userId, playerName, permission, grantedBy, note, now, expire);
 
             lock (CacheLock)

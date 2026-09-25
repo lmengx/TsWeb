@@ -534,22 +534,27 @@ namespace TShockData
 
         private static void CreateLogTable()
         {
-            TShock.DB.Query(@"
+            // Id 用 SqlCompat.AutoIncrementIdColumn：SQLite AUTOINCREMENT / MySQL AUTO_INCREMENT。
+            // CreatedAt 不再用 SQLite 专属的 datetime('now','localtime') 默认值，
+            // 改由 InsertLog 从 C# 传入（两库通用）。
+            // 其余列用 VARCHAR：MySQL 的 TEXT 列不能直接作索引，VARCHAR 两库通用；
+            // 存量 SQLite 库已存在表时本语句为 no-op，不破坏旧表。
+            TShock.DB.Query($@"
                 CREATE TABLE IF NOT EXISTS task_execution_logs (
-                    Id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    TaskId TEXT NOT NULL,
-                    TaskName TEXT NOT NULL,
-                    TriggeredAt TEXT NOT NULL,
-                    TriggerMode TEXT NOT NULL,
+                    Id {SqlCompat.AutoIncrementIdColumn},
+                    TaskId VARCHAR(64) NOT NULL,
+                    TaskName VARCHAR(255) NOT NULL,
+                    TriggeredAt VARCHAR(19) NOT NULL,
+                    TriggerMode VARCHAR(16) NOT NULL,
                     ConditionResult INTEGER NOT NULL,
                     Skipped INTEGER NOT NULL DEFAULT 0,
-                    Status TEXT NOT NULL,
-                    StartedAt TEXT,
-                    CompletedAt TEXT,
+                    Status VARCHAR(16) NOT NULL,
+                    StartedAt VARCHAR(19),
+                    CompletedAt VARCHAR(19),
                     DurationMs INTEGER DEFAULT 0,
                     CommandResults TEXT,
                     ErrorSummary TEXT,
-                    CreatedAt TEXT DEFAULT (datetime('now', 'localtime'))
+                    CreatedAt TEXT
                 )");
         }
 
@@ -559,8 +564,8 @@ namespace TShockData
             {
                 TShock.DB.Query(
                     @"INSERT INTO task_execution_logs
-                      (TaskId, TaskName, TriggeredAt, TriggerMode, ConditionResult, Skipped, Status, StartedAt, CompletedAt, DurationMs, CommandResults, ErrorSummary)
-                      VALUES (@0, @1, @2, @3, @4, @5, @6, @7, @8, @9, @10, @11)",
+                      (TaskId, TaskName, TriggeredAt, TriggerMode, ConditionResult, Skipped, Status, StartedAt, CompletedAt, DurationMs, CommandResults, ErrorSummary, CreatedAt)
+                      VALUES (@0, @1, @2, @3, @4, @5, @6, @7, @8, @9, @10, @11, @12)",
                     log.TaskId, log.TaskName,
                     log.TriggeredAt.ToString("yyyy-MM-dd HH:mm:ss"),
                     log.TriggerMode,
@@ -571,7 +576,8 @@ namespace TShockData
                     log.CompletedAt?.ToString("yyyy-MM-dd HH:mm:ss"),
                     log.DurationMs,
                     JsonConvert.SerializeObject(log.Commands),
-                    log.ErrorSummary ?? "");
+                    log.ErrorSummary ?? "",
+                    DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
             }
             catch (Exception ex)
             {
