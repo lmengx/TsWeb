@@ -655,7 +655,11 @@ export const qqUnbind = async (req, res) => {
     // full 推送不删本地账号，符合「各服本地账号保留、密码不变」语义）
     const result = await broadcastFullAll()
     // 时长记录保留（qq 字段由下轮聚合自动清空；绑定列表 qq 以台账为准，立即失效）
-    audit.record('qq_account.unbind', { username: name, qq: rec.qq || '' })
+    audit.record('qq_account.unbind', {
+      username: name,
+      qq: rec.qq || '',
+      actor: req.user?.username || 'system'
+    })
     console.log(`[QQ台账] 解绑: ${name} (QQ:${rec.qq || ''}), 广播 ${result.ok}/${result.total}`)
     res.json({ status: 'ok', message: '解绑成功' })
   } catch (err) {
@@ -780,7 +784,12 @@ export const qqRebind = async (req, res) => {
 
     await upsertAccount({ username, qq: newQq, passwordHash: rec.passwordHash })
     await broadcastFullAll()
-    audit.record('qq_account.rebind', { username, qq: newQq, from: oldQq })
+    audit.record('qq_account.rebind', {
+      username,
+      qq: newQq,
+      from: oldQq,
+      actor: req.user?.username || 'system'
+    })
     console.log(`[QQ台账] 改绑: ${username} ${oldQq} → ${newQq}`)
     res.json({ status: 'ok', message: '改绑成功' })
   } catch (err) {

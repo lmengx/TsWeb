@@ -125,6 +125,11 @@ namespace TShockData
             TShock.RestApi.Register(new SecureRestCommand("/data/players/import-from-server", PlayerTransfer.ImportFromServerRest, "data.rest.invsee"));
             TShock.RestApi.Register(new SecureRestCommand("/data/players/has-character", PlayerTransfer.HasCharacterRest, "data.rest.invsee"));
 
+            // ═══ 玩家账号管理（改名/删除/UUID 清除替换；后端联动台账/时长/封禁/后端账户）═══
+            TShock.RestApi.Register(new SecureRestCommand("/data/users/rename", UserAdmin.Rename, "tsweb.useradmin"));
+            TShock.RestApi.Register(new SecureRestCommand("/data/users/delete", UserAdmin.Delete, "tsweb.useradmin"));
+            TShock.RestApi.Register(new SecureRestCommand("/data/users/uuid", UserAdmin.UuidSet, "tsweb.useradmin"));
+
             TShock.RestApi.Register(new SecureRestCommand("/data/anticheat/proj-config/getprojconfig", ProjConfigHandler.GetProjConfig, "tshock.admin"));
             TShock.RestApi.Register(new SecureRestCommand("/data/anticheat/proj-config/saveprojconfig", ProjConfigHandler.SaveProjConfig, "tshock.admin"));
             TShock.RestApi.Register(new SecureRestCommand("/data/anticheat/item-config/getitemconfig", ItemConfigHandler.GetItemConfigApi, "tshock.admin"));
@@ -540,6 +545,9 @@ namespace TShockData
                 "/data/players/import",
                 "/data/players/import-from-server",
                 "/data/players/has-character",
+                "/data/users/rename",
+                "/data/users/delete",
+                "/data/users/uuid",
                 "/data/aliases/config",
                 "/data/aliases/config/set",
 			};

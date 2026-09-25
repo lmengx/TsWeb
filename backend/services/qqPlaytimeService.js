@@ -80,6 +80,32 @@ export async function getPlaytime(username) {
 }
 
 /**
+ * 时长记录改名（账号改名联动）：oldName → newName
+ * 保留 qq/servers/total/updatedAt；不存在旧 key 时返回 false。
+ * 目标 key 已存在（含大小写变体）→ 拒绝。
+ */
+export async function renameKey(oldName, newName) {
+  const data = await load()
+  const records = data.records
+  if (!records[oldName]) return false
+  for (const [name] of Object.entries(records)) {
+    if (String(name).toLowerCase() === String(newName).toLowerCase() && name !== oldName) {
+      return false
+    }
+  }
+  const rec = records[oldName]
+  delete records[oldName]
+  records[newName] = {
+    qq: rec.qq || '',
+    servers: rec.servers || {},
+    total: rec.total || 0,
+    updatedAt: rec.updatedAt || new Date().toISOString()
+  }
+  await persist(data)
+  return true
+}
+
+/**
  * 执行一轮聚合：并行拉取所有启用服全量累计 → 合并落盘
  * @returns {{ ok: number, total: number }}
  */
@@ -162,4 +188,4 @@ export function stopAggregation() {
   }
 }
 
-export default { getPlaytimeRecords, getPlaytime, aggregateAll, startAggregation, stopAggregation }
+export default { getPlaytimeRecords, getPlaytime, renameKey, aggregateAll, startAggregation, stopAggregation }

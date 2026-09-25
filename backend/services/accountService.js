@@ -216,6 +216,24 @@ export async function deleteAccount(username) {
   return { username: account.username, role: account.role }
 }
 
+/**
+ * 账号改名联动：更新所有 linkedTo = oldName 的后端管理账户（大小写不敏感）
+ * 返回被更新的账户数。普通（非 linkedTo）后端账户不自动改名（名称是独立身份，需手动处理）。
+ */
+export async function renameLinkedTo(oldName, newName) {
+  const acc = await load()
+  let updated = 0
+  for (const [key, a] of Object.entries(acc)) {
+    if (a.linkedTo && String(a.linkedTo).toLowerCase() === String(oldName).toLowerCase()) {
+      a.linkedTo = newName
+      a.updatedAt = new Date().toISOString()
+      updated++
+    }
+  }
+  if (updated > 0) await persist()
+  return updated
+}
+
 /** 更新角色（admin / subadmin 互转；不允许修改当前登录账户，由 controller 校验） */
 export async function updateRole(username, role) {
   if (role !== ROLE_ADMIN && role !== ROLE_SUBADMIN) {

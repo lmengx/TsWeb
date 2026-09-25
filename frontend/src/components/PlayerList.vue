@@ -130,6 +130,132 @@ const closeCreateModal = () => {
   createSuccess.value = ''
 }
 
+// ═══════════ 批量操作（多选 + 批量执行）═══════════
+
+// 选中集合（用户名 → user），跨 Tab 保留
+const selectedUsers = ref(new Map())
+const showBatchModal = ref(false)
+const batchAction = ref('')
+const batchGroup = ref('')
+const batchPassword = ref('')
+const batchMessage = ref('')
+const batchLoading = ref(false)
+const batchError = ref('')
+const batchResult = ref(null)
+const showBatchFailed = ref(false)
+
+const BATCH_TITLES = {
+  group: '批量改组',
+  ban: '批量封禁',
+  password: '批量重置密码',
+  kick: '批量踢出',
+  message: '群发消息',
+  unbind: '批量解绑 QQ'
+}
+
+const batchActionTitle = computed(() => BATCH_TITLES[batchAction.value] || '批量操作')
+
+const isSelected = (user) => selectedUsers.value.has(String(user.name))
+const isAllSelected = computed(() =>
+  displayedUsers.value.length > 0 && displayedUsers.value.every(u => isSelected(u))
+)
+
+const toggleSelect = (user) => {
+  const key = String(user.name)
+  if (selectedUsers.value.has(key)) selectedUsers.value.delete(key)
+  else selectedUsers.value.set(key, user)
+  // 新 Map 触发响应式
+  selectedUsers.value = new Map(selectedUsers.value)
+}
+
+const toggleSelectAll = () => {
+  if (isAllSelected.value) {
+    for (const u of displayedUsers.value) selectedUsers.value.delete(String(u.name))
+  } else {
+    for (const u of displayedUsers.value) selectedUsers.value.set(String(u.name), u)
+  }
+  selectedUsers.value = new Map(selectedUsers.value)
+}
+
+const clearSelection = () => {
+  selectedUsers.value = new Map()
+  batchResult.value = null
+}
+
+const openBatch = (action) => {
+  if (selectedUsers.value.size === 0) return
+  batchAction.value = action
+  batchGroup.value = ''
+  batchPassword.value = ''
+  batchMessage.value = ''
+  batchError.value = ''
+  batchResult.value = null
+  showBatchFailed.value = false
+  showBatchModal.value = true
+  if (action === 'group') fetchGroups()
+}
+
+const openBatchGroup = () => openBatch('group')
+const openBatchBan = () => openBatch('ban')
+const openBatchPassword = () => openBatch('password')
+const openBatchKick = () => openBatch('kick')
+const openBatchMessage = () => openBatch('message')
+const openBatchUnbind = () => openBatch('unbind')
+
+const closeBatchModal = () => {
+  if (batchLoading.value) return
+  showBatchModal.value = false
+}
+
+const executeBatchAction = async () => {
+  const users = [...selectedUsers.value.keys()]
+  if (users.length === 0) return
+
+  // 参数校验
+  if (batchAction.value === 'group' && !batchGroup.value) {
+    batchError.value = '请选择目标用户组'
+    return
+  }
+  if (batchAction.value === 'password' && !batchPassword.value.trim()) {
+    batchError.value = '请输入新密码'
+    return
+  }
+  if (batchAction.value === 'message' && !batchMessage.value.trim()) {
+    batchError.value = '请输入消息内容'
+    return
+  }
+
+  batchLoading.value = true
+  batchError.value = ''
+
+  try {
+    const params = {}
+    if (batchAction.value === 'group') params.group = batchGroup.value
+    if (batchAction.value === 'password') params.password = batchPassword.value.trim()
+    if (batchAction.value === 'message') params.message = batchMessage.value.trim()
+
+    const response = await post('/api/useradmin/batch', {
+      action: batchAction.value,
+      users,
+      params
+    })
+    const result = await response.json()
+
+    if (result.error) {
+      batchError.value = result.error
+    } else {
+      batchResult.value = result
+      closeBatchModal()
+      clearSelection()
+      emit('refresh')
+    }
+  } catch (err) {
+    batchError.value = err.message || '批量操作失败'
+  }
+
+  batchLoading.value = false
+}
+
 const executeCreateUser = async () => {
   if (!newUsername.value.trim() || !newPassword.value.trim()) {
     createError.value = '用户名和密码不能为空'
@@ -350,6 +476,15 @@ const closeBatchExportModal = () => {
       <table class="users-table">
         <thead>
           <tr>
+            <th class="col-select">
+              <input
+                type="checkbox"
+                :checked="isAllSelected"
+                :disabled="displayedUsers.length === 0"
+                @change="toggleSelectAll"
+                title="全选当前页"
+              />
+            </th>
             <th>状态</th>
             <th>ID</th>
             <th>用户名</th>
@@ -360,9 +495,18 @@ const closeBatchExportModal = () => {
           <tr
             v-for="user in displayedUsers"
             :key="user.id"
+            :class="{ 'selected-row': isSelected(user) }"
             @click="handleRowClick(user)"
             class="clickable-row"
           >
+            <td class="col-select" @click.stop>
+              <input
+                type="checkbox"
+                :checked="isSelected(user)"
+                @change="toggleSelect(user)"
+                title="选择此用户"
+              />
+            </td>
             <td>
               <span v-if="isUserOnline(user)" class="online-indicator" title="在线"></span>
               <span v-else class="offline-indicator" title="离线"></span>
@@ -373,6 +517,34 @@ const closeBatchExportModal = () => {
           </tr>
         </tbody>
       </table>
+
+      <!-- 批量操作栏：有选中时显示 -->
+      <div v-if="selectedUsers.size > 0" class="batch-bar">
+        <span class="batch-count">已选 {{ selectedUsers.size }} 人</span>
+        <button class="btn small" @click="openBatchGroup">改组</button>
+        <button class="btn small danger" @click="openBatchBan">封禁</button>
+        <button class="btn small" @click="openBatchPassword">重置密码</button>
+        <button class="btn small" @click="openBatchKick">踢出</button>
+        <button class="btn small" @click="openBatchMessage">群发消息</button>
+        <button class="btn small danger" @click="openBatchUnbind">解绑 QQ</button>
+        <button class="btn small" @click="clearSelection">清除选择</button>
+      </div>
+
+      <!-- 批量操作结果汇总 -->
+      <div v-if="batchResult" class="batch-result">
+        <p :class="batchResult.failed?.length ? 'batch-result-warn' : 'batch-result-ok'">
+          批量{{ batchActionLabel }}：成功 {{ batchResult.ok }}/{{ batchResult.total }}
+          <template v-if="batchResult.failed?.length">
+            ，失败 {{ batchResult.failed.length }} 人
+            <span class="batch-failed-toggle" @click="showBatchFailed = !showBatchFailed">详情</span>
+          </template>
+        </p>
+        <ul v-if="showBatchFailed && batchResult.failed?.length" class="batch-failed-list">
+          <li v-for="f in batchResult.failed" :key="f.username">
+            {{ f.username }}：{{ f.error }}
+          </li>
+        </ul>
+      </div>
 
       <!-- 分页栏：仅"所有玩家"Tab 且超过一页时显示 -->
       <div v-if="activeTab === 'all' && totalPages > 1" class="pagination-bar">
@@ -440,6 +612,67 @@ const closeBatchExportModal = () => {
           <button class="modal-btn cancel" @click="closeCreateModal" :disabled="createLoading">取消</button>
           <button class="modal-btn confirm" @click="executeCreateUser" :disabled="createLoading">
             {{ createLoading ? '创建中...' : '确认创建' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 批量操作模态 -->
+    <div v-if="showBatchModal" class="modal-overlay" @click.self="closeBatchModal">
+      <div class="modal-dialog">
+        <div class="modal-header">
+          <h3>{{ batchActionTitle }}</h3>
+          <button class="modal-close" @click="closeBatchModal">×</button>
+        </div>
+        <div class="modal-body">
+          <p class="batch-modal-count">将对已选 <strong>{{ selectedUsers.size }}</strong> 位玩家执行操作。</p>
+
+          <div v-if="batchAction === 'group'" class="form-group">
+            <label class="form-label">目标用户组</label>
+            <select v-model="batchGroup" class="form-input">
+              <option value="">请选择用户组</option>
+              <option v-for="g in groups" :key="g.name" :value="g.name">{{ g.name }}</option>
+            </select>
+          </div>
+
+          <div v-if="batchAction === 'password'" class="form-group">
+            <label class="form-label">新密码（统一设置）</label>
+            <input
+              v-model="batchPassword"
+              type="text"
+              placeholder="输入新密码"
+              class="form-input"
+            />
+          </div>
+
+          <div v-if="batchAction === 'message'" class="form-group">
+            <label class="form-label">消息内容</label>
+            <input
+              v-model="batchMessage"
+              type="text"
+              placeholder="输入要发送的消息"
+              class="form-input"
+            />
+          </div>
+
+          <div v-if="batchAction === 'ban' || batchAction === 'kick'" class="form-group">
+            <label class="form-label">操作说明</label>
+            <p class="batch-modal-desc">
+              {{ batchAction === 'ban' ? '将对选中的玩家执行账号封禁（acc: 标识）。' : '将踢出选中的在线玩家（离线玩家自动跳过）。' }}
+            </p>
+          </div>
+
+          <div v-if="batchAction === 'unbind'" class="form-group">
+            <label class="form-label">操作说明</label>
+            <p class="batch-modal-desc">将解绑选中玩家绑定的 QQ（各服游戏账号保留）。</p>
+          </div>
+
+          <div v-if="batchError" class="error-msg">{{ batchError }}</div>
+        </div>
+        <div class="modal-footer">
+          <button class="modal-btn cancel" @click="closeBatchModal" :disabled="batchLoading">取消</button>
+          <button class="modal-btn confirm" :class="{ 'danger-confirm': batchAction === 'ban' || batchAction === 'unbind' }" @click="executeBatchAction" :disabled="batchLoading">
+            {{ batchLoading ? '执行中...' : '确认执行' }}
           </button>
         </div>
       </div>
@@ -779,6 +1012,100 @@ const closeBatchExportModal = () => {
 
 .clickable-row:active {
   background: var(--accent-primary);
+}
+
+/* ═══ 批量操作：多选列 + 选中行 + 批量栏 + 结果 ═══ */
+.col-select {
+  width: 36px;
+  text-align: center;
+  padding: 14px 8px !important;
+}
+
+.col-select input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+  accent-color: var(--accent-primary);
+  margin: 0;
+}
+
+.selected-row {
+  background: rgba(99, 102, 241, 0.08);
+}
+
+.selected-row:hover {
+  background: rgba(99, 102, 241, 0.14);
+}
+
+.batch-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 10px 20px;
+  margin: 12px 20px 0;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+}
+
+.batch-count {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-right: 6px;
+}
+
+.batch-bar .btn {
+  padding: 6px 12px;
+  font-size: 0.8rem;
+}
+
+.batch-result {
+  margin: 12px 20px 0;
+  padding: 10px 16px;
+  border-radius: var(--radius-md);
+  font-size: 0.85rem;
+}
+
+.batch-result-ok {
+  background: rgba(34, 197, 94, 0.1);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  color: #22c55e;
+}
+
+.batch-result-warn {
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  color: #f59e0b;
+}
+
+.batch-failed-toggle {
+  cursor: pointer;
+  text-decoration: underline;
+  margin-left: 4px;
+}
+
+.batch-failed-list {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  max-height: 120px;
+  overflow-y: auto;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.batch-modal-count {
+  font-size: 0.88rem;
+  color: var(--text-secondary);
+  margin: 0 0 14px;
+}
+
+.batch-modal-desc {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  margin: 0;
+  line-height: 1.6;
 }
 
 .invsee-btn {

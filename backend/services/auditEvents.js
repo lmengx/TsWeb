@@ -193,6 +193,10 @@ export const AUDIT_EVENTS = {
     level: 'info', category: 'qq_account', title: 'QQ 绑定角色',
     fields: ['username', 'qq', 'serverId'], ip: false, sensitive: []
   },
+  'qq_account.bind_admin': {
+    level: 'info', category: 'qq_account', title: '管理员手动绑定 QQ',
+    fields: ['username', 'qq', 'serverId', 'actor'], ip: false, sensitive: []
+  },
   'qq_account.bound': {
     level: 'info', category: 'qq_account', title: '服务器上报绑定',
     fields: ['username', 'qq', 'serverId'], ip: false, sensitive: []
@@ -203,11 +207,11 @@ export const AUDIT_EVENTS = {
   },
   'qq_account.unbind': {
     level: 'warn', category: 'qq_account', title: 'QQ 解绑角色',
-    fields: ['username', 'qq'], ip: false, sensitive: []
+    fields: ['username', 'qq', 'actor'], ip: false, sensitive: []
   },
   'qq_account.rebind': {
     level: 'warn', category: 'qq_account', title: 'QQ 改绑角色',
-    fields: ['username', 'qq', 'from'], ip: false, sensitive: []
+    fields: ['username', 'qq', 'from', 'actor'], ip: false, sensitive: []
   },
   'qq_playtime.refresh': {
     level: 'info', category: 'qq_account', title: '手动刷新多服时长',
@@ -216,6 +220,24 @@ export const AUDIT_EVENTS = {
   'config.bot.set': {
     level: 'warn', category: 'config', title: '修改 QQ 机器人设置',
     fields: ['changedKeys', 'actor'], ip: false, sensitive: []
+  },
+
+  // ═══ useradmin 类 — 玩家账号管理（改名/删除/UUID/批量）═══
+  'useradmin.rename': {
+    level: 'warn', category: 'useradmin', title: '账号改名',
+    fields: ['from', 'to', 'mode', 'serverId', 'actor'], ip: false, sensitive: []
+  },
+  'useradmin.delete': {
+    level: 'error', category: 'useradmin', title: '删除账号',
+    fields: ['username', 'deleteCharacter', 'unbindQq', 'deleteBackendAccount', 'actor'], ip: false, sensitive: []
+  },
+  'useradmin.uuid': {
+    level: 'warn', category: 'useradmin', title: 'UUID 清除/替换',
+    fields: ['username', 'cleared', 'broadcast', 'actor'], ip: false, sensitive: ['uuid']
+  },
+  'useradmin.batch': {
+    level: 'warn', category: 'useradmin', title: '批量账号操作',
+    fields: ['action', 'total', 'ok', 'actor'], ip: false, sensitive: []
   },
 
   // ═══ vote 类 — 投票轮次/投票/提案 ═══

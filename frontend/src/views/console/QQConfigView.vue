@@ -134,7 +134,37 @@ const doRebind = async () => {
   } catch (e) { flashMsg(e.message, true) }
 }
 
-// ── 管理员手动绑定 ──
+// ── 改名（QQ 联动：改台账 + 广播各服）──
+const renameTarget = ref(null)
+const renameNewName = ref('')
+const renameSubmitting = ref(false)
+
+const showRename = (row) => {
+  renameTarget.value = row
+  renameNewName.value = ''
+}
+
+const doRename = async () => {
+  const row = renameTarget.value
+  const newName = renameNewName.value.trim()
+  if (!row || !newName) return
+  renameSubmitting.value = true
+  try {
+    const res = await apiRequest('/api/useradmin/rename', {
+      method: 'POST',
+      body: JSON.stringify({ username: row.username, newName, mode: 'qq' })
+    })
+    const d = await res.json().catch(() => ({}))
+    if (res.ok) {
+      flashMsg(`${row.username} 已改名为 ${newName}（服务器 ${d.ok}/${d.total}${d.ledger ? '，台账已联动' : ''}）`)
+      renameTarget.value = null
+      loadList()
+    } else {
+      flashMsg(d.error || '改名失败', true)
+    }
+  } catch (e) { flashMsg(e.message, true) }
+  finally { renameSubmitting.value = false }
+}
 const bindModalOpen = ref(false)
 const bindPlayer = ref('')
 const bindQq = ref('')
@@ -302,6 +332,7 @@ onMounted(() => {
             <td>{{ fmtHours(row.playtime?.total) }}</td>
             <td class="muted">{{ fmtTime(row.updatedAt) }}</td>
             <td class="col-op">
+              <button class="btn small" @click="showRename(row)">改名</button>
               <button class="btn small" @click="showRebind(row)">改绑QQ</button>
               <button class="btn small danger" @click="showUnbind(row)">解绑</button>
             </td>
@@ -376,6 +407,22 @@ onMounted(() => {
         <div class="modal-actions">
           <button class="btn" @click="rebindTarget = null">取消</button>
           <button class="btn primary" @click="doRebind">确认改绑</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ 改名模态（QQ 联动：改台账 + 广播各服）═══ -->
+    <div v-if="renameTarget" class="modal-overlay" @click.self="renameTarget = null">
+      <div class="modal">
+        <h3>账号改名（QQ 联动）</h3>
+        <p>玩家「{{ renameTarget.username }}」（QQ：{{ renameTarget.qq }}）将改名为：</p>
+        <input v-model="renameNewName" placeholder="输入新用户名（1-32 字符）" class="modal-input" />
+        <p class="modal-hint">改名将同步后端台账、游玩时长、各服务器账号名及 QQ 绑定关系。</p>
+        <div class="modal-actions">
+          <button class="btn" @click="renameTarget = null">取消</button>
+          <button class="btn primary" :disabled="renameSubmitting" @click="doRename">
+            {{ renameSubmitting ? '改名中...' : '确认改名' }}
+          </button>
         </div>
       </div>
     </div>
@@ -587,6 +634,10 @@ onMounted(() => {
   box-sizing: border-box;
 }
 .modal-actions { display: flex; justify-content: flex-end; gap: 10px; }
+.modal-hint {
+  font-size: .8rem; color: var(--text-muted);
+  margin: 10px 0 0; line-height: 1.5;
+}
 
 /* ── 手动绑定模态 ── */
 .modal-bind { width: 460px; }

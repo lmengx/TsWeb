@@ -107,6 +107,32 @@ export async function removeAccount(username) {
   return true
 }
 
+/**
+ * 台账改名（账号改名联动）：oldName → newName
+ * 保留 qq/passwordHash/updatedAt；不存在旧 key 时返回 false。
+ * 与各服 Users.Username 及 playtime key 的联动由 userAdminService 统一编排。
+ */
+export async function renameAccount(oldName, newName) {
+  const data = await load()
+  const records = data.records
+  if (!records[oldName]) return false
+  const rec = records[oldName]
+  // 目标 key 已存在（含大小写变体）→ 拒绝，避免覆盖冲突
+  for (const [name] of Object.entries(records)) {
+    if (String(name).toLowerCase() === String(newName).toLowerCase() && name !== oldName) {
+      return false
+    }
+  }
+  delete records[oldName]
+  records[newName] = {
+    qq: rec.qq || '',
+    passwordHash: rec.passwordHash || '',
+    updatedAt: new Date().toISOString()
+  }
+  await persist(data)
+  return true
+}
+
 // ═══════════════════════════════════════════════════════════
 // 后端 → 插件 推送（POST /tsweb/qqsync，HMAC 签名，与 /hook 协议一致）
 // ═══════════════════════════════════════════════════════════
@@ -258,4 +284,4 @@ export async function pushFullIfEnabled(server) {
   return postToServer(server, payload)
 }
 
-export default { getAccounts, getAccountByUsername, getAccountByUsernameCI, getAccountByQq, upsertAccount, removeAccount, broadcastFullAll, broadcastUuid, pushFullIfEnabled }
+export default { getAccounts, getAccountByUsername, getAccountByUsernameCI, getAccountByQq, upsertAccount, removeAccount, renameAccount, broadcastFullAll, broadcastUuid, pushFullIfEnabled }

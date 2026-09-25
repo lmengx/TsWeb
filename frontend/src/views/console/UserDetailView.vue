@@ -110,6 +110,36 @@ const passwordError = ref('')
 const passwordSuccess = ref('')
 const showPasswordText = ref(false)
 
+// 账号管理：改名 / UUID / QQ 绑定 / 删除
+const showRenameModal = ref(false)
+const renameNewName = ref('')
+const renameMode = ref('qq')
+const renameLoading = ref(false)
+const renameError = ref('')
+const renameSuccess = ref('')
+
+const showUuidModal = ref(false)
+const uuidNewValue = ref('')
+const uuidBroadcast = ref(true)
+const uuidLoading = ref(false)
+const uuidError = ref('')
+const uuidSuccess = ref('')
+
+const showQqBindModal = ref(false)
+const qqNewValue = ref('')
+const qqBindLoading = ref(false)
+const qqBindError = ref('')
+const qqBindSuccess = ref('')
+
+const showDeleteModal = ref(false)
+const deleteCharacter = ref(true)
+const deleteUnbindQq = ref(true)
+const deleteBans = ref(true)
+const deleteBackendAccount = ref(false)
+const deleteLoading = ref(false)
+const deleteError = ref('')
+const deleteSuccess = ref('')
+
 const showKickModal = ref(false)
 const kickReason = ref('')
 const kickLoading = ref(false)
@@ -654,6 +684,266 @@ const executePasswordChange = async () => {
   }
 
   passwordLoading.value = false
+}
+
+// ═══════════ 账号管理：改名 ═══════════
+
+const openRenameModal = () => {
+  renameNewName.value = ''
+  // 已绑定 QQ → 默认 QQ 联动；未绑定 → 默认单服
+  renameMode.value = userDetails.value?.QQ ? 'qq' : 'server'
+  renameError.value = ''
+  renameSuccess.value = ''
+  showRenameModal.value = true
+}
+
+const closeRenameModal = () => {
+  showRenameModal.value = false
+}
+
+const executeRename = async () => {
+  if (!userDetails.value) return
+  const newName = renameNewName.value.trim()
+  if (!newName) {
+    renameError.value = '请输入新用户名'
+    return
+  }
+
+  renameLoading.value = true
+  renameError.value = ''
+  renameSuccess.value = ''
+
+  try {
+    const username = userDetails.value.Username || userDetails.value.name
+    const response = await post('/api/useradmin/rename', {
+      username,
+      newName,
+      mode: renameMode.value
+    })
+    const result = await response.json()
+
+    if (result.error) {
+      renameError.value = result.error
+    } else {
+      const ledgerText = result.ledger ? '，台账已联动' : ''
+      renameSuccess.value = `改名成功：${result.from} → ${result.to}（服务器 ${result.ok}/${result.total}${ledgerText}）`
+      // 改名后跳转新名路由（watch route.params.username 自动重载详情）
+      setTimeout(() => {
+        closeRenameModal()
+        router.replace(`/console/users/${encodeURIComponent(newName)}`)
+      }, 1200)
+    }
+  } catch (err) {
+    renameError.value = err.message || '改名失败'
+  }
+
+  renameLoading.value = false
+}
+
+// ═══════════ 账号管理：UUID ═══════════
+
+const openUuidModal = () => {
+  uuidNewValue.value = ''
+  uuidBroadcast.value = true
+  uuidError.value = ''
+  uuidSuccess.value = ''
+  showUuidModal.value = true
+}
+
+const closeUuidModal = () => {
+  showUuidModal.value = false
+}
+
+const executeUuid = async () => {
+  if (!userDetails.value) return
+  uuidLoading.value = true
+  uuidError.value = ''
+  uuidSuccess.value = ''
+
+  try {
+    const username = userDetails.value.Username || userDetails.value.name
+    const response = await post('/api/useradmin/uuid', {
+      username,
+      uuid: uuidNewValue.value.trim(),
+      broadcast: uuidBroadcast.value
+    })
+    const result = await response.json()
+
+    if (result.error) {
+      uuidError.value = result.error
+    } else {
+      uuidSuccess.value = uuidNewValue.value.trim()
+        ? `UUID 已替换（服务器 ${result.ok}/${result.total}）`
+        : `UUID 已清除，该账号需密码登录（服务器 ${result.ok}/${result.total}）`
+      fetchUserDetails(username)
+    }
+  } catch (err) {
+    uuidError.value = err.message || 'UUID 更新失败'
+  }
+
+  uuidLoading.value = false
+}
+
+// ═══════════ 账号管理：QQ 绑定 / 换绑 / 解绑 ═══════════
+
+const openQqBindModal = () => {
+  qqNewValue.value = ''
+  qqBindError.value = ''
+  qqBindSuccess.value = ''
+  showQqBindModal.value = true
+}
+
+const closeQqBindModal = () => {
+  showQqBindModal.value = false
+}
+
+const executeQqBind = async () => {
+  if (!userDetails.value) return
+  const qq = qqNewValue.value.trim()
+  if (!/^\d{5,15}$/.test(qq)) {
+    qqBindError.value = 'QQ 号格式不正确（5-15 位数字）'
+    return
+  }
+
+  qqBindLoading.value = true
+  qqBindError.value = ''
+  qqBindSuccess.value = ''
+
+  try {
+    const username = userDetails.value.Username || userDetails.value.name
+    const response = await post('/api/bot/qq-bind', {
+      qq,
+      player: username
+    })
+    const result = await response.json()
+
+    if (result.error) {
+      qqBindError.value = result.error
+      // 多服冲突 → 提示指定服务器
+      if (result.conflict) {
+        qqBindError.value = result.error + '（可在 QQ 配置页指定服务器绑定）'
+      }
+    } else {
+      qqBindSuccess.value = `绑定成功（${result.server || ''}）`
+      setTimeout(() => { closeQqBindModal(); fetchUserDetails(username) }, 1000)
+    }
+  } catch (err) {
+    qqBindError.value = err.message || '绑定失败'
+  }
+
+  qqBindLoading.value = false
+}
+
+const executeQqRebind = async () => {
+  if (!userDetails.value) return
+  const qq = qqNewValue.value.trim()
+  if (!/^\d{5,15}$/.test(qq)) {
+    qqBindError.value = 'QQ 号格式不正确（5-15 位数字）'
+    return
+  }
+
+  qqBindLoading.value = true
+  qqBindError.value = ''
+  qqBindSuccess.value = ''
+
+  try {
+    const username = userDetails.value.Username || userDetails.value.name
+    const response = await post('/api/bot/qq-rebind', {
+      username,
+      qq
+    })
+    const result = await response.json()
+
+    if (result.error) {
+      qqBindError.value = result.error
+    } else {
+      qqBindSuccess.value = '换绑成功'
+      setTimeout(() => { closeQqBindModal(); fetchUserDetails(username) }, 1000)
+    }
+  } catch (err) {
+    qqBindError.value = err.message || '换绑失败'
+  }
+
+  qqBindLoading.value = false
+}
+
+const executeQqUnbind = async () => {
+  if (!userDetails.value) return
+  if (!confirm('确定解绑该玩家的 QQ 吗？各服游戏账号保留，仅移除 QQ 绑定关系。')) return
+
+  qqBindLoading.value = true
+  qqBindError.value = ''
+  qqBindSuccess.value = ''
+
+  try {
+    const username = userDetails.value.Username || userDetails.value.name
+    const response = await post('/api/bot/qq-unbind', {
+      username
+    })
+    const result = await response.json()
+
+    if (result.error) {
+      qqBindError.value = result.error
+    } else {
+      qqBindSuccess.value = '解绑成功'
+      setTimeout(() => { closeQqBindModal(); fetchUserDetails(username) }, 1000)
+    }
+  } catch (err) {
+    qqBindError.value = err.message || '解绑失败'
+  }
+
+  qqBindLoading.value = false
+}
+
+// ═══════════ 账号管理：删除账号 ═══════════
+
+const openDeleteModal = () => {
+  deleteCharacter.value = true
+  deleteUnbindQq.value = true
+  deleteBans.value = true
+  deleteBackendAccount.value = false
+  deleteError.value = ''
+  deleteSuccess.value = ''
+  showDeleteModal.value = true
+}
+
+const closeDeleteModal = () => {
+  showDeleteModal.value = false
+}
+
+const executeDelete = async () => {
+  if (!userDetails.value) return
+  if (!confirm('确定删除该账号吗？此操作不可撤销！')) return
+
+  deleteLoading.value = true
+  deleteError.value = ''
+  deleteSuccess.value = ''
+
+  try {
+    const username = userDetails.value.Username || userDetails.value.name
+    const response = await post('/api/useradmin/delete', {
+      username,
+      deleteCharacter: deleteCharacter.value,
+      unbindQq: deleteUnbindQq.value,
+      deleteBans: deleteBans.value,
+      deleteBackendAccount: deleteBackendAccount.value
+    })
+    const result = await response.json()
+
+    if (result.error) {
+      deleteError.value = result.error
+    } else {
+      deleteSuccess.value = `账号已删除（服务器 ${result.ok}/${result.total}）`
+      setTimeout(() => {
+        closeDeleteModal()
+        goBack()
+      }, 1200)
+    }
+  } catch (err) {
+    deleteError.value = err.message || '删除失败'
+  }
+
+  deleteLoading.value = false
 }
 
 const closeBanModal = () => {
@@ -2175,6 +2465,24 @@ onMounted(() => {
             </button>
           </div>
         </div>
+
+          <div class="action-group">
+          <h4 class="group-label">账号管理</h4>
+          <div class="group-buttons">
+            <button @click="openRenameModal" class="rename-btn">
+              改名
+            </button>
+            <button @click="openUuidModal" class="uuid-btn">
+              UUID 管理
+            </button>
+            <button @click="openQqBindModal" class="qq-manage-btn">
+              {{ userDetails.QQ ? 'QQ 换绑/解绑' : 'QQ 手动绑定' }}
+            </button>
+            <button @click="openDeleteModal" class="delete-user-btn">
+              删除账号
+            </button>
+          </div>
+        </div>
         
           <div class="action-group">
           <h4 class="group-label">互动操作</h4>
@@ -2727,6 +3035,232 @@ onMounted(() => {
           <button @click="closePasswordModal" class="cancel-btn">取消</button>
           <button @click="executePasswordChange" :disabled="passwordLoading" class="submit-btn">
             {{ passwordLoading ? '修改中...' : '确认修改' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 账号改名模态 -->
+    <div v-if="showRenameModal" class="modal-overlay" @click.self="closeRenameModal">
+      <div class="modal">
+        <div class="modal-header">
+          <h3>账号改名</h3>
+          <button @click="closeRenameModal" class="close-btn">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="rename-form">
+            <div class="form-row">
+              <label>原用户名</label>
+              <input
+                :value="userDetails?.Username || userDetails?.name"
+                type="text"
+                class="form-input"
+                disabled
+              />
+            </div>
+            <div class="form-row">
+              <label>新用户名</label>
+              <input
+                v-model="renameNewName"
+                type="text"
+                placeholder="输入新用户名（1-32 字符）"
+                class="form-input"
+                @keyup.enter="executeRename"
+              />
+            </div>
+            <div class="form-row">
+              <label>联动范围</label>
+              <div class="rename-mode-row">
+                <label class="radio-option">
+                  <input type="radio" value="qq" v-model="renameMode" />
+                  <span>QQ 联动（改台账 + 各服）</span>
+                </label>
+                <label class="radio-option">
+                  <input type="radio" value="server" v-model="renameMode" />
+                  <span>仅单服</span>
+                </label>
+              </div>
+              <p v-if="!userDetails?.QQ && renameMode === 'qq'" class="form-hint">
+                该用户未绑定 QQ，将按普通改名处理（仅广播各服）
+              </p>
+            </div>
+          </div>
+          <div v-if="renameError" class="give-error">{{ renameError }}</div>
+          <div v-if="renameSuccess" class="give-success">{{ renameSuccess }}</div>
+        </div>
+        <div class="modal-footer">
+          <button @click="closeRenameModal" class="cancel-btn">取消</button>
+          <button @click="executeRename" :disabled="renameLoading" class="submit-btn">
+            {{ renameLoading ? '改名中...' : '确认改名' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- UUID 管理模态 -->
+    <div v-if="showUuidModal" class="modal-overlay" @click.self="closeUuidModal">
+      <div class="modal">
+        <div class="modal-header">
+          <h3>UUID 管理</h3>
+          <button @click="closeUuidModal" class="close-btn">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="uuid-form">
+            <div class="form-row">
+              <label>当前 UUID</label>
+              <input
+                :value="userDetails?.UUID || '（无，需密码登录）'"
+                type="text"
+                class="form-input"
+                disabled
+              />
+            </div>
+            <div class="form-row">
+              <label>新 UUID（留空 = 清除，强制密码登录）</label>
+              <input
+                v-model="uuidNewValue"
+                type="text"
+                placeholder="输入新 UUID，或留空清除"
+                class="form-input"
+              />
+            </div>
+            <div class="form-row">
+              <label class="checkbox-option">
+                <input type="checkbox" v-model="uuidBroadcast" />
+                <span>广播到所有启用 UUID 同步的服务器</span>
+              </label>
+            </div>
+          </div>
+          <div v-if="uuidError" class="give-error">{{ uuidError }}</div>
+          <div v-if="uuidSuccess" class="give-success">{{ uuidSuccess }}</div>
+        </div>
+        <div class="modal-footer">
+          <button @click="closeUuidModal" class="cancel-btn">取消</button>
+          <button @click="executeUuid" :disabled="uuidLoading" class="submit-btn">
+            {{ uuidLoading ? '更新中...' : '确认更新' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- QQ 绑定管理模态（手动绑定 / 换绑 / 解绑） -->
+    <div v-if="showQqBindModal" class="modal-overlay" @click.self="closeQqBindModal">
+      <div class="modal">
+        <div class="modal-header">
+          <h3>{{ userDetails?.QQ ? 'QQ 换绑 / 解绑' : 'QQ 手动绑定' }}</h3>
+          <button @click="closeQqBindModal" class="close-btn">×</button>
+        </div>
+        <div class="modal-body">
+          <div v-if="userDetails?.QQ" class="qq-manage-bound">
+            <div class="form-row">
+              <label>当前绑定 QQ</label>
+              <input
+                :value="userDetails.QQ"
+                type="text"
+                class="form-input"
+                disabled
+              />
+            </div>
+            <div class="form-row">
+              <label>新 QQ 号（换绑）</label>
+              <input
+                v-model="qqNewValue"
+                type="text"
+                placeholder="输入新 QQ 号"
+                class="form-input"
+              />
+            </div>
+          </div>
+          <div v-else class="qq-manage-unbound">
+            <div class="form-row">
+              <label>要绑定的 QQ 号</label>
+              <input
+                v-model="qqNewValue"
+                type="text"
+                placeholder="输入 QQ 号（5-15 位数字）"
+                class="form-input"
+              />
+            </div>
+          </div>
+          <div v-if="qqBindError" class="give-error">{{ qqBindError }}</div>
+          <div v-if="qqBindSuccess" class="give-success">{{ qqBindSuccess }}</div>
+        </div>
+        <div class="modal-footer">
+          <button @click="closeQqBindModal" class="cancel-btn">取消</button>
+          <button
+            v-if="userDetails?.QQ"
+            @click="executeQqRebind"
+            :disabled="qqBindLoading"
+            class="submit-btn"
+          >
+            {{ qqBindLoading ? '换绑中...' : '确认换绑' }}
+          </button>
+          <button
+            v-if="userDetails?.QQ"
+            @click="executeQqUnbind"
+            :disabled="qqBindLoading"
+            class="danger-submit-btn"
+          >
+            解绑
+          </button>
+          <button
+            v-else
+            @click="executeQqBind"
+            :disabled="qqBindLoading"
+            class="submit-btn"
+          >
+            {{ qqBindLoading ? '绑定中...' : '确认绑定' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 删除账号模态 -->
+    <div v-if="showDeleteModal" class="modal-overlay" @click.self="closeDeleteModal">
+      <div class="modal modal-danger">
+        <div class="modal-header">
+          <h3>删除账号</h3>
+          <button @click="closeDeleteModal" class="close-btn">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="ban-warning">
+            <p><strong>危险操作</strong></p>
+            <p>此操作将 <strong>永久删除</strong> 该玩家的游戏账号。</p>
+            <p>删除后将无法登录，角色数据与绑定关系按下方选项处理，此操作 <strong>不可撤销</strong>！</p>
+          </div>
+          <div class="delete-user-form">
+            <div class="form-row">
+              <label class="checkbox-option">
+                <input type="checkbox" v-model="deleteCharacter" />
+                <span>同时删除角色数据（背包/装备等）</span>
+              </label>
+            </div>
+            <div class="form-row">
+              <label class="checkbox-option">
+                <input type="checkbox" v-model="deleteUnbindQq" />
+                <span>同时解绑 QQ（若已绑定）</span>
+              </label>
+            </div>
+            <div class="form-row">
+              <label class="checkbox-option">
+                <input type="checkbox" v-model="deleteBans" />
+                <span>同时删除该账号的封禁记录</span>
+              </label>
+            </div>
+            <div v-if="userDetails?.QQ" class="form-row">
+              <label class="checkbox-option">
+                <input type="checkbox" v-model="deleteBackendAccount" />
+                <span>同时删除对应的后端管理账户（若存在）</span>
+              </label>
+            </div>
+          </div>
+          <div v-if="deleteError" class="give-error">{{ deleteError }}</div>
+          <div v-if="deleteSuccess" class="give-success">{{ deleteSuccess }}</div>
+        </div>
+        <div class="modal-footer">
+          <button @click="closeDeleteModal" class="cancel-btn">取消</button>
+          <button @click="executeDelete" :disabled="deleteLoading" class="danger-submit-btn">
+            {{ deleteLoading ? '删除中...' : '确认删除账号' }}
           </button>
         </div>
       </div>
@@ -3599,6 +4133,114 @@ onMounted(() => {
   opacity: 0.6;
   cursor: not-allowed;
   animation: none;
+}
+
+/* ═══ 账号管理按钮（改名 / UUID / QQ 绑定 / 删除账号）═══ */
+.rename-btn {
+  padding: 10px 20px;
+  background: linear-gradient(135deg, #6366f1, #4f46e5);
+  color: white;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 500;
+  transition: all 0.25s ease;
+  box-shadow: var(--shadow-sm);
+}
+
+.rename-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
+}
+
+.uuid-btn {
+  padding: 10px 20px;
+  background: linear-gradient(135deg, #0ea5e9, #0284c7);
+  color: white;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 500;
+  transition: all 0.25s ease;
+  box-shadow: var(--shadow-sm);
+}
+
+.uuid-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(14, 165, 233, 0.4);
+}
+
+.qq-manage-btn {
+  padding: 10px 20px;
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  color: white;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 500;
+  transition: all 0.25s ease;
+  box-shadow: var(--shadow-sm);
+}
+
+.qq-manage-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(245, 158, 11, 0.4);
+}
+
+.delete-user-btn {
+  padding: 10px 20px;
+  background: linear-gradient(135deg, #ef4444, #dc2626);
+  color: white;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 500;
+  transition: all 0.25s ease;
+  box-shadow: var(--shadow-sm);
+}
+
+.delete-user-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4);
+}
+
+/* ═══ 账号管理模态表单元素 ═══ */
+.rename-mode-row {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.radio-option,
+.checkbox-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: var(--text-primary);
+}
+
+.radio-option input,
+.checkbox-option input {
+  width: auto;
+  accent-color: var(--accent-primary);
+}
+
+.form-hint {
+  margin: 6px 0 0;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.qq-manage-bound .form-row,
+.qq-manage-unbound .form-row,
+.delete-user-form .form-row {
+  margin-bottom: 12px;
 }
 
 @keyframes flowLight {
