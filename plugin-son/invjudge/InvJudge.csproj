@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>InvJudge</AssemblyName>
+    <RootNamespace>InvJudge</RootNamespace>
+    <Version>1.0.0</Version>
+    <Description>完全体玩家背包判定插件：合成合法性校验（扣材/产量比例 + 微光可分解配方重点监控）</Description>
+    <Authors>lmx12330</Authors>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="TShock" Version="6.1.0">
+      <IncludeAssets>compile</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+</Project>

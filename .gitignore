@@ -169,3 +169,4 @@ backend/data/**
 /.dsh-vision-toolkit
 /plugin-son/PeaceMode/bin
 /plugin-son/DiscoveryLog/bin
+/plugin-son/invjudge/bin
