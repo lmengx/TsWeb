@@ -37,7 +37,7 @@ public class BossAIModded : TerrariaPlugin
 
         _cmd = new Command("bossaimod.admin", Toggle, "bossai")
         {
-            HelpText = "切换 bossAIModded 全局开关（当前：史莱姆王/克眼/世界吞噬者/骷髅王 Eternity-lite）"
+            HelpText = "切换 bossAIModded 全局开关；子命令: clamp(测试A服务端钳制) / ai(测试B改写ai) / status"
         };
         Commands.ChatCommands.Add(_cmd);
 
@@ -65,8 +65,43 @@ public class BossAIModded : TerrariaPlugin
 
     private void Toggle(CommandArgs args)
     {
+        if (args.Parameters.Count > 0)
+        {
+            switch (args.Parameters[0].ToLowerInvariant())
+            {
+                case "clamp":
+                case "test-clamp":
+                case "钳制":
+                    TestModes.ClampDamage = !TestModes.ClampDamage;
+                    args.Player.SendInfoMessage($"[bossAIModded] 测试模式A(服务端钳制伤害): 已{(TestModes.ClampDamage ? "开启" : "关闭")}。" +
+                        (TestModes.ClampDamage
+                            ? "服务器中所有敌怪的受击伤害将被服务端吞掉(血条0扣血)，但攻击者客户端飘字照旧——验证'服务端钳制不生效于客户端观感'。"
+                            : ""));
+                    return;
+                case "ai":
+                case "test-ai":
+                case "改ai":
+                    TestModes.AiRewrite = !TestModes.AiRewrite;
+                    args.Player.SendInfoMessage($"[bossAIModded] 测试模式B(改写ai): 已{(TestModes.AiRewrite ? "开启" : "关闭")}。" +
+                        (TestModes.AiRewrite
+                            ? "服务器中所有敌怪的 ai 将被改写并强制广播——客户端跑原版 AI 自行推导状态(部分 AI 进入无敌窗口，其余行为异常)，验证'ai 驱动客户端本地判定'。"
+                            : ""));
+                    return;
+                case "status":
+                case "状态":
+                    args.Player.SendInfoMessage($"[bossAIModded] 状态 | 全局开关: {(ModEnabled ? "启用" : "禁用")} | " +
+                        $"测试A(服务端钳制): {(TestModes.ClampDamage ? "开" : "关")} | 测试B(改写ai): {(TestModes.AiRewrite ? "开" : "关")}");
+                    return;
+                case "help":
+                case "帮助":
+                default:
+                    args.Player.SendInfoMessage("[bossAIModded] 子命令: (无参数)切换全局开关 | clamp 切换测试A(服务端钳制伤害) | " +
+                        "ai 切换测试B(改写ai) | status 查看状态。测试模式开启后对服务器中所有敌怪生效，仅用于测试。");
+                    return;
+            }
+        }
         ModEnabled = !ModEnabled;
-        args.Player.SendInfoMessage($"[bossAIModded] 已{(ModEnabled ? "启用" : "禁用")}。{(ModEnabled ? "下次生成的史莱姆王将带强化 AI。" : "")}");
+        args.Player.SendInfoMessage($"[bossAIModded] 已{(ModEnabled ? "启用" : "禁用")}。{(ModEnabled ? "下次生成的魔改 Boss 将带强化 AI。" : "")}");
     }
 
     private void OnNpcAiUpdate(NpcAiUpdateEventArgs args)
@@ -79,6 +114,11 @@ public class BossAIModded : TerrariaPlugin
                 ActiveMods.Remove(npc.whoAmI);
                 SpawnTimes.Remove(npc.whoAmI);
             }
+            return;
+        }
+        // ═══ 测试模式 B：改写 ai（优先于 Boss 魔改；命中即跳过原逻辑，结果干净）═══
+        if (TestModes.TryRewriteAi(npc))
+        {
             return;
         }
         if (!ModEnabled)
@@ -113,9 +153,14 @@ public class BossAIModded : TerrariaPlugin
 
     private void OnNpcStrike(NpcStrikeEventArgs args)
     {
-        if (!ModEnabled) return;
         var npc = args.Npc;
         if (npc == null || !npc.active) return;
+        // ═══ 测试模式 A：服务端钳制伤害（优先于 Boss 魔改；命中即吞掉，结果干净）═══
+        if (TestModes.TryClampStrike(npc, args))
+        {
+            return;
+        }
+        if (!ModEnabled) return;
         if (!ActiveMods.TryGetValue(npc.whoAmI, out var mod)) return;
         try
         {
