@@ -496,7 +496,7 @@ public class Challenger : TerrariaPlugin
     #region 连锁挖矿方法
     public void OnTileEdit(object o, TileEditEventArgs args)
     {
-        if (Main.tile[args.X, args.Y] is { } tile && config.Tile.Contains(tile.type) && args.Action == EditAction.KillTile && args.EditData == 0)
+        if (config.enableArmorEffect && Main.tile[args.X, args.Y] is { } tile && config.Tile.Contains(tile.type) && args.Action == EditAction.KillTile && args.EditData == 0)
         {
             var plr = args.Player;
             if (plr != null)
@@ -1492,7 +1492,7 @@ public class Challenger : TerrariaPlugin
     private void OnGameUpdate(EventArgs args)
     {
         Timer++;
-        if (!config.enableChallenge) { return; }
+        if (!config.enableChallenge || !config.enableArmorEffect) { return; }
         if (Collect.worldevent != 0)
         {
             switch (Collect.worldevent)
@@ -1648,7 +1648,7 @@ public class Challenger : TerrariaPlugin
         if (e.Player.Index < 0 || e.Player.Index >= 255)
             return;
         var cp = Collect.cplayers[e.Player.Index];
-        if (e.Slot == 58 && e.Stack != 0 && config.enableChallenge && cp != null && cp.isActive && cp.tips)
+        if (e.Slot == 58 && e.Stack != 0 && config.enableChallenge && config.enableArmorEffect && cp != null && cp.isActive && cp.tips)
         {
             this.DisplayTips(e.Player, e.Type);
         }
@@ -1656,7 +1656,7 @@ public class Challenger : TerrariaPlugin
 
     private void OnNpcStrike(NpcStrikeEventArgs args)
     {
-        if (!config.enableChallenge)
+        if (!config.enableChallenge || !config.enableArmorEffect)
         {
             return;
         }
@@ -1769,7 +1769,7 @@ public class Challenger : TerrariaPlugin
     }
     private void OnProjSpawn(object? sender, NewProjectileEventArgs e)
     {
-        if (config.enableChallenge)
+        if (config.enableChallenge && config.enableArmorEffect)
         {
             var type = e.Type;
             var num = type;
@@ -1783,7 +1783,7 @@ public class Challenger : TerrariaPlugin
 
     private void OnProjAIUpdate(ProjectileAiUpdateEventArgs args)
     {
-        if (!config.enableChallenge)
+        if (!config.enableChallenge || !config.enableArmorEffect)
         {
             return;
         }
@@ -1827,7 +1827,7 @@ public class Challenger : TerrariaPlugin
             return;
         }
         var projectile = Main.projectile[e.ProjectileIndex];
-        if (config.enableChallenge)
+        if (config.enableChallenge && config.enableArmorEffect)
         {
             Collect.cprojs[e.ProjectileIndex]?.PreProjectileKilled();
             this.ShroomiteArmorEffect(projectile, null);
@@ -1862,7 +1862,7 @@ public class Challenger : TerrariaPlugin
         else if (e.PlayerDeathReason._sourceProjectileType == -1)
         {
         }
-        if (!e.PVP)
+        if (!e.PVP && config.enableArmorEffect)
         {
             switch (Main.player[e.Player.Index].armor[2].type)
             {
@@ -1964,6 +1964,11 @@ public class Challenger : TerrariaPlugin
         if (!config.enableChallenge)
         {
             args.Player.SendInfoMessage("未启用挑战模式！");
+            return;
+        }
+        if (!config.enableArmorEffect)
+        {
+            args.Player.SendInfoMessage("盔甲加强已关闭，无可切换的套装技能");
             return;
         }
         if (!args.Player.Active)

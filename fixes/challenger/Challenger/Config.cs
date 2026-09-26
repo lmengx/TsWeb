@@ -1,4 +1,4 @@
-﻿using Newtonsoft.Json;
+using Newtonsoft.Json;
 using System.Text;
 using TShockAPI;
 
@@ -10,6 +10,8 @@ public class Config
 
     [JsonProperty("是否启用挑战模式", Order = -5)]
     public bool enableChallenge = true;
+    [JsonProperty("是否启用盔甲加强(套装/饰品被动)", Order = -5)]
+    public bool enableArmorEffect = true;
     [JsonProperty("是否启用BOSS魔改", Order = -5)]
     public bool enableBossAI = false;
     [JsonProperty("启用话痨模式", Order = -5)]
