@@ -3,6 +3,8 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import AppHeader from '../components/AppHeader.vue'
 import ConsoleSidebar from '../components/ConsoleSidebar.vue'
+import ServerSwitcher from '../components/ServerSwitcher.vue'
+import { getCurrentServerId } from '../utils/serverStore.js'
 import '../styles/theme.css'
 
 const router = useRouter()
@@ -38,6 +40,14 @@ const goHome = () => {
   router.push('/')
 }
 
+// 切换服务器后强制重挂当前视图：各视图的数据都是按「当前服务器」拉的（请求带 x-server-id），
+// 不重挂会继续显示上一台服的玩家/日志/配置。
+// 例外——服务器管理页自身是切换入口，重挂会重拉列表、造成切换时整页闪动（见 ServersView 的说明），故排除。
+const viewKey = computed(() => {
+  if (route.path === '/console/servers') return route.path
+  return `${route.path}:${getCurrentServerId() || ''}`
+})
+
 onMounted(() => {
   loadUser()
   if (!user.value) {
@@ -62,12 +72,15 @@ onUnmounted(() => {
       <ConsoleSidebar />
       
       <div class="content-area glass" :class="{ mobile: isMobile }">
+        <!-- 移动端服务器切换入口（无侧边栏，此处是唯一入口；桌面端在侧边栏顶部） -->
+        <ServerSwitcher v-if="isMobile" variant="mobile" />
+
         <router-view v-slot="{ Component }">
           <!-- 警告：mode="out-in" 下路由组件必须只有一个根元素！
                任何路由页若为多根（fragment），过渡会无法动画且 isLeaving 永久卡死，
                内容区永久空白（黑屏），只能整页刷新恢复（ServersView/UserDetailView 已踩坑修复） -->
           <transition name="fade-slide" mode="out-in">
-            <component :is="Component" :key="route.path" />
+            <component :is="Component" :key="viewKey" />
           </transition>
         </router-view>
       </div>

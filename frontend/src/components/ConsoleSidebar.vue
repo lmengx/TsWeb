@@ -2,62 +2,22 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { isAdmin, isManager } from '../utils/authHelper.js'
-import { getServers, getCurrentServer, fetchServers } from '../utils/serverStore.js'
+import ServerSwitcher from './ServerSwitcher.vue'
 
 const route = useRoute()
 const router = useRouter()
 
-const isLoggedIn = computed(() => !!localStorage.getItem('user'))
-
 const isMobile = ref(false)
 let mql = null
 
-// ── 服务器切换按钮（点击跳转到服务器管理页） ──
-const servers = ref([])
-const currentServer = ref(null)
-const noPermTip = ref(false)
-
-const loadServers = async () => {
-  await fetchServers()
-  servers.value = getServers()
-  currentServer.value = getCurrentServer()
-}
-
-const goServerManage = () => {
-  // 仅唯一管理员可管理服务器
-  if (!isAdmin()) {
-    noPermTip.value = true
-    setTimeout(() => { noPermTip.value = false }, 2200)
-    return
-  }
-  router.push('/console/servers')
-}
-
-let statusTimer = null
-const refreshServerStatus = () => { loadServers() }
-
-// 切换当前服务器：直接读取最新选中服务器更新徽标，避免全量重拉列表造成闪烁
-const onServerChanged = () => {
-  currentServer.value = getCurrentServer()
-}
-
 // ── 移动端检测 ──
 onMounted(() => {
-  loadServers()
-
   mql = window.matchMedia('(max-width: 767px)')
   isMobile.value = mql.matches
   mql.addEventListener('change', onMediaChange)
-
-  // 定时刷新服务器在线状态（与后端心跳 15s 同频），保持状态点颜色同步
-  statusTimer = setInterval(refreshServerStatus, 15000)
-  // 切换服务器后只更新当前服务器徽标（不重拉列表）
-  window.addEventListener('server-changed', onServerChanged)
 })
 
 onUnmounted(() => {
-  if (statusTimer) clearInterval(statusTimer)
-  window.removeEventListener('server-changed', onServerChanged)
   if (mql) mql.removeEventListener('change', onMediaChange)
 })
 
@@ -254,19 +214,8 @@ const toolsItems = computed(() => {
 <template>
   <!-- ═══ 桌面侧边栏 ═══ -->
   <aside v-if="!isMobile" class="sidebar glass">
-    <!-- 服务器切换按钮（多服，仅登录用户；点击跳转服务器管理页） -->
-    <div v-if="isLoggedIn" class="server-switcher">
-      <button class="server-switcher-btn" @click="goServerManage" title="服务器管理">
-        <span class="ss-dot" :class="{ online: currentServer?.connected }"></span>
-        <span class="ss-name">{{ currentServer?.name || '暂无服务器' }}</span>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="ss-arrow">
-          <polyline points="9 18 15 12 9 6"></polyline>
-        </svg>
-      </button>
-      <transition name="dropdown">
-        <div v-if="noPermTip" class="ss-noperm">仅管理员可管理服务器</div>
-      </transition>
-    </div>
+    <!-- 服务器切换器（多服；管理员点击进服务器管理页，子管理员弹面板就地切换） -->
+    <ServerSwitcher variant="desktop" />
 
     <nav class="sidebar-nav">
       <template v-for="sec in sections" :key="sec.label">
@@ -446,64 +395,7 @@ const toolsItems = computed(() => {
   overflow-x: hidden;
 }
 
-/* ═══ 特色服务器切换器 ═══ */
-.server-switcher {
-  position: relative;
-  padding: 0 12px 12px;
-  border-bottom: 1px solid var(--border-light);
-  margin: 0 8px 12px;
-}
-.server-switcher-btn {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 11px 12px;
-  border: none;
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.16), rgba(139, 92, 246, 0.1));
-  border: 1px solid rgba(99, 102, 241, 0.28);
-  color: var(--text-primary);
-  transition: all 0.25s var(--ease-out);
-}
-.server-switcher-btn:hover {
-  border-color: var(--accent-primary);
-  box-shadow: var(--glow-primary);
-}
-.ss-dot {
-  width: 9px; height: 9px; border-radius: 50%;
-  background: var(--accent-error); flex-shrink: 0;
-  box-shadow: 0 0 0 2px rgba(244, 63, 94, 0.15);
-}
-.ss-dot.online {
-  background: var(--accent-secondary);
-  box-shadow: 0 0 8px rgba(16, 185, 129, 0.7);
-}
-.ss-name {
-  flex: 1; text-align: left;
-  font-size: 0.86rem; font-weight: 700;
-  color: var(--text-primary);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.ss-arrow { color: var(--accent-primary); flex-shrink: 0; }
-.ss-noperm {
-  position: absolute;
-  top: calc(100% + 6px);
-  left: 0; right: 0;
-  padding: 8px 12px;
-  text-align: center;
-  font-size: 0.76rem;
-  color: var(--accent-warning);
-  background: var(--glass-bg);
-  backdrop-filter: var(--glass-blur);
-  border: 1px solid rgba(245, 158, 11, 0.3);
-  border-radius: 10px;
-  box-shadow: var(--shadow-lg);
-  z-index: 300;
-}
-.dropdown-enter-active, .dropdown-leave-active { transition: all 0.2s ease; }
-.dropdown-enter-from, .dropdown-leave-to { opacity: 0; transform: translateY(-6px); }
+/* ═══ 服务器切换器已抽为 components/ServerSwitcher.vue（桌面胶囊 + 移动服务器条共用） ═══ */
 
 .sidebar-nav { display: flex; flex-direction: column; gap: 2px; padding: 0 10px; }
 .sidebar-section-label {
