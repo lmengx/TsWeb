@@ -253,8 +253,10 @@ export class TShockService {
     // 数据源从官方 /v2/users/list 切换到插件自研 /data/users/query_detail：
     // 后者额外返回 HasCharacter（是否有 SSC 角色数据），供玩家管理页"仅显示有角色数据的玩家"筛选。
     // 返回前做字段映射（ID→id、Username→name、Usergroup→group），保持前端 id/name/group 不变。
-    // 可选参数：page/pageSize（分页，pageSize 上限 500）、keyword（用户名模糊搜索）、
+    // 可选参数：page/pageSize（分页，pageSize 上限 100）、keyword（用户名模糊搜索）、
     // hasCharacter（仅显示有角色数据）、onlineOnly（仅在线玩家）；不传时返回全量（向后兼容）。
+    // 列表排序由插件端保证：在线玩家置顶 + ID 升序；返回体透传 onlineCount（当前在线账号数）。
+    // 注意：不传分页参数时仍返回全量（PermissionManager / OnlineStatsView 依赖全量名单）。
     const params = []
     if (page !== undefined && page !== null && page !== '') params.push(`page=${encodeURIComponent(page)}`)
     if (pageSize !== undefined && pageSize !== null && pageSize !== '') params.push(`pageSize=${encodeURIComponent(pageSize)}`)
@@ -305,6 +307,9 @@ export class TShockService {
         if (data.total !== undefined) result.total = data.total
         if (data.page !== undefined) result.page = data.page
         if (data.pageSize !== undefined) result.pageSize = data.pageSize
+        // 筛选结果中当前在线的账号数（与 total 同口径），供列表页"在线 N / 共 M"徽标
+        if (data.onlineCount !== undefined) result.onlineCount = data.onlineCount
+        if (data.onlineFirst !== undefined) result.onlineFirst = data.onlineFirst
         if (data.response) result.response = data.response
         return result
       } catch {

@@ -40,7 +40,11 @@ export const apiRequest = async (url, options = {}) => {
 
   if (response.status === 401) {
     handleAuthError()
-    throw new Error('Unauthorized')
+    // 除 message 外附加稳定的 status 标记：调用方按 status 判断鉴权失败，
+    // 不再依赖 message 文本匹配（文本随时可能改，判断会静默失效）。
+    const authError = new Error('Unauthorized')
+    authError.status = 401
+    throw authError
   }
 
   return response

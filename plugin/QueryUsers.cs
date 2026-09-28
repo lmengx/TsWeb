@@ -13,6 +13,9 @@ namespace TShockData
 {
     public class QueryUsers
     {
+        /// <summary>每页条数上限（玩家列表页固定 100 条/页）。</summary>
+        private const int MaxPageSize = 100;
+
         /// <summary>
         /// 解析布尔参数：支持 1/true/yes（大小写不敏感），空/其他为 false。
         /// </summary>
@@ -27,17 +30,22 @@ namespace TShockData
         {
             // ═══ 参数解析（全部可选；不带分页参数时保持原有"全量返回"行为，向后兼容）═══
             // username      单查（精确+大小写兜底）
-            // onlineOnly    只看在线玩家（内存过滤，供前端"在线"Tab）
+            // onlineOnly    只看在线玩家（内存过滤，供统一列表的"仅在线"筛选）
             // keyword       用户名模糊搜索（服务端 LIKE 语义：子串匹配，大小写不敏感）
             // hasCharacter  只看有 SSC 角色数据的玩家
-            // page/pageSize 分页（内存切片，pageSize 上限 500）；两者任一提供即启用分页
+            // page/pageSize 分页（内存切片，pageSize 上限 100）；两者任一提供即启用分页
+            //
+            // 排序策略（2026-09 优化，替代旧版"在线/全部"两个 Tab）：在线玩家永远置顶，
+            // 同一在线状态下按 ID（注册顺序）升序；排序在分页切片之前完成，故在线玩家必落在第 1 页。
+            // 返回体额外含 onlineCount（筛选结果中当前在线的账号数，与 total 同口径）
+            // 与 onlineFirst=true（排序语义标记）。
             string username = args.Parameters["username"];
             string keyword = args.Parameters["keyword"];
             bool onlineOnly = ParseBool(args.Parameters["onlineOnly"]);
             bool hasCharacterOnly = ParseBool(args.Parameters["hasCharacter"]);
 
             int page = 1;
-            int pageSize = 100;
+            int pageSize = MaxPageSize;
             bool usePaging = false;
             if (int.TryParse(args.Parameters["page"], out int p) && p >= 1)
             {
@@ -46,7 +54,7 @@ namespace TShockData
             }
             if (int.TryParse(args.Parameters["pageSize"], out int ps) && ps >= 1)
             {
-                pageSize = Math.Min(ps, 500);
+                pageSize = Math.Min(ps, MaxPageSize);
                 usePaging = true;
             }
 
@@ -54,6 +62,18 @@ namespace TShockData
             {
                 IDbConnection db = TShock.DB;
                 List<Dictionary<string, object>> users = new List<Dictionary<string, object>>();
+                // 匹配结果中的在线账号数：与 total 同口径（都只统计通过筛选的账号），
+                // 供前端徽标「在线 N / 共 M」使用，避免分子分母口径不一致。
+                int onlineMatchedCount = 0;
+
+                // 在线账号集合（TShock.Players 内存，量小）：判定口径与旧实现保持一致——
+                // 账号名大小写不敏感匹配且玩家 Active。预先建集合，避免逐用户扫描玩家列表。
+                HashSet<string> onlineNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var plr in TShock.Players)
+                {
+                    if (plr == null || plr.Account == null || !plr.Active) continue;
+                    if (!string.IsNullOrEmpty(plr.Account.Name)) onlineNames.Add(plr.Account.Name);
+                }
 
                 string query;
                 object[] parameters;
@@ -70,7 +90,9 @@ namespace TShockData
                             { "users", users },
                             { "total", 0 },
                             { "page", page },
-                            { "pageSize", usePaging ? pageSize : 0 }
+                            { "pageSize", usePaging ? pageSize : 0 },
+                            { "onlineCount", 0 },
+                            { "onlineFirst", true }
                         };
                     }
                     query = "SELECT u.* FROM Users u WHERE u.Username = @0";
@@ -121,18 +143,11 @@ namespace TShockData
                             continue;
                         }
 
-                        // 检查玩家是否在线
-                        bool isOnline = false;
-                        foreach (var plr in TShock.Players)
-                        {
-                            if (plr != null && plr.Account != null &&
-                                plr.Account.Name.Equals(resUsername, StringComparison.OrdinalIgnoreCase) &&
-                                plr.Active)
-                            {
-                                isOnline = true;
-                                break;
-                            }
-                        }
+                        // 检查玩家是否在线（预建集合 O(1) 命中，大小写不敏感）
+                        bool isOnline = onlineNames.Contains(resUsername);
+
+                        // 关键词/角色筛选已通过，此时计入在线数（与 total 同口径）
+                        if (isOnline) onlineMatchedCount++;
 
                         // 服务端筛选：仅在线玩家
                         if (onlineOnly && !isOnline)
@@ -155,8 +170,15 @@ namespace TShockData
                     }
                 }
 
-                // 按 ID（注册顺序）稳定排序；分页时保证跨页顺序一致
-                users.Sort((a, b) => ((int)a["ID"]).CompareTo((int)b["ID"]));
+                // 排序：在线玩家置顶，其次按 ID（注册顺序）。
+                // 必须在分页切片之前排序，否则在线玩家会散落在各页而不是置顶；
+                // 在线状态相同时以唯一键 ID 兜底，避免 List.Sort 不稳定导致跨页重复/漏项。
+                users.Sort((a, b) =>
+                {
+                    int byOnline = ((bool)b["IsOnline"]).CompareTo((bool)a["IsOnline"]);
+                    if (byOnline != 0) return byOnline;
+                    return ((int)a["ID"]).CompareTo((int)b["ID"]);
+                });
 
                 int total = users.Count;
                 List<Dictionary<string, object>> pageUsers;
@@ -182,7 +204,9 @@ namespace TShockData
                     { "users", pageUsers },
                     { "total", total },
                     { "page", page },
-                    { "pageSize", usePaging ? pageSize : total }
+                    { "pageSize", usePaging ? pageSize : total },
+                    { "onlineCount", onlineMatchedCount },
+                    { "onlineFirst", true }
                 };
             }
             catch (Exception ex)

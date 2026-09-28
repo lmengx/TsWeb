@@ -8,15 +8,11 @@ const props = defineProps({
     type: Array,
     default: () => []
   },
-  onlineUsers: {
-    type: Array,
-    default: () => []
-  },
-  activeTab: {
-    type: String,
-    default: 'online'
-  },
   total: {
+    type: Number,
+    default: 0
+  },
+  onlineCount: {
     type: Number,
     default: 0
   },
@@ -42,23 +38,23 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['refresh', 'tabChange', 'pageChange', 'searchChange', 'charFilterChange', 'goToUserDetail', 'goToUnverified'])
+const emit = defineEmits(['refresh', 'pageChange', 'searchChange', 'charFilterChange', 'onlineFilterChange', 'goToUserDetail', 'goToUnverified'])
 
 const searchQuery = ref('')
 const showWithCharacter = ref(false)
-
-// 当前 Tab 显示的数据
-const displayedUsers = computed(() =>
-  props.activeTab === 'online' ? props.onlineUsers : props.users
-)
+const showOnlyOnline = ref(false)
 
 const totalPages = computed(() =>
   Math.max(1, Math.ceil(props.total / props.pageSize))
 )
 
-const switchTab = (tab) => {
-  emit('tabChange', tab)
-}
+// 空列表提示：按当前搜索/筛选条件给出最贴近的原因
+const emptyHint = computed(() => {
+  if (searchQuery.value) return showOnlyOnline.value ? '未找到匹配的在线用户' : '未找到匹配的用户'
+  if (showOnlyOnline.value) return '当前没有在线玩家'
+  if (showWithCharacter.value) return '没有有角色数据的玩家'
+  return '暂无用户'
+})
 
 const changePage = (page) => {
   if (page < 1 || page > totalPages.value) return
@@ -72,6 +68,10 @@ watch(searchQuery, (val) => {
 
 watch(showWithCharacter, (val) => {
   emit('charFilterChange', val)
+})
+
+watch(showOnlyOnline, (val) => {
+  emit('onlineFilterChange', val)
 })
 
 // 创建用户模态框
@@ -157,7 +157,7 @@ const batchActionTitle = computed(() => BATCH_TITLES[batchAction.value] || '批�
 
 const isSelected = (user) => selectedUsers.value.has(String(user.name))
 const isAllSelected = computed(() =>
-  displayedUsers.value.length > 0 && displayedUsers.value.every(u => isSelected(u))
+  props.users.length > 0 && props.users.every(u => isSelected(u))
 )
 
 const toggleSelect = (user) => {
@@ -170,9 +170,9 @@ const toggleSelect = (user) => {
 
 const toggleSelectAll = () => {
   if (isAllSelected.value) {
-    for (const u of displayedUsers.value) selectedUsers.value.delete(String(u.name))
+    for (const u of props.users) selectedUsers.value.delete(String(u.name))
   } else {
-    for (const u of displayedUsers.value) selectedUsers.value.set(String(u.name), u)
+    for (const u of props.users) selectedUsers.value.set(String(u.name), u)
   }
   selectedUsers.value = new Map(selectedUsers.value)
 }
@@ -341,13 +341,11 @@ const executeClearAllData = async () => {
   clearAllDataLoading.value = false
 }
 
-// 在线判定：优先使用插件端按账号名计算的 isOnline
+// 在线判定：使用插件端按账号名计算的 isOnline
 //（大小写不敏感、按账号归属，多个"仅大小写不同"的账号不会互相点亮；
 //  角色名与账号名大小写不同时也不会误标）。
 const isUserOnline = (user) => {
-  if (user && typeof user.isOnline === 'boolean') return user.isOnline
-  const name = user ? (user.name || '') : ''
-  return props.onlineUsers.some(an => String(an).toLowerCase() === String(name).toLowerCase())
+  return !!(user && user.isOnline)
 }
 
 const handleRowClick = (user) => {
@@ -391,8 +389,8 @@ const closeBatchExportModal = () => {
     <div class="section-header">
       <div class="header-title">
         <h2>玩家列表</h2>
-        <span class="online-count-badge" :class="{ 'has-online': onlineUsers.length > 0 }">
-          ● {{ onlineUsers.length }} / {{ total }} 在线
+        <span class="online-count-badge" :class="{ 'has-online': onlineCount > 0 }">
+          ● {{ onlineCount }} / {{ total }} 在线
         </span>
       </div>
       <div class="header-actions">
@@ -402,7 +400,7 @@ const closeBatchExportModal = () => {
       </div>
     </div>
 
-    <!-- 未登录玩家置顶区块（两个 Tab 之上） -->
+    <!-- 未登录玩家置顶区块（列表之上） -->
     <div v-if="unverifiedPlayers.length > 0" class="unverified-section">
       <div class="unverified-header">
         <span class="unverified-icon">⚠</span>
@@ -425,23 +423,7 @@ const closeBatchExportModal = () => {
       </div>
     </div>
 
-    <!-- Tab 切换：在线 / 所有玩家 -->
-    <div class="tabs-bar">
-      <button
-        class="tab-btn"
-        :class="{ active: activeTab === 'online' }"
-        @click="switchTab('online')"
-      >
-        在线 ({{ onlineUsers.length }})
-      </button>
-      <button
-        class="tab-btn"
-        :class="{ active: activeTab === 'all' }"
-        @click="switchTab('all')"
-      >
-        所有玩家 ({{ total }})
-      </button>
-    </div>
+    <!-- Tab 切换已移除：统一为单一列表，在线玩家由服务端排序置顶 -->
 
     <div class="search-bar">
       <input
@@ -454,6 +436,10 @@ const closeBatchExportModal = () => {
         <input type="checkbox" v-model="showWithCharacter" />
         <span>仅显示有角色数据的玩家</span>
       </label>
+      <label class="char-filter" title="只显示当前在线的玩家（在线玩家本来就会置顶显示）">
+        <input type="checkbox" v-model="showOnlyOnline" />
+        <span>仅在线玩家</span>
+      </label>
       <button @click="openCreateModal" class="create-user-btn">+ 创建用户</button>
       <button @click="executeBatchExport" :disabled="batchExportLoading" class="batch-export-btn" title="自动筛选有角色数据的玩家，导出 .plr 到服务端 PlayerExports 目录">
         {{ batchExportLoading ? '批量导出中...' : '批量导出 PLR' }}
@@ -463,13 +449,8 @@ const closeBatchExportModal = () => {
 
     <Loading v-if="loading" size="sm" text="加载中..." />
 
-    <div v-else-if="displayedUsers.length === 0" class="empty-state">
-      <p v-if="activeTab === 'online'">
-        {{ searchQuery ? '未找到匹配的在线用户' : '暂无在线玩家' }}
-      </p>
-      <p v-else>
-        {{ searchQuery ? '未找到匹配的用户' : (showWithCharacter ? '没有有角色数据的玩家' : '暂无用户') }}
-      </p>
+    <div v-else-if="users.length === 0" class="empty-state">
+      <p>{{ emptyHint }}</p>
     </div>
 
     <div v-else class="users-table-container">
@@ -480,7 +461,7 @@ const closeBatchExportModal = () => {
               <input
                 type="checkbox"
                 :checked="isAllSelected"
-                :disabled="displayedUsers.length === 0"
+                :disabled="users.length === 0"
                 @change="toggleSelectAll"
                 title="全选当前页"
               />
@@ -493,8 +474,8 @@ const closeBatchExportModal = () => {
         </thead>
         <tbody>
           <tr
-            v-for="user in displayedUsers"
-            :key="user.id"
+            v-for="user in users"
+            :key="user.name"
             :class="{ 'selected-row': isSelected(user) }"
             @click="handleRowClick(user)"
             class="clickable-row"
@@ -546,8 +527,8 @@ const closeBatchExportModal = () => {
         </ul>
       </div>
 
-      <!-- 分页栏：仅"所有玩家"Tab 且超过一页时显示 -->
-      <div v-if="activeTab === 'all' && totalPages > 1" class="pagination-bar">
+      <!-- 分页栏：超过一页时显示（在线玩家置顶，故第 1 页优先展示在线玩家） -->
+      <div v-if="totalPages > 1" class="pagination-bar">
         <button
           class="page-btn"
           :disabled="currentPage <= 1"
@@ -835,36 +816,6 @@ const closeBatchExportModal = () => {
   opacity: 0.5;
   cursor: not-allowed;
   background: var(--bg-hover);
-}
-
-.tabs-bar {
-  display: flex;
-  gap: 8px;
-  padding: 0 20px;
-  margin-bottom: 16px;
-  border-bottom: 1px solid var(--border-light);
-}
-
-.tab-btn {
-  padding: 10px 20px;
-  background: transparent;
-  border: none;
-  border-bottom: 2px solid transparent;
-  color: var(--text-muted);
-  font-size: 0.92rem;
-  font-weight: 600;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: all 0.25s ease;
-}
-
-.tab-btn:hover {
-  color: var(--text-primary);
-}
-
-.tab-btn.active {
-  color: var(--accent-primary);
-  border-bottom-color: var(--accent-primary);
 }
 
 .pagination-bar {
