@@ -35,17 +35,23 @@ public static class HouseApi
         };
     }
 
-    /// <summary>POST /data/house/config/set — 设置房屋系统开关（缺省参数保持原值），保存并热应用</summary>
+    /// <summary>POST /data/house/config/set — 设置房屋系统开关，保存并热应用</summary>
     public static object SetConfigApi(RestRequestArgs args)
     {
         try
         {
             var enabled = args.Parameters["enabled"];
-            if (!string.IsNullOrEmpty(enabled))
-            {
-                Config.Instance.Enabled = enabled.ToLower() == "true";
-                Config.Save();
-            }
+            // 缺参/取值非法一律报错，不做静默放行：
+            // 静默返回 200 + 旧值会让前端显示「保存成功」却毫无变化，排查时没有任何线索。
+            if (string.IsNullOrWhiteSpace(enabled))
+                return new RestObject("400") { { "error", "缺少 enabled 参数（true/false）" } };
+
+            var raw = enabled.Trim().ToLowerInvariant();
+            if (raw != "true" && raw != "false")
+                return new RestObject("400") { { "error", $"enabled 取值非法：{enabled}（只接受 true/false）" } };
+
+            Config.Instance.Enabled = raw == "true";
+            Config.Save();
 
             ReapplyModule?.Invoke();
             return new

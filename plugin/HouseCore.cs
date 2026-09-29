@@ -20,9 +20,7 @@ public class HouseCore
     public static LPlayer?[] LPlayers { get; set; } = new LPlayer[256];
     public static List<House> Houses = new();
     static readonly System.Timers.Timer Update = new(1100);
-    public static bool ULock = false;
     private static TSPlayer? _explosionOwner = null;
-    private static bool _hooksRegistered;
     private TerrariaPlugin? _plugin;
 
     // 玩家最近创建的爆炸弹幕（服务器端弹幕 index + 创建 tick），供 HandleTile 判定「爆炸破坏」。
@@ -188,6 +186,8 @@ public class HouseCore
         //  返回 true 则 args.Handled=true → TShock 跳过该包）。
         ServerApi.Hooks.NetGetData.Deregister(plugin, OnHouseNetGetData);
         ServerApi.Hooks.NetGetData.Register(plugin, OnHouseNetGetData, int.MaxValue);
+        // 热重载幂等：先注销旧的再注册，否则每次「停用→启用」或热重载都会叠加一份订阅
+        OTAPI.Hooks.Chest.QuickStack -= ChestOnQuickStack;
         OTAPI.Hooks.Chest.QuickStack += ChestOnQuickStack;
         // 爆炸弹幕标记（区分手动挖 vs 爆炸破坏，参考 TShock Bouncer RecentFuse 机制）
         // 注：显式限定 TShockAPI.GetDataHandlers——HouseRegion 命名空间自身有 GetDataHandlers 类（PacketReceive.cs）会遮蔽
@@ -233,7 +233,6 @@ public class HouseCore
         On.Terraria.WorldGen.KillTile -= OnWorldGenKillTile;
         On.Terraria.WorldGen.KillTile += OnWorldGenKillTile;
 #endif
-        _hooksRegistered = true;
     }
 
     public void Dispose()
@@ -266,7 +265,6 @@ public class HouseCore
         On.Terraria.Projectile.Kill -= OnProjectileKill;
         On.Terraria.WorldGen.KillTile -= OnWorldGenKillTile;
 #endif
-        _hooksRegistered = false;
     }
 
     public void PostInitialize(EventArgs e)

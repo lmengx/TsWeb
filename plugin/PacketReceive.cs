@@ -135,6 +135,10 @@ public static class GetDataHandlers
             {PacketTypes.FoodPlatterTryPlacing, HandleFoodPlatterTryPlacing},
             {PacketTypes.RequestTileEntityInteraction, HandleRequestTileEntityInteraction},
             {PacketTypes.TileEntityHatRackItemSync, HandleTileEntityHatRackItemSync},
+            // 59 号包 = 拉杆/开关触发（Terraria MessageBuffer 的 case 59 直接调用 Wiring.HitSwitch）。
+            // TShock 的 PacketTypes 枚举没有该包的成员名（无 SwitchToggle/ToggleSwitch），故按数值强转登记；
+            // 不登记的话「开关」权限对普通拉杆/开关完全无效（只拦得住宝石锁与物块实体交互）。
+            {(PacketTypes)59, HandleSwitchToggle},
             {PacketTypes.GemLockToggle, HandleGemLockToggle},
             {PacketTypes.MassWireOperation, HandleMassWireOperation},
             {PacketTypes.PlayerSpawn, HandlePlayerSpawn},
@@ -570,6 +574,25 @@ public static class GetDataHandlers
             NetMessage.SendData(86, -1, -1, NetworkText.Empty, te.ID);
         }
         return Deny(args, house, "无权修改被房子保护的地区的帽架。");
+    }
+
+    /// <summary>
+    /// 拉杆/开关触发（59 号包）。
+    /// 客户端拉杆时发 59 号包「[int16 x][int16 y]」，服务端在 MessageBuffer 的 case 59 里
+    /// 直接执行 Wiring.SetCurrentUser(whoAmI) → Wiring.HitSwitch(x, y)，再把 59 号包广播出去。
+    /// 该包既没有 TShock 的 PacketTypes 成员名，TShock 自身也不做任何校验，
+    /// 因此必须在房屋模块这里按「开关」权限拦截，否则 AllowSwitch=0 对拉杆/开关形同虚设。
+    /// 拦截后服务端不会执行 HitSwitch：客户端可能已本地翻转，属已知取舍（与宝石锁一致）。
+    /// </summary>
+    private static bool HandleSwitchToggle(GetDataHandlerArgs args)
+    {
+        int x = args.Data.ReadInt16();
+        int y = args.Data.ReadInt16();
+        var house = Utils.InAreaHouse(x, y);
+        if (house == null) return false;
+        if (IsHouseAuthorized(args.Player, house)) return false;
+        if (house.AllowSwitch == 1) return false;
+        return Deny(args, house, "无权触发被房子保护的地区的开关。");
     }
 
     private static bool HandleGemLockToggle(GetDataHandlerArgs args)

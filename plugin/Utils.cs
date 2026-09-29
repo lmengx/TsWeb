@@ -241,8 +241,26 @@ public static class HouseManager
         return UpdateListField(houseName, "Users", house.Users);
     }
 
+    /// <summary>
+    /// 允许写入的列白名单。列名会被直接拼进 UPDATE 语句，必须先限定取值来源，
+    /// 否则任何一个把外部字符串传进来的调用方都会变成 SQL 注入点。
+    /// 取值与 HouseCore.PermissionFieldMap 的 16 项目标列严格一致。
+    /// </summary>
+    private static readonly HashSet<string> UpdatableColumns = new(StringComparer.Ordinal)
+    {
+        "AllowEntry", "AllowTP", "AllowPlace", "AllowBreak", "AllowExplosion", "AllowLiquid",
+        "AllowChest", "AllowPlant", "AllowSpawn", "AllowGrave", "AllowSwitch", "AllowDoor",
+        "AllowFragile", "ExpelOnViolate", "NotifyBreakPlace", "NotifyEnter",
+    };
+
     public static bool UpdatePermission(string houseName, string field, int value)
     {
+        if (string.IsNullOrWhiteSpace(field) || !UpdatableColumns.Contains(field))
+        {
+            TShock.Log.Error($"房屋插件更新权限错误: 非法列名 {field}");
+            return false;
+        }
+
         try
         {
             using var conn = Database.GetConnection();
@@ -250,8 +268,14 @@ public static class HouseManager
             cmd.CommandText = $"UPDATE HousingDistrict SET {field}=@val WHERE Name=@name";
             cmd.Parameters.AddWithValue("@val", value);
             cmd.Parameters.AddWithValue("@name", houseName);
-            cmd.ExecuteNonQuery();
-            return true;
+            int rows = cmd.ExecuteNonQuery();
+            if (rows > 0) return true;
+
+            // 一行都没匹配上：内存里的屋名与库中记录不一致（或房屋已被删除）。
+            // 这里必须返回失败——否则调用方以为保存成功、还把内存值改了，
+            // 重启后从库里读回旧值，表现为「设置当场生效、重启就回退」。
+            TShock.Log.Error($"房屋插件更新权限错误: 未匹配到房屋 {houseName}（{field} 未写入）");
+            return false;
         }
         catch (Exception ex)
         {

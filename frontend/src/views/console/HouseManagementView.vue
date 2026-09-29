@@ -24,19 +24,31 @@ const fetchConfig = async () => {
   configLoading.value = false
 }
 
-const doToggleHouse = async () => {
+// 总开关：目标值只取自事件本身，不再对 houseEnabled 取反。
+// 原因：Vue 3 中 v-model（checkbox）的原生 change 监听由指令在 created 阶段注册，
+// 早于 @change 挂载的同名监听，因此 v-model 会先把 houseEnabled 改成「点击后的新值」；
+// 再写 const target = !houseEnabled.value 拿到的其实是「点击前的旧值」，
+// 请求会把当前状态原样发回，表现为开关点了不动 / 关不掉。
+// 这里直接读 e.target.checked，不依赖任何触发时序，失败时直接回滚 DOM。
+const doToggleHouse = async (e) => {
+  const el = e.target
+  const target = el.checked
+  const prev = houseEnabled.value
+  if (target === prev) return
+
   configSaving.value = true
   configError.value = ''
-  const target = !houseEnabled.value
   try {
     const r = await setHouseEnabled(target)
     if (r.error || r.status !== '200') {
       configError.value = r.error || '设置失败'
-      houseEnabled.value = !target
+      el.checked = prev
+      houseEnabled.value = prev
     } else {
       houseEnabled.value = !!r.enabled
-      notify(target ? '房屋系统已启用' : '房屋系统已停用', 'ok')
-      if (target) {
+      el.checked = houseEnabled.value     // 以插件端返回的实际值为准
+      notify(houseEnabled.value ? '房屋系统已启用' : '房屋系统已停用', 'ok')
+      if (houseEnabled.value) {
         fetchHouses()
         fetchBuildings()
       } else {
@@ -48,7 +60,8 @@ const doToggleHouse = async () => {
     }
   } catch (err) {
     configError.value = err.message
-    houseEnabled.value = !target
+    el.checked = prev
+    houseEnabled.value = prev
   }
   configSaving.value = false
 }
@@ -440,7 +453,7 @@ onMounted(async () => {
           {{ configLoading ? '读取中...' : (houseEnabled ? '已启用' : '已停用') }}
         </span>
         <label class="switch" :title="configSaving ? '处理中...' : (houseEnabled ? '点击停用房屋系统' : '点击启用房屋系统')">
-          <input type="checkbox" v-model="houseEnabled" :disabled="configLoading || configSaving" @change="doToggleHouse" />
+          <input type="checkbox" :checked="houseEnabled" :disabled="configLoading || configSaving" @change="doToggleHouse" />
           <span class="slider"></span>
         </label>
       </div>

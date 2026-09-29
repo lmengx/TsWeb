@@ -319,6 +319,48 @@ public static class Core
         }
     }
 
+    /// <summary>
+    /// 卸载同程序名的既有实例（热重载前置步骤）。
+    /// 与 RemovePluginInternal 的区别：不依赖台账记录，且失败只记录日志、不中断后续加载。
+    /// </summary>
+    private static void DisposeExistingContainer(
+        string assemblyName,
+        List<PluginContainer> plugins,
+        Dictionary<string, Assembly> loadedAssemblies)
+    {
+        if (string.IsNullOrEmpty(assemblyName))
+            return;
+
+        PluginContainer? existing = null;
+        foreach (var c in plugins)
+        {
+            if (string.Equals(
+                    c.Plugin.GetType().Assembly.GetName().Name,
+                    assemblyName,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                existing = c;
+                break;
+            }
+        }
+
+        if (existing == null)
+            return;
+
+        try
+        {
+            var name = existing.Plugin.Name;
+            existing.Plugin.Dispose();
+            plugins.Remove(existing);
+            loadedAssemblies.Remove(assemblyName);
+            TShock.Log.ConsoleInfo($"[HotReload] 已卸载同程序名旧实例 {name}（热重载前置，避免钩子残留）");
+        }
+        catch (Exception ex)
+        {
+            TShock.Log.ConsoleError($"[HotReload] 卸载旧实例 {assemblyName} 失败: {ex.Message}");
+        }
+    }
+
     private static (bool, string) RemovePluginInternal(PluginRecord record)
     {
         var loadedAssemblies = GetLoadedAssembliesMap();
@@ -430,6 +472,12 @@ public static class Core
         var game = GetGameInstance();
         if (plugins == null || loadedAssemblies == null || game == null)
             return (false, "无法访问 ServerApi 内部状态，加载失败");
+
+        // 同一程序集重复加载前必须先卸载既有实例：
+        // HotReload 只在 /hr unload 路径 Dispose，直接 /hr load（或 reload-all）会在 plugins
+        // 列表里再塞一个容器，旧实例注册的 ServerApi 钩子、命令、MonoMod detour 仍在运行，
+        // 表现为「插件被加载两遍 / 总开关关掉仍拦截 / 违规提示弹两次 / 只能重启服务器清理」。
+        DisposeExistingContainer(record.AssemblyName, plugins, loadedAssemblies);
 
         try
         {
