@@ -94,14 +94,77 @@ app.use('/hook', express.json({ limit: '10mb' }), hookRoutes)
 // 文件分片上传需要承载 ~5MB 的 base64 片段，全局上限提到 10mb（与 /hook 一致）
 app.use(express.json({ limit: '10mb' }))
 
+// ═══════════════════════════════════════════════════════════
+// 日志脱敏
+// 请求 URL 与请求体原先都原样打印：URL 会带 ?token=（setup token / 面板 token），
+// 请求体带明文密码与 API Key，全部落进后端控制台与日志文件，属凭据泄漏。
+// 这里按字段名统一脱敏，只保留字段存在性，不留值。
+// ═══════════════════════════════════════════════════════════
+const SENSITIVE_KEYS = new Set([
+  'password', 'newpassword', 'oldpassword', 'confirmpassword', 'encryptedpassword',
+  'token', 'setuptoken', 'jwt', 'jwtsecret',
+  'apikey', 'secret', 'privatekey', 'authorization', 'cookie'
+])
+
+// 归一化字段名：忽略大小写与 -/_ 差异（apiKey / api_key / API-KEY 视为同一个）
+const normalizeKey = (k) => String(k).toLowerCase().replace(/[_-]/g, '')
+const isSensitiveKey = (k) => SENSITIVE_KEYS.has(normalizeKey(k))
+
+/** 对象按敏感字段名递归脱敏（带深度上限，避免异常结构拖慢请求） */
+function redactValue(value, depth = 0) {
+  if (value === null || typeof value !== 'object') return value
+  if (depth > 4) return '[deep]'
+  if (Array.isArray(value)) return value.map(v => redactValue(v, depth + 1))
+  const out = {}
+  for (const [k, v] of Object.entries(value)) {
+    out[k] = isSensitiveKey(k) ? '***' : redactValue(v, depth + 1)
+  }
+  return out
+}
+
+/** 脱敏 URL 的 query 参数（令牌常以 ?token= 形式传递） */
+function redactUrl(originalUrl) {
+  // 脱敏只是日志增强：任何异常都必须退化成原样输出，绝不能打断请求处理链
+  try {
+    return redactUrlInner(originalUrl)
+  } catch {
+    return originalUrl
+  }
+}
+
+function redactUrlInner(originalUrl) {
+  const idx = originalUrl.indexOf('?')
+  if (idx < 0) return originalUrl
+  const pathname = originalUrl.slice(0, idx)
+  const params = new URLSearchParams(originalUrl.slice(idx + 1))
+  let hit = false
+  for (const key of [...params.keys()]) {
+    if (isSensitiveKey(key)) {
+      params.set(key, '***')
+      hit = true
+    }
+  }
+  return hit ? `${pathname}?${params.toString()}` : originalUrl
+}
+
 app.use((req, res, next) => {
   // /hook 路径已在上面独立处理且不打印 body
   if (req.path.startsWith('/hook')) return next()
-  const fullUrl = `${req.protocol}://${req.get('host')}${req.originalUrl}`
+  const fullUrl = `${req.protocol}://${req.get('host')}${redactUrl(req.originalUrl)}`
   console.log(`[${new Date().toISOString()}] ${req.method} ${fullUrl}`)
   // 文件上传分片 body 含大段 base64，跳过打印避免刷屏
   if (req.body && Object.keys(req.body).length > 0 && !req.originalUrl.includes('/api/files/upload')) {
-    console.log('Request body:', JSON.stringify(req.body))
+    let bodyText
+    try {
+      bodyText = JSON.stringify(redactValue(req.body))
+    } catch {
+      bodyText = '[unserializable]'
+    }
+    // 超大 body 截断，避免日志被刷屏
+    if (bodyText.length > 2000) {
+      bodyText = bodyText.slice(0, 2000) + `... (共 ${bodyText.length} 字符)`
+    }
+    console.log('Request body:', bodyText)
   }
   next()
 })

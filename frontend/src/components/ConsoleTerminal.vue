@@ -7,7 +7,7 @@ const inputCmd = ref('')
 const logContainer = ref(null)
 const connected = ref(false)
 
-let eventSource = null
+let abortController = null
 let reconnectAttempts = 0
 let reconnectTimer = null
 const MAX_RECONNECT = 20
@@ -57,9 +57,9 @@ function closeSSE() {
     clearTimeout(reconnectTimer)
     reconnectTimer = null
   }
-  if (eventSource) {
-    eventSource.close()
-    eventSource = null
+  if (abortController) {
+    try { abortController.abort() } catch {}
+    abortController = null
   }
 }
 
@@ -70,80 +70,147 @@ function onServerChanged() {
   connectSSE()
 }
 
-function connectSSE() {
+/**
+ * 建立日志流连接。
+ *
+ * 凭据只走 Authorization 头，绝不放进 URL：token 出现在 query 会留在浏览器历史、
+ * 代理访问日志与后端请求日志中，属凭据泄漏。
+ * 代价是浏览器原生 EventSource 无法使用（它不支持自定义请求头），故改用
+ * fetch + ReadableStream 手工解析 SSE 帧；消息解析逻辑与原先完全一致。
+ */
+async function connectSSE() {
   const token = getToken()
   if (!token) return
 
-  // 多服：SSE 连接必须绑定当前目标服务器（EventSource 无法携带 header，经 query 传入）
+  // 多服：流必须绑定当前目标服务器（serverId 非敏感，仍走 query）
   const serverId = getCurrentServerId() || ''
   if (!serverId) {
     // 未选择服务器时不发起连接，避免后端 400 触发无意义的重连循环
     connected.value = false
     return
   }
-  eventSource = new EventSource(`/api/online/log/stream?token=${encodeURIComponent(token)}&serverId=${encodeURIComponent(serverId)}`)
 
-  eventSource.onopen = () => {
-    connected.value = true
-    reconnectAttempts = 0
+  const ctrl = new AbortController()
+  abortController = ctrl
+
+  let res
+  try {
+    res = await fetch(`/api/online/log/stream?serverId=${encodeURIComponent(serverId)}`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+      signal: ctrl.signal
+    })
+  } catch {
+    // 网络失败，或连接已被主动关闭
+    if (!ctrl.signal.aborted) scheduleReconnect()
+    return
   }
 
-  eventSource.onmessage = (e) => {
-    try {
-      const data = JSON.parse(e.data)
-      if (data.connected) return
-      if (Array.isArray(data)) {
-        data.forEach(line => {
-          let segments = []
-          let time = new Date().toLocaleTimeString('zh-CN', { hour12: false })
-          let lineId = Date.now() + Math.random()
-          try {
-            let parsed = line
-            if (typeof line === 'string') parsed = JSON.parse(line)
-            if (Array.isArray(parsed)) {
-              // 旧格式：[{t,c}]
-              segments = parsed
-            } else if (parsed && Array.isArray(parsed.segments)) {
-              // 新格式：{ id, time, segments }
-              segments = parsed.segments
-              if (parsed.time) {
-                const d = new Date(parsed.time)
-                if (!isNaN(d.getTime())) time = d.toLocaleTimeString('zh-CN', { hour12: false })
-              }
-              if (parsed.id != null) lineId = parsed.id
-            } else if (parsed && typeof parsed === 'object') {
-              segments = [{ t: JSON.stringify(parsed), c: null }]
-            } else {
-              segments = [{ t: String(line), c: null }]
+  // 凭据无效：重连也不会变有效，直接停止，避免无意义轮询
+  if (res.status === 401 || res.status === 403) {
+    connected.value = false
+    return
+  }
+  if (!res.ok || !res.body) {
+    scheduleReconnect()
+    return
+  }
+
+  connected.value = true
+  reconnectAttempts = 0
+
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+
+      // SSE 以空行分隔帧，逐帧取出后交给 handleSseMessage
+      let sep
+      while ((sep = buffer.indexOf('\n\n')) >= 0) {
+        const frame = buffer.slice(0, sep)
+        buffer = buffer.slice(sep + 2)
+        handleSseMessage({ data: parseSseData(frame) })
+      }
+    }
+  } catch {
+    // 读取中断（含 abort 导致的取消）
+  }
+
+  connected.value = false
+
+  // 流自然结束或被中断：按退避重连
+  if (!ctrl.signal.aborted) scheduleReconnect()
+}
+
+/** 取出一个 SSE 帧中的 data 字段（多行 data 按规范以换行拼接） */
+function parseSseData(frame) {
+  const parts = []
+  for (const line of frame.split('\n')) {
+    if (line.startsWith('data:')) parts.push(line.slice(5).replace(/^ /, ''))
+  }
+  return parts.join('\n')
+}
+
+/** 退避重连：与原先 EventSource.onerror 的行为保持一致 */
+function scheduleReconnect() {
+  connected.value = false
+  reconnectAttempts++
+  if (reconnectAttempts <= MAX_RECONNECT) {
+    const delay = Math.min(2000 * Math.pow(1.5, reconnectAttempts - 1), 60000)
+    reconnectTimer = setTimeout(() => connectSSE(), delay)
+  }
+}
+
+/** 处理一条日志流消息（解析逻辑与原 onmessage 完全一致） */
+function handleSseMessage(e) {
+  try {
+    const data = JSON.parse(e.data)
+    if (data.connected) return
+    if (Array.isArray(data)) {
+      data.forEach(line => {
+        let segments = []
+        let time = new Date().toLocaleTimeString('zh-CN', { hour12: false })
+        let lineId = Date.now() + Math.random()
+        try {
+          let parsed = line
+          if (typeof line === 'string') parsed = JSON.parse(line)
+          if (Array.isArray(parsed)) {
+            // 旧格式：[{t,c}]
+            segments = parsed
+          } else if (parsed && Array.isArray(parsed.segments)) {
+            // 新格式：{ id, time, segments }
+            segments = parsed.segments
+            if (parsed.time) {
+              const d = new Date(parsed.time)
+              if (!isNaN(d.getTime())) time = d.toLocaleTimeString('zh-CN', { hour12: false })
             }
-          } catch {
+            if (parsed.id != null) lineId = parsed.id
+          } else if (parsed && typeof parsed === 'object') {
+            segments = [{ t: JSON.stringify(parsed), c: null }]
+          } else {
             segments = [{ t: String(line), c: null }]
           }
-
-          logs.value.push({
-            id: lineId,
-            type: 'line',
-            segments,
-            time
-          })
-        })
-        if (logs.value.length > MAX_LOG) {
-          logs.value = logs.value.slice(-MAX_LOG)
+        } catch {
+          segments = [{ t: String(line), c: null }]
         }
-        scrollToBottom()
-      }
-    } catch {}
-  }
 
-  eventSource.onerror = () => {
-    connected.value = false
-    closeSSE()
-    reconnectAttempts++
-    if (reconnectAttempts <= MAX_RECONNECT) {
-      const delay = Math.min(2000 * Math.pow(1.5, reconnectAttempts - 1), 60000)
-      reconnectTimer = setTimeout(() => connectSSE(), delay)
+        logs.value.push({
+          id: lineId,
+          type: 'line',
+          segments,
+          time
+        })
+      })
+      if (logs.value.length > MAX_LOG) {
+        logs.value = logs.value.slice(-MAX_LOG)
+      }
+      scrollToBottom()
     }
-  }
+  } catch {}
 }
 
 async function sendCommand() {

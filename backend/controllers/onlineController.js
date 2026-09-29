@@ -42,12 +42,15 @@ export const getRankingStats = async (req, res) => {
  */
 export const streamLogs = async (req, res) => {
   try {
-    const token = req.query.token
+    // 凭据只从 Authorization 头读取，不再接受 ?token=：
+    // token 出现在 URL 会留在浏览器历史、代理访问日志与后端请求日志中（前端已改走请求头）。
+    const authHeader = req.headers.authorization
+    const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : ''
     if (!token) {
       return res.status(401).json({ error: 'Missing token' })
     }
 
-    // 多服：SSE 流必须绑定目标服务器（EventSource 无法携带 header，经 query 传入）
+    // 多服：SSE 流必须绑定目标服务器（serverId 非敏感，仍走 query）
     const serverId = req.query.serverId
     if (!serverId) {
       return res.status(400).json({ error: 'Missing serverId parameter' })

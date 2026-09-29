@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import jwt from 'jsonwebtoken'
 import { getConfig, getServers, addServer } from '../config.js'
-import { validateSetupToken } from '../setupToken.js'
+import { validateSetupToken, clearSetupToken } from '../setupToken.js'
 import tshockService, { runWithServer } from '../services/tshockService.js'
 import { enableAntiCheat } from '../services/anticheatDefaults.js'
 import { exec } from 'child_process'
@@ -136,6 +136,10 @@ router.post('/create-admin', async (req, res) => {
       ip: req.ip
     })
 
+    // Setup Token 一次性：初始管理员已创建，立即作废该 Token（详见 setupToken.js 注释）。
+    // 前端此处已拿到后端签发的 JWT 并改用 JWT 访问，故作废不影响后续流程。
+    clearSetupToken()
+
     // 创建成功后签发 JWT，前端可直接自动登录进入后台（用户选：设置密码→引导跳服务器管理页）
     let jwtToken = null
     try {
@@ -165,6 +169,25 @@ router.get('/probe', setupOrAdmin, async (req, res) => {
   try {
     const portQ = req.query.port ? String(req.query.port).trim() : ''
     const nameQ = req.query.name ? String(req.query.name).trim() : ''
+
+    // ═══ 输入白名单（必须）═══
+    // port 与 name 会被直接拼进 shell 命令串（见下方 tasklist / netstat 调用），
+    // exec 走 cmd.exe，值里的 & | > 等字符会被当 shell 语法执行 → 命令注入。
+    // 因此在进入任何分支前先严格校验，非法即拒，绝不带病下传。
+    if (nameQ && !/^[A-Za-z0-9._-]{1,64}$/.test(nameQ)) {
+      return res.status(400).json({
+        error: 'name 参数非法：仅允许字母、数字、点、下划线、连字符，长度 1-64'
+      })
+    }
+    if (portQ) {
+      if (!/^\d{1,5}$/.test(portQ)) {
+        return res.status(400).json({ error: 'port 参数非法：必须为 1-65535 的整数' })
+      }
+      const portNum = Number(portQ)
+      if (!Number.isInteger(portNum) || portNum < 1 || portNum > 65535) {
+        return res.status(400).json({ error: 'port 参数非法：必须为 1-65535 的整数' })
+      }
+    }
 
     // ═══ 方式 A：按进程名扫描（默认 TShock.Server.exe，列出全部实例 + 各自监听端口）═══
     if (nameQ) {
@@ -265,6 +288,13 @@ router.get('/probe', setupOrAdmin, async (req, res) => {
 
 /** 获取 PID 的进程路径：Windows 用 CIM/Get-Process/tasklist；Linux/macOS 用 /proc/<pid>/exe 符号链接 */
 async function getProcessPath(pid) {
+  // 纵深防御：pid 一律会被拼进 shell/PowerShell 命令串。当前调用方传入的是
+  // 从 tasklist/netstat 输出解析出的数字串，但此处仍强制校验，确保任何未来调用方
+  // 都无法通过该函数注入命令。
+  if (!/^\d{1,10}$/.test(String(pid))) {
+    return '未知'
+  }
+
   if (!IS_WIN) {
     const p = await linuxExePath(pid)
     return p || '未知'

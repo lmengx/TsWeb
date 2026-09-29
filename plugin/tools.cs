@@ -933,7 +933,11 @@ namespace TShockData
             bool forceById = false;
             bool forceByName = false;
 
-            for (int i = parm.Count - 1; i >= 0; i--)
+            // 旗标只从索引 1 起扫描：parm[0] 恒为「对象」（见上方语法提示 /banp <对象> [-id|-name] [原因]）。
+            // 若把索引 0 也当旗标处理，角色名恰为 "-id" / "-name" 的玩家会让目标本身被当旗标删掉，
+            // 目标随即变成后面的原因文本、查不到账户 —— 作弊者改名即可绕过反作弊封禁。
+            // 该改动同时消除一个越界：原先 `/banp -id` 会把唯一参数删空，随后 parm[0] 抛异常。
+            for (int i = parm.Count - 1; i >= 1; i--)
             {
                 if (parm[i] == "-id")
                 {

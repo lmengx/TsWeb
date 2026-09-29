@@ -644,28 +644,76 @@ namespace TShockData
             return "检测到作弊行为";
         }
 
+        /// <summary>
+        /// 把值包装成 TShock 命令可安全解析的单个参数：加双引号，并转义内部的 \ 与 "。
+        ///
+        /// 依据（本地源码 TShockAPI/Commands.cs）：
+        ///   - HandleCommand：命令名取到第一个空白为止，其余交给 ParseParameters；
+        ///   - ParseParameters：\ 是转义符（\" → "、\ 空格 → 空格、\\ → \），
+        ///     " 切换「引号内」状态，引号外的空白切分出新的参数。
+        /// 因此未加引号地把玩家名拼进命令，名字里的空格会让后面所有参数整体后移：
+        /// 作弊者只要把角色名取成「无辜玩家 x」，反作弊执行的 /banp {playername}
+        /// 就会把封禁打到「无辜玩家」这个别人身上（定向误封）。
+        ///
+        /// 加引号后，无论名字含空格、引号还是反斜杠，都只占一个参数位置。
+        /// </summary>
+        private static string QuoteCommandArg(string value)
+        {
+            if (value == null)
+                return "\"\"";
+            return "\"" + value.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
+        }
+
+        /// <summary>
+        /// 清洗将要插入「自定义命令模板」的占位符值（{playername} / {itemname}）。
+        ///
+        /// 处理方式：只把 \ 与 " 转义，其余字符（含空格）原样保留。
+        ///
+        /// 为什么不能加引号：模板由管理员在反作弊配置里自定义，而项目内置的预设
+        /// 已经自带引号（如 `/banp "{playername}" "违规使用{itemname}"`，
+        /// 见 ItemSearchDialog.vue / ItemRestrictView.vue）。若再补一对引号会变成
+        /// `""名字""`，反而解析错乱。
+        ///
+        /// 为什么不能把空白换成下划线：占位符已处于管理员写的引号内，
+        /// 引号内的空白本就不切分参数；替换掉空白会把「张 三」这类真名改坏，
+        /// 导致封禁查不到账户而失效。保留空白即可，安全性由「引号内」保证。
+        ///
+        /// 安全性依据：转义后该值既无法闭合管理员写的引号，也无法吞掉后一字符，
+        /// 因此无法跳出参数位置去改变命令结构。
+        /// </summary>
+        private static string SanitizeCommandArg(string value)
+        {
+            if (string.IsNullOrEmpty(value))
+                return string.Empty;
+
+            return value.Replace("\\", "\\\\").Replace("\"", "\\\"");
+        }
+
         private static string ReplacePlaceholders(string command, string playerName, int itemId, string itemName, int projId)
         {
             if (string.IsNullOrEmpty(command))
                 return string.Empty;
 
+            // 玩家名与物品名属外部数据（角色名可被玩家任意设置），插入模板前必须清洗；
+            // itemid / projid 为 int，天然安全，保持原样以免改变既有模板行为。
             return command
-                .Replace("{playername}", playerName)
+                .Replace("{playername}", SanitizeCommandArg(playerName))
                 .Replace("{itemid}", itemId.ToString())
-                .Replace("{itemname}", itemName ?? "")
+                .Replace("{itemname}", SanitizeCommandArg(itemName ?? ""))
                 .Replace("{projid}", projId.ToString());
         }
 
         private static void ExecuteBan(string username, string reason)
         {
-            string command = $"banp {username} {reason}";
+            // 参数加引号：名字含空格/引号时仍只占一个参数，避免解析错位误封他人
+            string command = $"banp {QuoteCommandArg(username)} {QuoteCommandArg(reason)}";
             TShock.Log.ConsoleInfo($"[反作弊] 执行命令: /{command}");
             TShockAPI.Commands.HandleCommand(TShockAPI.TSPlayer.Server, "/" + command);
         }
 
         private static void ExecuteKick(TSPlayer player, string username, string reason)
         {
-            string command = $"kick {username} {reason}";
+            string command = $"kick {QuoteCommandArg(username)} {QuoteCommandArg(reason)}";
             TShock.Log.ConsoleInfo($"[反作弊] 执行命令: /{command}");
             TShockAPI.Commands.HandleCommand(TShockAPI.TSPlayer.Server, "/" + command);
         }

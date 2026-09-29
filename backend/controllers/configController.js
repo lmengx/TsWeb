@@ -16,6 +16,37 @@ if (!fs.existsSync(configDir)) {
 // 许可文件
 const LICENSE_PATH = path.join(__dirname, '../../frontend/public/.coffee_license')
 
+/**
+ * 把请求传入的 name 解析为 configDir 内的安全绝对路径。
+ *
+ * 这两个接口（读 getConfigFile / 写 saveConfigFile）原先直接做
+ * path.join(configDir, name)，对 name 无任何校验，传 ../ 即可越出 configDir —
+ * 例如 name=../config.json 能读到 backend/data/config.json（内含 security.jwtSecret，
+ * 拿到即可伪造 admin JWT），写入侧则可覆盖任意进程可写文件。
+ *
+ * 规则：必须落在 configDir 内，且必须是 .json（本目录按约定只存反作弊配置）。
+ * 返回 null 表示非法，调用方须以 400 拒绝。
+ */
+function resolveConfigPath(name) {
+  if (typeof name !== 'string' || !name.trim()) return null
+
+  const base = path.resolve(configDir)
+  const full = path.resolve(base, name)
+
+  // Windows 文件系统大小写不敏感，比较前统一小写，避免大小写变形绕过
+  const norm = (p) => (process.platform === 'win32' ? p.toLowerCase() : p)
+  const normBase = norm(base)
+  const normFull = norm(full)
+
+  // 必须严格位于 configDir 之下。用 base + sep 作前缀，
+  // 防止同级的 configDir_evil 之类目录被误判为「在目录内」。
+  if (!normFull.startsWith(normBase + path.sep)) return null
+
+  if (path.extname(normFull) !== '.json') return null
+
+  return full
+}
+
 export const postLicenseClose = (req, res) => {
   try {
     const dir = path.dirname(LICENSE_PATH)
@@ -36,7 +67,11 @@ export const getConfigFile = async (req, res) => {
       return res.status(400).json({ status: '400', error: 'Missing file name' })
     }
 
-    const filePath = path.join(configDir, name)
+    // 路径穿越防护：name 只能是 configDir 内的 .json（详见 resolveConfigPath 注释）
+    const filePath = resolveConfigPath(name)
+    if (!filePath) {
+      return res.status(400).json({ status: '400', error: 'Invalid file name' })
+    }
     
     if (!fs.existsSync(filePath)) {
       return res.status(404).json({ status: '404', error: 'File not found' })
@@ -121,7 +156,11 @@ export const saveConfigFile = async (req, res) => {
       return res.status(400).json({ status: '400', error: 'Missing parameters' })
     }
 
-    const filePath = path.join(configDir, name)
+    // 路径穿越防护：name 只能是 configDir 内的 .json（详见 resolveConfigPath 注释）
+    const filePath = resolveConfigPath(name)
+    if (!filePath) {
+      return res.status(400).json({ status: '400', error: 'Invalid file name' })
+    }
     
     fs.writeFileSync(filePath, content, 'utf8')
     res.json({ status: '200', message: 'File saved successfully' })

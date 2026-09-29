@@ -2,6 +2,25 @@ import { AsyncLocalStorage } from 'async_hooks'
 import { getAccounts } from './qqAccountService.js'
 
 /**
+ * 日志脱敏：抹掉 URL 中的凭据后再交给 console 打印。
+ *
+ * 本文件有大量 `[OUTGOING] ... ${url}` 日志，而 url 里普遍带
+ * `?token=<TShock API Key>`，另有 3 处把明文密码放进 query
+ * （unverified/register、clearallcharacter、v2/users/create）。
+ * 直接打印等于把 API Key 与明文密码写进后端控制台与日志文件。
+ *
+ * 只替换敏感参数的值，其余参数保持原样（含原始百分号编码），不重新序列化，
+ * 以免影响日志可读性。仅作用于日志文本，不改变真实请求的 URL。
+ */
+function redactUrl(url) {
+  if (typeof url !== 'string' || !url) return url
+  return url.replace(
+    /([?&](?:token|password|passwd|pwd|apikey|api_key|secret)=)[^&]*/gi,
+    '$1***'
+  )
+}
+
+/**
  * 台账 QQ 映射（原始大小写 key），用于玩家管理页从后端台账展示绑定 QQ。
  * 保留原始大小写，精确匹配优先；兜底由 qqForUser 结合用户列表判断。
  */
@@ -97,7 +116,7 @@ export class TShockService {
 
     const url = `${this.baseUrl}/tokentest?token=${encodeURIComponent(this.apiKey)}`
 
-    console.log(`[OUTGOING] Testing TShock connection: GET ${url}`)
+    console.log(`[OUTGOING] Testing TShock connection: GET ${redactUrl(url)}`)
 
     try {
       const controller = new AbortController()
@@ -146,7 +165,7 @@ export class TShockService {
       url += `&token=${encodeURIComponent(this.apiKey)}`
     }
 
-    console.log(`[OUTGOING] GET ${url}`)
+    console.log(`[OUTGOING] GET ${redactUrl(url)}`)
 
     try {
       const response = await fetch(url, {
@@ -181,7 +200,7 @@ export class TShockService {
       url += `&token=${encodeURIComponent(this.apiKey)}`
     }
 
-    console.log(`[OUTGOING] GET ${url}`)
+    console.log(`[OUTGOING] GET ${redactUrl(url)}`)
 
     try {
       const response = await fetch(url, {
@@ -218,7 +237,7 @@ export class TShockService {
       url += `&token=${encodeURIComponent(this.apiKey)}`
     }
 
-    console.log(`[OUTGOING] GET ${url}`)
+    console.log(`[OUTGOING] GET ${redactUrl(url)}`)
 
     try {
       const response = await fetch(url, {
@@ -272,7 +291,7 @@ export class TShockService {
       url += `${params.length > 0 ? '&' : '?'}token=${encodeURIComponent(this.apiKey)}`
     }
 
-    console.log(`[OUTGOING] GET ${url}`)
+    console.log(`[OUTGOING] GET ${redactUrl(url)}`)
 
     try {
       const response = await fetch(url, {
@@ -335,7 +354,7 @@ export class TShockService {
       url += `?token=${encodeURIComponent(this.apiKey)}`
     }
 
-    console.log(`[OUTGOING] GET ${url}`)
+    console.log(`[OUTGOING] GET ${redactUrl(url)}`)
 
     try {
       const response = await fetch(url, {
@@ -372,7 +391,7 @@ export class TShockService {
       url += `&token=${encodeURIComponent(this.apiKey)}`
     }
 
-    console.log(`[OUTGOING] GET ${url}`)
+    console.log(`[OUTGOING] GET ${redactUrl(url)}`)
 
     try {
       const response = await fetch(url, {
@@ -412,7 +431,7 @@ export class TShockService {
       url += `?token=${encodeURIComponent(this.apiKey)}`
     }
 
-    console.log(`[OUTGOING] GET ${url}`)
+    console.log(`[OUTGOING] GET ${redactUrl(url)}`)
 
     try {
       const response = await fetch(url, {
@@ -478,7 +497,7 @@ export class TShockService {
       url += (username ? '&' : '?') + `token=${encodeURIComponent(this.apiKey)}`
     }
 
-    console.log(`[OUTGOING] GET ${url}`)
+    console.log(`[OUTGOING] GET ${redactUrl(url)}`)
 
     try {
       const response = await fetch(url, {
@@ -515,7 +534,7 @@ export class TShockService {
       url += `&token=${encodeURIComponent(this.apiKey)}`
     }
 
-    console.log(`[OUTGOING] GET ${url}`)
+    console.log(`[OUTGOING] GET ${redactUrl(url)}`)
 
     try {
       const response = await fetch(url, {
@@ -552,7 +571,7 @@ export class TShockService {
       url += `?token=${encodeURIComponent(this.apiKey)}`
     }
 
-    console.log(`[OUTGOING] GET ${url}`)
+    console.log(`[OUTGOING] GET ${redactUrl(url)}`)
 
     try {
       const response = await fetch(url, {
@@ -585,7 +604,7 @@ export class TShockService {
       url += `&token=${encodeURIComponent(this.apiKey)}`
     }
 
-    console.log(`[OUTGOING] GET ${url}`)
+    console.log(`[OUTGOING] GET ${redactUrl(url)}`)
 
     try {
       const response = await fetch(url, {
@@ -625,7 +644,7 @@ export class TShockService {
       url += `&token=${encodeURIComponent(this.apiKey)}`
     }
 
-    console.log(`[OUTGOING] GET ${url.substring(0, 500)}...`)
+    console.log(`[OUTGOING] GET ${redactUrl(url).substring(0, 500)}...`)
 
     try {
       const response = await fetch(url, {
@@ -662,7 +681,7 @@ export class TShockService {
       url += `?token=${encodeURIComponent(this.apiKey)}`
     }
 
-    console.log(`[OUTGOING] GET ${url}`)
+    console.log(`[OUTGOING] GET ${redactUrl(url)}`)
 
     try {
       const response = await fetch(url, {
@@ -704,7 +723,7 @@ export class TShockService {
       url += `&token=${encodeURIComponent(this.apiKey)}`
     }
 
-    console.log(`[OUTGOING] GET ${url}`)
+    console.log(`[OUTGOING] GET ${redactUrl(url)}`)
 
     try {
       const response = await fetch(url, {
@@ -745,7 +764,7 @@ export class TShockService {
       url += `&token=${encodeURIComponent(this.apiKey)}`
     }
 
-    console.log(`[OUTGOING] GET ${url}`)
+    console.log(`[OUTGOING] GET ${redactUrl(url)}`)
 
     try {
       const response = await fetch(url, {
@@ -782,7 +801,7 @@ export class TShockService {
       url += `&token=${encodeURIComponent(this.apiKey)}`
     }
 
-    console.log(`[OUTGOING] GET ${url}`)
+    console.log(`[OUTGOING] GET ${redactUrl(url)}`)
 
     try {
       const response = await fetch(url, {
@@ -819,7 +838,7 @@ export class TShockService {
       url += `&token=${encodeURIComponent(this.apiKey)}`
     }
 
-    console.log(`[OUTGOING] GET ${url}`)
+    console.log(`[OUTGOING] GET ${redactUrl(url)}`)
 
     try {
       const response = await fetch(url, {
@@ -856,7 +875,7 @@ export class TShockService {
       url += `&token=${encodeURIComponent(this.apiKey)}`
     }
 
-    console.log(`[OUTGOING] GET ${url}`)
+    console.log(`[OUTGOING] GET ${redactUrl(url)}`)
 
     try {
       const response = await fetch(url, {
@@ -895,7 +914,7 @@ export class TShockService {
       url += `&token=${encodeURIComponent(this.apiKey)}`
     }
 
-    console.log(`[OUTGOING] GET ${url}`)
+    console.log(`[OUTGOING] GET ${redactUrl(url)}`)
 
     try {
       const response = await fetch(url, {
@@ -932,7 +951,7 @@ export class TShockService {
       url += `&token=${encodeURIComponent(this.apiKey)}`
     }
 
-    console.log(`[OUTGOING] GET ${url}`)
+    console.log(`[OUTGOING] GET ${redactUrl(url)}`)
 
     try {
       const response = await fetch(url, {
@@ -970,7 +989,7 @@ export class TShockService {
       url += `&token=${encodeURIComponent(this.apiKey)}`
     }
 
-    console.log(`[OUTGOING] GET ${url}`)
+    console.log(`[OUTGOING] GET ${redactUrl(url)}`)
 
     try {
       const response = await fetch(url, {
@@ -1007,7 +1026,7 @@ export class TShockService {
       url += `&token=${encodeURIComponent(this.apiKey)}`
     }
 
-    console.log(`[OUTGOING] GET ${url}`)
+    console.log(`[OUTGOING] GET ${redactUrl(url)}`)
 
     try {
       const response = await fetch(url, {
@@ -1050,7 +1069,7 @@ export class TShockService {
       url += `?token=${encodeURIComponent(this.apiKey)}`
     }
 
-    console.log(`[OUTGOING] GET ${url}`)
+    console.log(`[OUTGOING] GET ${redactUrl(url)}`)
 
     try {
       const response = await fetch(url, {
@@ -1087,7 +1106,7 @@ export class TShockService {
       url += `?token=${encodeURIComponent(this.apiKey)}`
     }
 
-    console.log(`[OUTGOING] GET ${url}`)
+    console.log(`[OUTGOING] GET ${redactUrl(url)}`)
 
     try {
       const response = await fetch(url, {
@@ -1124,7 +1143,7 @@ export class TShockService {
       url += `?token=${encodeURIComponent(this.apiKey)}`
     }
 
-    console.log(`[OUTGOING] GET ${url}`)
+    console.log(`[OUTGOING] GET ${redactUrl(url)}`)
 
     try {
       const response = await fetch(url, {
@@ -1161,7 +1180,7 @@ export class TShockService {
       url += `&token=${encodeURIComponent(this.apiKey)}`
     }
 
-    console.log(`[OUTGOING] POST ${url}`)
+    console.log(`[OUTGOING] POST ${redactUrl(url)}`)
 
     try {
       const response = await fetch(url, {
@@ -1198,7 +1217,7 @@ export class TShockService {
       url += `?token=${encodeURIComponent(this.apiKey)}`
     }
 
-    console.log(`[OUTGOING] GET ${url}`)
+    console.log(`[OUTGOING] GET ${redactUrl(url)}`)
 
     try {
       const response = await fetch(url, {
@@ -1235,7 +1254,7 @@ export class TShockService {
       url += `&token=${encodeURIComponent(this.apiKey)}`
     }
 
-    console.log(`[OUTGOING] POST ${url}`)
+    console.log(`[OUTGOING] POST ${redactUrl(url)}`)
 
     try {
       const response = await fetch(url, {
@@ -1272,7 +1291,7 @@ export class TShockService {
       url += `?token=${encodeURIComponent(this.apiKey)}`
     }
 
-    console.log(`[OUTGOING] GET ${url}`)
+    console.log(`[OUTGOING] GET ${redactUrl(url)}`)
 
     try {
       const response = await fetch(url, {
@@ -1318,7 +1337,7 @@ export class TShockService {
       url += `&token=${encodeURIComponent(this.apiKey)}`
     }
 
-    console.log(`[OUTGOING] POST ${url}`)
+    console.log(`[OUTGOING] POST ${redactUrl(url)}`)
 
     try {
       const response = await fetch(url, {
@@ -1355,7 +1374,7 @@ export class TShockService {
       url += `&token=${encodeURIComponent(this.apiKey)}`
     }
 
-    console.log(`[OUTGOING] GET ${url}`)
+    console.log(`[OUTGOING] GET ${redactUrl(url)}`)
 
     try {
       const response = await fetch(url, {
@@ -1385,7 +1404,7 @@ export class TShockService {
   async setAntiCheatEnabled(params) {
     if (!this.baseUrl) await this.init()
     const url = `${this.baseUrl}/data/anticheat/enable?${params}${this.apiKey ? `&token=${encodeURIComponent(this.apiKey)}` : ''}`
-    console.log(`[OUTGOING] POST ${url}`)
+    console.log(`[OUTGOING] POST ${redactUrl(url)}`)
     try {
       const response = await fetch(url, { method: 'POST', headers: { 'Accept': 'application/json' } })
       return await response.json()
@@ -1409,7 +1428,7 @@ export class TShockService {
       url += `?token=${encodeURIComponent(this.apiKey)}`
     }
 
-    console.log(`[OUTGOING] GET ${url}`)
+    console.log(`[OUTGOING] GET ${redactUrl(url)}`)
 
     try {
       const response = await fetch(url, {
@@ -1446,7 +1465,7 @@ export class TShockService {
       url += `?token=${encodeURIComponent(this.apiKey)}`
     }
 
-    console.log(`[OUTGOING] GET ${url}`)
+    console.log(`[OUTGOING] GET ${redactUrl(url)}`)
 
     try {
       const response = await fetch(url, {
@@ -1483,7 +1502,7 @@ export class TShockService {
       url += `&token=${encodeURIComponent(this.apiKey)}`
     }
 
-    console.log(`[OUTGOING] GET ${url}`)
+    console.log(`[OUTGOING] GET ${redactUrl(url)}`)
 
     try {
       const response = await fetch(url, {
@@ -1520,7 +1539,7 @@ export class TShockService {
       url += `&token=${encodeURIComponent(this.apiKey)}`
     }
 
-    console.log(`[OUTGOING] GET ${url}`)
+    console.log(`[OUTGOING] GET ${redactUrl(url)}`)
 
     try {
       const response = await fetch(url, {
@@ -1562,7 +1581,7 @@ export class TShockService {
       url += `&token=${encodeURIComponent(this.apiKey)}`
     }
 
-    console.log(`[OUTGOING] POST ${url}`)
+    console.log(`[OUTGOING] POST ${redactUrl(url)}`)
 
     try {
       const response = await fetch(url, {
@@ -1588,7 +1607,7 @@ export class TShockService {
   async getTsWebConfig() {
     if (!this.baseUrl) await this.init()
     const url = `${this.baseUrl}/data/config/tsweb${this.apiKey ? `?token=${encodeURIComponent(this.apiKey)}` : ''}`
-    console.log(`[OUTGOING] GET ${url}`)
+    console.log(`[OUTGOING] GET ${redactUrl(url)}`)
     try {
       const response = await fetch(url, { method: 'GET', headers: { 'Accept': 'application/json' } })
       return await response.json()
@@ -1601,7 +1620,7 @@ export class TShockService {
     if (!this.baseUrl) await this.init()
     const query = Object.entries(params).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&')
     const url = `${this.baseUrl}/data/config/tsweb/set?${query}${this.apiKey ? `&token=${encodeURIComponent(this.apiKey)}` : ''}`
-    console.log(`[OUTGOING] POST ${url}`)
+    console.log(`[OUTGOING] POST ${redactUrl(url)}`)
     try {
       const response = await fetch(url, { method: 'POST', headers: { 'Accept': 'application/json' } })
       return await response.json()
@@ -1613,7 +1632,7 @@ export class TShockService {
   async getBossLimitStatus() {
     if (!this.baseUrl) await this.init()
     const url = `${this.baseUrl}/data/bosslimit/status${this.apiKey ? `?token=${encodeURIComponent(this.apiKey)}` : ''}`
-    console.log(`[OUTGOING] GET ${url}`)
+    console.log(`[OUTGOING] GET ${redactUrl(url)}`)
     try {
       const response = await fetch(url, { method: 'GET', headers: { 'Accept': 'application/json' } })
       return await response.json()
@@ -1625,7 +1644,7 @@ export class TShockService {
   async getBossConfig() {
     if (!this.baseUrl) await this.init()
     const url = `${this.baseUrl}/data/config/boss${this.apiKey ? `?token=${encodeURIComponent(this.apiKey)}` : ''}`
-    console.log(`[OUTGOING] GET ${url}`)
+    console.log(`[OUTGOING] GET ${redactUrl(url)}`)
     try {
       const response = await fetch(url, { method: 'GET', headers: { 'Accept': 'application/json' } })
       return await response.json()
@@ -1638,7 +1657,7 @@ export class TShockService {
     if (!this.baseUrl) await this.init()
     const query = Object.entries(params).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&')
     const url = `${this.baseUrl}/data/config/boss/set?${query}${this.apiKey ? `&token=${encodeURIComponent(this.apiKey)}` : ''}`
-    console.log(`[OUTGOING] POST ${url}`)
+    console.log(`[OUTGOING] POST ${redactUrl(url)}`)
     try {
       const response = await fetch(url, { method: 'POST', headers: { 'Accept': 'application/json' } })
       return await response.json()
@@ -1650,7 +1669,7 @@ export class TShockService {
   async getBackupConfig() {
     if (!this.baseUrl) await this.init()
     const url = `${this.baseUrl}/data/config/backup${this.apiKey ? `?token=${encodeURIComponent(this.apiKey)}` : ''}`
-    console.log(`[OUTGOING] GET ${url}`)
+    console.log(`[OUTGOING] GET ${redactUrl(url)}`)
     try {
       const response = await fetch(url, { method: 'GET', headers: { 'Accept': 'application/json' } })
       return await response.json()
@@ -1663,7 +1682,7 @@ export class TShockService {
     if (!this.baseUrl) await this.init()
     const query = Object.entries(params).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&')
     const url = `${this.baseUrl}/data/config/backup/set?${query}${this.apiKey ? `&token=${encodeURIComponent(this.apiKey)}` : ''}`
-    console.log(`[OUTGOING] POST ${url}`)
+    console.log(`[OUTGOING] POST ${redactUrl(url)}`)
     try {
       const response = await fetch(url, { method: 'POST', headers: { 'Accept': 'application/json' } })
       return await response.json()
@@ -1677,7 +1696,7 @@ export class TShockService {
   async fileRead(relativePath) {
     if (!this.baseUrl) await this.init()
     const url = `${this.baseUrl}/data/files/read?path=${encodeURIComponent(relativePath)}${this.apiKey ? `&token=${encodeURIComponent(this.apiKey)}` : ''}`
-    console.log(`[OUTGOING] POST ${url}`)
+    console.log(`[OUTGOING] POST ${redactUrl(url)}`)
     try {
       const response = await fetch(url, {
         method: 'POST',
@@ -1694,7 +1713,7 @@ export class TShockService {
   async fileWrite(relativePath, content) {
     if (!this.baseUrl) await this.init()
     const url = `${this.baseUrl}/data/files/write?path=${encodeURIComponent(relativePath)}&content=${encodeURIComponent(content)}${this.apiKey ? `&token=${encodeURIComponent(this.apiKey)}` : ''}`
-    console.log(`[OUTGOING] POST ${url}`)
+    console.log(`[OUTGOING] POST ${redactUrl(url)}`)
     try {
       const response = await fetch(url, {
         method: 'POST',
@@ -1711,7 +1730,7 @@ export class TShockService {
   async fileList(relativePath) {
     if (!this.baseUrl) await this.init()
     const url = `${this.baseUrl}/data/files/list?path=${encodeURIComponent(relativePath)}${this.apiKey ? `&token=${encodeURIComponent(this.apiKey)}` : ''}`
-    console.log(`[OUTGOING] POST ${url}`)
+    console.log(`[OUTGOING] POST ${redactUrl(url)}`)
     try {
       const response = await fetch(url, {
         method: 'POST',
@@ -1728,7 +1747,7 @@ export class TShockService {
   async fileDelete(relativePath) {
     if (!this.baseUrl) await this.init()
     const url = `${this.baseUrl}/data/files/delete?path=${encodeURIComponent(relativePath)}${this.apiKey ? `&token=${encodeURIComponent(this.apiKey)}` : ''}`
-    console.log(`[OUTGOING] POST ${url}`)
+    console.log(`[OUTGOING] POST ${redactUrl(url)}`)
     try {
       const response = await fetch(url, {
         method: 'POST',
@@ -1816,7 +1835,7 @@ export class TShockService {
   async getPromotionConfig() {
     if (!this.baseUrl) await this.init()
     const url = `${this.baseUrl}/data/promotion/config${this.apiKey ? `?token=${encodeURIComponent(this.apiKey)}` : ''}`
-    console.log(`[OUTGOING] GET ${url}`)
+    console.log(`[OUTGOING] GET ${redactUrl(url)}`)
     try {
       const response = await fetch(url, { method: 'GET', headers: { 'Accept': 'application/json' } })
       const text = await response.text()
@@ -1834,7 +1853,7 @@ export class TShockService {
       return `${k}=${encodeURIComponent(val)}`
     }).join('&')
     const url = `${this.baseUrl}/data/promotion/config/set?${query}${this.apiKey ? `&token=${encodeURIComponent(this.apiKey)}` : ''}`
-    console.log(`[OUTGOING] POST ${url.substring(0, 600)}`)
+    console.log(`[OUTGOING] POST ${redactUrl(url).substring(0, 600)}`)
     try {
       const response = await fetch(url, {
         method: 'POST',
@@ -1853,7 +1872,7 @@ export class TShockService {
   async getShopUIConfig() {
     if (!this.baseUrl) await this.init()
     const url = `${this.baseUrl}/data/shopui/config${this.apiKey ? `?token=${encodeURIComponent(this.apiKey)}` : ''}`
-    console.log(`[OUTGOING] GET ${url}`)
+    console.log(`[OUTGOING] GET ${redactUrl(url)}`)
     try {
       const response = await fetch(url, { method: 'GET', headers: { 'Accept': 'application/json' } })
       const text = await response.text()
@@ -1872,7 +1891,7 @@ export class TShockService {
       return `${k}=${encodeURIComponent(val)}`
     }).join('&')
     const url = `${this.baseUrl}/data/shopui/config/set?${query}${this.apiKey ? `&token=${encodeURIComponent(this.apiKey)}` : ''}`
-    console.log(`[OUTGOING] POST ${url.substring(0, 600)}`)
+    console.log(`[OUTGOING] POST ${redactUrl(url).substring(0, 600)}`)
     try {
       const response = await fetch(url, {
         method: 'POST',
@@ -1891,7 +1910,7 @@ export class TShockService {
   async getStatusPanelConfig() {
     if (!this.baseUrl) await this.init()
     const url = `${this.baseUrl}/data/statuspanel/config${this.apiKey ? `?token=${encodeURIComponent(this.apiKey)}` : ''}`
-    console.log(`[OUTGOING] GET ${url}`)
+    console.log(`[OUTGOING] GET ${redactUrl(url)}`)
     try {
       const response = await fetch(url, { method: 'GET', headers: { 'Accept': 'application/json' } })
       const text = await response.text()
@@ -1909,7 +1928,7 @@ export class TShockService {
       return `${k}=${encodeURIComponent(val)}`
     }).join('&')
     const url = `${this.baseUrl}/data/statuspanel/config/set?${query}${this.apiKey ? `&token=${encodeURIComponent(this.apiKey)}` : ''}`
-    console.log(`[OUTGOING] POST ${url.substring(0, 600)}`)
+    console.log(`[OUTGOING] POST ${redactUrl(url).substring(0, 600)}`)
     try {
       const response = await fetch(url, {
         method: 'POST',
@@ -1928,7 +1947,7 @@ export class TShockService {
   async getRiskControlConfig() {
     if (!this.baseUrl) await this.init()
     const url = `${this.baseUrl}/data/riskcontrol/config${this.apiKey ? `?token=${encodeURIComponent(this.apiKey)}` : ''}`
-    console.log(`[OUTGOING] GET ${url}`)
+    console.log(`[OUTGOING] GET ${redactUrl(url)}`)
     try {
       const response = await fetch(url, { method: 'GET', headers: { 'Accept': 'application/json' } })
       return await response.json()
@@ -1960,7 +1979,7 @@ export class TShockService {
     }
     const query = q.join('&')
     const url = `${this.baseUrl}/data/riskcontrol/config/set?${query}${this.apiKey ? `&token=${encodeURIComponent(this.apiKey)}` : ''}`
-    console.log(`[OUTGOING] POST ${url.substring(0, 600)}`)
+    console.log(`[OUTGOING] POST ${redactUrl(url).substring(0, 600)}`)
     try {
       const response = await fetch(url, { method: 'POST', headers: { 'Accept': 'application/json' } })
       return await response.json()
@@ -1973,7 +1992,7 @@ export class TShockService {
     if (!this.baseUrl) await this.init()
     const query = `action=${encodeURIComponent(action)}${targets && targets.length ? `&targets=${encodeURIComponent(targets.join(','))}` : ''}`
     const url = `${this.baseUrl}/data/riskcontrol/action?${query}${this.apiKey ? `&token=${encodeURIComponent(this.apiKey)}` : ''}`
-    console.log(`[OUTGOING] GET ${url}`)
+    console.log(`[OUTGOING] GET ${redactUrl(url)}`)
     try {
       const response = await fetch(url, { method: 'GET', headers: { 'Accept': 'application/json' } })
       return await response.json()
@@ -1985,7 +2004,7 @@ export class TShockService {
   async getRiskPlayers() {
     if (!this.baseUrl) await this.init()
     const url = `${this.baseUrl}/data/riskcontrol/players${this.apiKey ? `?token=${encodeURIComponent(this.apiKey)}` : ''}`
-    console.log(`[OUTGOING] GET ${url}`)
+    console.log(`[OUTGOING] GET ${redactUrl(url)}`)
     try {
       const response = await fetch(url, { method: 'GET', headers: { 'Accept': 'application/json' } })
       return await response.json()
@@ -1998,7 +2017,7 @@ export class TShockService {
     if (!this.baseUrl) await this.init()
     const query = ip ? `ip=${encodeURIComponent(ip)}` : ''
     const url = `${this.baseUrl}/data/riskcontrol/proxy/refresh${query ? `?${query}` : ''}${this.apiKey ? `${query ? '&' : '?'}token=${encodeURIComponent(this.apiKey)}` : ''}`
-    console.log(`[OUTGOING] POST ${url}`)
+    console.log(`[OUTGOING] POST ${redactUrl(url)}`)
     try {
       const response = await fetch(url, { method: 'POST', headers: { 'Accept': 'application/json' } })
       return await response.json()
@@ -2012,7 +2031,7 @@ export class TShockService {
   async getCurfewConfig() {
     if (!this.baseUrl) await this.init()
     const url = `${this.baseUrl}/data/curfew/config${this.apiKey ? `?token=${encodeURIComponent(this.apiKey)}` : ''}`
-    console.log(`[OUTGOING] GET ${url}`)
+    console.log(`[OUTGOING] GET ${redactUrl(url)}`)
     try {
       const response = await fetch(url, { method: 'GET', headers: { 'Accept': 'application/json' } })
       return await response.json()
@@ -2026,7 +2045,7 @@ export class TShockService {
     // 整体配置作为一个 JSON 字符串参数下发（条目列表结构较复杂，扁平化不利维护）
     const query = `config=${encodeURIComponent(JSON.stringify(params || {}))}`
     const url = `${this.baseUrl}/data/curfew/config/set?${query}${this.apiKey ? `&token=${encodeURIComponent(this.apiKey)}` : ''}`
-    console.log(`[OUTGOING] POST ${url.substring(0, 600)}`)
+    console.log(`[OUTGOING] POST ${redactUrl(url).substring(0, 600)}`)
     try {
       const response = await fetch(url, { method: 'POST', headers: { 'Accept': 'application/json' } })
       return await response.json()
@@ -2040,7 +2059,7 @@ export class TShockService {
   async getAliasesConfig() {
     if (!this.baseUrl) await this.init()
     const url = `${this.baseUrl}/data/aliases/config${this.apiKey ? `?token=${encodeURIComponent(this.apiKey)}` : ''}`
-    console.log(`[OUTGOING] GET ${url}`)
+    console.log(`[OUTGOING] GET ${redactUrl(url)}`)
     try {
       const response = await fetch(url, { method: 'GET', headers: { 'Accept': 'application/json' } })
       return await response.json()
@@ -2054,7 +2073,7 @@ export class TShockService {
     // 整体配置作为一个 JSON 字符串参数下发（与宵禁同构）
     const query = `config=${encodeURIComponent(JSON.stringify(params || {}))}`
     const url = `${this.baseUrl}/data/aliases/config/set?${query}${this.apiKey ? `&token=${encodeURIComponent(this.apiKey)}` : ''}`
-    console.log(`[OUTGOING] POST ${url.substring(0, 600)}`)
+    console.log(`[OUTGOING] POST ${redactUrl(url).substring(0, 600)}`)
     try {
       const response = await fetch(url, { method: 'POST', headers: { 'Accept': 'application/json' } })
       return await response.json()
@@ -2074,7 +2093,7 @@ export class TShockService {
     }).join('&')
 
     const url = `${this.baseUrl}/data/${subPath}${query ? `?${query}` : ''}${this.apiKey ? `${query ? '&' : '?'}token=${encodeURIComponent(this.apiKey)}` : ''}`
-    console.log(`[OUTGOING] ${method} ${url.substring(0, 600)}`)
+    console.log(`[OUTGOING] ${method} ${redactUrl(url).substring(0, 600)}`)
 
     try {
       const response = await fetch(url, {
@@ -2124,7 +2143,7 @@ export async function testConnectionWith(host, port, apiKey) {
   const baseUrl = `${host.startsWith('http://') || host.startsWith('https://') ? host : `http://${host}`}:${port}`
   const url = `${baseUrl}/tokentest?token=${encodeURIComponent(apiKey)}`
 
-  console.log(`[OUTGOING] Testing TShock connection (temp): GET ${url}`)
+  console.log(`[OUTGOING] Testing TShock connection (temp): GET ${redactUrl(url)}`)
 
   try {
     const controller = new AbortController()
