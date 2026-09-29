@@ -89,7 +89,8 @@
 - **机制**：`/hr load <名称>` 或 `/hr reload-all`（HotReload 插件），对 `ServerPlugins` 目录下的 DLL 做反射热加载：
   - `Core.cs` `LoadPluginFromDisk`：`Assembly.Load(asmBytes, pdbBytes)`（从字节数组加载，不锁文件）→ `Activator.CreateInstance` 创建插件 → `new PluginContainer(...)` → **直接调用该插件的 `Initialize()`**（世界早已加载，`Main.gameMenu == false`）。
   - 受保护名单 `ProtectedAssemblyNames`（TShockAPI/Terraria/OTAPI/MonoMod/Newtonsoft/HotReload 等）禁止操作；TSWeb 主插件（TShockData）不在名单内，**可以用 `/hr load` 热重载**。
-- **另一条链路**：`plugin/tsweb-host/TsWebHost.cs`（cordis 后端插件下发接收端，SSE + DLL 反射热加载，落盘 `ServerPlugins/tsweb/*.dll`），同样直接调用插件 `Initialize()`。
+- **另一条链路**：cordis 宿主仓库 **`tsweb-cordis`** 的 `plugins/tsweb-host/TsWebHost.cs`（插件下发接收端，SSE + DLL 反射热加载，落盘 `ServerPlugins/tsweb/*.dll`），同样直接调用插件 `Initialize()`。
+  - 注意：该文件**不在本仓库内**。本仓库（TsWeb）不含 cordis 宿主；历史路径 `plugin/tsweb-host/` 与 `tsweb/` 已由提交 `97ce9ad 移除非本仓库内容` 移除，勿再按旧路径查找。
 - **对插件开发的关键影响**：
   - 热重载时插件的 `Initialize()` 会被直接调用，但**一次性启动事件不会再次触发**（如 `ServerApi.Hooks.GamePostInitialize` 只在冷启动、世界加载完成时触发一次）。
   - 若插件需要在热重载场景下初始化"世界已加载"的数据（如记录 `Main.worldID`），正确写法是 House 插件同款：
@@ -158,7 +159,7 @@
 
 **默认约定：commit 只提交「当前任务」的改动。工作区中任何与本任务无关的历史未提交改动，一律视为其他任务的独立工作，不得一并提交、不得询问、不得打包带走。**
 
-本仓库工作区长期存在多组并行任务改动（例：`plugin/PacketDropManager.cs` 与 `Main.cs` 中的 `PacketDropManager.Initialize/Dispose` 调用、`plugin/tsweb-host/`、`tsweb/`、`plugin-son/invjudge/`、`plugin-son/bossAIModded/`、`plugin/AntiCheat.cs`、`plugin/CrossTransfer.cs` 等）。执行 commit 时：
+本仓库工作区长期存在多组并行任务改动（例：`plugin/PacketDropManager.cs` 与 `Main.cs` 中的 `PacketDropManager.Initialize/Dispose` 调用、`plugin-son/invjudge/`、`plugin-son/bossAIModded/`、`plugin/AntiCheat.cs`、`plugin/CrossTransfer.cs` 等）。执行 commit 时：
 
 1. **先 `git status --short` 核对改动清单**，分清哪些文件属于当前任务、哪些是其他任务的历史改动；
 2. **只 `git add` 当前任务涉及的文件**（含本次新增的未跟踪文件），其他任务文件一律不动；
