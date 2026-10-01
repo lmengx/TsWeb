@@ -158,7 +158,48 @@ namespace TeleportRequest
 
 		void OnLeave(LeaveEventArgs e)
 		{
+			// 清掉离开者自己发出的请求
 			_requests[e.Who].timeout = 0;
+
+			// 再清掉「指向离开者」的请求。
+			// 否则这条请求仍带着离开者的槽位号，槽位被后来者复用后，
+			// 陌生人可以直接 /tpa 接走这条陈旧请求，把请求者拉到自己身边。
+			for (int i = 0; i < _requests.Length; i++)
+			{
+				if (_requests[i].timeout > 0 && _requests[i].dst == e.Who)
+					_requests[i].timeout = 0;
+			}
+		}
+
+		// ================================================================
+		//  账号身份辅助方法
+		// ================================================================
+
+		/// <summary>
+		/// 取得用于持久化的稳定身份：账号 ID（UserAccount.ID）。
+		/// 未登录玩家没有账号，返回 null —— 不参与模式/白名单的持久化。
+		/// 注意：绝不可用 TSPlayer.Index（槽位号）替代，槽位每次开服都会重新分配。
+		/// </summary>
+		private static int? GetAccountId(TSPlayer player)
+		{
+			// ID 0 在 TShock 里是「无账号」的哨兵值（房屋插件同样按无效处理），
+			// 不能拿它当持久化键，否则会写出一个谁都能对上的键。
+			if (player == null || !player.IsLoggedIn || player.Account == null || player.Account.ID == 0)
+				return null;
+			return player.Account.ID;
+		}
+
+		/// <summary>把账号 ID 还原成显示用名字：先看在线玩家，再查账号库。</summary>
+		private static string ResolveAccountName(int accountId)
+		{
+			foreach (var p in TShock.Players)
+			{
+				if (p != null && p.Account != null && p.Account.ID == accountId)
+					return p.Name;
+			}
+
+			var account = TShock.UserAccounts.GetUserAccountByID(accountId);
+			return account != null ? account.Name : $"ID:{accountId}";
 		}
 
 		// ================================================================
@@ -209,7 +250,14 @@ namespace TeleportRequest
 			// ---- 子命令：/tp aclist — 查看白名单 ----
 			if (e.Parameters[0].Equals("aclist", StringComparison.OrdinalIgnoreCase))
 			{
-				var list = TPModeStore.GetAllowedList(e.Player.Index);
+				var selfId = GetAccountId(e.Player);
+				if (selfId == null)
+				{
+					e.Player.SendErrorMessage("请先登录后再使用传送白名单。");
+					return;
+				}
+
+				var list = TPModeStore.GetAllowedList(selfId.Value);
 				if (list.Count == 0)
 				{
 					e.Player.SendInfoMessage("你的白名单为空。");
@@ -218,8 +266,7 @@ namespace TeleportRequest
 				var names = new List<string>();
 				foreach (var id in list)
 				{
-					var p = TShock.Players[id];
-					names.Add(p != null ? p.Name : $"ID:{id}");
+					names.Add(ResolveAccountName(id));
 				}
 				e.Player.SendInfoMessage("白名单 ({0}): {1}", list.Count, string.Join(", ", names));
 				return;
@@ -228,6 +275,13 @@ namespace TeleportRequest
 			// ---- 子命令：/tp acdel <玩家名> — 移出白名单 ----
 			if (e.Parameters[0].Equals("acdel", StringComparison.OrdinalIgnoreCase))
 			{
+				var selfId = GetAccountId(e.Player);
+				if (selfId == null)
+				{
+					e.Player.SendErrorMessage("请先登录后再使用传送白名单。");
+					return;
+				}
+
 				if (e.Parameters.Count < 2)
 				{
 					e.Player.SendErrorMessage("语法错误：/tp acdel <玩家名>");
@@ -245,7 +299,14 @@ namespace TeleportRequest
 					e.Player.SendErrorMessage("匹配到多个玩家，请指定更准确的名称。");
 					return;
 				}
-				TPModeStore.RemoveAllowed(e.Player.Index, delPlayers[0].Index);
+				var delId = GetAccountId(delPlayers[0]);
+				if (delId == null)
+				{
+					e.Player.SendErrorMessage("对方未登录，无法从白名单移除。");
+					return;
+				}
+
+				TPModeStore.RemoveAllowed(selfId.Value, delId.Value);
 				e.Player.SendSuccessMessage("已将 {0} 移出白名单。", delPlayers[0].Name);
 				return;
 			}
@@ -253,6 +314,13 @@ namespace TeleportRequest
 			// ---- 子命令：/tp ac <玩家名> — 加入白名单 ----
 			if (e.Parameters[0].Equals("ac", StringComparison.OrdinalIgnoreCase))
 			{
+				var selfId = GetAccountId(e.Player);
+				if (selfId == null)
+				{
+					e.Player.SendErrorMessage("请先登录后再使用传送白名单。");
+					return;
+				}
+
 				if (e.Parameters.Count < 2)
 				{
 					e.Player.SendErrorMessage("语法错误：/tp ac <玩家名>");
@@ -270,7 +338,14 @@ namespace TeleportRequest
 					e.Player.SendErrorMessage("匹配到多个玩家，请指定更准确的名称。");
 					return;
 				}
-				TPModeStore.AddAllowed(e.Player.Index, acPlayers[0].Index);
+				var acId = GetAccountId(acPlayers[0]);
+				if (acId == null)
+				{
+					e.Player.SendErrorMessage("对方未登录，无法加入白名单。");
+					return;
+				}
+
+				TPModeStore.AddAllowed(selfId.Value, acId.Value);
 				e.Player.SendSuccessMessage("已将 {0} 加入白名单，可无视模式传送。", acPlayers[0].Name);
 				return;
 			}
@@ -297,8 +372,13 @@ namespace TeleportRequest
 				return;
 			}
 
+			var myAccountId = GetAccountId(e.Player);
+			var destAccountId = GetAccountId(target);
+
 			// ---- 白名单优先于一切（可绕过 block） ----
-			if (TPModeStore.IsAllowed(target.Index, e.Player.Index))
+			// 双方都必须有账号才谈得上白名单；未登录玩家不参与持久化。
+			if (myAccountId != null && destAccountId != null &&
+			    TPModeStore.IsAllowed(destAccountId.Value, myAccountId.Value))
 			{
 				if (e.Player.Teleport(target.X, target.Y))
 				{
@@ -320,7 +400,8 @@ namespace TeleportRequest
 			}
 
 			// ---- 根据目标玩家的传送模式判定 ----
-			var mode = TPModeStore.GetMode(target.Index);
+			// 未登录玩家没有持久化模式，按全局默认值处理。
+			var mode = destAccountId != null ? TPModeStore.GetMode(destAccountId.Value) : TPModeStore.DefaultMode;
 			switch (mode)
 			{
 				case TPMode.Agree:
@@ -411,7 +492,8 @@ namespace TeleportRequest
 		{
 			if (e.Parameters.Count == 0)
 			{
-				var current = TPModeStore.GetMode(e.Player.Index);
+				var viewId = GetAccountId(e.Player);
+				var current = viewId != null ? TPModeStore.GetMode(viewId.Value) : TPModeStore.DefaultMode;
 				var def = TPModeStore.DefaultMode;
 				var modeName = current switch
 				{
@@ -498,7 +580,14 @@ namespace TeleportRequest
 				return;
 			}
 
-			TPModeStore.SetMode(e.Player.Index, parsed.Value);
+			var setId = GetAccountId(e.Player);
+			if (setId == null)
+			{
+				e.Player.SendErrorMessage("请先登录后再设置传送模式。");
+				return;
+			}
+
+			TPModeStore.SetMode(setId.Value, parsed.Value);
 
 			var display = parsed.Value switch
 			{
@@ -521,15 +610,22 @@ namespace TeleportRequest
 				return;
 			}
 
-			var current = TPModeStore.GetMode(e.Player.Index);
+			var selfId = GetAccountId(e.Player);
+			if (selfId == null)
+			{
+				e.Player.SendErrorMessage("请先登录后再设置传送模式。");
+				return;
+			}
+
+			var current = TPModeStore.GetMode(selfId.Value);
 			if (current == TPMode.Block)
 			{
-				TPModeStore.SetMode(e.Player.Index, TPMode.Agree);
+				TPModeStore.SetMode(selfId.Value, TPMode.Agree);
 				e.Player.SendSuccessMessage("传送模式已切换为：允许 (agree)");
 			}
 			else
 			{
-				TPModeStore.SetMode(e.Player.Index, TPMode.Block);
+				TPModeStore.SetMode(selfId.Value, TPMode.Block);
 				e.Player.SendSuccessMessage("传送模式已切换为：拒绝 (block)");
 			}
 		}

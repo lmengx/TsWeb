@@ -7,7 +7,7 @@
     <LangVersion>latest</LangVersion>
     <AssemblyName>TeleportRequest</AssemblyName>
     <RootNamespace>TeleportRequest</RootNamespace>
-    <Version>1.2.0</Version>
+    <Version>1.2.1</Version>
     <Description>增强传送管理系统：三模式传送(允许/需同意/拒绝)</Description>
     <Authors>MarioE</Authors>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
