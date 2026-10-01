@@ -9,75 +9,61 @@ const LOTTERY_PATH = process.env.TSWeb_LOTTERY_PATH || path.join(__dirname, '..'
 
 // ═══════════════════════════════════════════════════════════
 // 抽奖服务（后端本地权威）
-//   data/lottery.json: { config: {...}, records: [...] }
+//
+// 职责只有两件：从给定奖池里抽一个人、把这次开奖追加进台账。
+// 奖池怎么来由调用方决定（见 botController.lotteryDraw，逐服现场查询）。
+//
+// 本模块刻意不提供任何查询/列表接口：抽奖是管理员的一次性动作，
+// 「在线抽奖」只回一张结果图，没有历史命令。台账仅作事后追查用，
+// 直接读 data/lottery.json 即可，不出现在机器人侧。
 //
 // record: {
-//   id, at, guildId, operatorQq, scope{ all, serverId, serverName },
+//   id, at, guildId, operatorQq,
 //   servers: [ { id, name, count, fetchedAt } | { id, name, count:0, error } ],
-//   pool: [ 角色名, 升序 ], poolHash(sha256 of pool.join('\n')), count,
-//   seed(64 位 hex), index,
-//   winner: { username, nickname, group, serverId, serverName },
-//   players: [ 同上结构, 升序，供渲染奖池名单 ], algo
+//   pool: [角色名, 升序], poolHash(sha256 of pool.join('\n')), count,
+//   seed(64 位 hex), index, winner: { username, nickname, group, serverId, serverName }
 // }
 //
-// 公平性（三条可独立复算）：
+// 公平性（三条可独立复算，台账里字段齐全，出图不展示）：
 //   1. sha256(pool.join('\n')) === poolHash       奖池未被事后篡改
 //   2. int(seed[0:16] 大端) mod count === index   索引确实由该种子算出
 //   3. pool[index] === winner.username            中奖者确实是该位置上的人
 //   seed 为 crypto.randomBytes(32)，不用 Math.random（后者可预测、可反推）
 //
 // 约束：
-//   - 奖池由调用方现场查询游戏服得到（/v2/server/status?players=true），不是定时快照
 //   - 同一角色名在多服同时在线只算一份（按角色名大小写不敏感去重）
 //   - 排序固定为 UTF-16 码元序（不用 localeCompare：后者依赖 ICU 区域设置，跨环境不可复算）
-//   - records 只追加、不修改；本版无作废/重抽功能
-//   - 冷却按 guildId 派生自最近一条同群记录，不额外存状态
+//   - 台账只追加、不修改
 //
-// 注意：实时读文件（不缓存）：与 votes.json / qq_accounts.json 同策略，外部写入立即可见。
+// 注意：实时读文件（不缓存），与 votes.json / qq_accounts.json 同策略。
 // ═══════════════════════════════════════════════════════════
-
-/** 默认配置（data/lottery.json 的 config 字段可覆盖） */
-const DEFAULT_CONFIG = {
-  cooldownSec: 30,     // 同群两次抽奖的最小间隔（秒）
-  minPlayers: 1,       // 开奖所需最少在线人数
-  historyLimit: 10,    // 「抽奖 记录」默认返回条数
-  prizeText: ''        // 奖品说明（可选，仅用于卡片展示）
-}
 
 async function load() {
   try {
     const content = await fs.readFile(LOTTERY_PATH, 'utf8')
     const data = JSON.parse(content)
-    if (!data || typeof data !== 'object') return { config: {}, records: [] }
+    if (!data || typeof data !== 'object') return { records: [] }
     if (!Array.isArray(data.records)) data.records = []
-    if (!data.config || typeof data.config !== 'object') data.config = {}
     return data
   } catch {
-    return { config: {}, records: [] }
+    return { records: [] }
   }
 }
 
-async function persist(data) {
-  // 防御：始终以 { config, records } 外壳写盘
-  const records = Array.isArray(data?.records) ? data.records : []
-  const config = (data?.config && typeof data.config === 'object') ? data.config : {}
+async function persist(records) {
   try {
     await fs.mkdir(path.dirname(LOTTERY_PATH), { recursive: true })
-    await fs.writeFile(LOTTERY_PATH, JSON.stringify({ config, records }, null, 2), 'utf8')
+    await fs.writeFile(LOTTERY_PATH, JSON.stringify({ records }, null, 2), 'utf8')
   } catch (err) {
-    console.error('[抽奖] 保存失败:', err.message)
-    throw err   // 与 votes 不同：抽奖台账写盘失败必须让整次开奖失败，不能产生“有图无账”
+    console.error('[抽奖] 保存台账失败:', err.message)
+    // 与 votes 不同：台账写盘失败必须让整次开奖失败，
+    // 否则会出现「群里出了中奖图，台账里查不到」——事后无法追查
+    throw err
   }
 }
 
-function genId(prefix) {
-  return prefix + '-' + crypto.randomBytes(4).toString('hex')
-}
-
-/** 合并默认配置与文件配置 */
-export async function getConfig() {
-  const data = await load()
-  return { ...DEFAULT_CONFIG, ...(data.config || {}) }
+function genId() {
+  return 'l-' + crypto.randomBytes(4).toString('hex')
 }
 
 /** 奖池指纹：对升序角色名按换行拼接后取 sha256 */
@@ -86,37 +72,15 @@ function poolHashOf(pool) {
 }
 
 /**
- * 同群冷却剩余秒数（0 = 可开奖）。
- * 直接派生自最近一条同群记录，不额外维护状态，重启后依然有效。
- */
-export async function cooldownRemaining(guildId) {
-  const data = await load()
-  const cfg = { ...DEFAULT_CONFIG, ...(data.config || {}) }
-  const key = String(guildId || '')
-  let last = null
-  for (let i = data.records.length - 1; i >= 0; i--) {
-    if (String(data.records[i]?.guildId || '') === key) { last = data.records[i]; break }
-  }
-  if (!last || !last.at) return 0
-  const elapsed = (Date.now() - new Date(last.at).getTime()) / 1000
-  if (!Number.isFinite(elapsed)) return 0
-  return Math.max(0, Math.ceil(Number(cfg.cooldownSec) - elapsed))
-}
-
-/**
  * 落一次开奖。
  * @param {object} p
- *   players   [{ username, nickname, group, serverId, serverName }] 现场查到的在线玩家（未排序、未去重）
- *   servers   [{ id, name, count, fetchedAt } | { id, name, count:0, error }] 参与查询的服务器及结果
- *   scope     { all, serverId, serverName }
- *   guildId   群号（冷却分桶键，可为空）
- *   operatorQq 开奖人 QQ（仅记录）
- * @returns { record, config }
+ *   players    [{ username, nickname, group, serverId, serverName }] 现场查到的在线玩家（未排序、未去重）
+ *   servers    [{ id, name, count, fetchedAt } | { id, name, count:0, error }] 参与查询的服务器及结果
+ *   guildId    群号（仅记入台账）
+ *   operatorQq 开奖人 QQ（仅记入台账）
+ * @returns { record }
  */
-export async function saveDraw({ players = [], servers = [], scope = {}, guildId = '', operatorQq = '' } = {}) {
-  const data = await load()
-  const config = { ...DEFAULT_CONFIG, ...(data.config || {}) }
-
+export async function saveDraw({ players = [], servers = [], guildId = '', operatorQq = '' } = {}) {
   // 去重：同一角色名（大小写不敏感）在多服同时在线只算一份
   const seen = new Set()
   const unique = []
@@ -132,64 +96,32 @@ export async function saveDraw({ players = [], servers = [], scope = {}, guildId
   if (unique.length === 0) {
     throw Object.assign(new Error('当前没有玩家在线，无法抽取'), { status: 400 })
   }
-  const minPlayers = Math.max(1, Number(config.minPlayers) || 1)
-  if (unique.length < minPlayers) {
-    throw Object.assign(new Error(`在线玩家不足 ${minPlayers} 人（当前 ${unique.length} 人），无法抽取`), { status: 400 })
-  }
 
   // 固定排序（UTF-16 码元序）：poolHash 依赖顺序，排序规则一旦变更必须递增 algo
   const sorted = [...unique].sort((a, b) => (a.username < b.username ? -1 : a.username > b.username ? 1 : 0))
   const pool = sorted.map(p => p.username)
 
   const seed = crypto.randomBytes(32).toString('hex')
-  const n = pool.length
-  const index = Number(BigInt('0x' + seed.slice(0, 16)) % BigInt(n))
-  const winner = sorted[index]
+  const index = Number(BigInt('0x' + seed.slice(0, 16)) % BigInt(pool.length))
 
   const record = {
-    id: genId('l'),
+    id: genId(),
     at: new Date().toISOString(),
     guildId: String(guildId || ''),
     operatorQq: String(operatorQq || ''),
-    scope: {
-      all: scope.all !== false,
-      serverId: scope.serverId || null,
-      serverName: scope.serverName || null
-    },
     servers,
     pool,
     poolHash: poolHashOf(pool),
-    count: n,
+    count: pool.length,
     seed,
     index,
-    winner,
-    players: sorted,
-    algo: 'seedmod1'
+    winner: sorted[index]
   }
 
+  const data = await load()
   data.records.push(record)
-  await persist(data)
-  return { record, config }
+  await persist(data.records)
+  return record
 }
 
-/** 最近 N 条开奖记录（新的在前） */
-export async function listRecords(limit) {
-  const data = await load()
-  const cfg = { ...DEFAULT_CONFIG, ...(data.config || {}) }
-  const n = Math.max(1, Math.min(100, parseInt(limit, 10) || Number(cfg.historyLimit) || 10))
-  return data.records.slice(-n).reverse()
-}
-
-/** 最近一次开奖记录 */
-export async function latestRecord() {
-  const data = await load()
-  return data.records.length ? data.records[data.records.length - 1] : null
-}
-
-export default {
-  getConfig,
-  cooldownRemaining,
-  saveDraw,
-  listRecords,
-  latestRecord
-}
+export default { saveDraw }

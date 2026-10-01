@@ -366,12 +366,13 @@ export const online = async (req, res) => {
 }
 
 // ═══════════════════════════════════════════════════════════
-// 抽奖：POST /api/bot/lottery-draw   { qq, guildId?, server? }
-//       GET  /api/bot/lottery-history[?limit=]
+// 抽奖：POST /api/bot/lottery-draw   { qq, guildId? }
 //
+// 权限在机器人侧判定（仅群主/群管理员可触发），后端只认 bot token。
 // 奖池来自「开奖瞬间」对游戏服的现场查询（不用任何定时快照）：
 //   逐服 GET /v2/server/status?players=true → 过滤出已完全进服的玩家
-// 公平性与台账可复算见 services/lotteryService.js
+// 公平性设计与台账见 services/lotteryService.js；
+// 只回一张结果图，没有服务器选择、没有历史命令。
 // ═══════════════════════════════════════════════════════════
 
 /**
@@ -389,34 +390,18 @@ function isJoined(p) {
 
 export const lotteryDraw = async (req, res) => {
   try {
-    const guildId = String(req.body?.guildId || req.query?.guildId || '').trim()
     const qq = String(req.body?.qq || req.query?.qq || '').trim()
-
-    // 冷却先判：在打游戏服之前就拒绝，避免无谓请求
-    const remain = await lotteryService.cooldownRemaining(guildId)
-    if (remain > 0) {
-      return res.status(429).json({ error: `操作过于频繁，请 ${remain} 秒后再试`, retryAfter: remain })
-    }
+    const guildId = String(req.body?.guildId || req.query?.guildId || '').trim()
 
     const servers = await enabledServers()
     if (servers.length === 0) return res.status(404).json({ error: '暂无可用服务器' })
 
-    const keyword = String(req.body?.server || req.query?.server || '').trim()
-    let targets = servers
-    let scope = { all: true, serverId: null, serverName: null }
-    if (keyword) {
-      const target = resolveServer(servers, keyword)
-      if (!target) return res.status(404).json({ error: `未找到服务器「${keyword}」，发送「服务器列表」查看` })
-      targets = [target]
-      scope = { all: false, serverId: target.id, serverName: target.name }
-    }
-
     const players = []
     const serverInfo = []
-    for (const s of targets) {
+    for (const s of servers) {
       const d = await pluginFetch(s, '/v2/server/status', { players: 'true' })
       if (!d) {
-        // 单服失败不中断整体，但必须落进记录 —— 不得折算成「该服 0 人在线」
+        // 单服失败不中断整体，但必须落进台账 —— 不得折算成「该服 0 人在线」
         serverInfo.push({ id: s.id, name: s.name, count: 0, error: '查询失败' })
         continue
       }
@@ -434,34 +419,32 @@ export const lotteryDraw = async (req, res) => {
       serverInfo.push({ id: s.id, name: s.name, count: joined.length, fetchedAt: new Date().toISOString() })
     }
 
-    const { record, config } = await lotteryService.saveDraw({
+    const record = await lotteryService.saveDraw({
       players: players.filter(p => p.username),
       servers: serverInfo,
-      scope,
       guildId,
       operatorQq: qq
     })
 
-    audit.record('lottery.draw', { id: record.id, count: record.count, winner: record.winner?.username || '', guildId })
+    // 审计失败不得影响本次开奖：奖已抽出且已入台账，
+    // 若因审计抛错而回 500，调用方会以为没抽到而重抽，导致同一群连出结果
+    try {
+      audit.record('lottery.draw', {
+        actor: `qq:${qq || 'unknown'}`,
+        count: record.count,
+        winner: record.winner?.username || '',
+        qq,
+        guildId
+      })
+    } catch (err) {
+      console.error('[抽奖] 审计记录失败:', err.message)
+    }
     console.log(`[抽奖] 开奖 ${record.id}: 奖池 ${record.count} 人，中奖 ${record.winner?.username || ''}（群 ${guildId || '-'}）`)
 
-    res.json({ status: 'ok', ...record, prizeText: config.prizeText || '' })
+    res.json({ status: 'ok', ...record })
   } catch (err) {
     console.error('[抽奖] 开奖失败:', err.message)
-    const body = { error: err.message }
-    if (err.retryAfter) body.retryAfter = err.retryAfter
-    res.status(err.status || 500).json(body)
-  }
-}
-
-export const lotteryHistory = async (req, res) => {
-  try {
-    const records = await lotteryService.listRecords(req.query?.limit)
-    const config = await lotteryService.getConfig()
-    res.json({ status: 'ok', records, prizeText: config.prizeText || '' })
-  } catch (err) {
-    console.error('[抽奖] 记录查询失败:', err.message)
-    res.status(500).json({ error: err.message })
+    res.status(err.status || 500).json({ error: err.message })
   }
 }
 

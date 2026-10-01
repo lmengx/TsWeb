@@ -320,6 +320,12 @@ export const AUDIT_EVENTS = {
     fields: ['serverId', 'fields', 'applied', 'actor'], ip: false, sensitive: []
   },
 
+  // ═══ lottery 类 — QQ 群在线抽奖（管理员在群里触发）═══
+  'lottery.draw': {
+    level: 'info', category: 'lottery', title: 'QQ 群在线抽奖',
+    fields: ['count', 'winner', 'qq', 'guildId'], ip: false, sensitive: []
+  },
+
   // ═══ system 类 ═══
   'system.start': {
     level: 'info', category: 'system', title: '后端启动',

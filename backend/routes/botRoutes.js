@@ -2,7 +2,7 @@ import { Router } from 'express'
 import {
   register, changePassword, bind, listServers, requireBotToken,
   playerInfo, online, bossProgress, votes, voteCast, votePropose,
-  lotteryDraw, lotteryHistory,
+  lotteryDraw,
   qqList, qqBind, qqUnbind, qqRebind, getBotSettings, setBotSettings, refreshPlaytime
 } from '../controllers/botController.js'
 import { verifyToken, requireAdmin } from '../middlewares/authMiddleware.js'
@@ -58,11 +58,8 @@ router.get('/player-info', playerInfo)
 // 在线（机器人「在线」命令，可带 ?server=服名）：GET /api/bot/online
 router.get('/online', online)
 
-// 抽奖开奖（机器人「抽奖」命令，可带 server）：POST /api/bot/lottery-draw { qq, guildId?, server? }
+// 在线抽奖（机器人「在线抽奖」命令，仅群主/群管理员）：POST /api/bot/lottery-draw { qq, guildId? }
 router.post('/lottery-draw', lotteryDraw)
-
-// 抽奖记录（机器人「抽奖 记录」命令）：GET /api/bot/lottery-history?limit=
-router.get('/lottery-history', lotteryHistory)
 
 // 进度（机器人「进度」命令，可带 ?server=服名）：GET /api/bot/boss-progress
 router.get('/boss-progress', bossProgress)

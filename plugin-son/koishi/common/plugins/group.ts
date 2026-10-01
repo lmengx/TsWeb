@@ -1,7 +1,21 @@
 import { Context, Session, h } from 'koishi'
 import type { Config } from '../utils/config'
 import { safeHttpGet, safeHttpPost } from '../utils/config'
-import { renderHtml, playerInfoCard, bossProgressCard, onlineListCard, multiOnlineCard, voteListCard, voteDetailCard, voteStateCard, lotteryResultCard, lotteryHistoryCard, registerSuccessCard, bindSuccessCard } from '../utils/render'
+import { renderHtml, playerInfoCard, bossProgressCard, onlineListCard, multiOnlineCard, voteListCard, voteDetailCard, voteStateCard, lotteryResultCard, registerSuccessCard, bindSuccessCard } from '../utils/render'
+
+/**
+ * 是否群主/群管理员。
+ * 优先读 Koishi 归一化后的 session.author.roles；部分适配器不填该字段，
+ * 再兜底读 OneBot 原始 sender.role；两处都拿不到就一律拒绝（宁拒不误放）。
+ */
+function isGroupAdmin(session: Session): boolean {
+  const roles: string[] = []
+  const author: any = (session as any).author
+  if (Array.isArray(author?.roles)) roles.push(...author.roles)
+  const raw: any = (session as any).event?.sender?.role
+  if (typeof raw === 'string') roles.push(raw)
+  return roles.includes('owner') || roles.includes('admin') || roles.includes('administrator')
+}
 
 export const name = 'tshock-group'
 
@@ -328,62 +342,20 @@ export function apply(ctx: Context, config: Config) {
       return
     }
 
-    // — 抽奖（走后端；「抽奖」即时开奖，「抽奖 服务器 服名」指定服，「抽奖 记录」历史） —
-    if (content === '抽奖' || content.startsWith('抽奖 ')) {
-      ctx.logger.info('[抽奖] QQ:', senderQQ)
+    // — 在线抽奖（仅群主/群管理员；从当前在线玩家中抽一名，只回一张结果图） —
+    if (content === '在线抽奖') {
+      ctx.logger.info('[在线抽奖] QQ:', senderQQ)
+      if (!isGroupAdmin(session)) {
+        await session.send(h('at', { id: senderQQ }) + ' 该指令仅限群主/群管理员使用')
+        return
+      }
       if (!backendReady()) {
         await session.send('机器人后端地址未配置，请联系管理员')
         return
       }
-      const rest = content.slice(2).trim()
-
-      if (rest === '帮助') {
-        await session.send(
-          '━━━ 抽奖 ━━━\n' +
-          '抽奖：从当前在线玩家中随机抽一名\n' +
-          '抽奖 服务器 服名：只在指定服抽取\n' +
-          '抽奖 记录：查看最近开奖记录'
-        )
-        return
-      }
-
-      if (rest === '记录') {
-        const res = await safeHttpGet(ctx, `http://${config.后端地址}/api/bot/lottery-history`, {
-          token: config.机器人密钥, limit: 10
-        })
-        if (!res.ok) {
-          await session.send(h('at', { id: senderQQ }) + ' ' + res.msg)
-          return
-        }
-        const records: any[] = res.data.records || []
-        try {
-          const html = lotteryHistoryCard(records)
-          const buf = await renderHtml(html, 2, '.wrap')
-          await session.send(h('image', { url: `base64://${buf.toString('base64')}` }))
-        } catch (err: any) {
-          ctx.logger.error('[抽奖] 记录截图失败:', err.message)
-          const lines = records.map((r: any) => `· ${r.winner?.nickname || r.winner?.username || '未知'}（${r.count ?? 0} 人参与）`)
-          await session.send(`━━━ 抽奖记录 ━━━\n${lines.join('\n') || '暂无开奖记录'}`)
-        }
-        return
-      }
-
-      // 子命令必须带前缀词：服务器名匹配是双向包含，裸服名会与「记录」「帮助」撞车
-      let server = ''
-      if (rest.startsWith('服务器')) {
-        server = rest.slice(3).trim()
-        if (!server) {
-          await session.send(h('at', { id: senderQQ }) + ' 用法：抽奖 服务器 <服名>，如「抽奖 服务器 主服」')
-          return
-        }
-      } else if (rest) {
-        await session.send(h('at', { id: senderQQ }) + ' 用法：抽奖 / 抽奖 服务器 <服名> / 抽奖 记录；发送「服务器列表」查看服名')
-        return
-      }
-
       const res = await safeHttpPost(ctx, `http://${config.后端地址}/api/bot/lottery-draw`, {
         token: config.机器人密钥
-      }, { qq: senderQQ, guildId: session.guildId, server })
+      }, { qq: senderQQ, guildId: session.guildId })
 
       if (!res.ok) {
         await session.send(h('at', { id: senderQQ }) + ' ' + res.msg)
@@ -395,17 +367,12 @@ export function apply(ctx: Context, config: Config) {
         const buf = await renderHtml(html, 2, '.card')
         await session.send(h('image', { url: `base64://${buf.toString('base64')}` }))
       } catch (err: any) {
-        ctx.logger.error('[抽奖] 截图失败:', err.message)
-        // 文本兜底：必须保留奖池指纹与种子，出图失败不等于放弃可核对性
+        ctx.logger.error('[在线抽奖] 截图失败:', err.message)
         const w = res.data.winner || {}
-        const pool: string[] = res.data.pool || []
         await session.send(
-          `━━━ 抽奖结果 ━━━\n` +
+          `━━━ 在线抽奖 ━━━\n` +
           `中奖者：${w.nickname || w.username || '未知'}\n` +
-          `所属服：${w.serverName || '-'}\n` +
-          `奖池人数：${res.data.count ?? pool.length}\n` +
-          `奖池指纹：${String(res.data.poolHash || '').slice(0, 12)}\n` +
-          `随机种子：${String(res.data.seed || '').slice(0, 12)}`
+          `本次在线：${res.data.count ?? 0} 人`
         )
       }
       return
