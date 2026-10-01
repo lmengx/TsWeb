@@ -289,6 +289,85 @@ body{
 }
 .vs-rules b{color:var(--tw-info);font-weight:600}
 
+/* — 抽奖结果卡 — */
+.lt-win{
+  position:relative;z-index:1;text-align:center;
+  background:var(--tw-success-soft);border:1px solid var(--tw-success-border);
+  border-radius:var(--tw-tile-radius-lg);padding:18px 16px;margin-bottom:14px
+}
+.lt-crown{
+  display:inline-block;font-size:11px;font-weight:800;letter-spacing:2px;
+  color:var(--tw-on-accent);background:var(--tw-grad-success);
+  padding:3px 12px;border-radius:20px;margin-bottom:10px
+}
+.lt-wname{
+  font-size:30px;font-weight:800;color:var(--tw-success);
+  line-height:1.2;word-break:break-word
+}
+.lt-wtags{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-top:10px}
+.lt-tag{
+  font-size:11px;font-weight:600;padding:3px 10px;border-radius:12px;
+  background:var(--tw-tile-bg);border:1px solid var(--tw-tile-border);color:var(--tw-text-body)
+}
+.lt-prize{
+  position:relative;z-index:1;margin-bottom:12px;padding:9px 12px;border-radius:8px;
+  background:var(--tw-accent-soft);border:1px solid var(--tw-accent-border);
+  color:var(--tw-accent);font-size:13px;font-weight:600;word-break:break-word
+}
+.lt-stats{
+  display:flex;position:relative;z-index:1;margin-bottom:14px;
+  background:var(--tw-info-soft);border:1px solid var(--tw-info-border);
+  border-radius:12px;padding:10px 0
+}
+.lt-stat{flex:1;text-align:center;min-width:0}
+.lt-stat+.lt-stat{border-left:1px solid var(--tw-info-border)}
+.lt-num{font-size:18px;font-weight:800;color:var(--tw-info);line-height:1.2}
+.lt-label{font-size:11px;color:var(--tw-text-muted);margin-top:3px}
+.lt-warn{
+  position:relative;z-index:1;margin-bottom:12px;padding:8px 12px;border-radius:8px;
+  background:var(--tw-warning-soft);border:1px solid var(--tw-warning-border);
+  color:var(--tw-warning);font-size:12px;font-weight:600;word-break:break-word
+}
+.lt-sec{position:relative;z-index:1;margin-bottom:14px}
+.lt-sec-title{
+  font-size:13px;font-weight:700;color:var(--tw-text-body);margin-bottom:8px;
+  padding-left:9px;border-left:3px solid var(--tw-info)
+}
+.chip.win{
+  background:var(--tw-grad-success);color:var(--tw-on-accent);
+  border-color:var(--tw-success-border);font-weight:800
+}
+.lt-proof{
+  position:relative;z-index:1;padding-top:12px;border-top:1px solid var(--tw-divider);
+  display:flex;flex-direction:column;gap:5px
+}
+.lt-prow{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.lt-plabel{font-size:11px;color:var(--tw-text-subtle);flex-shrink:0}
+.lt-pval{
+  font-family:var(--tw-font-mono);font-size:11px;color:var(--tw-text-muted);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap
+}
+
+/* — 抽奖记录卡 — */
+.lh{
+  background:var(--tw-tile-bg);border:1px solid var(--tw-tile-border);
+  border-radius:var(--tw-tile-radius-lg);padding:12px 14px;
+  display:flex;gap:12px;align-items:flex-start
+}
+.lh-num{
+  flex-shrink:0;width:26px;height:26px;border-radius:50%;
+  background:var(--tw-success-soft);border:1px solid var(--tw-success-border);
+  color:var(--tw-success);font-size:13px;font-weight:700;
+  display:flex;align-items:center;justify-content:center
+}
+.lh-main{flex:1;min-width:0}
+.lh-title{
+  font-size:15px;font-weight:700;color:var(--tw-text);
+  display:flex;align-items:center;gap:8px;flex-wrap:wrap
+}
+.lh-user{font-size:11px;font-weight:600;color:var(--tw-text-subtle);font-family:var(--tw-font-mono)}
+.lh-meta{font-size:12px;color:var(--tw-text-muted);margin-top:5px;word-break:break-word}
+
 /* — 指令卡片（help） — */
 .sec{margin-bottom:14px}
 .sec-title{

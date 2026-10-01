@@ -53,5 +53,13 @@ export const HELP_SECTIONS: HelpSection[] = [
       { cmd: '投票提案 内容', desc: '提交自定义提案', channel: '群聊' },
     ],
   },
+  {
+    title: '抽奖',
+    items: [
+      { cmd: '抽奖', desc: '从在线玩家中抽一名', channel: '群聊' },
+      { cmd: '抽奖 服务器 服名', desc: '只在指定服抽取', channel: '群聊' },
+      { cmd: '抽奖 记录', desc: '最近开奖记录', channel: '群聊' },
+    ],
+  },
 
 ]

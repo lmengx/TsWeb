@@ -13,6 +13,7 @@ export { playerInfoCard } from './render/cards/info'
 export { bossProgressCard } from './render/cards/boss'
 export { onlineListCard, multiOnlineCard } from './render/cards/online'
 export { voteListCard, voteDetailCard, voteStateCard } from './render/cards/vote'
+export { lotteryResultCard, lotteryHistoryCard } from './render/cards/lottery'
 export { helpCard } from './render/cards/help'
 export { registerSuccessCard, bindSuccessCard } from './render/cards/account'
 
