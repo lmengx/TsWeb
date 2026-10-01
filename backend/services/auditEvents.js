@@ -313,6 +313,14 @@ export const AUDIT_EVENTS = {
     level: 'info', category: 'account_attr', title: '导出账号属性 CSV',
     fields: ['serverId', 'attr', 'rows', 'actor'], ip: false, sensitive: []
   },
+  'account.purge.preview': {
+    level: 'info', category: 'account_attr', title: '扫描待清理小号',
+    fields: ['days', 'serverId', 'scanned', 'candidates', 'actor'], ip: false, sensitive: []
+  },
+  'account.purge.execute': {
+    level: 'warn', category: 'account_attr', title: '清理小号账号（删除）',
+    fields: ['days', 'requested', 'deleted', 'skipped', 'usernames', 'actor'], ip: false, sensitive: []
+  },
 
   // ═══ worldmodify 类 — 世界修改器（单服直连，读/写插件端 /data/worldmodify/*）═══
   'worldModify.apply': {

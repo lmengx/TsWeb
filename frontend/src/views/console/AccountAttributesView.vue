@@ -1,6 +1,6 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
-import { get, apiRequest } from '../../utils/api.js'
+import { get, post, apiRequest } from '../../utils/api.js'
 import { getServers, fetchServers } from '../../utils/serverStore.js'
 import Loading from '../../components/Loading.vue'
 
@@ -335,6 +335,99 @@ const exportCsv = async () => {
   }
 }
 
+// ── 清理小号（手动触发 → 名单 → 确认删除）──
+//   候选：判定为小号(alt) 且 最后登录距今 >= purgeDays 天
+//   保护：管理组账号 + 已绑定 QQ 的账号（后端剔除，不进名单）
+//   删除：仅该账号所在那一台服；只删 TShock 账号行，保留角色存档与封禁记录
+const showPurge = ref(false)
+const purgeScanning = ref(false)
+const purgeExecuting = ref(false)
+const purgeData = ref(null)
+const purgeError = ref('')
+const purgeResult = ref(null)
+const purgeConfirmed = ref(false)
+const purgeSelected = ref(new Set())
+const purgeDays = ref(30)
+
+const purgeRows = computed(() => purgeData.value?.candidates || [])
+const purgeKey = (c) => `${c.serverId}-${c.username}`
+const purgeSelCount = computed(() => purgeRows.value.filter(c => purgeSelected.value.has(purgeKey(c))).length)
+const purgeAllSelected = computed(() => purgeRows.value.length > 0 && purgeSelCount.value === purgeRows.value.length)
+const purgeMaxItems = computed(() => purgeData.value?.limits?.maxExecuteItems || 500)
+
+const openPurge = () => {
+  showPurge.value = true
+  purgeResult.value = null
+  purgeError.value = ''
+  purgeConfirmed.value = false
+  scanPurge()
+}
+
+// 拉取候选并默认全选（保留 purgeResult，供执行后回显结果）
+const fetchPurge = async () => {
+  purgeScanning.value = true
+  purgeError.value = ''
+  try {
+    const res = await get(`/api/account/purge/preview?days=${purgeDays.value}`)
+    const json = await res.json()
+    if (json.error) throw new Error(json.error)
+    purgeData.value = json
+    purgeSelected.value = new Set((json.candidates || []).map(purgeKey))
+  } catch (err) {
+    purgeError.value = err.message
+    purgeData.value = null
+    purgeSelected.value = new Set()
+  } finally {
+    purgeScanning.value = false
+  }
+}
+
+// 手动（重新）扫描：先清掉上一次的执行结果
+const scanPurge = async () => {
+  purgeResult.value = null
+  purgeConfirmed.value = false
+  await fetchPurge()
+}
+
+const togglePurgeRow = (key) => {
+  const s = new Set(purgeSelected.value)
+  if (s.has(key)) s.delete(key)
+  else s.add(key)
+  purgeSelected.value = s
+  purgeConfirmed.value = false
+}
+
+const toggleAllPurge = () => {
+  purgeSelected.value = purgeAllSelected.value ? new Set() : new Set(purgeRows.value.map(purgeKey))
+  purgeConfirmed.value = false
+}
+
+const executePurge = async () => {
+  const items = purgeRows.value
+    .filter(c => purgeSelected.value.has(purgeKey(c)))
+    .map(c => ({ serverId: c.serverId, username: c.username }))
+  if (items.length === 0) { purgeError.value = '请先勾选要删除的账号'; return }
+  if (items.length > purgeMaxItems.value) {
+    purgeError.value = `单次最多删除 ${purgeMaxItems.value} 个账号，请分批执行`
+    return
+  }
+  purgeExecuting.value = true
+  purgeError.value = ''
+  try {
+    const res = await post('/api/account/purge/execute', { days: purgeDays.value, items })
+    const json = await res.json()
+    if (json.error) throw new Error(json.error)
+    purgeResult.value = json
+    purgeConfirmed.value = false
+    await fetchPurge()  // 重新扫描：名单随删除结果收敛
+    await loadData()    // 主列表同步刷新
+  } catch (err) {
+    purgeError.value = err.message
+  } finally {
+    purgeExecuting.value = false
+  }
+}
+
 // ── 初始化 ──
 onMounted(async () => {
   await loadServers()
@@ -369,6 +462,10 @@ const jumpToPlayer = (username) => {
         <button class="btn primary" @click="exportCsv" :disabled="exporting">
           <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
           {{ exporting ? '导出中...' : '导出 CSV' }}
+        </button>
+        <button class="btn purge-btn" @click="openPurge">
+          <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path><path d="M10 11v6M14 11v6"></path><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"></path></svg>
+          清理小号
         </button>
       </div>
     </div>
@@ -682,6 +779,136 @@ const jumpToPlayer = (username) => {
             </div>
           </div>
           <div v-else class="modal-loading">无法获取规则（插件未连接）</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 清理小号模态框（手动触发扫描 → 展示名单 → 勾选确认 → 删除） -->
+    <div v-if="showPurge" class="modal-mask" @click.self="showPurge = false">
+      <div class="modal purge-modal">
+        <div class="modal-header">
+          <h3>清理小号</h3>
+          <button class="modal-close" @click="showPurge = false">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="purge-rule">
+            <div class="purge-rule-line"><b>候选条件：</b>{{ purgeData?.rule?.description || `判定为小号 且 最后登录距今 >= ${purgeDays} 天` }}</div>
+            <div class="purge-rule-line"><b>已排除：</b>{{ purgeData?.rule?.protectedGroups || '管理组账号' }}；{{ purgeData?.rule?.qqBound || '已绑定 QQ 的账号' }}</div>
+            <div class="purge-rule-line"><b>删除范围：</b>{{ purgeData?.rule?.scope || '仅该账号所在的那一台服；只删 TShock 账号行，保留角色存档与封禁记录' }}</div>
+            <div class="purge-rule-line"><b>执行前复检：</b>{{ purgeData?.rule?.recheck || '执行前会按同样的条件复检一次，不再满足条件的账号不会删除' }}</div>
+          </div>
+
+          <div class="purge-toolbar">
+            <label class="purge-days">
+              未登录天数
+              <input
+                v-model.number="purgeDays"
+                type="number"
+                min="0"
+                step="1"
+                class="purge-days-input"
+                :disabled="purgeScanning || purgeExecuting"
+              />
+            </label>
+            <button class="btn mini" @click="scanPurge" :disabled="purgeScanning || purgeExecuting">
+              {{ purgeScanning ? '扫描中...' : '重新扫描' }}
+            </button>
+            <span v-if="purgeData" class="purge-stat">
+              扫描 {{ purgeData.scanned }} 个小号账号，命中 <b>{{ purgeData.total }}</b> 个候选
+            </span>
+            <span v-if="purgeData" class="purge-excluded">
+              已排除：管理组 {{ purgeData.excluded?.adminGroup || 0 }} · QQ 绑定 {{ purgeData.excluded?.qqBound || 0 }} · 无登录记录 {{ purgeData.excluded?.unknownLastAccess || 0 }} · 未满天数 {{ purgeData.excluded?.recentlyActive || 0 }}
+            </span>
+          </div>
+
+          <div v-if="purgeError" class="error-message">{{ purgeError }}</div>
+          <div v-if="purgeScanning" class="modal-loading">正在扫描候选账号...</div>
+
+          <template v-else-if="purgeData">
+            <div v-if="purgeRows.length === 0" class="purge-empty">
+              没有符合条件的账号（判定为小号 且 近 {{ purgeData.inactiveDays }} 天未登录）
+            </div>
+            <template v-else>
+              <div v-if="purgeRows.length > purgeMaxItems" class="purge-warn">
+                候选 {{ purgeRows.length }} 个，超过单次上限 {{ purgeMaxItems }} 个，请分批勾选执行。
+              </div>
+              <div class="purge-table-wrap">
+                <table class="purge-table">
+                  <thead>
+                    <tr>
+                      <th class="purge-check">
+                        <input type="checkbox" :checked="purgeAllSelected" @change="toggleAllPurge" />
+                      </th>
+                      <th>服务器</th>
+                      <th>账号</th>
+                      <th>用户组</th>
+                      <th>最后登录</th>
+                      <th>未登录</th>
+                      <th>累计时长</th>
+                      <th>近30天</th>
+                      <th>关联组</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr
+                      v-for="c in purgeRows"
+                      :key="purgeKey(c)"
+                      :class="{ picked: purgeSelected.has(purgeKey(c)) }"
+                    >
+                      <td class="purge-check">
+                        <input
+                          type="checkbox"
+                          :checked="purgeSelected.has(purgeKey(c))"
+                          @change="togglePurgeRow(purgeKey(c))"
+                        />
+                      </td>
+                      <td>{{ c.serverName }}</td>
+                      <td class="purge-name">{{ c.username }}</td>
+                      <td>{{ c.group || '-' }}</td>
+                      <td>{{ c.lastAccess || '-' }}</td>
+                      <td>{{ c.inactiveDays }} 天</td>
+                      <td>{{ fmtMinutes(c.totalMinutes) }}</td>
+                      <td>{{ fmtMinutes(c.recent30dMinutes) }}</td>
+                      <td>{{ c.relGroupSize || 1 }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div class="purge-actions">
+                <label class="purge-confirm">
+                  <input type="checkbox" v-model="purgeConfirmed" :disabled="purgeExecuting" />
+                  我确认删除以上勾选的 {{ purgeSelCount }} 个账号（不可撤销）
+                </label>
+                <button
+                  class="btn purge-danger"
+                  :disabled="!purgeConfirmed || purgeSelCount === 0 || purgeExecuting"
+                  @click="executePurge"
+                >
+                  {{ purgeExecuting ? '删除中...' : `确认删除 ${purgeSelCount} 个账号` }}
+                </button>
+              </div>
+            </template>
+          </template>
+
+          <!-- 执行结果（删除成功与跳过逐条列出，跳过必须给出原因） -->
+          <div v-if="purgeResult" class="purge-result">
+            <div class="purge-result-head">
+              执行完成：请求 {{ purgeResult.requested }} 个，已删除 <b>{{ purgeResult.deletedCount }}</b> 个，跳过 {{ purgeResult.skippedCount }} 个
+            </div>
+            <div v-if="purgeResult.deleted?.length" class="purge-result-block">
+              <div class="purge-result-title">已删除</div>
+              <div v-for="(d, i) in purgeResult.deleted" :key="'del' + i" class="purge-result-line ok">
+                {{ d.serverName }} · {{ d.username }}
+              </div>
+            </div>
+            <div v-if="purgeResult.skipped?.length" class="purge-result-block">
+              <div class="purge-result-title">已跳过</div>
+              <div v-for="(s, i) in purgeResult.skipped" :key="'skip' + i" class="purge-result-line skip">
+                {{ s.serverName || '-' }} · {{ s.username || '-' }}：{{ s.reason }}
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -1336,4 +1563,153 @@ const jumpToPlayer = (username) => {
   flex-shrink: 0;
 }
 .rule-desc { color: var(--text-primary); line-height: 1.5; }
+
+/* ── 清理小号 ── */
+.btn.purge-btn {
+  background: transparent;
+  border-color: #b91c1c;
+  color: #f87171;
+}
+.btn.purge-btn:hover:not(:disabled) {
+  border-color: #ef4444;
+  color: #fca5a5;
+  box-shadow: 0 0 12px rgba(239, 68, 68, 0.25);
+}
+.btn.purge-danger {
+  background: #b91c1c;
+  border-color: #b91c1c;
+  color: #fff;
+}
+.btn.purge-danger:hover:not(:disabled) {
+  background: #dc2626;
+  border-color: #dc2626;
+  color: #fff;
+  box-shadow: 0 0 12px rgba(239, 68, 68, 0.35);
+}
+.modal.purge-modal { width: min(1000px, 95vw); }
+
+.purge-rule {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  border: 1px solid var(--border-color);
+  border-left: 3px solid #b91c1c;
+  border-radius: var(--radius-md);
+  background: var(--bg-tertiary, rgba(148, 163, 184, 0.06));
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+.purge-rule-line b { color: var(--text-primary); font-weight: 600; }
+
+.purge-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+}
+.purge-days { display: inline-flex; align-items: center; gap: 6px; }
+.purge-days-input {
+  width: 72px;
+  padding: 4px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 0.82rem;
+}
+.purge-stat b { color: #f87171; }
+.purge-excluded { color: var(--text-muted); }
+
+.purge-empty {
+  padding: 24px 0;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.88rem;
+}
+.purge-warn {
+  padding: 8px 12px;
+  margin-bottom: 10px;
+  border-radius: var(--radius-md);
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  color: #fbbf24;
+  font-size: 0.82rem;
+}
+
+.purge-table-wrap {
+  max-height: 44vh;
+  overflow: auto;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+}
+.purge-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+.purge-table th,
+.purge-table td {
+  padding: 6px 10px;
+  text-align: left;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--border-color);
+}
+.purge-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+.purge-table tbody tr:hover { background: rgba(148, 163, 184, 0.08); }
+.purge-table tbody tr.picked { background: rgba(185, 28, 28, 0.1); }
+.purge-name { color: var(--text-primary); font-weight: 500; }
+.purge-check { width: 36px; text-align: center; }
+.purge-check input { cursor: pointer; }
+
+.purge-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+.purge-confirm {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.purge-confirm input { cursor: pointer; }
+
+.purge-result {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-color);
+}
+.purge-result-head { font-size: 0.86rem; color: var(--text-primary); margin-bottom: 10px; }
+.purge-result-head b { color: #f87171; }
+.purge-result-block { margin-bottom: 10px; }
+.purge-result-title {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+.purge-result-line {
+  font-size: 0.8rem;
+  line-height: 1.6;
+  padding-left: 10px;
+}
+.purge-result-line.ok { color: #34d399; }
+.purge-result-line.skip { color: #fbbf24; }
 </style>

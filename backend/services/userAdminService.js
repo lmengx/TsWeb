@@ -94,13 +94,15 @@ export async function renameUser({ username, newName, mode = 'qq', serverId = ''
  * 广播各服删除 → 可选删台账（unbindQq）→ 可选删后端管理账户（deleteBackendAccount）
  * @returns {{ ok, total, unbindQq, backendAccountDeleted, failed: [] }}
  */
-export async function deleteUser({ username, deleteCharacter = true, deleteBans = true, unbindQq = true, deleteBackendAccount = false }) {
+export async function deleteUser({ username, deleteCharacter = true, deleteBans = true, unbindQq = true, deleteBackendAccount = false, serverId = '' }) {
   const name = String(username || '').trim()
   if (!name) throw new Error('缺少参数: username')
 
-  // 1) 广播各服删除
+  // 1) 广播删除；serverId 非空时只作用于该服（小号清理等定向场景：
+  //    同一用户名可能在别的服是正常账号，绝不能跨服误删）
   const servers = await enabledServers()
-  const results = await Promise.allSettled(servers.map(async s => {
+  const targets = serverId ? servers.filter(s => String(s.id) === String(serverId)) : servers
+  const results = await Promise.allSettled(targets.map(async s => {
     const r = await pluginFetch(s, '/data/users/delete', {
       username: name,
       deleteCharacter: deleteCharacter ? 'true' : 'false',
@@ -142,7 +144,7 @@ export async function deleteUser({ username, deleteCharacter = true, deleteBans 
     }
   }
 
-  return { ok, total: servers.length, unbindQq: unbound, backendAccountDeleted, failed }
+  return { ok, total: targets.length, unbindQq: unbound, backendAccountDeleted, failed }
 }
 
 /**

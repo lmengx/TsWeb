@@ -8,6 +8,7 @@ import {
   attrLabel,
   attrList
 } from '../services/accountAttributeService.js'
+import { findAltPurgeCandidates, executeAltPurge } from '../services/altPurgeService.js'
 
 // ═══════════════════════════════════════════════════════════
 // 账号属性判定（多服聚合）
@@ -15,6 +16,8 @@ import {
 //   GET /api/account/meta        判定规则说明（语义明确，前端规则面板用）
 //   GET /api/account/export      当前筛选结果 CSV 导出
 //   GET /api/account/attrs       属性字典（key -> 中文标签）
+//   GET /api/account/purge/preview   小号清理候选扫描
+//   POST /api/account/purge/execute  小号清理执行（删除）
 // 权限：manager 级（admin + subadmin）
 // ═══════════════════════════════════════════════════════════
 
@@ -126,6 +129,50 @@ router.get('/export', verifyToken, requireManager, async (req, res) => {
     res.send(csv)
   } catch (err) {
     res.status(500).json({ status: '500', error: err.message })
+  }
+})
+
+// ═══════════════════════════════════════════════════════════
+// 小号清理（手动触发 → 候选名单 → 确认删除）
+//   候选：判定为小号(alt) 且 最后登录距今 >= days 天（默认 30）
+//   保护：管理组账号 + 已绑定 QQ 的账号（不进名单）
+//   删除：仅该账号所在那一台服；只删 TShock 账号行，保留角色存档与封禁记录
+// ═══════════════════════════════════════════════════════════
+
+router.get('/purge/preview', verifyToken, requireManager, async (req, res) => {
+  try {
+    const days = req.query.days || 30
+    const serverId = req.query.serverId || ''
+    const result = await findAltPurgeCandidates({ days, serverId })
+    audit.record('account.purge.preview', {
+      days: result.inactiveDays,
+      serverId: serverId || 'all',
+      scanned: result.scanned,
+      candidates: result.total,
+      actor: req.user?.username || 'unknown'
+    })
+    res.json(result)
+  } catch (err) {
+    res.status(500).json({ status: '500', error: err.message })
+  }
+})
+
+router.post('/purge/execute', verifyToken, requireManager, async (req, res) => {
+  try {
+    const { items, days } = req.body || {}
+    const result = await executeAltPurge({ items, days: days || 30 })
+    audit.record('account.purge.execute', {
+      days: result.inactiveDays,
+      requested: result.requested,
+      deleted: result.deletedCount,
+      skipped: result.skippedCount,
+      // 只记录实际删除的账号（跳过的不记，避免日志被未执行项淹没）
+      usernames: result.deleted.map(d => `${d.serverName}:${d.username}`),
+      actor: req.user?.username || 'unknown'
+    })
+    res.json({ status: 'ok', ...result })
+  } catch (err) {
+    res.status(400).json({ status: '400', error: err.message })
   }
 })
 

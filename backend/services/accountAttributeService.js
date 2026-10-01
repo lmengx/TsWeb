@@ -56,11 +56,11 @@ export async function getRuleMeta() {
 }
 
 /**
- * 聚合全部启用服账号属性。
- * @param {object} filters { attr, keyword, minMinutes, maxMinutes, sortBy, sortDir, page, pageSize, serverId }
- * @returns 聚合结果：{ generatedAt, servers, summary, total, page, pageSize, accounts }
+ * 拉取 + 合并 + 筛选 + 排序（不分页）——aggregateAttributes 与 getAllFiltered 的公共前段。
+ * 只在这里访问各服插件一次，避免「每个输出页都重新拉全量」的放大。
+ * @returns {Promise<{ generatedAt, servers, summary, filteredSummary, total, filtered }>}
  */
-export async function aggregateAttributes(filters = {}) {
+async function collectFiltered(filters = {}) {
   const servers = (await getServers()).filter(s => s.enabled !== false && s.host && s.port)
   const { serverId } = filters
 
@@ -177,27 +177,54 @@ export async function aggregateAttributes(filters = {}) {
     return sortDir === 'asc' ? cmp : -cmp
   })
 
-  const total = filtered.length
-  const page = Math.max(1, parseInt(filters.page) || 1)
-  const pageSize = Math.min(1000, Math.max(1, parseInt(filters.pageSize) || 100))
-  const pageAccounts = filtered.slice((page - 1) * pageSize, page * pageSize)
-
   return {
     generatedAt: new Date().toISOString(),
     servers: serverInfo,
     summary,
     filteredSummary,
-    total,
-    page,
-    pageSize,
-    accounts: pageAccounts
+    total: filtered.length,
+    filtered
   }
 }
 
-/** 全量筛选结果（CSV 导出用，不受分页限制） */
+/**
+ * 聚合全部启用服账号属性（分页视图）。
+ * @param {object} filters { attr, keyword, minMinutes, maxMinutes, sortBy, sortDir, page, pageSize, serverId }
+ * @returns 聚合结果：{ generatedAt, servers, summary, filteredSummary, total, page, pageSize, accounts }
+ */
+export async function aggregateAttributes(filters = {}) {
+  const base = await collectFiltered(filters)
+  const page = Math.max(1, parseInt(filters.page) || 1)
+  const pageSize = Math.min(1000, Math.max(1, parseInt(filters.pageSize) || 100))
+  return {
+    generatedAt: base.generatedAt,
+    servers: base.servers,
+    summary: base.summary,
+    filteredSummary: base.filteredSummary,
+    total: base.total,
+    page,
+    pageSize,
+    accounts: base.filtered.slice((page - 1) * pageSize, page * pageSize)
+  }
+}
+
+/**
+ * 全量筛选结果（CSV 导出 / 小号清理扫描用，不受分页限制）。
+ * 走 collectFiltered 直接拿未分页结果：既不会被 1000 的 pageSize 上限静默截断，
+ * 也不会因为翻页而重复拉取各服。
+ */
 export async function getAllFiltered(filters = {}) {
-  const agg = await aggregateAttributes({ ...filters, page: 1, pageSize: 1000000 })
-  return { ...agg, page: 1, pageSize: agg.total, accounts: agg.accounts }
+  const base = await collectFiltered(filters)
+  return {
+    generatedAt: base.generatedAt,
+    servers: base.servers,
+    summary: base.summary,
+    filteredSummary: base.filteredSummary,
+    total: base.total,
+    page: 1,
+    pageSize: base.total,
+    accounts: base.filtered
+  }
 }
 
 // ── 概览统计 ──
