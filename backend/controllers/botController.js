@@ -3,6 +3,14 @@ import bcrypt from 'bcrypt'
 import { getConfig, getServers, updateBotSettings } from '../config.js'
 import { upsertAccount, getAccountByQq, getAccountByUsername, getAccountByUsernameCI, removeAccount, broadcastFullAll, broadcastUuid, getAccounts } from '../services/qqAccountService.js'
 import { getPlaytime, getPlaytimeRecords, aggregateAll, startAggregation, stopAggregation } from '../services/qqPlaytimeService.js'
+import {
+  getNicknameMap,
+  saveNicknames,
+  requestNicknameTask,
+  claimNicknameTask,
+  finishNicknameTask,
+  getNicknameTask
+} from '../services/qqNicknameService.js'
 import audit from '../services/auditLogger.js'
 import voteService from '../services/voteService.js'
 import lotteryService from '../services/lotteryService.js'
@@ -674,17 +682,23 @@ export const votePropose = async (req, res) => {
 
 /**
  * QQ 绑定列表：GET /api/bot/qq-list
- * 台账全量 + 多服时长聚合，按时长降序
+ * 台账全量 + 多服时长聚合 + QQ 昵称缓存，按时长降序
+ *
+ * 昵称来自 qqNicknameService 的缓存（按 QQ 建键），未获取过则为空串——
+ * 前端据此显示"未获取"而不是拿 QQ 号冒充昵称。
  */
 export const qqList = async (_req, res) => {
   try {
     const accounts = await getAccounts()
     const playtime = await getPlaytimeRecords()
+    const nicknames = await getNicknameMap()
     const list = Object.entries(accounts).map(([username, rec]) => {
       const pt = playtime[username]
+      const qq = String(rec.qq || '')
       return {
         username,
-        qq: rec.qq || '',
+        qq,
+        nickname: qq ? (nicknames[qq] || '') : '',
         updatedAt: rec.updatedAt || '',
         playtime: pt ? { total: pt.total || 0, servers: pt.servers || {} } : { total: 0, servers: {} }
       }
@@ -713,6 +727,103 @@ export const refreshPlaytime = async (req, res) => {
     res.json({ status: 'ok', ...result })
   } catch (err) {
     console.error('[QQ时长] 手动聚合失败:', err.message)
+    res.status(500).json({ error: err.message })
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// QQ 昵称获取（管理页「获取昵称」→ 机器人轮询领取 → 回报）
+//
+// 为什么是"任务 + 轮询"而不是后端主动拉：
+//   后端与机器人之间只有"机器人 → 后端"这一个方向（机器人持 bot token 调后端），
+//   反向不可达，也没有任何 QQ 框架接口配置。所以页面点一下只能登记任务，
+//   由机器人定时轮询领取、取完回报——这也是本仓库既有 botRoutes 的既定方向。
+// ═══════════════════════════════════════════════════════════
+
+/** 单次上报的条数上限（防御异常大包；正常绑定数远小于此） */
+const NICKNAME_REPORT_LIMIT = 2000
+
+/**
+ * 请求获取昵称：POST /api/bot/nickname-refresh
+ * 登记一个刷新任务（已有进行中的任务则原样返回，连点不会产生多份重复拉取）
+ */
+export const nicknameRefresh = async (req, res) => {
+  try {
+    const accounts = await getAccounts()
+    const qqs = []
+    const seen = new Set()
+    for (const rec of Object.values(accounts)) {
+      const qq = String((rec && rec.qq) || '').trim()
+      if (!qq || seen.has(qq)) continue
+      seen.add(qq)
+      qqs.push(qq)
+    }
+    const task = requestNicknameTask({ actor: req.user?.username || 'admin', qqs })
+    audit.record('qq_nickname.refresh', {
+      actor: req.user?.username || 'admin',
+      taskId: task?.id || '',
+      total: task?.total || 0
+    })
+    console.log(`[QQ昵称] 登记刷新任务: ${task?.id} 待获取 ${task?.total} 个 QQ`)
+    res.json({ status: 'ok', task })
+  } catch (err) {
+    console.error('[QQ昵称] 登记刷新任务失败:', err.message)
+    res.status(500).json({ error: err.message })
+  }
+}
+
+/**
+ * 查询刷新任务状态：GET /api/bot/nickname-status
+ * 管理页轮询用；过期由服务端惰性判定，超时会带出 error 说明原因
+ */
+export const nicknameStatus = async (_req, res) => {
+  try {
+    res.json({ status: 'ok', task: getNicknameTask() })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+}
+
+/**
+ * 机器人领取昵称刷新任务：GET /api/bot/nickname-task
+ * 无待领取任务 → task 为 null（机器人据此什么都不做，不产生副作用）
+ * 领取后返回需要获取昵称的 QQ 列表（该任务随即转为 claimed，不会被重复领取）
+ */
+export const nicknameTask = async (_req, res) => {
+  try {
+    const claimed = claimNicknameTask()
+    if (!claimed) return res.json({ status: 'ok', task: null })
+    console.log(`[QQ昵称] 机器人领取任务: ${claimed.id}（${claimed.total} 个 QQ）`)
+    res.json({ status: 'ok', task: claimed })
+  } catch (err) {
+    console.error('[QQ昵称] 领取任务失败:', err.message)
+    res.status(500).json({ error: err.message })
+  }
+}
+
+/**
+ * 机器人上报昵称：POST /api/bot/qq-nickname
+ * body: { taskId?: string, entries: [{ qq, nickname }] }（取不到昵称的条目可带 error）
+ * 返回逐条失败原因，便于页面显示"哪些没取到"
+ */
+export const reportNicknames = async (req, res) => {
+  try {
+    const entries = Array.isArray(req.body?.entries) ? req.body.entries : null
+    if (!entries) return res.status(400).json({ error: '缺少参数: entries（数组）' })
+    if (entries.length > NICKNAME_REPORT_LIMIT) {
+      return res.status(413).json({ error: `单次上报条数超过上限 ${NICKNAME_REPORT_LIMIT}` })
+    }
+
+    const result = await saveNicknames(entries, { source: 'bot' })
+    const taskId = String(req.body?.taskId || '')
+    let task = null
+    if (taskId) {
+      task = finishNicknameTask(taskId, { stored: result.stored, failed: result.failed })
+    }
+    console.log(`[QQ昵称] 机器人上报: 写入 ${result.stored} 条，未取到 ${result.failed.length} 条${taskId ? `（任务 ${taskId}）` : ''}`)
+    res.json({ status: 'ok', stored: result.stored, skipped: result.skipped, failed: result.failed, task })
+  } catch (err) {
+    console.error('[QQ昵称] 上报失败:', err.message)
     res.status(500).json({ error: err.message })
   }
 }

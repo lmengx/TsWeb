@@ -3,7 +3,8 @@ import {
   register, changePassword, bind, listServers, requireBotToken,
   playerInfo, online, bossProgress, votes, voteCast, votePropose,
   lotteryDraw,
-  qqList, qqBind, qqUnbind, qqRebind, getBotSettings, setBotSettings, refreshPlaytime
+  qqList, qqBind, qqUnbind, qqRebind, getBotSettings, setBotSettings, refreshPlaytime,
+  nicknameRefresh, nicknameStatus, nicknameTask, reportNicknames
 } from '../controllers/botController.js'
 import { verifyToken, requireAdmin } from '../middlewares/authMiddleware.js'
 
@@ -36,6 +37,12 @@ router.get('/settings', verifyToken, requireAdmin, getBotSettings)
 
 // 机器人设置保存：POST /api/bot/settings
 router.post('/settings', verifyToken, requireAdmin, setBotSettings)
+
+// 请求获取绑定 QQ 的昵称（登记刷新任务，由机器人轮询领取后回报）：POST /api/bot/nickname-refresh
+router.post('/nickname-refresh', verifyToken, requireAdmin, nicknameRefresh)
+
+// 昵称刷新任务状态（管理页轮询进度/失败原因）：GET /api/bot/nickname-status
+router.get('/nickname-status', verifyToken, requireAdmin, nicknameStatus)
 
 // —— 机器人接口（bot token）——
 router.use(requireBotToken)
@@ -72,5 +79,11 @@ router.post('/vote-cast', voteCast)
 
 // 投票提案（机器人「投票提案」命令）：POST /api/bot/vote-propose { qq, text }
 router.post('/vote-propose', votePropose)
+
+// 领取昵称刷新任务（机器人定时轮询；无任务返回 task:null）：GET /api/bot/nickname-task
+router.get('/nickname-task', nicknameTask)
+
+// 上报 QQ 昵称：POST /api/bot/qq-nickname { taskId?, entries:[{qq,nickname}] }
+router.post('/qq-nickname', reportNicknames)
 
 export default router

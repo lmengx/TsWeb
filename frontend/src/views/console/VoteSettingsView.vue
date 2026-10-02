@@ -274,6 +274,36 @@ const openDetail = async (r) => {
 
 const proposals = computed(() => (detail.value?.options || []).filter(o => o.type === 'custom'))
 
+/**
+ * 投票人列文案：只显示已绑定的真实角色名，未绑定则「未绑定」。
+ * 未绑定时 v.username 是 qq:123456 这类伪身份，不能直接展示；
+ * 也刻意不退回昵称——昵称已经在右侧 QQ 列以「昵称：QQ号」呈现，这里再显示一遍就是重复。
+ */
+const voterName = (v) => v.player || '未绑定'
+
+/**
+ * 提案者文案（选项标签 / 明细分组头 / 提案人列共用）：
+ * 优先用后端富化的 proposerDisplay（有昵称就是昵称，否则是 QQ 号；网页玩家提案则是角色名）。
+ * 已绑定角色时一并带上角色名，便于管理员把 QQ 对应到游戏账号。
+ * 匿名提案是否展示由各处的 v-if 守卫决定，本函数不参与匿名策略。
+ */
+const proposerText = (o) => {
+  const display = String(o?.proposerDisplay || '') || String(o?.proposer || '')
+  if (!o?.proposerQq) return display
+  const player = String(o?.proposerPlayer || '')
+  return player ? `${display}（${player}）` : display
+}
+
+/**
+ * QQ 列文案：昵称非空时显示「昵称：QQ号」，否则只显示 QQ 号。
+ * 昵称默认就是号码本身，两者相同就不重复显示。
+ */
+const voterQq = (v) => {
+  if (!v.qq) return '—'
+  const nick = v.nickname && v.nickname !== v.qq ? v.nickname : ''
+  return nick ? `${nick}：${v.qq}` : String(v.qq)
+}
+
 // ── 轮次操作 ──
 const closeRound = async (r) => {
   if (!confirm(`确认结束「${r.title}」？结束后玩家无法再投票/提案`)) return
@@ -520,7 +550,7 @@ onMounted(loadRounds)
             <span class="c-option">
               {{ o.text }}
               <span v-if="o.type === 'custom'" class="tag custom">自定义</span>
-              <span v-if="o.type === 'custom' && !o.anonymous" class="tag proposer">{{ o.proposer }}</span>
+              <span v-if="o.type === 'custom' && !o.anonymous" class="tag proposer" :title="proposerText(o)">{{ proposerText(o) }}</span>
               <span v-else-if="o.type === 'custom'" class="tag anon">匿名</span>
             </span>
             <span class="c-score">{{ o.score }}</span>
@@ -654,7 +684,7 @@ onMounted(loadRounds)
               <div class="group-head">
                 <span class="group-name">
                   {{ o.text }}
-                  <span v-if="o.type === 'custom' && !o.anonymous" class="tag proposer">{{ o.proposer }} 提案</span>
+                  <span v-if="o.type === 'custom' && !o.anonymous" class="tag proposer" :title="proposerText(o)">{{ proposerText(o) }} 提案</span>
                   <span v-else-if="o.type === 'custom'" class="tag anon">匿名提案</span>
                 </span>
                 <span class="group-stat"><b class="score-blue">{{ o.score }}</b> 分 · {{ o.votes }} 票</span>
@@ -664,8 +694,8 @@ onMounted(loadRounds)
                   <span>投票人</span><span>QQ</span><span>权重</span><span>时间</span>
                 </div>
                 <div v-for="(v, vi) in o.voters" :key="vi" class="voter-row">
-                  <span class="v-name">{{ v.username }}</span>
-                  <span class="v-qq">{{ v.qq || '—' }}</span>
+                  <span class="v-name" :title="voterName(v)">{{ voterName(v) }}</span>
+                  <span class="v-qq" :title="voterQq(v)">{{ voterQq(v) }}</span>
                   <span class="v-w">{{ v.weight }}</span>
                   <span class="v-at">{{ fmtTime(v.at) }}</span>
                 </div>
@@ -685,7 +715,7 @@ onMounted(loadRounds)
                 </div>
                 <div v-for="o in proposals" :key="o.id" class="voter-row">
                   <span class="v-name">{{ o.text }}</span>
-                  <span class="v-qq">{{ o.proposer || '—' }}</span>
+                  <span class="v-qq" :title="proposerText(o)">{{ proposerText(o) || '—' }}</span>
                   <span class="v-w">{{ o.anonymous ? '是' : '否' }}</span>
                   <span class="v-at">{{ o.votes }} 票 / {{ o.score }} 分</span>
                 </div>
@@ -701,8 +731,8 @@ onMounted(loadRounds)
                     <span>投票人</span><span>QQ</span><span>权重</span><span>时间</span>
                   </div>
                   <div v-for="(v, vi) in o.voters" :key="vi" class="voter-row">
-                    <span class="v-name">{{ v.username }}</span>
-                    <span class="v-qq">{{ v.qq || '—' }}</span>
+                    <span class="v-name" :title="voterName(v)">{{ voterName(v) }}</span>
+                    <span class="v-qq" :title="voterQq(v)">{{ voterQq(v) }}</span>
                     <span class="v-w">{{ v.weight }}</span>
                     <span class="v-at">{{ fmtTime(v.at) }}</span>
                   </div>
@@ -951,7 +981,8 @@ onMounted(loadRounds)
 .voter-row:not(.header) { border-top: 1px solid var(--border-light); }
 .voter-row.header { background: var(--bg-hover); font-weight: 600; color: var(--text-secondary); font-size: 0.74rem; }
 .v-name { color: var(--text-primary); font-weight: 600; overflow-wrap: anywhere; }
-.v-qq { color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+/* 「昵称：QQ号」可能很长：单行省略（overflow 使网格项自动最小尺寸归零，不会顶宽列），完整内容见 title */
+.v-qq { color: var(--text-secondary); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .v-w { color: #3b82f6; font-weight: 700; font-variant-numeric: tabular-nums; }
 .v-at { color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .group-empty { padding: 16px 14px; text-align: center; color: var(--text-muted); font-size: 0.82rem; }

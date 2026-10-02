@@ -468,8 +468,9 @@ const closeBatchExportModal = () => {
             </th>
             <th>状态</th>
             <th>ID</th>
-            <th>用户名</th>
+            <th class="col-name">用户名</th>
             <th>用户组</th>
+            <th class="col-qq">QQ</th>
           </tr>
         </thead>
         <tbody>
@@ -493,8 +494,15 @@ const closeBatchExportModal = () => {
               <span v-else class="offline-indicator" title="离线"></span>
             </td>
             <td>{{ user.id }}</td>
-            <td>{{ user.name }}</td>
+            <td class="col-name">{{ user.name }}</td>
             <td>{{ user.group }}</td>
+            <td class="col-qq">
+              <div v-if="user.qq" class="qq-cell">
+                <span v-if="user.qqNickname" class="qq-nick" :title="user.qqNickname">{{ user.qqNickname }}</span>
+                <span class="qq-number" :title="user.qq">{{ user.qqNickname ? `（${user.qq}）` : user.qq }}</span>
+              </div>
+              <span v-else class="qq-empty">—</span>
+            </td>
           </tr>
         </tbody>
       </table>
@@ -978,6 +986,44 @@ const closeBatchExportModal = () => {
   cursor: pointer;
   accent-color: var(--accent-primary);
   margin: 0;
+}
+
+/* 用户名是本表主信息，给一个下限宽度，避免被新增的 QQ 列挤压 */
+.col-name {
+  min-width: 150px;
+}
+
+/* ═══ QQ 列：昵称（主文本）+ QQ 号（次要），昵称过长省略号截断 ═══ */
+.col-qq {
+  width: 190px;
+  max-width: 190px;
+}
+
+.qq-cell {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+}
+
+/* overflow:hidden 使该 flex 项的自动最小尺寸为 0，昵称才能被省略号截断 */
+.qq-nick {
+  color: var(--text-primary);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* QQ 号不允许被压掉，始终完整可见 */
+.qq-number {
+  flex-shrink: 0;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.qq-empty {
+  color: var(--text-muted);
 }
 
 .selected-row {

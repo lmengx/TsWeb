@@ -64,6 +64,19 @@ const canVote = (r, o) => {
   return r.my.votesLeft > 0
 }
 
+/**
+ * 提案者标签文案：QQ 身份优先显示「昵称：QQ号」，昵称为空（或昵称就是号码本身）时只显示 QQ 号，
+ * 避免出现「123456：123456」这种重复；该 QQ 已绑定游戏角色时再补上角色名。
+ * 网页登录等非 QQ 身份的 proposerQq 为空串，维持后端下发的 proposerDisplay。
+ * 匿名提案后端对这四个字段一律下发空串，模板中 o.anonymous 分支已先行拦截，不会走到这里。
+ */
+const proposerLabel = (o) => {
+  if (!o.proposerQq) return `${o.proposerDisplay || ''} 提案`
+  const nick = o.proposerNickname && o.proposerNickname !== o.proposerQq ? o.proposerNickname : ''
+  const who = nick ? `${nick}：${o.proposerQq}` : `QQ ${o.proposerQq}`
+  return o.proposerPlayer ? `${who}（${o.proposerPlayer}） 提案` : `${who} 提案`
+}
+
 /** 是否显示提案栏位（登录 + 进行中 + 开放提案 + 有剩余额度） */
 const canPropose = computed(() =>
   isLoggedIn.value &&
@@ -531,7 +544,7 @@ onBeforeUnmount(() => {
             >
               <span class="opt-text">{{ o.text }}</span>
               <span v-if="o.type === 'custom' && o.anonymous" class="tag anon">匿名提案</span>
-              <span v-else-if="o.type === 'custom'" class="tag proposer">{{ o.proposer }} 提案</span>
+              <span v-else-if="o.type === 'custom'" class="tag proposer" :title="proposerLabel(o)">{{ proposerLabel(o) }}</span>
               <span v-if="currentRound.my?.votedOptions?.includes(o.id)" class="voted-mark">✓ 已投</span>
               <span v-else-if="selectedId === o.id" class="confirm-hint">再点一次确认</span>
             </button>
@@ -981,7 +994,8 @@ onBeforeUnmount(() => {
 }
 
 .tag { font-size: 0.66rem; padding: 1px 8px; border-radius: 8px; font-weight: 600; white-space: nowrap; }
-.tag.proposer { background: rgba(59, 130, 246, 0.1); color: #2563eb; }
+/* 昵称可能很长：限宽 + 省略号，完整文案由 title 悬停查看，避免把选项行撑破 */
+.tag.proposer { background: rgba(59, 130, 246, 0.1); color: #2563eb; max-width: 46%; overflow: hidden; text-overflow: ellipsis; }
 .tag.anon { background: rgba(100, 116, 139, 0.12); color: #64748b; }
 
 .voted-mark { color: #16a34a; font-size: 0.78rem; font-weight: 800; white-space: nowrap; }

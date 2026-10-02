@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { apiRequest } from '../../utils/api.js'
 import Loading from '../../components/Loading.vue'
 
@@ -27,6 +27,7 @@ const filtered = computed(() => {
   if (!q) return list.value
   return list.value.filter(row =>
     row.username?.toLowerCase().includes(q) ||
+    String(row.nickname || '').toLowerCase().includes(q) ||
     String(row.qq || '').includes(q)
   )
 })
@@ -79,6 +80,117 @@ const refreshPlaytime = async () => {
       flashMsg(d.error || '刷新失败', true)
     }
   } catch (e) { flashMsg(e.message, true) } finally { refreshing.value = false }
+}
+
+// ── 获取 QQ 昵称 ──
+// QQ 昵称只存在于 QQ 侧，而后端与机器人之间只有「机器人 → 后端」一个方向
+// （机器人持 token 调后端，反向不可达），所以这里的「获取」是：
+//   前端登记任务 → 机器人按自己的轮询间隔来领取 → 取完回报 → 前端轮询任务状态。
+// 因此点击后需要等待一个轮询周期，不能假设"点完立刻就有"。
+const nickLoading = ref(false)
+const nickTask = ref(null)
+let nickTimer = null
+
+/** 任务轮询间隔（前端；比机器人轮询更密，只为尽快看到结果，不产生额外后端压力） */
+const NICK_POLL_MS = 2000
+/** 终态：到这两个状态就停止轮询 */
+const NICK_FINAL_STATES = ['done', 'timeout']
+
+const stopNickPoll = () => {
+  if (nickTimer) { clearInterval(nickTimer); nickTimer = null }
+}
+
+/** 任务是否仍在进行中 */
+const nickRunning = computed(() =>
+  !!nickTask.value && !NICK_FINAL_STATES.includes(nickTask.value.state))
+
+/** 进行中的阶段说明（让"为什么还没出来"可见） */
+const nickPhase = computed(() => {
+  if (!nickTask.value) return ''
+  if (nickTask.value.state === 'pending') return '等待机器人领取任务'
+  if (nickTask.value.state === 'claimed') return '机器人正在查询昵称'
+  return ''
+})
+
+/** 把任务收尾（成功提示 + 刷新列表；失败则显示原因） */
+const settleNickTask = () => {
+  const t = nickTask.value
+  nickLoading.value = false
+  if (!t) return
+  if (t.state === 'done') {
+    if (t.error) {
+      // 后端在"完成但无事可做"时会给说明（例如当前没有任何绑定 QQ），原样透传
+      flashMsg(t.error)
+    } else if (t.failedCount > 0) {
+      flashMsg(`昵称获取完成：成功 ${t.stored} 个，未取到 ${t.failedCount} 个`)
+    } else {
+      flashMsg(`昵称获取完成：共 ${t.stored} 个`)
+    }
+    loadList()
+  } else if (t.state === 'timeout') {
+    // 超时原因由后端给出（未领取 / 领取后未回报），直接透传，不自己编话术
+    flashMsg(t.error || '昵称获取超时', true)
+  }
+}
+
+const pollNickStatus = async () => {
+  try {
+    const res = await apiRequest('/api/bot/nickname-status', { method: 'GET' })
+    if (!res.ok) return // 单次轮询失败不打断，下一轮继续
+    const d = await res.json().catch(() => ({}))
+    nickTask.value = d.task || null
+    if (!nickRunning.value) {
+      stopNickPoll()
+      settleNickTask()
+    }
+  } catch { /* 同上：轮询是尽力而为，不因一次异常中断整个流程 */ }
+}
+
+/**
+ * 页面重新打开时恢复现场：若任务仍在进行（未到终态），接着轮询。
+ * 不在挂载时对已完成任务提示，避免每次进页面都弹一遍旧结果。
+ */
+const resumeNickPoll = async () => {
+  try {
+    const res = await apiRequest('/api/bot/nickname-status', { method: 'GET' })
+    if (!res.ok) return
+    const d = await res.json().catch(() => ({}))
+    const t = d.task
+    if (t && !NICK_FINAL_STATES.includes(t.state)) {
+      nickTask.value = t
+      nickLoading.value = true
+      stopNickPoll()
+      nickTimer = setInterval(pollNickStatus, NICK_POLL_MS)
+    }
+  } catch { /* 只是恢复现场，失败就按"没有进行中的任务"处理 */ }
+}
+
+const fetchNicknames = async () => {
+  if (nickLoading.value) return
+  nickLoading.value = true
+  error.value = ''
+  okMsg.value = ''
+  try {
+    const res = await apiRequest('/api/bot/nickname-refresh', { method: 'POST' })
+    const d = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      flashMsg(d.error || '发起获取失败', true)
+      nickLoading.value = false
+      return
+    }
+    nickTask.value = d.task || null
+    // 后端可能直接判定完成（例如当前没有任何绑定 QQ），此时不必轮询
+    if (!nickRunning.value) {
+      settleNickTask()
+      return
+    }
+    flashMsg('已通知机器人获取昵称，请稍候')
+    stopNickPoll()
+    nickTimer = setInterval(pollNickStatus, NICK_POLL_MS)
+  } catch (e) {
+    flashMsg(e.message, true)
+    nickLoading.value = false
+  }
 }
 
 // ── 解绑 ──
@@ -286,7 +398,11 @@ const saveSettings = async () => {
 onMounted(() => {
   loadList()
   loadSettings()
+  resumeNickPoll()
 })
+
+// 离开页面必须停掉昵称轮询，否则切走后定时器仍在跑（本项目对定时器泄漏有明确教训）
+onUnmounted(stopNickPoll)
 </script>
 
 <template>
@@ -310,13 +426,29 @@ onMounted(() => {
         <h3>QQ 绑定列表（{{ total }}）</h3>
         <div class="head-actions">
           <button class="btn primary" @click="openBindModal">手动绑定</button>
+          <button class="btn" :disabled="nickLoading" @click="fetchNicknames"
+                  title="通知机器人获取所有已绑定 QQ 的昵称，需要等机器人一个轮询周期">
+            {{ nickLoading ? '获取中...' : '获取昵称' }}
+          </button>
           <button class="btn" :disabled="refreshing" @click="refreshPlaytime">
             {{ refreshing ? '聚合中...' : '重新获取并计算' }}
           </button>
           <div class="search-box">
-            <input v-model="searchQ" placeholder="搜索玩家名 / QQ" />
+            <input v-model="searchQ" placeholder="搜索玩家名 / QQ / 昵称" />
           </div>
         </div>
+      </div>
+
+      <!-- 昵称获取进度 / 未取到明细：让"为什么还没出来""哪些没取到"都可见 -->
+      <div v-if="nickRunning" class="nick-status">
+        正在获取 QQ 昵称（{{ nickPhase }}），共 {{ nickTask.total }} 个 QQ，请稍候...
+      </div>
+      <div v-else-if="nickTask && nickTask.state === 'done' && nickTask.failedCount > 0" class="nick-status warn">
+        {{ nickTask.failedCount }} 个 QQ 未取到昵称：
+        <span v-for="(f, i) in nickTask.failed.slice(0, 10)" :key="f.qq + i">
+          {{ i > 0 ? '；' : '' }}{{ f.qq }}（{{ f.error }}）
+        </span>
+        <span v-if="nickTask.failedCount > 10"> ...等 {{ nickTask.failedCount }} 个</span>
       </div>
 
       <Loading v-if="loading" text="加载中..." />
@@ -326,6 +458,7 @@ onMounted(() => {
           <tr>
             <th>玩家名称</th>
             <th>QQ</th>
+            <th>QQ 昵称</th>
             <th>多服游玩时长</th>
             <th>更新时间</th>
             <th class="col-op">操作</th>
@@ -335,6 +468,11 @@ onMounted(() => {
           <tr v-for="row in filtered" :key="row.username">
             <td>{{ row.username }}</td>
             <td>{{ row.qq }}</td>
+            <td>
+              <span v-if="row.nickname" :title="row.nickname">{{ row.nickname }}</span>
+              <span v-else-if="row.qq" class="muted">未获取</span>
+              <span v-else class="muted">—</span>
+            </td>
             <td>{{ fmtHours(row.playtime?.total) }}</td>
             <td class="muted">{{ fmtTime(row.updatedAt) }}</td>
             <td class="col-op">
@@ -344,7 +482,7 @@ onMounted(() => {
             </td>
           </tr>
           <tr v-if="!loading && filtered.length === 0">
-            <td colspan="5" class="empty">暂无绑定记录</td>
+            <td colspan="6" class="empty">暂无绑定记录</td>
           </tr>
         </tbody>
       </table>
@@ -537,6 +675,23 @@ onMounted(() => {
 }
 .msg-box.error { background: rgba(239,68,68,.12); color: #ef4444; border: 1px solid rgba(239,68,68,.3); }
 .msg-box.success { background: rgba(34,197,94,.12); color: #22c55e; border: 1px solid rgba(34,197,94,.3); }
+
+/* 昵称获取进度 / 未取到明细：与表格同宽的一条提示，不抢主区域 */
+.nick-status {
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  font-size: .84rem;
+  background: rgba(59,130,246,.1);
+  color: var(--text-secondary);
+  border: 1px solid rgba(59,130,246,.25);
+}
+.nick-status.warn {
+  background: rgba(245,158,11,.1);
+  color: #f59e0b;
+  border-color: rgba(245,158,11,.3);
+  word-break: break-all;
+}
 
 .panel {
   background: var(--bg-card);

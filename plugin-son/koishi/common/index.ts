@@ -21,4 +21,7 @@ export function apply(ctx: Context, config: Config) {
   // 入群事件、好友请求等不受 guild/private 限制
   ctx.plugin(require('./plugins/join'), config)
   ctx.plugin(require('./plugins/misc'), config)
+
+  // QQ 昵称刷新：定时向后端领取刷新任务并回报（与群聊/私聊分流无关，需独立于 guild/private）
+  ctx.plugin(require('./plugins/nickname'), config)
 }

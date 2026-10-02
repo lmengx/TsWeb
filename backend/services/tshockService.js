@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from 'async_hooks'
 import { getAccounts } from './qqAccountService.js'
+import { getNicknameMap } from './qqNicknameService.js'
 
 /**
  * 日志脱敏：抹掉 URL 中的凭据后再交给 console 打印。
@@ -32,6 +33,19 @@ async function buildQqMap() {
       if (rec?.qq) map.set(username, String(rec.qq))
     }
     return map
+  } catch {
+    return new Map()
+  }
+}
+
+/**
+ * QQ → 昵称映射（按 QQ 号建键）。取不到时返回空 Map——昵称是缓存，
+ * 缺失只应表现为"未获取"，不得让玩家列表整体失败。
+ */
+async function buildNicknameMap() {
+  try {
+    const map = await getNicknameMap()
+    return new Map(Object.entries(map))
   } catch {
     return new Map()
   }
@@ -309,19 +323,25 @@ export class TShockService {
           return data || { error: 'Invalid JSON', rawResponse: text }
         }
         // QQ 展示以后端台账为权威（插件端 qq_bind 表已移除，不再返回 QQ 字段）
+        // QQ 昵称同理取后端缓存（按 QQ 建键），先定出 qq 再按 qq 取昵称，避免大小写兜底逻辑被复制两遍
         const qqMap = await buildQqMap()
-        const users = data.users.map(u => ({
-          id: u.ID,
-          name: u.Username,
-          group: u.Usergroup,
-          registered: u.Registered,
-          lastAccessed: u.LastAccessed,
-          qq: qqForUser(qqMap, u.Username, data.users),
-          uuid: u.UUID,
-          knownIPs: u.KnownIPs,
-          isOnline: u.IsOnline,
-          hasCharacter: !!u.HasCharacter
-        }))
+        const nickMap = await buildNicknameMap()
+        const users = data.users.map(u => {
+          const qq = qqForUser(qqMap, u.Username, data.users)
+          return {
+            id: u.ID,
+            name: u.Username,
+            group: u.Usergroup,
+            registered: u.Registered,
+            lastAccessed: u.LastAccessed,
+            qq,
+            qqNickname: qq ? (nickMap.get(qq) || '') : '',
+            uuid: u.UUID,
+            knownIPs: u.KnownIPs,
+            isOnline: u.IsOnline,
+            hasCharacter: !!u.HasCharacter
+          }
+        })
         const result = { users }
         if (data.total !== undefined) result.total = data.total
         if (data.page !== undefined) result.page = data.page
@@ -464,7 +484,10 @@ export class TShockService {
             target = all[0] || null
           }
           if (target) {
-            target.QQ = qqForUser(qqMap, target.Username, all)
+            const qq = qqForUser(qqMap, target.Username, all)
+            const nickMap = await buildNicknameMap()
+            target.QQ = qq
+            target.QQNickname = qq ? (nickMap.get(qq) || '') : ''
             data.users = [target]
           } else {
             data.users = []

@@ -20,6 +20,8 @@ export interface Config {
   样式微调: ThemePatchConfig
   /** 右下角徽标文字（信息卡 TSHOCK / 在线卡 LIVE 统一替换），留空用各卡默认 */
   徽标文字: string
+  /** QQ 昵称刷新轮询间隔（秒）。0 = 关闭；后端无法反向调用机器人，故由机器人定时领取任务 */
+  昵称刷新轮询秒: number
 }
 
 export const Config: Schema<Config> = Schema.object({
@@ -35,6 +37,9 @@ export const Config: Schema<Config> = Schema.object({
     宽度缩放: Schema.number().min(0.6).max(1.6).step(0.05).description('卡片整体宽度缩放').default(1),
   }).description('主题微调（可选）'),
   徽标文字: Schema.string().description('右下角徽标文字（信息卡 TSHOCK / 在线卡 LIVE），留空用各卡默认').default(''),
+  昵称刷新轮询秒: Schema.number().min(0).max(600).step(1)
+    .description('QQ 昵称刷新任务轮询间隔（秒），0 = 关闭。QQ 绑定页点「获取昵称」后，机器人靠这里的轮询去领任务；数值越小页面等待越短，但请求越频繁')
+    .default(15),
 })
 
 /** 安全调用 REST API（GET），不暴露地址、密钥等调试信息 */

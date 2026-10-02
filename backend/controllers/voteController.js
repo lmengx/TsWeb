@@ -1,9 +1,90 @@
 import voteService from '../services/voteService.js'
 import audit from '../services/auditLogger.js'
+import { getAccounts } from '../services/qqAccountService.js'
+import { getNicknameMap } from '../services/qqNicknameService.js'
 
 // ═══════════════════════════════════════════════════════════
 // 投票控制器
 // ═══════════════════════════════════════════════════════════
+
+// ── QQ 身份富化 ──────────────────────────────────────────────
+// 投票数据里有两处带 QQ 身份：
+//   options[].proposer：'qq:123456'（机器人/未绑定身份提案）或真实角色名
+//   options[].voters[].qq + .username：投票记录同时带 qq 与 username
+//     （未绑定时 username 即 'qq:xxx'，见 voteService.js:473-474）
+//
+// 展示口径：昵称是**可能为空的缓存**，所以"有昵称用昵称、没有就退回 QQ 号"，
+// 绝不用角色名冒充昵称（那会让人以为 QQ 昵称就是游戏名）。
+
+/** 读一次身份表：QQ→昵称（缓存）与 QQ→绑定角色名（台账，权威） */
+async function loadIdentity() {
+  const [nicknames, accounts] = await Promise.all([getNicknameMap(), getAccounts()])
+  const qqToPlayer = new Map()
+  for (const [username, rec] of Object.entries(accounts)) {
+    const qq = String((rec && rec.qq) || '').trim()
+    if (qq) qqToPlayer.set(qq, username)
+  }
+  return { nicknames, qqToPlayer }
+}
+
+/** 'qq:123456' → '123456'；非该前缀返回空串 */
+function qqFromProposer(proposer) {
+  const s = String(proposer || '')
+  return s.startsWith('qq:') ? s.slice(3).trim() : ''
+}
+
+/**
+ * 富化选项里的提案者身份。
+ * @param {Array} rounds            轮次数组（原地修改）
+ * @param {object} identity         loadIdentity() 的结果
+ * @param {boolean} revealAnonymous 匿名提案是否也下发身份（仅管理端为 true；
+ *        玩家端连字段都不给，避免"模板没渲染"变成"响应体里直接能看到是谁提的"）
+ */
+function enrichProposers(rounds, identity, revealAnonymous) {
+  const { nicknames, qqToPlayer } = identity
+  for (const round of rounds || []) {
+    for (const o of (round && round.options) || []) {
+      if (!o || o.type !== 'custom') continue
+      if (o.anonymous && !revealAnonymous) {
+        o.proposerQq = ''
+        o.proposerNickname = ''
+        o.proposerPlayer = ''
+        o.proposerDisplay = ''
+        continue
+      }
+      const proposer = String(o.proposer || '')
+      const qq = qqFromProposer(proposer)
+      if (qq) {
+        const nickname = nicknames[qq] || ''
+        o.proposerQq = qq
+        o.proposerNickname = nickname
+        o.proposerPlayer = qqToPlayer.get(qq) || ''
+        o.proposerDisplay = nickname || qq
+      } else {
+        // 网页登录的玩家提案：proposer 本身就是角色名
+        o.proposerQq = ''
+        o.proposerNickname = ''
+        o.proposerPlayer = proposer
+        o.proposerDisplay = proposer
+      }
+    }
+  }
+  return rounds
+}
+
+/** 富化投票明细里的投票人（仅管理端明细使用） */
+function enrichVoters(round, identity) {
+  const { nicknames, qqToPlayer } = identity
+  for (const o of (round && round.options) || []) {
+    for (const v of (o && o.voters) || []) {
+      const qq = String(v.qq || '').trim()
+      v.nickname = qq ? (nicknames[qq] || '') : ''
+      // username 为 'qq:xxx' 时表示未绑定身份，真正的角色名以台账绑定关系为准
+      v.player = qq ? (qqToPlayer.get(qq) || '') : ''
+    }
+  }
+  return round
+}
 
 // ── 管理端（requireAdmin）──
 
@@ -25,6 +106,7 @@ export const createRound = async (req, res) => {
 export const listAdminRounds = async (_req, res) => {
   try {
     const rounds = await voteService.listRounds({ includeClosed: true })
+    enrichProposers(rounds, await loadIdentity(), true)
     res.json({ rounds })
   } catch (err) {
     res.status(500).json({ error: err.message })
@@ -96,6 +178,10 @@ export const getRoundDetail = async (req, res) => {
   try {
     const detail = await voteService.getRoundDetail(req.params.id)
     if (!detail) return res.status(404).json({ error: '轮次不存在' })
+    // 管理端：匿名对管理员无效，身份一律显示（含 QQ 昵称与绑定角色名）
+    const identity = await loadIdentity()
+    enrichProposers([detail], identity, true)
+    enrichVoters(detail, identity)
     res.json({ success: true, round: detail })
   } catch (err) {
     res.status(500).json({ error: err.message })
@@ -142,6 +228,8 @@ export const unarchiveRound = async (req, res) => {
 export const listPublicRounds = async (_req, res) => {
   try {
     const rounds = await voteService.listRounds({ includeClosed: true, excludeArchived: true })
+    // 玩家端：匿名提案不下发提案者身份
+    enrichProposers(rounds, await loadIdentity(), false)
     res.json({ rounds })
   } catch (err) {
     res.status(500).json({ error: err.message })
@@ -152,6 +240,7 @@ export const listPublicRounds = async (_req, res) => {
 export const listMyState = async (req, res) => {
   try {
     const rounds = await voteService.listRounds({ includeClosed: true, excludeArchived: true, username: req.user.username })
+    enrichProposers(rounds, await loadIdentity(), false)
     res.json({ rounds })
   } catch (err) {
     res.status(500).json({ error: err.message })
