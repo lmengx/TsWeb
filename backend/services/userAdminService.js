@@ -95,30 +95,50 @@ export async function renameUser({ username, newName, mode = 'qq', serverId = ''
  * @returns {{ ok, total, unbindQq, backendAccountDeleted, failed: [] }}
  */
 export async function deleteUser({ username, deleteCharacter = true, deleteBans = true, unbindQq = true, deleteBackendAccount = false, serverId = '' }) {
-  const name = String(username || '').trim()
-  if (!name) throw new Error('缺少参数: username')
+  // 账号名是精确标识符，可能含首尾空白（全角空格 U+3000 / 不换行空格 U+00A0 等），
+  // 因此绝不能在这里 trim：裁剪后名字就变了，插件会按错误的名字查找并返回「用户不存在」，
+  // 外部表现就是「扫描得到、却永远删不掉」。校验用 trim，取值保持原样。
+  const name = String(username ?? '')
+  if (!name.trim()) throw new Error('缺少参数: username')
 
   // 1) 广播删除；serverId 非空时只作用于该服（小号清理等定向场景：
   //    同一用户名可能在别的服是正常账号，绝不能跨服误删）
   const servers = await enabledServers()
   const targets = serverId ? servers.filter(s => String(s.id) === String(serverId)) : servers
-  const results = await Promise.allSettled(targets.map(async s => {
+
+  const deleteOnServer = async (s, target) => {
     const r = await pluginFetch(s, '/data/users/delete', {
-      username: name,
+      username: target,
       deleteCharacter: deleteCharacter ? 'true' : 'false',
       deleteBans: deleteBans ? 'true' : 'false'
     })
     if (!r) return { server: s, error: '无响应' }
     if (r.ok !== true) return { server: s, error: r.error || '插件返回失败' }
     return { server: s, ok: true }
-  }))
+  }
+
+  const runAll = async (target) => {
+    const results = await Promise.allSettled(targets.map(s => deleteOnServer(s, target)))
+    return results.map(r => r.status === 'fulfilled'
+      ? r.value
+      : { server: null, error: r.reason?.message || '异常' })
+  }
+
+  let settled = await runAll(name)
+
+  // 兼容手工输入带了多余空格的名字：只有「原样名字一台都没成功」且与裁剪结果不同时，
+  // 才用裁剪后的名字重试一次。精确名字的正常路径不会走到这里。
+  const trimmed = name.trim()
+  if (trimmed !== name && settled.every(x => !x.ok)) {
+    const retry = await runAll(trimmed)
+    if (retry.some(x => x.ok)) settled = retry
+  }
 
   let ok = 0
   const failed = []
-  for (const r of results) {
-    if (r.status === 'fulfilled' && r.value?.ok === true) ok++
-    else if (r.status === 'fulfilled') failed.push({ server: r.value.server.name, error: r.value.error })
-    else failed.push({ server: 'unknown', error: r.reason?.message || '异常' })
+  for (const x of settled) {
+    if (x.ok === true) ok++
+    else failed.push({ server: x.server?.name || 'unknown', error: x.error })
   }
 
   // 2) 台账联动

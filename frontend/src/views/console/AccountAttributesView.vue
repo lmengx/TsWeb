@@ -355,6 +355,10 @@ const purgeSelCount = computed(() => purgeRows.value.filter(c => purgeSelected.v
 const purgeAllSelected = computed(() => purgeRows.value.length > 0 && purgeSelCount.value === purgeRows.value.length)
 const purgeMaxItems = computed(() => purgeData.value?.limits?.maxExecuteItems || 500)
 
+// 账号名可能含首尾空白（全角空格 U+3000 / 不换行空格 U+00A0 等）。这类字符在表格里
+// 完全看不见，会让人无法理解「名字明明在这儿却删不掉」，因此显性标注出来。
+const visName = (n) => String(n ?? '').replace(/^\s+|\s+$/g, m => '·'.repeat(m.length))
+
 const openPurge = () => {
   showPurge.value = true
   purgeResult.value = null
@@ -863,7 +867,7 @@ const jumpToPlayer = (username) => {
                         />
                       </td>
                       <td>{{ c.serverName }}</td>
-                      <td class="purge-name">{{ c.username }}</td>
+                      <td class="purge-name">{{ visName(c.username) }}</td>
                       <td>{{ c.group || '-' }}</td>
                       <td>{{ c.lastAccess || '-' }}</td>
                       <td>{{ c.inactiveDays }} 天</td>
@@ -896,16 +900,23 @@ const jumpToPlayer = (username) => {
             <div class="purge-result-head">
               执行完成：请求 {{ purgeResult.requested }} 个，已删除 <b>{{ purgeResult.deletedCount }}</b> 个，跳过 {{ purgeResult.skippedCount }} 个
             </div>
+            <!-- 删除后复核：报告了成功但账号其实还在，属于必须显性暴露的异常 -->
+            <div v-if="purgeResult.stillPresent?.length" class="purge-verify-warn">
+              警告：以下 {{ purgeResult.stillPresent.length }} 个账号插件报告删除成功，但复核后仍存在于账号表中（删除未生效），已从「已删除」中剔除。请检查该服插件版本与 TShock 日志。
+            </div>
+            <div v-if="purgeResult.verifyError" class="purge-verify-warn">
+              复核未完成（{{ purgeResult.verifyError }}）：以上「已删除」仅依据插件返回，未能二次核实。
+            </div>
             <div v-if="purgeResult.deleted?.length" class="purge-result-block">
               <div class="purge-result-title">已删除</div>
               <div v-for="(d, i) in purgeResult.deleted" :key="'del' + i" class="purge-result-line ok">
-                {{ d.serverName }} · {{ d.username }}
+                {{ d.serverName }} · {{ visName(d.username) }}
               </div>
             </div>
             <div v-if="purgeResult.skipped?.length" class="purge-result-block">
               <div class="purge-result-title">已跳过</div>
               <div v-for="(s, i) in purgeResult.skipped" :key="'skip' + i" class="purge-result-line skip">
-                {{ s.serverName || '-' }} · {{ s.username || '-' }}：{{ s.reason }}
+                {{ s.serverName || '-' }} · {{ visName(s.username) || '-' }}：{{ s.reason }}
               </div>
             </div>
           </div>
@@ -1521,6 +1532,8 @@ const jumpToPlayer = (username) => {
   display: flex;
   align-items: center;
   justify-content: center;
+  /* 遮罩留边，配合 .modal 的 max-height 保证模态框永远完整落在视口内 */
+  padding: 24px;
   z-index: 1000;
 }
 .modal {
@@ -1528,9 +1541,12 @@ const jumpToPlayer = (username) => {
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
   width: min(640px, 92vw);
-  max-height: 80vh;
+  /* 用 calc 而不是 vh 百分比：不依赖 box-sizing，且与遮罩 24px 内边距严格对应 */
+  max-height: calc(100vh - 48px);
   display: flex;
   flex-direction: column;
+  /* 关键：把过高的内容收敛到 .modal-body 内部滚动，否则内容会溢出到视口外 */
+  overflow: hidden;
   box-shadow: var(--shadow-lg);
 }
 .modal-header {
@@ -1549,7 +1565,9 @@ const jumpToPlayer = (username) => {
   cursor: pointer;
   line-height: 1;
 }
-.modal-body { padding: 16px 18px; overflow-y: auto; }
+/* min-height:0 是必须的：flex 子项默认 min-height:auto 会拒绝收缩到内容高度以下，
+   于是内容一多就把模态框顶出 max-height，导致模态框被挤出屏幕且无法滚动到位 */
+.modal-body { padding: 16px 18px; overflow-y: auto; min-height: 0; flex: 1 1 auto; }
 .modal-loading { color: var(--text-secondary); padding: 20px 0; text-align: center; }
 .meta-line { font-size: 0.8rem; color: var(--text-muted); margin-bottom: 12px; }
 .rule-list { display: flex; flex-direction: column; gap: 10px; }
@@ -1643,7 +1661,8 @@ const jumpToPlayer = (username) => {
 }
 
 .purge-table-wrap {
-  max-height: 44vh;
+  /* 配合 .modal 的 max-height(100vh-48px)：40vh 给表头/规则/按钮留足空间，避免外层再出滚动条 */
+  max-height: 40vh;
   overflow: auto;
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
@@ -1712,4 +1731,14 @@ const jumpToPlayer = (username) => {
 }
 .purge-result-line.ok { color: #34d399; }
 .purge-result-line.skip { color: #fbbf24; }
+.purge-verify-warn {
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  border: 1px solid rgba(248, 113, 113, 0.45);
+  border-radius: var(--radius-sm);
+  background: rgba(248, 113, 113, 0.1);
+  color: #fca5a5;
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
 </style>

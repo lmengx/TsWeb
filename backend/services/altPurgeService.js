@@ -152,11 +152,13 @@ export async function executeAltPurge({ items = [], days } = {}) {
   }
 
   // 归一化 + 去重（同一「服 + 账号」只删一次）
+  // 注意：账号名是精确标识符，可能含首尾空白（全角空格 / 不换行空格等），
+  // 绝不能 trim——裁剪后名字就变了，复检与删除都会定位失败。
   const wanted = new Map()
   for (const it of list) {
     const serverId = String(it?.serverId ?? '').trim()
-    const username = String(it?.username ?? '').trim()
-    if (!serverId || !username) continue
+    const username = String(it?.username ?? '')
+    if (!serverId || !username.trim()) continue
     wanted.set(keyOf(serverId, username), { serverId, username })
   }
   if (wanted.size === 0) throw new Error('items 中没有有效的 (serverId, username)')
@@ -192,7 +194,7 @@ export async function executeAltPurge({ items = [], days } = {}) {
     byServer.get(t.serverId).push(t)
   }
 
-  const deleted = []
+  let deleted = []
   const results = await Promise.allSettled([...byServer.entries()].map(async ([serverId, group]) => {
     const out = []
     for (const t of group) {
@@ -230,6 +232,35 @@ export async function executeAltPurge({ items = [], days } = {}) {
     }
   }
 
+  // 4) 删除后复核：重扫一次全量账号表，确认提交的账号确实已经消失。
+  //    为什么不能用「是否还在候选里」复核——组内其他账号被删掉后，残留账号会因关联组
+  //    解散而失去 alt 属性、同样退出候选，那并不代表它被删了；必须查「账号是否还存在」。
+  //    复核本身失败时保留插件的成功结论，但如实回报 verifyError，不谎报「已核实」。
+  let stillPresent = []
+  let verifyError = ''
+  if (deleted.length > 0) {
+    try {
+      const all = await getAllFiltered({})
+      const present = new Set((all.accounts || []).map(a => keyOf(a.serverId, a.username)))
+      const kept = []
+      for (const d of deleted) {
+        if (present.has(keyOf(d.serverId, d.username))) {
+          stillPresent.push({
+            ...d,
+            ok: false,
+            reason: '删除后复核仍存在：删除未生效（请检查该服插件版本与 TShock 日志）'
+          })
+        } else {
+          kept.push(d)
+        }
+      }
+      deleted = kept
+      for (const s of stillPresent) skipped.push(s)
+    } catch (e) {
+      verifyError = e.message
+    }
+  }
+
   return {
     executedAt: new Date().toISOString(),
     inactiveDays: fresh.inactiveDays,
@@ -237,6 +268,8 @@ export async function executeAltPurge({ items = [], days } = {}) {
     deletedCount: deleted.length,
     skippedCount: skipped.length,
     deleted,
-    skipped
+    skipped,
+    stillPresent,
+    verifyError
   }
 }
