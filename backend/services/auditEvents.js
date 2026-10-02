@@ -219,6 +219,10 @@ export const AUDIT_EVENTS = {
     level: 'info', category: 'qq_account', title: '手动刷新多服时长',
     fields: ['ok', 'total', 'actor'], ip: false, sensitive: []
   },
+  'qq_nickname.refresh': {
+    level: 'info', category: 'qq_account', title: '获取 QQ 昵称',
+    fields: ['taskId', 'total', 'actor'], ip: false, sensitive: []
+  },
   'config.bot.set': {
     level: 'warn', category: 'config', title: '修改 QQ 机器人设置',
     fields: ['changedKeys', 'actor'], ip: false, sensitive: []
