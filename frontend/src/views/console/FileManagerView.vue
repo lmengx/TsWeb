@@ -25,11 +25,11 @@
       <div class="toolbar-actions">
         <template v-if="viewMode === 'browse'">
           <button class="btn btn-upload" @click="triggerUpload" :disabled="uploadingCount > 0">
-            <span class="ico" v-html="ICONS.upload"></span>上传
+            <svg class="ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" v-html="ICONS.upload"></svg>上传
           </button>
         </template>
         <button class="btn btn-ghost" @click="viewMode === 'browse' ? loadDir() : loadSaved()" :disabled="loading">
-          <span class="ico spin" :class="{ spinning: loading }" v-html="ICONS.refresh"></span>刷新
+          <svg class="ico" :class="{ spinning: loading }" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" v-html="ICONS.refresh"></svg>刷新
         </button>
       </div>
     </div>
@@ -56,10 +56,10 @@
         <span class="col-actions">
           <template v-if="e.type === 'file'">
             <button class="act-btn" title="预览/编辑" :disabled="!isTextFile(e.name)"
-              @click.stop="previewFile(e)"><span class="ico" v-html="ICONS.eye"></span></button>
-            <button class="act-btn" title="直接下载到本地" @click.stop="startDownload(e)"><span class="ico" v-html="ICONS.download"></span></button>
-            <button class="act-btn save" title="保存到后端服务器" @click.stop="startSave(e)"><span class="ico" v-html="ICONS.save"></span></button>
-            <button class="act-btn danger" title="删除" @click.stop="confirmDelete(e)"><span class="ico" v-html="ICONS.trash"></span></button>
+              @click.stop="previewFile(e)"><svg class="ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" v-html="ICONS.eye"></svg></button>
+            <button class="act-btn" title="直接下载到本地" @click.stop="startDownload(e)"><svg class="ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" v-html="ICONS.download"></svg></button>
+            <button class="act-btn save" title="保存到后端服务器" @click.stop="startSave(e)"><svg class="ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" v-html="ICONS.save"></svg></button>
+            <button class="act-btn danger" title="删除" @click.stop="confirmDelete(e)"><svg class="ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" v-html="ICONS.trash"></svg></button>
           </template>
           <span v-else class="act-hint">进入</span>
         </span>
@@ -86,8 +86,8 @@
         <span class="col-size">{{ formatSize(f.size) }}</span>
         <span class="col-size">{{ formatTime(f.mtime) }}</span>
         <span class="col-actions">
-          <button class="act-btn" title="下载" @click.stop="downloadSaved(f)"><span class="ico" v-html="ICONS.download"></span></button>
-          <button class="act-btn danger" title="删除" @click.stop="confirmDeleteSaved(f)"><span class="ico" v-html="ICONS.trash"></span></button>
+          <button class="act-btn" title="下载" @click.stop="downloadSaved(f)"><svg class="ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" v-html="ICONS.download"></svg></button>
+          <button class="act-btn danger" title="删除" @click.stop="confirmDeleteSaved(f)"><svg class="ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" v-html="ICONS.trash"></svg></button>
         </span>
       </div>
     </div>
@@ -97,7 +97,7 @@
       <div class="transfer-title">传输任务</div>
       <div v-for="t in activeTransfers" :key="t.id" class="transfer-item">
         <div class="transfer-info">
-          <span class="ico transfer-icon" v-html="ICONS[t.dir === 'up' ? 'upload' : t.dir === 'save' ? 'save' : 'download']"></span>
+          <svg class="ico transfer-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" v-html="ICONS[t.dir === 'up' ? 'upload' : t.dir === 'save' ? 'save' : 'download']"></svg>
           <span class="transfer-name" :title="t.name">{{ t.name }}</span>
           <span class="transfer-status" :class="t.status">{{ statusText(t) }}</span>
         </div>
@@ -155,14 +155,16 @@ import {
 import Loading from '../../components/Loading.vue'
 
 // ═══ 图标（内联 SVG；项目禁止 emoji，图标一律用 SVG 或纯文字实现） ═══
-// 值为完整 <svg> 片段：经 v-html 注入到 HTML 上下文时才能真正创建 SVG 命名空间元素
+// 只存「内部图形」，<svg> 外壳写在模板里：v-html 注入的节点不受 scoped 样式约束
+// （没有 data-v-xxx 属性），若把整个 <svg> 塞进字符串注入 <span>，尺寸规则会失效而显示空白。
+// 因此由模板提供 <svg>（可被 scoped CSS 命中），v-html 只负责里面的 path/line。
 const ICONS = {
-  upload: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>',
-  refresh: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>',
-  eye: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>',
-  download: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>',
-  save: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>',
-  trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>'
+  upload: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line>',
+  refresh: '<polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>',
+  eye: '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle>',
+  download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line>',
+  save: '<path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline>',
+  trash: '<polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>'
 }
 
 /**
@@ -575,8 +577,9 @@ onMounted(loadDir)
 }
 
 /* ── 内联 SVG 图标（项目禁止 emoji，图标统一走 SVG / 纯文字） ── */
-.ico { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
-.ico svg { width: 15px; height: 15px; display: block; }
+/* <svg> 外壳由模板提供，这样它才带 scoped 的 data-v 属性、能被下面的规则命中；
+   尺寸另在标签上用 width/height 属性兜底，不依赖样式也能正常显示 */
+.ico { display: block; flex-shrink: 0; width: 15px; height: 15px; }
 
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
@@ -595,9 +598,9 @@ onMounted(loadDir)
 
 .btn-ghost:hover:not(:disabled) { background: var(--bg-hover); }
 
-.spin { display: inline-flex; }
-/* transform-origin 必须显式指定：SVG 默认原点可能不是中心，旋转会偏心 */
-.spin.spinning svg { animation: spin 0.8s linear infinite; transform-origin: center; }
+/* 刷新图标旋转：.ico 本身就是 <svg>，transform-origin 必须显式指定，
+   否则 SVG 默认原点可能不是中心、旋转会偏心 */
+.ico.spinning { animation: spin 0.8s linear infinite; transform-origin: center; }
 
 /* ── 文件列表 ── */
 .file-list {
