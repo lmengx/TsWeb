@@ -1790,16 +1790,18 @@ export class TShockService {
   async fileUpload(relativePath, dataBase64, append = false) {
     if (!this.baseUrl) await this.init()
     const url = `${this.baseUrl}/data/files/upload${this.apiKey ? `?token=${encodeURIComponent(this.apiKey)}` : ''}`
-    const body = new URLSearchParams({
-      path: relativePath,
-      data: dataBase64,
-      append: append ? '1' : '0'
-    })
+    // 用 encodeURIComponent 手工拼 body，不要用 URLSearchParams：
+    // 插件侧按 RFC 3986 解码（TShock 的 EscapedParameterCollection / Uri.UnescapeDataString），
+    // 它不会把 '+' 还原为空格；而 URLSearchParams 恰好把空格编码成 '+'，
+    // 会让含空格的文件名变成 'a+b' 导致路径找不到。
+    const body = `path=${encodeURIComponent(relativePath)}` +
+      `&data=${encodeURIComponent(dataBase64)}` +
+      `&append=${append ? '1' : '0'}`
     try {
       const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: body.toString()
+        body
       })
       const text = await response.text()
       try { return JSON.parse(text) } catch { return { error: 'Invalid JSON', rawResponse: text } }

@@ -1,7 +1,7 @@
 <template>
   <div class="file-manager">
     <div class="page-header">
-      <h2>📁 文件管理</h2>
+      <h2>文件管理</h2>
       <span class="path-badge">根目录: TShock 程序目录</span>
     </div>
 
@@ -9,7 +9,7 @@
     <div class="toolbar glass">
       <div class="view-tabs">
         <button class="view-tab" :class="{ active: viewMode === 'browse' }" @click="switchView('browse')">浏览文件</button>
-        <button class="view-tab" :class="{ active: viewMode === 'saved' }" @click="switchView('saved')">已保存 💾</button>
+        <button class="view-tab" :class="{ active: viewMode === 'saved' }" @click="switchView('saved')">已保存</button>
       </div>
 
       <nav v-if="viewMode === 'browse'" class="breadcrumb">
@@ -24,10 +24,12 @@
 
       <div class="toolbar-actions">
         <template v-if="viewMode === 'browse'">
-          <button class="btn btn-upload" @click="triggerUpload" :disabled="uploadingCount > 0">⬆ 上传</button>
+          <button class="btn btn-upload" @click="triggerUpload" :disabled="uploadingCount > 0">
+            <span class="ico" v-html="ICONS.upload"></span>上传
+          </button>
         </template>
         <button class="btn btn-ghost" @click="viewMode === 'browse' ? loadDir() : loadSaved()" :disabled="loading">
-          <span class="spin" :class="{ spinning: loading }">🔄</span> 刷新
+          <span class="ico spin" :class="{ spinning: loading }" v-html="ICONS.refresh"></span>刷新
         </button>
       </div>
     </div>
@@ -47,17 +49,17 @@
         :class="{ isdir: e.type === 'dir' }"
         @click="e.type === 'dir' ? enterDir(e.name) : previewFile(e)">
         <span class="col-name">
-          <span class="file-icon">{{ e.type === 'dir' ? '📁' : fileIcon(e.name) }}</span>
+          <span class="file-icon" :class="{ dir: e.type === 'dir' }">{{ e.type === 'dir' ? 'DIR' : fileBadge(e.name) }}</span>
           <span class="file-name" :title="e.name">{{ e.name }}</span>
         </span>
         <span class="col-size">{{ e.type === 'dir' ? '—' : formatSize(e.size) }}</span>
         <span class="col-actions">
           <template v-if="e.type === 'file'">
             <button class="act-btn" title="预览/编辑" :disabled="!isTextFile(e.name)"
-              @click.stop="previewFile(e)">👁</button>
-            <button class="act-btn" title="直接下载到本地" @click.stop="startDownload(e)">⬇</button>
-            <button class="act-btn save" title="保存到后端服务器" @click.stop="startSave(e)">💾</button>
-            <button class="act-btn danger" title="删除" @click.stop="confirmDelete(e)">🗑</button>
+              @click.stop="previewFile(e)"><span class="ico" v-html="ICONS.eye"></span></button>
+            <button class="act-btn" title="直接下载到本地" @click.stop="startDownload(e)"><span class="ico" v-html="ICONS.download"></span></button>
+            <button class="act-btn save" title="保存到后端服务器" @click.stop="startSave(e)"><span class="ico" v-html="ICONS.save"></span></button>
+            <button class="act-btn danger" title="删除" @click.stop="confirmDelete(e)"><span class="ico" v-html="ICONS.trash"></span></button>
           </template>
           <span v-else class="act-hint">进入</span>
         </span>
@@ -78,14 +80,14 @@
 
       <div v-for="f in savedFiles" :key="f.name" class="file-row">
         <span class="col-name">
-          <span class="file-icon">📄</span>
+          <span class="file-icon">{{ fileBadge(f.name) }}</span>
           <span class="file-name" :title="f.name">{{ f.name }}</span>
         </span>
         <span class="col-size">{{ formatSize(f.size) }}</span>
         <span class="col-size">{{ formatTime(f.mtime) }}</span>
         <span class="col-actions">
-          <button class="act-btn" title="下载" @click.stop="downloadSaved(f)">⬇</button>
-          <button class="act-btn danger" title="删除" @click.stop="confirmDeleteSaved(f)">🗑</button>
+          <button class="act-btn" title="下载" @click.stop="downloadSaved(f)"><span class="ico" v-html="ICONS.download"></span></button>
+          <button class="act-btn danger" title="删除" @click.stop="confirmDeleteSaved(f)"><span class="ico" v-html="ICONS.trash"></span></button>
         </span>
       </div>
     </div>
@@ -95,7 +97,7 @@
       <div class="transfer-title">传输任务</div>
       <div v-for="t in activeTransfers" :key="t.id" class="transfer-item">
         <div class="transfer-info">
-          <span class="transfer-icon">{{ t.dir === 'up' ? '⬆' : t.dir === 'save' ? '💾' : '⬇' }}</span>
+          <span class="ico transfer-icon" v-html="ICONS[t.dir === 'up' ? 'upload' : t.dir === 'save' ? 'save' : 'download']"></span>
           <span class="transfer-name" :title="t.name">{{ t.name }}</span>
           <span class="transfer-status" :class="t.status">{{ statusText(t) }}</span>
         </div>
@@ -151,6 +153,28 @@ import {
   isTextFile, formatSize
 } from '../../utils/fileApi.js'
 import Loading from '../../components/Loading.vue'
+
+// ═══ 图标（内联 SVG；项目禁止 emoji，图标一律用 SVG 或纯文字实现） ═══
+// 值为完整 <svg> 片段：经 v-html 注入到 HTML 上下文时才能真正创建 SVG 命名空间元素
+const ICONS = {
+  upload: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>',
+  refresh: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>',
+  eye: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>',
+  download: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>',
+  save: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>',
+  trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>'
+}
+
+/**
+ * 文件类型徽标（纯文字，替代原 emoji 图标）
+ * 取扩展名大写前 4 字符；无扩展名或纯点开头时返回 FILE
+ */
+const fileBadge = (name) => {
+  const s = String(name || '')
+  const dot = s.lastIndexOf('.')
+  if (dot <= 0 || dot === s.length - 1) return 'FILE'
+  return s.slice(dot + 1, dot + 5).toUpperCase()
+}
 
 // ═══ 视图切换 ═══
 const viewMode = ref('browse')
@@ -373,16 +397,6 @@ const preview = ref({
   saveStatus: ''
 })
 
-const fileIcon = (name) => {
-  const ext = name.split('.').pop()?.toLowerCase()
-  if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'ico', 'bmp'].includes(ext)) return '🖼'
-  if (['zip', 'rar', '7z', 'tar', 'gz'].includes(ext)) return '🗜'
-  if (['wld', 'twld', 'bak'].includes(ext)) return '🗺'
-  if (['sqlite', 'db'].includes(ext)) return '🗄'
-  if (['dll', 'exe'].includes(ext)) return '⚙'
-  return '📄'
-}
-
 const previewFile = async (e) => {
   if (!isTextFile(e.name)) {
     alert('仅支持文本文件预览（txt/log/json/yml 等）')
@@ -555,7 +569,14 @@ onMounted(loadDir)
   cursor: pointer;
   transition: all 0.2s;
   color: var(--text-primary);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
+
+/* ── 内联 SVG 图标（项目禁止 emoji，图标统一走 SVG / 纯文字） ── */
+.ico { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.ico svg { width: 15px; height: 15px; display: block; }
 
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
@@ -574,8 +595,9 @@ onMounted(loadDir)
 
 .btn-ghost:hover:not(:disabled) { background: var(--bg-hover); }
 
-.spin { display: inline-block; }
-.spin.spinning { animation: spin 0.8s linear infinite; }
+.spin { display: inline-flex; }
+/* transform-origin 必须显式指定：SVG 默认原点可能不是中心，旋转会偏心 */
+.spin.spinning svg { animation: spin 0.8s linear infinite; transform-origin: center; }
 
 /* ── 文件列表 ── */
 .file-list {
@@ -617,7 +639,22 @@ onMounted(loadDir)
 .col-size { width: 110px; flex-shrink: 0; font-size: 0.8rem; color: var(--text-muted); }
 .col-actions { width: 150px; flex-shrink: 0; display: flex; gap: 4px; justify-content: flex-end; }
 
-.file-icon { font-size: 1rem; flex-shrink: 0; }
+/* 文件类型徽标：纯文字（原 emoji 图标已移除） */
+.file-icon {
+  flex-shrink: 0;
+  min-width: 36px;
+  padding: 2px 4px;
+  border-radius: 5px;
+  border: 1px solid var(--border-light);
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-align: center;
+  line-height: 1.4;
+}
+.file-icon.dir { color: var(--accent-primary); border-color: rgba(99, 102, 241, 0.35); }
 .file-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .act-btn {
@@ -667,6 +704,7 @@ onMounted(loadDir)
 .transfer-item { display: flex; flex-direction: column; gap: 4px; }
 
 .transfer-info { display: flex; align-items: center; gap: 8px; font-size: 0.82rem; }
+.transfer-icon { color: var(--text-muted); }
 .transfer-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .transfer-status { font-size: 0.72rem; }
 .transfer-status.running { color: var(--accent-primary); }

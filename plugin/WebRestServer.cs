@@ -404,7 +404,10 @@ namespace TShockData
                 ["mime"] = "application/octet-stream"
             };
             if (tag.Length > 0) begin["tag"] = tag;
-            if (!SendToClient(clientId, "file.begin", begin.ToString(Formatting.None)))
+            // 逐条 await 写入：SSE 事件必须按 begin → chunk… → end 的顺序落到同一连接。
+            // 旧实现是即发即忘（_ = SendSafeAsync(...)），顺序只靠信号量碰运气，
+            // 且首片写失败时后续仍会返回 200 成功，调用方以为推完了其实一条没到。
+            if (!await SendToClientAsync(clientId, "file.begin", begin.ToString(Formatting.None)))
             {
                 await WriteErrorJson(stream, 404, "SSE client not found", ct);
                 return;
@@ -421,7 +424,8 @@ namespace TShockData
                     ["d"] = Convert.ToBase64String(bytes, off, len)
                 };
                 if (tag.Length > 0) chunk["tag"] = tag;
-                if (!SendToClient(clientId, "file.chunk", chunk.ToString(Formatting.None)))
+                // 写完一片再发下一片：避免大文件一次性排队上千个待写任务（内存 + 顺序不可控）
+                if (!await SendToClientAsync(clientId, "file.chunk", chunk.ToString(Formatting.None)))
                 {
                     await WriteErrorJson(stream, 404, "SSE client disconnected", ct);
                     return;
@@ -435,7 +439,13 @@ namespace TShockData
                 ["sha256"] = shaHex
             };
             if (tag.Length > 0) end["tag"] = tag;
-            SendToClient(clientId, "file.end", end.ToString(Formatting.None));
+            // file.end 必须等所有分片真正写完才发：否则接收端会先收到结束事件，
+            // 按不完整数据做 sha256 校验而失败（保存路径表现为卡住后校验失败）
+            if (!await SendToClientAsync(clientId, "file.end", end.ToString(Formatting.None)))
+            {
+                await WriteErrorJson(stream, 404, "SSE client disconnected", ct);
+                return;
+            }
 
             var ok = JsonConvert.SerializeObject(new { status = "200", id = tid, chunks, size = bytes.Length });
             await WriteResponseAsync(stream, 200, "OK", "application/json; charset=utf-8", Encoding.UTF8.GetBytes(ok), ct);
@@ -464,10 +474,10 @@ namespace TShockData
         }
 
         /// <summary>
-        /// 向指定 clientId 的 SSE 连接定向推送一条事件
+        /// 向指定 clientId 的 SSE 连接定向推送一条事件（等待写入真正完成）。
         /// </summary>
-        /// <returns>true=已投递到目标连接（不保证发送成功）；false=目标连接不存在</returns>
-        public static bool SendToClient(string clientId, string eventName, string jsonData)
+        /// <returns>true=已成功写入该连接；false=连接不存在或写入失败（连接已被移除）</returns>
+        public static async Task<bool> SendToClientAsync(string clientId, string eventName, string jsonData)
         {
             if (string.IsNullOrEmpty(clientId)) return false;
             SseClient? target = null;
@@ -483,22 +493,23 @@ namespace TShockData
                 }
             }
             if (target == null) return false;
-            _ = SendSafeAsync(target, eventName, jsonData);
-            return true;
+            return await SendSafeAsync(target, eventName, jsonData);
         }
 
-        private static async Task SendSafeAsync(SseClient c, string eventName, string jsonData)
+        private static async Task<bool> SendSafeAsync(SseClient c, string eventName, string jsonData)
         {
             try
             {
                 var payload = $"event: {eventName}\ndata: {jsonData}\n\n";
                 await c.SendAsync(payload, CancellationToken.None);
+                return true;
             }
             catch
             {
-                // 断连：尝试移除
+                // 断连：尝试移除；返回 false 让定向推送方知道这一条没投递出去
                 lock (_clientsLock) { _clients.Remove(c); }
                 c.Close();
+                return false;
             }
         }
 

@@ -448,7 +448,12 @@ export async function saveFileToBackend(serverId, filePath, options = {}) {
   }
 
   // 等待 finishFile 落盘完成（60s 超时兜底）
-  const timeout = setTimeout(() => { saveWaiters.delete(key) }, 60000)
+  // 注意：超时必须 reject（走 resolveSaveWaiter 统一出口），否则只从 waiters 表里删除、
+  // 却从不 settle 这个 Promise —— await waiter 会永久挂起，HTTP 请求永不响应，
+  // 前端表现为「进度条卡住不动、既不成功也不失败」。
+  const timeout = setTimeout(() => {
+    resolveSaveWaiter(conn, safeName, new Error('等待插件推送文件超时（60s）'))
+  }, 60000)
   try {
     await waiter
     clearTimeout(timeout)

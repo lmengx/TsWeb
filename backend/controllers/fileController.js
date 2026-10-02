@@ -140,6 +140,7 @@ export async function downloadFile(req, res) {
   let ended = false
   let unregister = () => {}
   let gotBegin = false
+  let stallTimer = null
 
   const endStream = () => {
     if (ended) return
@@ -149,16 +150,24 @@ export async function downloadFile(req, res) {
     try { res.end() } catch { /* ignore */ }
   }
 
-  // 防呆：若 30 秒内未收到插件 file.begin 事件，主动报错关闭，避免前端无限等待
-  // （典型场景：插件 DLL 未更新，/tsweb/file 推送的事件不带 tag，后端无法关联转发）
-  const stallTimer = setTimeout(() => {
-    if (!gotBegin) {
+  // 看门狗：每个转发的文件事件都重新计时，30 秒内没有任何事件就主动报错关闭。
+  // 覆盖两种情况：① 始终没等到 file.begin（典型场景：插件 DLL 未更新，/tsweb/file
+  // 推送的事件不带 tag，后端无法关联转发）；② file.begin 之后中途断流——旧实现只在
+  // !gotBegin 时兜底，中途断流会让前端进度条永久卡住、既不成功也不失败。
+  const armStall = () => {
+    clearTimeout(stallTimer)
+    stallTimer = setTimeout(() => {
+      if (ended) return
+      const reason = gotBegin
+        ? '文件推送中断（30 秒未收到新分片）'
+        : '未收到插件文件事件（请确认插件已更新并重启 TShock）'
       try {
-        res.write(`event: file.error\ndata: ${JSON.stringify({ reason: '未收到插件文件事件（请确认插件已更新并重启 TShock）' })}\n\n`)
+        res.write(`event: file.error\ndata: ${JSON.stringify({ reason })}\n\n`)
       } catch { /* ignore */ }
       endStream()
-    }
-  }, 30000)
+    }, 30000)
+  }
+  armStall()
 
   // 注册下载会话：插件 file.* 事件（带同一 tag）实时转发
   unregister = registerDownloadSession(tag, (event, parsed) => {
@@ -172,6 +181,8 @@ export async function downloadFile(req, res) {
     if (event === 'file.end' || event === 'file.error') {
       // 延迟一帧关闭，确保 end 帧已 flush
       setTimeout(endStream, 50)
+    } else {
+      armStall()
     }
   })
 
