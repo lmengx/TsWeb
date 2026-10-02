@@ -151,25 +151,27 @@ export const AUDIT_EVENTS = {
   },
 
   // ═══ user 类 — 玩家管理操作 ═══
+  // ip: true —— 本组均经 /api/tshock/*（verifyToken + requireManager）触发，
+  // 含封禁、清角色、查密码等不可逆或涉密操作，事后追责需要来源地址。
   'user.ban': {
     level: 'warn', category: 'user', title: '封禁玩家',
-    fields: ['player', 'serverId', 'actor'], ip: false, sensitive: []
+    fields: ['player', 'serverId', 'actor'], ip: true, sensitive: []
   },
   'user.unban': {
     level: 'info', category: 'user', title: '解封玩家',
-    fields: ['player', 'serverId', 'actor'], ip: false, sensitive: []
+    fields: ['player', 'serverId', 'actor'], ip: true, sensitive: []
   },
   'user.clearcharacter': {
     level: 'error', category: 'user', title: '清除角色数据',
-    fields: ['player', 'serverId', 'actor'], ip: false, sensitive: []
+    fields: ['player', 'serverId', 'actor'], ip: true, sensitive: []
   },
   'user.invsee': {
     level: 'warn', category: 'user', title: '查看玩家背包',
-    fields: ['player', 'serverId', 'actor'], ip: false, sensitive: []
+    fields: ['player', 'serverId', 'actor'], ip: true, sensitive: []
   },
   'user.password_query': {
     level: 'error', category: 'user', title: '查询玩家密码',
-    fields: ['player', 'serverId', 'actor'], ip: false, sensitive: []
+    fields: ['player', 'serverId', 'actor'], ip: true, sensitive: []
   },
   'unverified.kick': {
     level: 'info', category: 'user', title: '踢出未验证玩家',

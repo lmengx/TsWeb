@@ -153,6 +153,23 @@ export const info = (event, ctx) => record(event, { ...ctx, __forceLevel: 'info'
 export const warn = (event, ctx) => record(event, { ...ctx, __forceLevel: 'warn' })
 export const error = (event, ctx) => record(event, { ...ctx, __forceLevel: 'error' })
 
+/**
+ * record 的安全包装：审计写入失败绝不允许影响主流程。
+ *
+ * 破坏性操作（清空全部角色数据、封禁、查密码等）的审计调用点位于
+ * 「操作已成功」与「发送响应」之间。record() 对未注册事件会抛错，若向上抛，
+ * 前端会看到失败但数据已变更（例如 tsCharacter 已被整表删除），操作者可能据此重试。
+ * 因此这里把异常降级为控制台输出——与 flush() 的失败处理同一取向：不静默吞掉，但也不外溢。
+ */
+export function safeRecord(event, ctx = {}) {
+  try {
+    return record(event, ctx)
+  } catch (err) {
+    console.error(`[Audit] 审计事件写入失败（${event}）: ${err.message}`)
+    return null
+  }
+}
+
 // ═══════════════════════════════════════════════════════════
 // 写入队列（节流合并，避免高频操作卡 IO）
 // ═══════════════════════════════════════════════════════════
@@ -224,4 +241,4 @@ export function registerShutdownHook() {
   process.on('SIGTERM', () => { shutdownFlush(); process.exit(0) })
 }
 
-export default { record, info, warn, error, flush, registerShutdownHook }
+export default { record, safeRecord, info, warn, error, flush, registerShutdownHook }

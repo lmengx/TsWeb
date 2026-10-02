@@ -1,4 +1,18 @@
-import tshockService from '../services/tshockService.js'
+import tshockService, { getCurrentServerId } from '../services/tshockService.js'
+import audit from '../services/auditLogger.js'
+
+/**
+ * 审计上下文：actor = 登录的后端账户，serverId = 当前服务器实例（来自 x-server-id，
+ * 前端未带则为空串），ip = 来源地址（仅当该事件在 auditEvents.js 中 ip: true 时才写入）。
+ */
+function auditCtx(req, extra = {}) {
+  return {
+    serverId: getCurrentServerId() || '',
+    actor: req.user?.username || 'unknown',
+    ip: req.ip,
+    ...extra
+  }
+}
 
 export const clearAllCharacter = async (req, res) => {
   const { username, password } = req.body
@@ -8,6 +22,21 @@ export const clearAllCharacter = async (req, res) => {
   }
 
   const result = await tshockService.clearAllCharacter(username, password)
+
+  // 全服清角色（DELETE FROM tsCharacter，无 WHERE 条件）不可逆：无论成败都留审计。
+  // player 用 '*' 表示全量；username 是用于校验密码的账户名。
+  const clearAllDetail = { scope: 'all', verifyAccount: username }
+  if (result.error) {
+    clearAllDetail.error = result.error
+  } else {
+    if (result.totalCount !== undefined) clearAllDetail.totalCount = result.totalCount
+    if (result.rowsAffected !== undefined) clearAllDetail.rowsAffected = result.rowsAffected
+  }
+  audit.safeRecord('user.clearcharacter', auditCtx(req, {
+    player: '*',
+    ok: !result.error,
+    detail: clearAllDetail
+  }))
 
   if (result.error) {
     return res.json({ status: 'error', error: result.error })
@@ -52,6 +81,13 @@ export const getInventory = async (req, res) => {
   }
 
   const result = await tshockService.getInventory(player)
+
+  // 查看他人背包：只读但涉隐私，成功与失败都留痕
+  audit.safeRecord('user.invsee', auditCtx(req, {
+    player,
+    ok: !result.error,
+    ...(result.error ? { detail: { error: result.error } } : {})
+  }))
   
   if (result.error) {
     return res.json({ status: 'error', error: result.error })
@@ -172,6 +208,17 @@ export const banPlayer = async (req, res) => {
 
   const target = name || id
   const result = await tshockService.banPlayer(target, reason, character)
+
+  // 封禁：留操作者（同时作为 TShock 封禁记录的来源）与理由
+  const banDetail = {}
+  if (reason) banDetail.reason = reason
+  if (result.error) banDetail.error = result.error
+  audit.safeRecord('user.ban', auditCtx(req, {
+    player: target,
+    ok: !result.error,
+    ...(Object.keys(banDetail).length ? { detail: banDetail } : {})
+  }))
+
   res.json(result)
 }
 
@@ -185,6 +232,15 @@ export const unbanPlayer = async (req, res) => {
   }
 
   const result = await tshockService.unbanPlayer(ticket, fullDelete !== false)
+
+  // 解封：该接口只按 ticket 定位封禁记录，拿不到被解封者名字，故只记 ticket
+  const unbanDetail = { ticket, fullDelete: fullDelete !== false }
+  if (result.error) unbanDetail.error = result.error
+  audit.safeRecord('user.unban', auditCtx(req, {
+    ok: !result.error,
+    detail: unbanDetail
+  }))
+
   res.json(result)
 }
 
@@ -219,6 +275,16 @@ export const clearCharacter = async (req, res) => {
   }
 
   const result = await tshockService.clearCharacter(account)
+
+  // 单个账号清角色（不可逆）：无论成败都留审计。player 记账号 ID。
+  const clearOneDetail = { scope: 'single' }
+  if (result.error) clearOneDetail.error = result.error
+  else if (result.rowsAffected !== undefined) clearOneDetail.rowsAffected = result.rowsAffected
+  audit.safeRecord('user.clearcharacter', auditCtx(req, {
+    player: String(account),
+    ok: !result.error,
+    detail: clearOneDetail
+  }))
 
   if (result.error) {
     return res.json({ status: 'error', error: result.error })
