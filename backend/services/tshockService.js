@@ -921,7 +921,12 @@ export class TShockService {
     }
   }
 
-  async banPlayer(name, reason, character = null) {
+  /**
+   * 封禁玩家（账号 + UUID + 所有已知 IP 三重）。
+   * @param {number|null} durationSeconds 封禁时长（秒）。传 null / 不传 = 永久封禁，
+   *   保持本方法原有语义（旧调用方不需要跟着改）。
+   */
+  async banPlayer(name, reason, character = null, durationSeconds = null) {
     if (!this.baseUrl) {
       await this.init()
     }
@@ -933,6 +938,7 @@ export class TShockService {
     let url = `${this.baseUrl}/data/users/ban?name=${encodeURIComponent(name)}`
     if (reason) url += `&reason=${encodeURIComponent(reason)}`
     if (character) url += `&character=${encodeURIComponent(character)}`
+    if (durationSeconds) url += `&durationSeconds=${encodeURIComponent(durationSeconds)}`
     if (this.apiKey) {
       url += `&token=${encodeURIComponent(this.apiKey)}`
     }

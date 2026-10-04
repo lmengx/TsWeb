@@ -1,5 +1,6 @@
 import tshockService, { getCurrentServerId } from '../services/tshockService.js'
 import audit from '../services/auditLogger.js'
+import { parseBanDurationSeconds, formatBanDuration } from '../lib/banDuration.js'
 
 /**
  * 审计上下文：actor = 登录的后端账户，serverId = 当前服务器实例（来自 x-server-id，
@@ -195,7 +196,7 @@ export const removeGroupPermission = async (req, res) => {
 }
 
 export const banPlayer = async (req, res) => {
-  const { name, id, reason } = req.body
+  const { name, id, reason, durationSeconds } = req.body
   const character = req.user?.username || '后台操作'
   
   if (!name && !id) {
@@ -206,13 +207,52 @@ export const banPlayer = async (req, res) => {
     return res.status(400).json({ error: 'specify either name or id, not both' })
   }
 
-  const target = name || id
-  const result = await tshockService.banPlayer(target, reason, character)
+  // 封禁时长：不传 / 空 = 永久封禁（保持原有语义，批量封禁等其他调用方不受影响）。
+  // 校验与上限由 lib/banDuration.js 统一定义（那里说明了为什么抽出去），
+  // 面板也会先拦一道，但这里才是权威判定。
+  const parsedDuration = parseBanDurationSeconds(durationSeconds)
 
-  // 封禁：留操作者（同时作为 TShock 封禁记录的来源）与理由
-  const banDetail = {}
+  if (!parsedDuration.ok) {
+    return res.status(400).json({ error: parsedDuration.error })
+  }
+
+  const banSeconds = parsedDuration.seconds
+
+  const target = name || id
+  const pluginResult = await tshockService.banPlayer(target, reason, character, banSeconds)
+
+  // 防"新旧版本混部署"造成的静默永久封禁：旧插件不认识 durationSeconds，会直接忽略这个参数，
+  // 于是"想封 1 小时"实际按永久写库、还回报成功。这里认一下插件的回执字段：
+  // 要求了临时封禁却拿不到 permanent 标记 = 插件根本没吃这个参数，必须如实报错让人去更新插件。
+  // 插件是逐台服部署的（后端可以连多台），混部署是很容易出现的状态，所以这个检查不能省。
+  const pluginOutdated = banSeconds !== null && !pluginResult.error && pluginResult.permanent === undefined
+
+  const result = pluginOutdated
+    ? { error: '封禁已按「永久」执行：游戏服插件未识别时长参数（插件版本过旧）。请更新插件后解封重封。' }
+    : pluginResult
+
+  // 封禁：留操作者（同时作为 TShock 封禁记录的来源）、理由与时长。
+  // 时长记成"30 天 / 永久"这种给人看的文案——审计页是按 JSON 原样展示的，
+  // 记秒数事后还得自己换算。
+  const banDetail = {
+    // 插件没识别时长参数时，实际执行的是永久封禁。审计要记"实际发生了什么"，
+    // 而不是"本来想封多久"，否则事后追查会被这条记录误导。
+    duration: pluginOutdated
+      ? '永久（插件未识别时长参数）'
+      : (banSeconds ? formatBanDuration(banSeconds) : '永久')
+  }
   if (reason) banDetail.reason = reason
+  // 实际被踢下线的人：封禁记录写成功但踢人失败时，这里能看出少踢了一个。
+  // 取自 pluginResult 而不是 result——pluginOutdated 分支会重造 result，那里没有 kicked 字段。
+  if (Array.isArray(pluginResult.kicked) && pluginResult.kicked.length) banDetail.kicked = pluginResult.kicked
+  // 被本次覆盖的旧封禁票据号：TShock 每个标识只允许一条生效中的封禁，改时长是改写旧记录。
+  // 记下来才看得出某条封禁在什么时候被谁改过，而不是凭空变了到期时间。
+  if (Array.isArray(pluginResult.bansReplaced) && pluginResult.bansReplaced.length) {
+    banDetail.replacedBans = pluginResult.bansReplaced
+  }
+  if (pluginOutdated) banDetail.pluginOutdated = true
   if (result.error) banDetail.error = result.error
+
   audit.safeRecord('user.ban', auditCtx(req, {
     player: target,
     ok: !result.error,

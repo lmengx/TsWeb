@@ -3,6 +3,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { get, post, del } from '../../utils/api.js'
 import InventoryViewer from '../../components/InventoryViewer.vue'
+import AppSelect from '../../components/AppSelect.vue'
 import { getAntiCheatConfig } from '../../api/antiCheatApi.js'
 import { loadItemData } from '../../api/itemDataApi.js'
 import Loading from '../../components/Loading.vue'
@@ -88,6 +89,78 @@ const banReason = ref('不当行为')
 const banLoading = ref(false)
 const banError = ref('')
 const banSuccess = ref('')
+
+// ═══ 封禁时长（预设四档 + 自定义数字单位）═══
+// 约定：不传 durationSeconds 就是永久封禁，后端与插件都按这个口径判断，
+// 所以「永久」这一档不是传一个大数字，而是根本不带时长的那个分支。
+const banDurationChoice = ref('1h')     // 预设 key（BAN_DURATION_PRESETS）或 'custom'
+const banCustomValue = ref('')          // 自定义数字
+const banCustomUnit = ref('hour')       // 自定义单位（BAN_CUSTOM_UNITS）
+
+// 封禁成功后自动关窗的定时器（写法与文件里既有的 toastTimer 一致）：
+// 必须能被取消，否则"成功后关窗"的定时器会在管理员重新打开弹窗后把新弹窗关掉。
+let banCloseTimer = null
+
+const BAN_DURATION_PRESETS = [
+  { key: '1h', label: '1 小时', seconds: 3600 },
+  { key: '1d', label: '1 天', seconds: 86400 },
+  { key: '30d', label: '30 天', seconds: 2592000 },
+  { key: 'permanent', label: '永久', seconds: null }
+]
+
+const BAN_CUSTOM_UNITS = [
+  { value: 'minute', label: '分钟', seconds: 60 },
+  { value: 'hour', label: '小时', seconds: 3600 },
+  { value: 'day', label: '天', seconds: 86400 }
+]
+
+// 时长上限（100 年 / 36500 天）刻意不在这里再写一遍：它的权威定义在后端
+// backend/lib/banDuration.js 的 MAX_BAN_DURATION_SECONDS，插件侧 QueryUsers.cs 另有一份
+// 防御性的最后一道。三处各写一个数字，改一处忘另一处就会出现"面板放行、后端拒绝"这种对不上的
+// 行为；这里只拦"必须是大于 0 的整数"这种当场就能说清的错误，超上限交给后端回一条带天数的报错。
+//
+// 自定义时长填得对不对（只在选了「自定义」时才需要校验）
+const banCustomError = computed(() => {
+  if (banDurationChoice.value !== 'custom') return ''
+
+  const raw = String(banCustomValue.value).trim()
+  if (!raw) return '请填写时长'
+
+  const value = Number(raw)
+  if (!Number.isInteger(value) || value <= 0) return '时长必须是大于 0 的整数'
+
+  const unit = BAN_CUSTOM_UNITS.find(u => u.value === banCustomUnit.value)
+  if (!unit) return '请选择时长单位'
+
+  return ''
+})
+
+// 当前选中的封禁时长（秒）；null 表示永久封禁
+const banDurationSeconds = computed(() => {
+  if (banDurationChoice.value === 'permanent') return null
+
+  if (banDurationChoice.value === 'custom') {
+    if (banCustomError.value) return null
+
+    const unit = BAN_CUSTOM_UNITS.find(u => u.value === banCustomUnit.value)
+    return Number(String(banCustomValue.value).trim()) * unit.seconds
+  }
+
+  const preset = BAN_DURATION_PRESETS.find(p => p.key === banDurationChoice.value)
+  return preset ? preset.seconds : null
+})
+
+// 时长预览：把"封到什么时候"在点确认之前就算出来给人看，
+// 免得只看到一个「30 天」还要自己换算到期日期。
+const banDurationHint = computed(() => {
+  if (banDurationChoice.value === 'permanent') return '永久生效，不会自动解封。'
+
+  const seconds = banDurationSeconds.value
+  if (!seconds) return ''
+
+  const end = new Date(Date.now() + seconds * 1000)
+  return `到期自动解封：${end.toLocaleString('zh-CN')}`
+})
 
 // ═══ 封禁状态显示（玩家详情页：有封禁时头部显示徽标，点击弹出详情）═══
 const banListLoading = ref(false)
@@ -631,6 +704,16 @@ const openBanModal = () => {
   banReason.value = '不当行为'
   banError.value = ''
   banSuccess.value = ''
+  // 每次打开都回到默认档（1 小时）并清空自定义填写，
+  // 避免上一次填的「30 天」留在这里被下一次顺手带出去
+  banDurationChoice.value = '1h'
+  banCustomValue.value = ''
+  banCustomUnit.value = 'hour'
+  // 上一次成功后留下的关窗定时器要作废，否则它会在这次新开的弹窗上到点触发，把弹窗关掉
+  if (banCloseTimer) {
+    clearTimeout(banCloseTimer)
+    banCloseTimer = null
+  }
 }
 
 const openPasswordModal = () => {
@@ -956,26 +1039,68 @@ const executeDelete = async () => {
 
 const closeBanModal = () => {
   showBanModal.value = false
+  // 手动关闭时把待触发的关窗定时器清掉，避免留下一个指向已关闭弹窗的空定时器
+  if (banCloseTimer) {
+    clearTimeout(banCloseTimer)
+    banCloseTimer = null
+  }
 }
 
 const executeBan = async () => {
   if (!userDetails.value) return
 
-  banLoading.value = true
   banError.value = ''
   banSuccess.value = ''
 
+  // 自定义时长没填对就不发请求：宁可当场让人改，
+  // 也不要发一个"以为封 1 小时、实际按永久写库"的封禁出去
+  if (banCustomError.value) {
+    banError.value = banCustomError.value
+    return
+  }
+
+  banLoading.value = true
+
   try {
+    const seconds = banDurationSeconds.value
     const response = await post('/api/tshock/ban', {
       name: userDetails.value.Username || userDetails.value.name,
-      reason: banReason.value
+      reason: banReason.value,
+      // 不带 durationSeconds = 永久封禁（后端与插件都按"参数缺省即永久"处理）
+      ...(seconds ? { durationSeconds: seconds } : {})
     })
     const result = await response.json()
 
     if (result.error) {
       banError.value = result.error
     } else {
-      banSuccess.value = result.response || '封禁成功'
+      // 把这次封禁实际做了什么说清楚：到期时间用插件回报的 ticks（与封禁列表同一口径，
+      // 都用 ticksToDate 换算，避免两处显示不一致）、覆盖了哪条旧封禁、被踢下线的人一并列出
+      const bits = [result.response || '封禁成功']
+      if (!result.permanent && result.endDateTicks) {
+        bits.push(`到期自动解封：${ticksToDate(result.endDateTicks)}`)
+      }
+      if (Array.isArray(result.bansReplaced) && result.bansReplaced.length) {
+        // TShock 每个标识只允许一条生效中的封禁，改时长是改写旧记录而不是新增，
+        // 所以这里明确说一句"覆盖了"，免得管理员以为多了一条
+        bits.push(`已覆盖原有封禁记录 #${result.bansReplaced.join('、#')}`)
+      }
+      if (Array.isArray(result.kicked) && result.kicked.length) {
+        bits.push(`已踢下线：${result.kicked.join('、')}`)
+      }
+      banSuccess.value = bits.join('；')
+
+      // 刷新封禁列表，让头部的「已封禁」徽标和封禁详情立刻反映这次操作
+      await fetchPlayerBans()
+
+      // 成功后自动关闭：封禁已经生效，弹窗停在这里没有别的事可做，
+      // 而按钮还亮着会引诱人再点一次——再点一次是把同一条封禁按现在重新写一遍
+      // （到期时间从头算起），并不是管理员想做的事。留一点时间让人读完上面那行结果再关
+      // （删除流程也是同样的做法）。
+      banCloseTimer = setTimeout(() => {
+        banCloseTimer = null
+        closeBanModal()
+      }, 2600)
     }
   } catch (err) {
     banError.value = err.message || '封禁失败'
@@ -2928,8 +3053,20 @@ onMounted(() => {
         </div>
         <div class="modal-body">
           <div class="ban-warning">
-            <p>⚠️ 此操作将封禁该玩家的账户、UUID 和所有已知 IP 地址。</p>
-            <p>被封禁的玩家将无法再次进入服务器。</p>
+            <p>此操作将封禁该玩家的账户、UUID 和所有已知 IP 地址。</p>
+            <p>临时封禁到期后自动解封；永久封禁不会自动解封。</p>
+          </div>
+          <!-- 已有生效封禁时把"会覆盖"这件事说在前面：TShock 每个标识只允许一条生效中的封禁，
+               所以改时长是改写旧记录而不是新增。不提前说明的话，管理员无法预判
+               "给一个已被永久封禁的人再封 1 小时"会把永久封禁改成 1 小时。 -->
+          <div v-if="activePlayerBans.length > 0" class="ban-duration-replace-warning">
+            <p>
+              该玩家当前已有 {{ activePlayerBans.length }} 条生效中的封禁{{
+                activePlayerBans.some(ban => ban.end_date_ticks === 3155378976000000000)
+                  ? '（含永久封禁）'
+                  : ''
+              }}，确认后将<b>按所选时长覆盖</b>原有封禁。
+            </p>
           </div>
           <div class="ban-form">
             <div class="form-row">
@@ -2941,6 +3078,42 @@ onMounted(() => {
                 class="form-input"
                 @keyup.enter="executeBan"
               />
+            </div>
+            <div class="form-row">
+              <label>封禁时长</label>
+              <div class="ban-duration-presets">
+                <button
+                  v-for="preset in BAN_DURATION_PRESETS"
+                  :key="preset.key"
+                  type="button"
+                  class="ban-duration-preset"
+                  :class="{ active: banDurationChoice === preset.key }"
+                  @click="banDurationChoice = preset.key"
+                >
+                  {{ preset.label }}
+                </button>
+                <button
+                  type="button"
+                  class="ban-duration-preset"
+                  :class="{ active: banDurationChoice === 'custom' }"
+                  @click="banDurationChoice = 'custom'"
+                >
+                  自定义
+                </button>
+              </div>
+              <div v-if="banDurationChoice === 'custom'" class="ban-duration-custom">
+                <input
+                  v-model="banCustomValue"
+                  type="number"
+                  min="1"
+                  step="1"
+                  placeholder="填写数字"
+                  class="form-input"
+                />
+                <AppSelect v-model="banCustomUnit" :options="BAN_CUSTOM_UNITS" />
+              </div>
+              <p v-if="banCustomError" class="ban-duration-error">{{ banCustomError }}</p>
+              <p v-else-if="banDurationHint" class="ban-duration-hint">{{ banDurationHint }}</p>
             </div>
           </div>
           <div v-if="banError" class="give-error">
@@ -5464,6 +5637,91 @@ onMounted(() => {
   margin: 6px 0;
   color: #92400e;
   font-size: 0.9rem;
+}
+
+/* 「将覆盖原有封禁」提示：语气比上面的常规警告更重（用红色系），
+   因为这是本次操作里唯一会改变既有处罚结果的地方 */
+.ban-duration-replace-warning {
+  background: rgba(220, 38, 38, 0.1);
+  border: 1px solid rgba(220, 38, 38, 0.35);
+  border-radius: var(--radius-md);
+  padding: 12px 16px;
+  margin: -8px 0 20px;
+}
+
+.ban-duration-replace-warning p {
+  margin: 0;
+  color: #b91c1c;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+/* ═══ 封禁时长选择（预设四档 + 自定义）═══ */
+.ban-duration-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ban-duration-preset {
+  padding: 8px 14px;
+  background: var(--bg-tertiary);
+  border: 2px solid var(--border-color);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.ban-duration-preset:hover {
+  border-color: var(--accent-primary);
+  color: var(--text-primary);
+}
+
+/* 选中态沿用本项目可选卡片的一贯写法（accent 边框 + 低透明度底色） */
+.ban-duration-preset.active {
+  border-color: var(--accent-primary);
+  background: rgba(99, 102, 241, 0.1);
+  color: var(--accent-primary);
+  box-shadow: 0 0 0 1px var(--accent-primary);
+}
+
+.ban-duration-custom {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 单位下拉不跟着数字输入框一起伸缩，免得「天」那一格被拉得很宽 */
+.ban-duration-custom :deep(.app-select) {
+  flex: 0 0 auto;
+}
+
+/* AppSelect 自带样式比 form-input 小一号：对齐成同一高度与边框，
+   免得同一个表单里两个控件高低不齐 */
+.ban-duration-custom :deep(.app-select-trigger) {
+  min-width: 92px;
+  padding: 12px;
+  border: 2px solid var(--border-color);
+  border-radius: var(--radius-md);
+}
+
+.ban-duration-custom :deep(.app-select-value) {
+  font-size: 0.95rem;
+}
+
+.ban-duration-hint {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.ban-duration-error {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #dc2626;
 }
 
 .ban-submit-btn {
