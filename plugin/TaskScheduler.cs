@@ -59,9 +59,32 @@ namespace TShockData
         public List<string> Commands { get; set; } = new();
 
         // ===== 运行期状态 =====
-        // 上次任意触发（手动/间隔/每日均更新），用于 interval 判断与前端显示
+        // 上次任意触发（手动/间隔/每日均更新），用于 interval 判断与前端显示。
+        //
+        // 本字段虽然看着像"显示用"，实际是**调度依据**：interval 的到期判定是
+        // (Now - LastRunAt) >= IntervalSeconds。它原先挂 [JsonIgnore] 不落盘，每次加载
+        // （冷启动 / 热重载 / reload）后回到 DateTime.MinValue，于是加载后的第一次 tick
+        // 就把所有 interval 任务判成"已到期"、立刻执行一次——这就是"每次热重载都会自动
+        // 清理一次地面"的根因。故必须持久化，且必须经下面的 LastRunAtJson 代理落盘。
         [JsonIgnore]
         public DateTime LastRunAt { get; set; } = DateTime.MinValue;
+
+        /// <summary>
+        /// LastRunAt 的落盘代理：JSON 中的 null 表示"从未执行过"（对应 DateTime.MinValue）。
+        ///
+        /// 为什么不直接给 LastRunAt 挂 [JsonProperty]，而要这个可空代理：
+        /// Newtonsoft 把 JSON null 绑到**非可空** DateTime 属性时会直接抛
+        /// "Error converting value {null} to type 'System.DateTime'"，而列表接口对从未执行的
+        /// 任务正是返回 null；前端 getTask 拿到后编辑保存会原样回传，那样保存会以 500 失败。
+        /// 可空代理让 null 与"字段缺失"（旧配置升级）都能安全落到 MinValue，
+        /// 同时让 get 与 list 两个接口对"从未执行"的表示统一为 null。
+        /// </summary>
+        [JsonProperty("lastRunAt")]
+        public DateTime? LastRunAtJson
+        {
+            get => LastRunAt == DateTime.MinValue ? null : LastRunAt;
+            set => LastRunAt = value ?? DateTime.MinValue;
+        }
         // 上次每日定时触发的日期（落盘：重启后仍能记住当天已执行），仅 daily 模式使用
         [JsonProperty("lastDailyRunAt")]
         public DateTime LastDailyRunAt { get; set; } = DateTime.MinValue;
@@ -132,6 +155,8 @@ namespace TShockData
         private static readonly string ConfigPath = Path.Combine(TShock.SavePath, "TSWeb", "Tasks", "tasks.json");
         private static System.Timers.Timer? _timer;
         private static bool _initialized;
+        /// <summary>串行化配置写盘（定时器线程与 REST 线程都会写，见 SaveConfig）。</summary>
+        private static readonly object _saveLock = new object();
 
         public static List<AutoTask> Tasks { get; private set; } = new();
 
@@ -218,6 +243,9 @@ namespace TShockData
                     Tasks = new List<AutoTask>();
                     SaveConfig();
                 }
+
+                // 补种缺失的计时起点（见 SeedMissingLastRunAt 的说明）
+                SeedMissingLastRunAt();
             }
             catch (Exception ex)
             {
@@ -226,20 +254,80 @@ namespace TShockData
             }
         }
 
+        /// <summary>
+        /// 给没有历史计时起点的任务补上"当前时间"作为起点，并在确实补种时落盘。
+        ///
+        /// 这是 D1 修法的第二步（第一步是把 LastRunAt 落盘，只做第一步并不够）：
+        /// 没有起点指 LastRunAt == DateTime.MinValue，即旧配置升级后首次加载（文件里还没有
+        /// 这个字段）、或任务从未执行过。此时**不能**按"已到期"处理——MinValue 距今约 6.4e10 秒，
+        /// 恒大于任何 IntervalSeconds，于是加载后的第一次 tick 会立刻执行一次：
+        /// 清理地面这类任务是真的清一次地面，`/off` 这类任务则是"开服即关服"。
+        /// 新版 cordis（tsweb-cordis/plugins/task-scheduler）对同一缺陷的修法是
+        /// TaskSchedulerModel.SeedMissingLastRunAt，此处与之对齐。
+        ///
+        /// 补种必须落盘：否则每次加载都要重新补种，间隔大于两次加载间隔的任务将永远不执行
+        /// （这正是"加载后一律重新计时"方案的固有代价，补种的持久化恰好避开了它）。
+        /// </summary>
+        private static void SeedMissingLastRunAt()
+        {
+            var now = DateTime.Now;
+            int seeded = 0;
+            foreach (var t in Tasks)
+            {
+                if (t.LastRunAt != DateTime.MinValue) continue;
+                t.LastRunAt = now;
+                seeded++;
+            }
+
+            if (seeded > 0)
+            {
+                SaveConfig();
+                TShock.Log.ConsoleInfo($"[TSWeb] {seeded} 个自动任务缺少计时起点，已以当前时间补种（本次加载不会立刻触发）");
+            }
+        }
+
+        /// <summary>
+        /// 记录任务的本次触发时刻并**立即落盘**。
+        ///
+        /// 为什么必须落盘：interval 的到期判定是 (Now - LastRunAt) >= IntervalSeconds。
+        /// LastRunAt 以前是 [JsonIgnore] 的纯内存字段，每次加载后恒为 DateTime.MinValue，
+        /// 使得插件每次加载（冷启动、热重载）后的第一次 tick 就把所有 interval 任务判为到期、
+        /// 立刻执行一次——「自动清理地面物品」每次热重载都清一次地面就是这么来的。
+        /// 记完不落盘同样不行：内存里更新了、磁盘上还是旧值，下一次加载照样从头算。
+        /// </summary>
+        /// <param name="markDaily">是否同时记"今天已执行"（仅触发时刻需要，见下方说明）</param>
+        private static void PersistRunTime(AutoTask task, bool markDaily)
+        {
+            task.LastRunAt = DateTime.Now;
+
+            // 每日任务的"今天已跑过"只在**触发时刻**记，不在执行结束时记：
+            // 跨零点执行完的任务若在结束时记，日期会落到第二天，把第二天本该跑的那次挡掉。
+            if (markDaily && task.TriggerMode == "daily")
+                task.LastDailyRunAt = task.LastRunAt;
+
+            SaveConfig();
+        }
+
         private static void SaveConfig()
         {
-            try
+            // 现在有两个线程会写这份配置：定时器线程（任务触发/结束时记时刻）与 REST 线程
+            // （面板保存/删除任务）。File.WriteAllText 不是原子操作，并发写会互相覆盖或抛
+            // IOException，所以把写文件串行化。
+            lock (_saveLock)
             {
-                var dir = Path.GetDirectoryName(ConfigPath);
-                if (!Directory.Exists(dir))
-                    Directory.CreateDirectory(dir);
+                try
+                {
+                    var dir = Path.GetDirectoryName(ConfigPath);
+                    if (!Directory.Exists(dir))
+                        Directory.CreateDirectory(dir);
 
-                var json = JsonConvert.SerializeObject(new TaskConfig { Tasks = Tasks }, Formatting.Indented);
-                File.WriteAllText(ConfigPath, json);
-            }
-            catch (Exception ex)
-            {
-                TShock.Log.ConsoleError($"[TSWeb] 保存自动任务配置失败: {ex.Message}");
+                    var json = JsonConvert.SerializeObject(new TaskConfig { Tasks = Tasks }, Formatting.Indented);
+                    File.WriteAllText(ConfigPath, json);
+                }
+                catch (Exception ex)
+                {
+                    TShock.Log.ConsoleError($"[TSWeb] 保存自动任务配置失败: {ex.Message}");
+                }
             }
         }
 
@@ -264,10 +352,10 @@ namespace TShockData
 
                 if (due)
                 {
-                    task.LastRunAt = DateTime.Now;
-                    // 每日定时触发单独记录日期（防重启丢失与模式切换干扰）
-                    if (task.TriggerMode == "daily")
-                        task.LastDailyRunAt = DateTime.Now;
+                    // 触发时刻先记一次并落盘（见 PersistRunTime 的说明）。
+                    // 任务本身可能跑很久（模板里的清理任务是 /wait 60000 之后才真正清），
+                    // 这段时间里若发生热重载/重启，落盘的时刻能保证它不会被立刻再触发一遍。
+                    PersistRunTime(task, markDaily: true);
                     Task.Run(() => ExecuteTask(task, force: false));
                 }
             }
@@ -434,7 +522,9 @@ namespace TShockData
                 log.DurationMs = (long)(log.CompletedAt.Value - log.StartedAt.Value).TotalMilliseconds;
                 if (!logSaved)
                     InsertLog(log);
-                task.LastRunAt = DateTime.Now;
+                // 执行结束再记一次并落盘。这条路径同时覆盖定时触发与面板手动触发，
+                // 所以在这里落盘也保证了"手动跑过一次"会把 interval 的计时起点一并推后
+                PersistRunTime(task, markDaily: false);
                 task.Running = false;
             }
         }
@@ -606,21 +696,31 @@ namespace TShockData
                 }
                 catch { /* 表不存在等场景降级为内存计数 */ }
 
-                var list = Tasks.Select(t => new
+                var list = Tasks.Select(t =>
                 {
-                    id = t.Id,
-                    name = t.Name,
-                    enabled = t.Enabled,
-                    triggerMode = t.TriggerMode,
-                    intervalSeconds = t.IntervalSeconds,
-                    dailyTime = t.DailyTime,
-                    condition = t.Condition,
-                    execMode = t.ExecMode,
-                    commandCount = t.Commands.Count,
-                    lastRunAt = t.LastRunAt == DateTime.MinValue ? null : t.LastRunAt.ToString("yyyy-MM-dd HH:mm:ss"),
-                    lastRunStatus = t.LastRunStatus,
-                    runCount = countMap.TryGetValue(t.Id, out var cnt) ? cnt : 0,
-                    running = t.Running
+                    // 实际执行次数取自执行记录表（整表统计，重启后依然准确）
+                    var runCount = countMap.TryGetValue(t.Id, out var cnt) ? cnt : 0;
+                    return new
+                    {
+                        id = t.Id,
+                        name = t.Name,
+                        enabled = t.Enabled,
+                        triggerMode = t.TriggerMode,
+                        intervalSeconds = t.IntervalSeconds,
+                        dailyTime = t.DailyTime,
+                        condition = t.Condition,
+                        execMode = t.ExecMode,
+                        commandCount = t.Commands.Count,
+                        // 从未真正执行过的任务不显示时间：LastRunAt 现在既可能是真实执行时刻，
+                        // 也可能是补种的计时起点（见 SeedMissingLastRunAt），后者不是"上次执行"，
+                        // 显示出来会让面板把补种时间谎报成执行时刻
+                        lastRunAt = (t.LastRunAt == DateTime.MinValue || runCount == 0)
+                            ? null
+                            : t.LastRunAt.ToString("yyyy-MM-dd HH:mm:ss"),
+                        lastRunStatus = t.LastRunStatus,
+                        runCount,
+                        running = t.Running
+                    };
                 });
 
                 return new { status = 200, tasks = list, count = Tasks.Count };
@@ -692,6 +792,21 @@ namespace TShockData
                 }
                 else
                 {
+                    // 新建任务：运行期字段一律以服务端为准，不采纳客户端回传值。
+                    // 两个原因：
+                    //   1. 前端"编辑过某任务后再点新建"时，emptyTask() 走 Object.assign 填充、
+                    //      不会删掉旧键，于是上一个任务的 lastRunAt 会被原样带过来；若采纳，
+                    //      新任务会继承旧任务的计时起点，可能刚建好就立刻跑一次（清理地面即清一次）。
+                    //   2. 无历史的任务以"当前时间"为起点（D1 修法，见 SeedMissingLastRunAt），
+                    //      所以新建的 interval 任务从此刻开始计满一个完整间隔才首次执行，
+                    //      而不是因为 MinValue 被当成已到期而在下一个 tick 立刻执行。
+                    // 需要"马上跑一次"时面板另有「立即执行」按钮（RunTaskApi）。
+                    task.LastRunAt = DateTime.Now;
+                    task.LastDailyRunAt = DateTime.MinValue;
+                    task.LastRunStatus = "";
+                    task.RunCount = 0;
+                    task.Running = false;
+
                     Tasks.Add(task);
                 }
 
