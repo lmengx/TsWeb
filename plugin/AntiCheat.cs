@@ -528,6 +528,69 @@ namespace TShockData
         }
 
         /// <summary>
+        /// 公屏播报的动作词。标准档直接映射；处理方式为自定义命令时按命令首词判断，
+        /// 使面板的三个预设都有一条中文图标播报：
+        /// 广播公告 /bc、/broadcast、/say → 已公告；踢出玩家 /kick → 已踢出；
+        /// 封禁玩家 /banp、TShock /ban → 已封禁。
+        /// 其余自定义命令语义未知（插件不代为公告），log 档维持不公告，均返回 null。
+        /// 注意：处理方式在 RefreshRestrictedItems 载入时已被统一转为小写。
+        /// </summary>
+        private static string? ResolveActionWord(string? method)
+        {
+            if (string.IsNullOrWhiteSpace(method))
+                return null;
+
+            string m = method.Trim().ToLowerInvariant();
+            if (m == "ban")
+                return "已封禁";
+            if (m == "kick")
+                return "已踢出";
+            if (m == "log")
+                return null;
+
+            string token = FirstCommandToken(m);
+            switch (token)
+            {
+                // 面板「封禁玩家」预设 /banp，以及 TShock 的 /ban
+                case "ban":
+                case "banp":
+                    return "已封禁";
+                // 面板「踢出玩家」预设 /kick
+                case "kick":
+                    return "已踢出";
+                // 面板「广播公告」预设 /bc，以及 TShock broadcast 的两个别名
+                // （Commands.cs 中 Broadcast 注册为 "broadcast", "bc", "say"）
+                case "bc":
+                case "broadcast":
+                case "say":
+                    return "已公告";
+                // 其余自定义命令语义未知，插件不代为公告
+                default:
+                    return null;
+            }
+        }
+
+        /// <summary>
+        /// 取命令首词：跳过前导的命令前缀符与空白，截到第一个空白为止
+        /// （如 "/bc \"{playername}违规使用{itemname}\"" → bc）
+        /// 前缀符不写死：TShock 的命令前缀符可配置（Commands.Specifier，默认 "/"，
+        /// 另有静默前缀符），因此统一跳过开头的非字母数字字符。
+        /// </summary>
+        private static string FirstCommandToken(string command)
+        {
+            string s = command.TrimStart();
+            int start = 0;
+            while (start < s.Length && !char.IsLetterOrDigit(s[start]))
+                start++;
+            s = s.Substring(start);
+
+            int end = 0;
+            while (end < s.Length && !char.IsWhiteSpace(s[end]))
+                end++;
+            return s.Substring(0, end);
+        }
+
+        /// <summary>
         /// 聚合原因（纯文本，用于踢出/封禁界面，不依赖聊天标签渲染），统一格式：
         /// 持有物品名x数量、物品名x数量，超过当前进度合法值（不论违规物品是一个还是多个）
         /// </summary>
@@ -577,19 +640,19 @@ namespace TShockData
 
                     // 公屏播报：与聚合播报 ExecuteViolations 同款顺序（先播报，再执行处理）。
                     // 物品类统一用物品图标标签（客户端渲染为图标），弹幕类没有对应物品图标，退回文字。
-                    // log 档维持原样不公告（既有行为，不在本次改动范围内）。
-                    string? actionWord = captureMethod?.ToLower() switch
-                    {
-                        "ban" => "已封禁",
-                        "kick" => "已踢出",
-                        _ => null
-                    };
+                    // 处理方式为自定义命令时同样由插件公告（动作词按命令首词判断，见 ResolveActionWord），
+                    // 于是「广播公告 /bc」「踢出玩家 /kick」「封禁玩家 /banp」三个预设都有中文图标播报，
+                    // 不再依赖管理员模板里的 {itemname} 文字；命令本身照旧执行。
+                    // log 档与语义未知的自定义命令不公告（actionWord 为 null）。
+                    string? actionWord = ResolveActionWord(captureMethod);
                     // 公告条件：player 非空且连接仍在。
                     // player 为空（离线/已断开）时不公告，与本次改动前一致；
                     // ConnectionAlive 用于吃掉同一批违规的后续条目：首次处理时 Kick 已让连接进入待终止
                     // 状态（原版发送断开包 msgType==2 即置 PendingTermination，见
                     // 反编译参考源码 Terraria/NetMessage.cs SendData 末尾），而存箱/丢出拦截是
                     // 逐条命中调用的（同一物品可命中多个进度条目），不加这个判断会重复刷屏。
+                    // 例外：/bc 这类不含断开动作的自定义命令吃不掉后续条目，同一物品命中多条
+                    // 进度条目时仍会各发一条（与命令本身逐条执行、逐条广播的既有行为一致）。
                     if (actionWord != null && player != null && player.ConnectionAlive)
                     {
                         string pubReport = BuildItemBroadcastReport(name, itemId, stack, allowedStack, actionWord)
