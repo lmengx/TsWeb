@@ -816,14 +816,50 @@ namespace TShockData
             // 玩家名与物品名属外部数据（角色名可被玩家任意设置），插入模板前必须清洗；
             // itemid / projid 为 int，天然安全，保持原样以免改变既有模板行为。
             // {itemtag} 由本插件生成（形如 [i/s24:356]），只含数字与固定字符，同样无需清洗。
-            return command
-                .Replace("{playername}", SanitizeCommandArg(playerName))
-                .Replace("{itemid}", itemId.ToString())
-                .Replace("{itemname}", SanitizeCommandArg(itemName ?? ""))
-                .Replace("{projid}", projId.ToString())
-                // {itemtag}：公屏播报类自定义命令（如 /bc）用它输出物品图标，客户端渲染为图标；
-                // 物品 ID 缺失（弹幕类）时退回物品名文本，避免输出空串。
-                .Replace("{itemtag}", itemId > 0 ? FormatItemTag(itemId, stack) : SanitizeCommandArg(itemName ?? ""));
+            //
+            // 必须「单遍」替换：写成一串 string.Replace 会把已经替换进去的值再扫一遍，
+            // 玩家只要把角色名取成 {itemtag}（或 {itemname}），名字里那串字符就会被再次展开，
+            // 凭空多出一个物品图标。这里只扫描模板原文，替换结果不再参与匹配；
+            // 不认识的 {xxx} 原样保留（与逐次替换的行为一致）。
+            var result = new System.Text.StringBuilder(command.Length + 32);
+            int pos = 0;
+            while (true)
+            {
+                int open = command.IndexOf('{', pos);
+                int close = open < 0 ? -1 : command.IndexOf('}', open + 1);
+                if (close < 0)
+                {
+                    result.Append(command, pos, command.Length - pos);
+                    return result.ToString();
+                }
+
+                result.Append(command, pos, open - pos);
+                switch (command.Substring(open, close - open + 1))
+                {
+                    case "{playername}":
+                        result.Append(SanitizeCommandArg(playerName));
+                        break;
+                    case "{itemid}":
+                        result.Append(itemId.ToString());
+                        break;
+                    case "{itemname}":
+                        result.Append(SanitizeCommandArg(itemName ?? ""));
+                        break;
+                    case "{projid}":
+                        result.Append(projId.ToString());
+                        break;
+                    case "{itemtag}":
+                        // 公屏播报类自定义命令（如 /bc）用它输出物品图标，客户端渲染为图标；
+                        // 物品 ID 缺失（弹幕类）时退回物品名文本，避免输出空串。
+                        result.Append(itemId > 0 ? FormatItemTag(itemId, stack) : SanitizeCommandArg(itemName ?? ""));
+                        break;
+                    default:
+                        result.Append(command, open, close - open + 1);
+                        break;
+                }
+
+                pos = close + 1;
+            }
         }
 
         private static void ExecuteBan(string username, string reason)
