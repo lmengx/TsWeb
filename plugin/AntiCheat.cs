@@ -499,6 +499,35 @@ namespace TShockData
         }
 
         /// <summary>
+        /// 单个物品的聊天标签，客户端 ItemTagHandler 会渲染成物品图标。
+        /// 数量 > 1 时带 /s（与 TShock Utils.ItemTag 的生成规则一致），数量为 1 时省略，
+        /// 两种写法客户端都会按数量 1 渲染。
+        /// </summary>
+        private static string FormatItemTag(int itemId, int stack)
+        {
+            return stack > 1 ? $"[i/s{stack}:{itemId}]" : $"[i:{itemId}]";
+        }
+
+        /// <summary>
+        /// 单条违规的公屏播报文本（物品图标版）：物品类统一用图标标签，格式与聚合播报
+        /// ExecuteViolations 保持一致（玩家名 + 持有的物品图标 + 处理结果），使单数路径
+        /// （丢出/存箱拦截、自定义命令）与背包扫描路径的公屏表现一致。
+        /// 弹幕类没有对应物品图标，返回 null，由调用方回退到纯文字播报。
+        /// </summary>
+        private static string? BuildItemBroadcastReport(string name, int itemId, int stack, int allowedStack, string actionWord)
+        {
+            if (itemId <= 0)
+                return null;
+
+            string tag = FormatItemTag(itemId, stack);
+            // 合法值为 1 时属于"持有即违规"，与 BuildReason 的同名判断保持一致
+            string held = allowedStack <= 1
+                ? $"持有违禁品{tag}"
+                : $"持有的{tag}共{stack}个，超过了当前阶段合法值";
+            return $"玩家\"{name}\"{held}，{actionWord}";
+        }
+
+        /// <summary>
         /// 聚合原因（纯文本，用于踢出/封禁界面，不依赖聊天标签渲染），统一格式：
         /// 持有物品名x数量、物品名x数量，超过当前进度合法值（不论违规物品是一个还是多个）
         /// </summary>
@@ -546,23 +575,50 @@ namespace TShockData
                 {
                     string reason = BuildReason(name, itemId, itemName, projId, stack, allowedStack);
 
+                    // 公屏播报：与聚合播报 ExecuteViolations 同款顺序（先播报，再执行处理）。
+                    // 物品类统一用物品图标标签（客户端渲染为图标），弹幕类没有对应物品图标，退回文字。
+                    // log 档维持原样不公告（既有行为，不在本次改动范围内）。
+                    string? actionWord = captureMethod?.ToLower() switch
+                    {
+                        "ban" => "已封禁",
+                        "kick" => "已踢出",
+                        _ => null
+                    };
+                    // 公告条件：player 非空且连接仍在。
+                    // player 为空（离线/已断开）时不公告，与本次改动前一致；
+                    // ConnectionAlive 用于吃掉同一批违规的后续条目：首次处理时 Kick 已让连接进入待终止
+                    // 状态（原版发送断开包 msgType==2 即置 PendingTermination，见
+                    // 反编译参考源码 Terraria/NetMessage.cs SendData 末尾），而存箱/丢出拦截是
+                    // 逐条命中调用的（同一物品可命中多个进度条目），不加这个判断会重复刷屏。
+                    if (actionWord != null && player != null && player.ConnectionAlive)
+                    {
+                        string pubReport = BuildItemBroadcastReport(name, itemId, stack, allowedStack, actionWord)
+                                           ?? $"{name}{reason}，{actionWord}";
+                        TShock.Utils.Broadcast($"[反作弊] {pubReport}", Color.Red);
+                    }
+
                     switch (captureMethod?.ToLower())
                     {
                         case "ban":
                             ExecuteBan(name, reason);
                             if (player != null)
                             {
-                                player.Kick($"检测到作弊行为: {reason}", true);
+                                // silent: true → 不再触发 TShock 自带英文全服播报
+                                // （TSPlayer.Kick 在 silent=false 时播 "{0} was kicked for '{1}'"）。
+                                // 公屏公告已由上方按物品图标统一发出一条，与聚合路径一致。
+                                player.Kick($"检测到作弊行为: {reason}", true, true);
                             }
                             TShock.Log.ConsoleError($"[反作弊] 已封禁玩家: {name}, 原因: {reason}");
                             break;
                         case "kick":
                             if (player != null)
                             {
-                                // 完整踢出播报：玩家名 + 违禁描述 + 已踢出（被踢玩家踢出界面 + 全服公告）
+                                // 文字版仅用于踢出界面与日志（那里渲染不了聊天标签）；公屏公告已由上方统一发出
                                 string kickReport = $"{name}{reason}，已踢出";
-                                ExecuteKick(player, name, kickReport);
-                                TShock.Utils.Broadcast($"[反作弊] {kickReport}", Color.Red);
+                                // 直接调 Kick，不走 /kick 命令：TShock 的 kick 命令内部固定传 silent=false
+                                // （Commands.cs:{0}kick → players[0].Kick(reason, ..., false, ...)），
+                                // 会额外产生一条英文全服播报。此处 silent=true，与聚合路径保持一致。
+                                player.Kick(kickReport, true, true);
                                 TShock.Log.ConsoleError($"[反作弊] 已踢出玩家: {name}, 原因: {reason}");
                             }
                             else
@@ -574,7 +630,7 @@ namespace TShockData
                             TShock.Log.ConsoleError($"[反作弊] 违规记录 - 玩家: {name}, 原因: {reason}");
                             break;
                         default:
-                            string command = ReplacePlaceholders(captureMethod, name, itemId, itemName, projId);
+                            string command = ReplacePlaceholders(captureMethod, name, itemId, itemName, projId, stack);
                             ExecuteCommand(command);
                             TShock.Log.ConsoleError($"[反作弊] 违规记录 - 玩家: {name}, 原因: {reason}");
                             break;
@@ -610,7 +666,7 @@ namespace TShockData
                             TShock.Log.ConsoleError($"[反作弊] 违规记录 - 玩家: {playerName}, 原因: {reason}");
                             break;
                         default:
-                            string command = ReplacePlaceholders(captureMethod, playerName, itemId, itemName, projId);
+                            string command = ReplacePlaceholders(captureMethod, playerName, itemId, itemName, projId, stack);
                             ExecuteCommand(command);
                             TShock.Log.ConsoleError($"[反作弊] 违规记录 - 玩家: {playerName}, 原因: {reason}");
                             break;
@@ -689,31 +745,28 @@ namespace TShockData
             return value.Replace("\\", "\\\\").Replace("\"", "\\\"");
         }
 
-        private static string ReplacePlaceholders(string command, string playerName, int itemId, string itemName, int projId)
+        private static string ReplacePlaceholders(string command, string playerName, int itemId, string itemName, int projId, int stack = 0)
         {
             if (string.IsNullOrEmpty(command))
                 return string.Empty;
 
             // 玩家名与物品名属外部数据（角色名可被玩家任意设置），插入模板前必须清洗；
             // itemid / projid 为 int，天然安全，保持原样以免改变既有模板行为。
+            // {itemtag} 由本插件生成（形如 [i/s24:356]），只含数字与固定字符，同样无需清洗。
             return command
                 .Replace("{playername}", SanitizeCommandArg(playerName))
                 .Replace("{itemid}", itemId.ToString())
                 .Replace("{itemname}", SanitizeCommandArg(itemName ?? ""))
-                .Replace("{projid}", projId.ToString());
+                .Replace("{projid}", projId.ToString())
+                // {itemtag}：公屏播报类自定义命令（如 /bc）用它输出物品图标，客户端渲染为图标；
+                // 物品 ID 缺失（弹幕类）时退回物品名文本，避免输出空串。
+                .Replace("{itemtag}", itemId > 0 ? FormatItemTag(itemId, stack) : SanitizeCommandArg(itemName ?? ""));
         }
 
         private static void ExecuteBan(string username, string reason)
         {
             // 参数加引号：名字含空格/引号时仍只占一个参数，避免解析错位误封他人
             string command = $"banp {QuoteCommandArg(username)} {QuoteCommandArg(reason)}";
-            TShock.Log.ConsoleInfo($"[反作弊] 执行命令: /{command}");
-            TShockAPI.Commands.HandleCommand(TShockAPI.TSPlayer.Server, "/" + command);
-        }
-
-        private static void ExecuteKick(TSPlayer player, string username, string reason)
-        {
-            string command = $"kick {QuoteCommandArg(username)} {QuoteCommandArg(reason)}";
             TShock.Log.ConsoleInfo($"[反作弊] 执行命令: /{command}");
             TShockAPI.Commands.HandleCommand(TShockAPI.TSPlayer.Server, "/" + command);
         }

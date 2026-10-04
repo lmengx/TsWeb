@@ -190,7 +190,7 @@ const bossImageMap = {
 const quickCommands = [
   { label: '/banp "{playername}" "违规使用{itemname}"', desc: '封禁玩家' },
   { label: '/kick "{playername}" "违规使用{itemname}"', desc: '踢出玩家' },
-  { label: '/bc "{playername}违规使用{itemname}"', desc: '广播公告' },
+  { label: '/bc "{playername}违规使用{itemtag}"', desc: '广播公告' },
   { label: '/remove {playername} {itemid}', desc: '清除物品' }
 ]
 
@@ -660,7 +660,7 @@ const handleEnableToggled = async (val) => {
                           type="text"
                           v-model="item.method"
                           class="method-input-field"
-                          placeholder="支持 {playername}、{itemname}、{itemid} 转义"
+                          placeholder="支持 {playername}、{itemname}、{itemid}、{itemtag} 转义（{itemtag}=物品图标，公屏播报用）"
                         />
                         <div class="quick-commands">
                           <span class="quick-label">快速:</span>
