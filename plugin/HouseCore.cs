@@ -148,8 +148,6 @@ public class HouseCore
     public void Initialize(TerrariaPlugin plugin)
     {
         _plugin = plugin;
-        // 热重载：重置静态状态
-        GetDataHandlers.ResetState();
         GetDataHandlers.InitGetDataHandler();
         _explosionOwner = null;
 
@@ -270,7 +268,6 @@ public class HouseCore
     public void PostInitialize(EventArgs e)
     {
         Houses = HouseManager.LoadAllHouses(Main.worldID.ToString());
-        ShowPrefManager.Load();
         Update.Elapsed += OnUpdate;
         Update.Start();
     }
@@ -402,7 +399,6 @@ public class HouseCore
             if (LPlayers[e.Who] != null)
                 LPlayers[e.Who] = null;
         }
-        GetDataHandlers.ClearPlayerDisplays(e.Who);
     }
 
     // ══════════════════════════════════════════════════════════
@@ -560,7 +556,6 @@ public class HouseCore
                 if (currentHouse != null && lastHouse != null && currentHouse != lastHouse)
                 {
                     ts.SendMessage($"你离开了房子: {lastHouse.Name}", Color.LightSeaGreen);
-                    GetDataHandlers.HideHouseDisplay(ts, lastHouse);
                     lastHouse = null;
                 }
 
@@ -592,15 +587,6 @@ public class HouseCore
                             NotifyOwnerStatic(currentHouse, $"{ts.Name} 进入了房屋");
                     }
 
-                    // 自动显示边框
-                    bool isMine = Utils.IsAuthorized(ts, currentHouse);
-                    string myId = ts.Account.ID.ToString();
-                    if ((isMine && ShowPrefManager.GetShowMe(myId)) ||
-                        (!isMine && ShowPrefManager.GetShowOthers(myId)))
-                    {
-                        GetDataHandlers.ShowHouseDisplay(ts, currentHouse);
-                    }
-
                     // 领地进入指令：任何进入领地的玩家触发（被驱离者在上面 continue，不会到达这里）
                     HouseCommandRunner.ExecuteOnEnter(ts, currentHouse);
                 }
@@ -609,7 +595,6 @@ public class HouseCore
                 if (currentHouse == null && lastHouse != null)
                 {
                     ts.SendMessage($"你离开了房子: {lastHouse.Name}", Color.LightSeaGreen);
-                    GetDataHandlers.HideHouseDisplay(ts, lastHouse);
                 }
 
                 // 记录当前所在房屋（null = 不在任何房屋内）
@@ -742,14 +727,6 @@ public class HouseCore
                 HandleSettings(args);
                 break;
 
-            case "showme":
-                HandleShowMe(args);
-                break;
-
-            case "showothers":
-                HandleShowOthers(args);
-                break;
-
             case "export":
                 HandleExport(args);
                 break;
@@ -794,17 +771,6 @@ public class HouseCore
         args.Player.SendMessage("/h c 圈地  |  /h set 查看设置  |  /htp 屋名 传送", Color.Lime);
         args.Player.SendMessage("/h delete [屋名] 删除房屋    /h redefine [屋名] 重新定义范围", Color.Lime);
         args.Player.SendMessage("/h list [页码] 查看房屋列表    /h info [屋名] 查看房屋信息    /h name 敲击查询归属", Color.Lime);
-
-        args.Player.SendMessage("━━━ 边框显示 ━━━", Color.Gold);
-        var pid = args.Player.Account.ID.ToString();
-        var showMe = ShowPrefManager.GetShowMe(pid);
-        var showOthers = ShowPrefManager.GetShowOthers(pid);
-        var cMe = showMe ? "7CFC00" : "FFA500";
-        var cOthers = showOthers ? "7CFC00" : "FFA500";
-        args.Player.SendMessage(
-            $"[c/{cMe}:自己房屋边框 {(showMe ? "开" : "关")}] /h showme 切换    " +
-            $"[c/{cOthers}:他人房屋边框 {(showOthers ? "开" : "关")}] /h showothers 切换",
-            Color.Lime);
 
         if (args.Player.Group.HasPermission(GetDataHandlers.AdminHouse))
         {
@@ -945,38 +911,6 @@ public class HouseCore
 
         if (!canEdit)
             plr.SendMessage("你无权修改此房屋设置", Color.Red);
-    }
-
-    private void HandleShowStatus(CommandArgs args)
-    {
-        var id = args.Player.Account.ID.ToString();
-        var showMe = ShowPrefManager.GetShowMe(id);
-        var showOthers = ShowPrefManager.GetShowOthers(id);
-        var on = Color.Lime; var off = Color.Red;
-
-        args.Player.SendMessage("━━━ 边框显示 ━━━", Color.Gold);
-        args.Player.SendMessage(
-            $"自己房屋: {(showMe ? "●开  ○关" : "○开  ●关")}",
-            showMe ? on : off);
-        args.Player.SendMessage(
-            $"他人房屋: {(showOthers ? "●开  ○关" : "○开  ●关")}",
-            showOthers ? on : off);
-        args.Player.SendMessage("/h showme     — 切换自己房屋自动边框", Color.White);
-        args.Player.SendMessage("/h showothers — 切换他人房屋自动边框", Color.White);
-    }
-
-    private void HandleShowMe(CommandArgs args)
-    {
-        var id = args.Player.Account.ID.ToString();
-        bool now = ShowPrefManager.ToggleShowMe(id);
-        args.Player.SendSuccessMessage($"自己房屋自动边框: {(now ? "开" : "关")}");
-    }
-
-    private void HandleShowOthers(CommandArgs args)
-    {
-        var id = args.Player.Account.ID.ToString();
-        bool now = ShowPrefManager.ToggleShowOthers(id);
-        args.Player.SendSuccessMessage($"他人房屋自动边框: {(now ? "开" : "关")}");
     }
 
     // ── 导出（管理员）──
@@ -1164,7 +1098,6 @@ public class HouseCore
 
         if (HouseManager.DeleteHouse(house.Name))
         {
-            GetDataHandlers.OnHouseDeleted(house.HouseArea);
             Houses.Remove(house);
             args.Player.SendMessage("房屋:" + house.Name + " 删除成功!", Color.Yellow);
             TShock.Log.ConsoleInfo("{0} 删除房屋: {1}", args.Player.Account.Name, house.Name);
