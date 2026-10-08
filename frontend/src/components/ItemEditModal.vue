@@ -47,18 +47,62 @@ const showPrefixDropdown = ref(false)
 const showItemDropdown = ref(false)
 const itemData = ref({ list: [], dict: {} })
 
-const prefixMap = {
-  '大': 1, '巨大': 2, '危险': 3, '凶残': 4, '锋利': 5, '尖锐': 6, '微小': 7, '可怕': 8,
-  '小': 9, '钝': 10, '倒霉': 11, '笨重': 12, '可耻': 13, '重': 14, '轻': 15, '精准': 16,
-  '迅速': 17, '急速': 18, '恐怖': 19, '致命': 20, '可靠': 21, '讨厌': 22, '无力': 23,
-  '粗笨': 24, '强大': 25, '神秘': 26, '精巧': 27, '精湛': 28, '笨拙': 29, '无知': 30,
-  '错乱': 31, '威猛': 32, '禁忌': 33, '天界': 34, '狂怒': 35, '锐利': 36, '高端': 37,
-  '强力': 38, '碎裂': 39, '破损': 40, '粗劣': 41, '迅捷': 42, '灵活': 43, '灵巧': 44,
-  '残暴': 45, '缓慢': 46, '迟钝': 47, '呆滞': 48, '惹恼': 49, '凶险': 50, '狂躁': 51,
-  '致伤': 52, '强劲': 53, '粗鲁': 54, '虚弱': 55, '无情': 56, '暴怒': 57, '神级': 58,
-  '恶魔': 59, '狂热': 60, '坚硬': 61, '守护': 62, '装甲': 63, '护佑': 64, '奥秘': 65,
-  '精确': 66, '幸运': 67, '锯齿': 68, '尖刺': 69, '愤怒': 70, '险恶': 71, '轻快': 72,
-  '快速': 73, '弹道': 74, '虬结': 75
+/* 前缀名称 → ID 对照表。
+ * 与游戏数据对齐（PrefixID 1-84），名称取自 zh-Hans 的 Prefix 表。
+ * 注意：同名不同 ID 是正常的（如 59/81 神级与传奇并不重名，但 74/76 都叫急速、75/77 都叫迅捷），
+ * 反查时取第一个命中的 ID 即可。 */
+const prefixList = [
+  { id: 1, name: '大' }, { id: 2, name: '巨大' }, { id: 3, name: '危险' }, { id: 4, name: '凶残' },
+  { id: 5, name: '锋利' }, { id: 6, name: '尖锐' }, { id: 7, name: '微小' }, { id: 8, name: '可怕' },
+  { id: 9, name: '小' }, { id: 10, name: '钝' }, { id: 11, name: '倒霉' }, { id: 12, name: '笨重' },
+  { id: 13, name: '可耻' }, { id: 14, name: '重' }, { id: 15, name: '轻' }, { id: 16, name: '精准' },
+  { id: 17, name: '迅速' }, { id: 18, name: '急速' }, { id: 19, name: '恐怖' }, { id: 20, name: '致命' },
+  { id: 21, name: '可靠' }, { id: 22, name: '讨厌' }, { id: 23, name: '无力' }, { id: 24, name: '粗笨' },
+  { id: 25, name: '强大' }, { id: 26, name: '神秘' }, { id: 27, name: '精巧' }, { id: 28, name: '精湛' },
+  { id: 29, name: '笨拙' }, { id: 30, name: '无知' }, { id: 31, name: '错乱' }, { id: 32, name: '威猛' },
+  { id: 33, name: '禁忌' }, { id: 34, name: '天界' }, { id: 35, name: '狂怒' }, { id: 36, name: '锐利' },
+  { id: 37, name: '高端' }, { id: 38, name: '强力' }, { id: 39, name: '碎裂' }, { id: 40, name: '破损' },
+  { id: 41, name: '粗劣' }, { id: 42, name: '迅捷' }, { id: 43, name: '致命' }, { id: 44, name: '灵活' },
+  { id: 45, name: '灵巧' }, { id: 46, name: '残暴' }, { id: 47, name: '缓慢' }, { id: 48, name: '迟钝' },
+  { id: 49, name: '呆滞' }, { id: 50, name: '惹恼' }, { id: 51, name: '凶险' }, { id: 52, name: '狂躁' },
+  { id: 53, name: '致伤' }, { id: 54, name: '强劲' }, { id: 55, name: '粗鲁' }, { id: 56, name: '虚弱' },
+  { id: 57, name: '无情' }, { id: 58, name: '暴怒' }, { id: 59, name: '神级' }, { id: 60, name: '恶魔' },
+  { id: 61, name: '狂热' }, { id: 62, name: '坚硬' }, { id: 63, name: '守护' }, { id: 64, name: '装甲' },
+  { id: 65, name: '护佑' }, { id: 66, name: '奥秘' }, { id: 67, name: '精确' }, { id: 68, name: '幸运' },
+  { id: 69, name: '锯齿' }, { id: 70, name: '尖刺' }, { id: 71, name: '愤怒' }, { id: 72, name: '险恶' },
+  { id: 73, name: '轻快' }, { id: 74, name: '快速' }, { id: 75, name: '急速' }, { id: 76, name: '迅捷' },
+  { id: 77, name: '狂野' }, { id: 78, name: '鲁莽' }, { id: 79, name: '勇猛' }, { id: 80, name: '暴力' },
+  { id: 81, name: '传奇' }, { id: 82, name: '虚幻' }, { id: 83, name: '神话' }, { id: 84, name: '传奇' }
+]
+
+/* name → id：同名取**最小 ID**（84 传奇 与 81 传奇 同名，反查应得 81）。
+ * 用 sort 保证与数组书写顺序无关，避免以后插项时反查结果漂移。 */
+const prefixMap = prefixList
+  .slice()
+  .sort((a, b) => a.id - b.id)
+  .reduce((map, { id, name }) => {
+    if (map[name] === undefined) map[name] = id
+    return map
+  }, {})
+
+/* id → name：查不到返回 null。 */
+const prefixNameOf = (id) => (prefixList.find((p) => p.id === id)?.name ?? null)
+
+/* 重名 ID 集合：游戏中确实存在同名不同 ID 的前缀（20/43 致命、18/75 急速、
+ * 42/76 迅捷、81/84 传奇）。这类 ID 只显示名称会丢失信息——编辑一次就被降级成同名的最小 ID，
+ * 所以输入框里改用纯数字 ID 回填，保证"打开再保存"不改变原值。 */
+const duplicatePrefixNames = (() => {
+  const count = {}
+  prefixList.forEach(({ name }) => { count[name] = (count[name] || 0) + 1 })
+  return new Set(Object.keys(count).filter((n) => count[n] > 1))
+})()
+
+/* 已存前缀 → 输入框显示值：唯一名显示中文，重名或未知则显示数字 ID。 */
+const prefixInputValue = (id) => {
+  if (!id) return ''
+  const name = prefixNameOf(id)
+  if (name && !duplicatePrefixNames.has(name)) return name
+  return String(id)
 }
 
 watch(() => props.show, (newVal) => {
@@ -66,7 +110,7 @@ watch(() => props.show, (newVal) => {
     selectedItemId.value = props.initialItemId || 0
     itemSearchQuery.value = ''
     stack.value = props.initialStack || 1
-    prefixId.value = props.initialPrefix ? Object.keys(prefixMap).find(k => prefixMap[k] === props.initialPrefix) || '' : ''
+    prefixId.value = prefixInputValue(props.initialPrefix || 0)
     error.value = ''
     success.value = ''
     warning.value = ''
@@ -201,22 +245,23 @@ const selectItem = (item) => {
   showItemDropdown.value = false
 }
 
+/* 输入为空时列出全部（聚焦即可见）；否则按中文名或数字 ID 过滤。 */
 const filteredPrefixes = computed(() => {
   const input = prefixId.value.trim()
-  if (!input) return []
+  if (!input) return prefixList
+
   const isNumericInput = /^\d+$/.test(input)
-  return Object.entries(prefixMap)
-    .filter(([name, id]) => {
-      if (isNumericInput) {
-        return String(id).includes(input)
-      }
-      return name.includes(input)
-    })
-    .map(([name, id]) => ({ name, id }))
+  return prefixList.filter(({ id, name }) =>
+    isNumericInput ? String(id).includes(input) : name.includes(input)
+  )
 })
 
 const selectPrefix = (prefix) => {
   prefixId.value = prefix.name
+  showPrefixDropdown.value = false
+}
+
+const hidePrefixDropdown = () => {
   showPrefixDropdown.value = false
 }
 
@@ -341,13 +386,14 @@ onMounted(() => {
               class="form-input"
               @input="warning = ''; showPrefixDropdown = true"
               @focus="showPrefixDropdown = true"
-              @blur="setTimeout(() => showPrefixDropdown = false, 150)"
+              @blur="hidePrefixDropdown"
             />
             <div v-if="showPrefixDropdown && filteredPrefixes.length > 0" class="prefix-dropdown">
               <div
                 v-for="prefix in filteredPrefixes"
                 :key="prefix.id"
                 class="prefix-option"
+                @mousedown.prevent
                 @click="selectPrefix(prefix)"
               >
                 <span class="prefix-name">{{ prefix.name }}</span>
