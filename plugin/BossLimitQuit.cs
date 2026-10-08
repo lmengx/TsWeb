@@ -60,52 +60,10 @@ public static class BossLimitQuit
 
     private static void OnServerJoin(JoinEventArgs args)
     {
-        if (args.Handled) return;
-        if (!BossConfigManager.Config.QuitLimitEnabled) return;
-
-        var player = TShock.Players[args.Who];
-        if (player == null || string.IsNullOrEmpty(player.Name)) return;
-
-        int idx = player.Index;
-        string name = player.Name;
-
-        // 分线程轮询等待玩家加载完成（每 10ms 检测一次 FinishedHandshake）
-        Task.Run(async () =>
-        {
-            for (int i = 0; i < 300; i++)
-            {
-                await Task.Delay(10);
-
-                var target = TShock.Players[idx];
-                if (target == null || !target.ConnectionAlive) return;
-                if (!target.FinishedHandshake || !target.Active) continue;
-
-                bool shouldPunish = false;
-                string? bossName = null;
-
-                lock (ActiveBosses)
-                {
-                    var hitBoss = ActiveBosses.Find(r => r.Damagers.Contains(name));
-                    if (hitBoss != null)
-                    {
-                        shouldPunish = true;
-                        bossName = hitBoss.BossName;
-                    }
-                }
-
-                if (!shouldPunish) return;
-
-                TShock.Log.ConsoleInfo($"[BossLimitQuit] {name} 曾在 BOSS {bossName} 存活时退出，已施加 debuff 惩罚");
-
-                // 织网 + 石化，持续 60 秒
-                // time 单位 tick，60*60=3600 tick = 60 秒
-                target.SetBuff(BuffID.Webbed, 60 * 60, true);
-                target.SetBuff(BuffID.Stoned, 60 * 60, true);
-
-                target.SendWarningMessage($"检测到你曾在 BOSS [{bossName}] 战斗中退出，已施加织网和石化惩罚，持续 60 秒！");
-                return;
-            }
-        });
+        // 「重进击杀」已由 BossGhostMode（BOSS 死亡幽灵模式）取代：
+        // 旧机制惩罚"BOSS 存活时退出"，但玩家死亡后退出重进即可刷新复活时间，逃避效率更高；
+        // 新机制把约束前移到"死亡"这一刻，并以绝对到期时刻计时，退出重进不重置。
+        // 此处不再施加织网+石化惩罚。
     }
 
     private static void OnGameUpdate(EventArgs args)
@@ -226,6 +184,46 @@ public static class BossLimitQuit
     }
 
     // ═══════════════════════════════════════════════
+    // 供 BossGhostMode（BOSS 死亡幽灵模式）查询的判定接口
+    // ═══════════════════════════════════════════════
+
+    /// <summary>
+    /// 玩家附近是否有存活的 BOSS；有则返回该 BOSS 名，否则返回 null。
+    /// 判定范围沿用 TShock 自己在 HandlePlayerKillMeV2 里的口径（曼哈顿距离 4000），
+    /// 保持"什么算 BOSS 战"与服务器原版一致。
+    /// </summary>
+    public static string? GetLiveBossNameNear(TSPlayer player)
+    {
+        if (player?.TPlayer == null) return null;
+
+        foreach (var npc in Main.npc)
+        {
+            if (npc == null || !npc.active) continue;
+            if (!npc.boss) continue;
+
+            float distance = Math.Abs(player.TPlayer.Center.X - npc.Center.X)
+                           + Math.Abs(player.TPlayer.Center.Y - npc.Center.Y);
+            if (distance < 4000f)
+            {
+                return npc.FullName;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>该玩家是否打过当前追踪中的任意 BOSS（即是否在 Damagers 名单里）</summary>
+    public static bool HasDamagedAnyBoss(string playerName)
+    {
+        if (string.IsNullOrEmpty(playerName)) return false;
+
+        lock (ActiveBosses)
+        {
+            return ActiveBosses.Any(r => r.Damagers.Contains(playerName));
+        }
+    }
+
+    // ═══════════════════════════════════════════════
     // REST API
     // ═══════════════════════════════════════════════
 
@@ -257,9 +255,11 @@ public static class BossLimitQuit
             status = "200",
             quitLimitEnabled = config.QuitLimitEnabled,
             lateCompEnabled = config.LateCompEnabled,
+            ghostRespawnSeconds = config.GhostRespawnSeconds,
             trackedBosses,
             trackedPlayers,
-            activeBosses = bossList
+            activeBosses = bossList,
+            ghosts = BossGhostMode.GetGhostList()
         };
     }
 
@@ -283,16 +283,25 @@ public static class BossLimitQuit
             case "on":
                 BossConfigManager.Config.QuitLimitEnabled = true;
                 BossConfigManager.SaveConfig();
-                args.Player.SendSuccessMessage("BOSS 退出惩罚已开启");
-                TShock.Log.ConsoleInfo($"[BossLimitQuit] {args.Player.Name} 开启了 BOSS 退出惩罚");
+                args.Player.SendSuccessMessage($"BOSS 死亡幽灵模式已开启（复活倒计时 {BossConfigManager.Config.GhostRespawnSeconds} 秒）");
+                TShock.Log.ConsoleInfo($"[BossLimitQuit] {args.Player.Name} 开启了 BOSS 死亡幽灵模式");
                 break;
 
             case "off":
                 BossConfigManager.Config.QuitLimitEnabled = false;
+                BossGhostMode.ClearAll();
                 BossConfigManager.SaveConfig();
-                args.Player.SendSuccessMessage("BOSS 退出惩罚已关闭");
+                args.Player.SendSuccessMessage("BOSS 死亡幽灵模式已关闭（所有幽灵态玩家已释放）");
                 lock (ActiveBosses) ActiveBosses.Clear();
-                TShock.Log.ConsoleInfo($"[BossLimitQuit] {args.Player.Name} 关闭了 BOSS 退出惩罚");
+                TShock.Log.ConsoleInfo($"[BossLimitQuit] {args.Player.Name} 关闭了 BOSS 死亡幽灵模式");
+                break;
+
+            case "seconds":
+                HandleSecondsCommand(args, config);
+                break;
+
+            case "release":
+                HandleReleaseCommand(args);
                 break;
 
             case "clear":
@@ -306,9 +315,51 @@ public static class BossLimitQuit
                 break;
 
             default:
-                args.Player.SendErrorMessage("无效参数！可用: on / off / clear / latecomp");
+                args.Player.SendErrorMessage("无效参数！可用: on / off / seconds / release / clear / latecomp");
                 ShowHelp(args);
                 break;
+        }
+    }
+
+    private static void HandleSecondsCommand(CommandArgs args, BossConfig config)
+    {
+        if (args.Parameters.Count < 3)
+        {
+            args.Player.SendInfoMessage($"幽灵复活倒计时: [c/00ff00:{config.GhostRespawnSeconds} 秒]");
+            args.Player.SendInfoMessage("用法: quit seconds <秒数>（1~3600）");
+            return;
+        }
+
+        if (!int.TryParse(args.Parameters[2], out var seconds))
+        {
+            args.Player.SendErrorMessage("用法: quit seconds <秒数>（1~3600）");
+            return;
+        }
+
+        int clamped = Math.Clamp(seconds, 1, 3600);
+        BossConfigManager.Config.GhostRespawnSeconds = clamped;
+        BossConfigManager.SaveConfig();
+        args.Player.SendSuccessMessage($"幽灵复活倒计时已设为 {clamped} 秒");
+        TShock.Log.ConsoleInfo($"[BossLimitQuit] {args.Player.Name} 设置幽灵复活倒计时: {clamped}s");
+    }
+
+    private static void HandleReleaseCommand(CommandArgs args)
+    {
+        if (args.Parameters.Count < 3)
+        {
+            args.Player.SendErrorMessage("用法: quit release <玩家名>");
+            return;
+        }
+
+        string name = args.Parameters[2];
+        if (BossGhostMode.ReleasePlayer(name))
+        {
+            args.Player.SendSuccessMessage($"已解除 {name} 的幽灵状态");
+            TShock.Log.ConsoleInfo($"[BossLimitQuit] {args.Player.Name} 手动解除了 {name} 的幽灵状态");
+        }
+        else
+        {
+            args.Player.SendErrorMessage($"{name} 当前不在幽灵状态");
         }
     }
 
@@ -359,17 +410,24 @@ public static class BossLimitQuit
             trackedPlayers = ActiveBosses.Sum(r => r.Damagers.Count);
         }
 
-        args.Player.SendInfoMessage($"[BOSS 退出惩罚] {quitStatus}");
+        args.Player.SendInfoMessage($"[BOSS 死亡幽灵模式] {quitStatus}");
+        args.Player.SendInfoMessage($"[幽灵复活倒计时] {config.GhostRespawnSeconds} 秒");
         args.Player.SendInfoMessage($"[晚入血量补偿] {lateStatus}");
         if (config.QuitLimitEnabled || config.LateCompEnabled)
             args.Player.SendInfoMessage($"  当前追踪: {trackedBosses} 个 BOSS, {trackedPlayers} 名伤害者");
+
+        var ghosts = BossGhostMode.GetGhostList();
+        if (ghosts.Count > 0)
+            args.Player.SendInfoMessage($"  幽灵态玩家: {ghosts.Count} 名（/bosslimit quit release <玩家名> 可解除）");
     }
 
     public static void ShowHelp(CommandArgs args)
     {
-        args.Player.SendInfoMessage("  quit on                    — 开启退出惩罚（击杀）");
-        args.Player.SendInfoMessage("  quit off                   — 关闭退出惩罚");
-        args.Player.SendInfoMessage("  quit clear                 — 清空追踪记录");
+        args.Player.SendInfoMessage("  quit on                    — 开启死亡幽灵模式");
+        args.Player.SendInfoMessage("  quit off                   — 关闭死亡幽灵模式（释放所有幽灵态玩家）");
+        args.Player.SendInfoMessage("  quit seconds <秒>          — 设置幽灵复活倒计时（1~3600）");
+        args.Player.SendInfoMessage("  quit release <玩家名>      — 手动解除某玩家的幽灵状态");
+        args.Player.SendInfoMessage("  quit clear                 — 清空 BOSS 追踪记录");
         args.Player.SendInfoMessage("  quit latecomp on           — 开启晚入血量补偿");
         args.Player.SendInfoMessage("  quit latecomp off          — 关闭晚入血量补偿");
     }

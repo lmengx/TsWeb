@@ -13,6 +13,7 @@ const bossLimitMode = ref('disabled')
 const bossLimitMinPlayers = ref(7)
 const quitLimitEnabled = ref(false)
 const lateCompEnabled = ref(false)
+const ghostRespawnSeconds = ref(20)
 
 // 进度锁 · 按时间锁（叠加开关）
 const timeLockEnabled = ref(false)
@@ -58,6 +59,7 @@ const autoSave = () => {
         bossLimitMinPlayers: bossLimitMinPlayers.value,
         quitLimitEnabled: quitLimitEnabled.value,
         lateCompEnabled: lateCompEnabled.value,
+        ghostRespawnSeconds: ghostRespawnSeconds.value,
         timeLockEnabled: timeLockEnabled.value,
         blockLockedBossSpawn: blockLockedBossSpawn.value,
         schedule: JSON.stringify(timeSchedule.value.map(s => ({
@@ -83,6 +85,7 @@ watch(bossLimitMode, autoSave)
 watch(bossLimitMinPlayers, autoSave)
 watch(quitLimitEnabled, autoSave)
 watch(lateCompEnabled, autoSave)
+watch(ghostRespawnSeconds, autoSave)
 watch(timeLockEnabled, autoSave)
 watch(blockLockedBossSpawn, autoSave)
 watch(timeSchedule, autoSave, { deep: true })
@@ -111,6 +114,7 @@ const fetchConfig = async () => {
     if (data.bossLimitMinPlayers !== undefined) bossLimitMinPlayers.value = data.bossLimitMinPlayers
     if (data.quitLimitEnabled !== undefined) quitLimitEnabled.value = data.quitLimitEnabled
     if (data.lateCompEnabled !== undefined) lateCompEnabled.value = data.lateCompEnabled
+    if (data.ghostRespawnSeconds !== undefined) ghostRespawnSeconds.value = data.ghostRespawnSeconds
 
     if (data.timeLockEnabled !== undefined) timeLockEnabled.value = data.timeLockEnabled
     if (data.serverStartTime !== undefined) {
@@ -321,18 +325,28 @@ onUnmounted(() => {
           </div>
         </div>
 
-        <!-- Boss 退出惩罚 + 晚入补偿 -->
+        <!-- BOSS 死亡幽灵模式 + 晚入补偿 -->
         <div class="section-card">
-          <h3>Boss 退出惩罚 & 晚入补偿</h3>
-          <p class="section-desc">控制玩家在 Boss 战中退出或晚入的行为处理</p>
+          <h3>BOSS 死亡幽灵模式 & 晚入补偿</h3>
+          <p class="section-desc">BOSS 存活时死亡的玩家变幽灵，倒计时结束才复活；倒计时期间退出重进不重置剩余时间</p>
 
           <div class="toggle-row">
-            <span class="toggle-label">退出惩罚</span>
-            <span class="toggle-hint">战斗中退出的玩家上线后将被击杀</span>
+            <span class="toggle-label">死亡幽灵模式</span>
+            <span class="toggle-hint">仅对打过该 BOSS 的玩家生效；关闭会立即释放所有幽灵态玩家</span>
             <label class="switch">
               <input type="checkbox" v-model="quitLimitEnabled" />
               <span class="slider"></span>
             </label>
+          </div>
+
+          <div class="toggle-row" :class="{ dimmed: !quitLimitEnabled }">
+            <span class="toggle-label">幽灵复活倒计时</span>
+            <span class="toggle-hint">1~3600 秒</span>
+            <div class="number-control">
+              <button class="num-btn" @click="ghostRespawnSeconds = Math.max(1, ghostRespawnSeconds - 5)">−</button>
+              <span class="num-value">{{ ghostRespawnSeconds }}s</span>
+              <button class="num-btn" @click="ghostRespawnSeconds = Math.min(3600, ghostRespawnSeconds + 5)">+</button>
+            </div>
           </div>
 
           <div class="toggle-row">
@@ -359,6 +373,18 @@ onUnmounted(() => {
             <div class="tracking-stat">
               <span class="stat-number">{{ bossLimitStatus.trackedPlayers ?? 0 }}</span>
               <span class="stat-label">伤害者</span>
+            </div>
+            <div class="tracking-stat">
+              <span class="stat-number">{{ (bossLimitStatus.ghosts || []).length }}</span>
+              <span class="stat-label">幽灵态玩家</span>
+            </div>
+          </div>
+
+          <div v-if="bossLimitStatus.ghosts && bossLimitStatus.ghosts.length > 0" class="tracking-detail">
+            <div v-for="(g, idx) in bossLimitStatus.ghosts" :key="idx" class="boss-track-row">
+              <span class="boss-track-name">{{ g.player }}</span>
+              <span class="boss-track-dmg">剩余 {{ g.remainSeconds }}s / 共 {{ g.totalSeconds }}s</span>
+              <span class="boss-track-spawn">{{ g.bossName }}</span>
             </div>
           </div>
           <div v-if="bossLimitStatus.activeBosses && bossLimitStatus.activeBosses.length > 0" class="tracking-detail">
@@ -478,6 +504,10 @@ onUnmounted(() => {
 
 .toggle-row:last-child {
   border-bottom: none;
+}
+
+.toggle-row.dimmed {
+  opacity: 0.45;
 }
 
 .toggle-label {

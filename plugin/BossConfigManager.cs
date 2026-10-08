@@ -38,6 +38,17 @@ namespace TShockData
         public bool LateCompEnabled { get; set; } = false;
 
         // ═══════════════════════════════════════════
+        // 进度锁 · BOSS 死亡幽灵模式
+        // 取代旧的"重进击杀"（退出惩罚施加织网+石化）：
+        // BOSS 存活时，打过 BOSS 的玩家死亡即变幽灵，倒计时结束才满血复活；
+        // 倒计时按绝对到期时刻计时，退出重进不重置。
+        // ═══════════════════════════════════════════
+
+        /// <summary>BOSS 存活时，打过 BOSS 的玩家死亡后的幽灵复活倒计时（秒）</summary>
+        [JsonProperty("GhostRespawnSeconds")]
+        public int GhostRespawnSeconds { get; set; } = 20;
+
+        // ═══════════════════════════════════════════
         // 进度锁 · 按时间锁（叠加开关：开启后，配置了时间的档在击杀判定基础上叠加时间解锁）
         // ═══════════════════════════════════════════
 
@@ -97,7 +108,7 @@ namespace TShockData
                     SaveConfig();
                 }
 
-                TShock.Log.ConsoleInfo($"[TSWeb] Boss配置已加载 - 召唤限制:{(Config.BossLimitEnabled ? Config.BossLimitMode : "关闭")}, 退出惩罚:{(Config.QuitLimitEnabled ? "开启" : "关闭")}, 晚入补偿:{(Config.LateCompEnabled ? "开启" : "关闭")}, 按时间锁:{(Config.TimeLockEnabled ? "开启" : "关闭")}");
+                TShock.Log.ConsoleInfo($"[TSWeb] Boss配置已加载 - 召唤限制:{(Config.BossLimitEnabled ? Config.BossLimitMode : "关闭")}, 死亡幽灵模式:{(Config.QuitLimitEnabled ? $"开启({Config.GhostRespawnSeconds}s)" : "关闭")}, 晚入补偿:{(Config.LateCompEnabled ? "开启" : "关闭")}, 按时间锁:{(Config.TimeLockEnabled ? "开启" : "关闭")}");
             }
             catch (Exception ex)
             {
@@ -119,6 +130,7 @@ namespace TShockData
             Ensure(obj, "新BOSS召唤最低人数", 7);
             Ensure(obj, "QuitLimitEnabled", false);
             Ensure(obj, "LateCompEnabled", false);
+            Ensure(obj, "GhostRespawnSeconds", 20);
 
             // 进度锁 · 按时间锁
             Ensure(obj, "TimeLockEnabled", false);
@@ -185,6 +197,7 @@ namespace TShockData
                 bossLimitMinPlayers = Config.BossLimitMinPlayers,
                 quitLimitEnabled = Config.QuitLimitEnabled,
                 lateCompEnabled = Config.LateCompEnabled,
+                ghostRespawnSeconds = Config.GhostRespawnSeconds,
 
                 // 进度锁 · 按时间锁（叠加开关）
                 timeLockEnabled = Config.TimeLockEnabled,
@@ -217,10 +230,24 @@ namespace TShockData
                     Config.BossLimitMinPlayers = num;
                 var qle = args.Parameters["quitLimitEnabled"];
                 if (!string.IsNullOrEmpty(qle))
-                    Config.QuitLimitEnabled = qle.ToLower() == "true";
+                {
+                    var on = qle.ToLower() == "true";
+                    // 关闭时立即释放所有幽灵态玩家，避免配置关掉了人还被锁着
+                    if (!on && Config.QuitLimitEnabled)
+                        BossGhostMode.ClearAll();
+                    Config.QuitLimitEnabled = on;
+                }
                 var lce = args.Parameters["lateCompEnabled"];
                 if (!string.IsNullOrEmpty(lce))
                     Config.LateCompEnabled = lce.ToLower() == "true";
+
+                // ═══ BOSS 死亡幽灵模式 ═══
+                var grs = args.Parameters["ghostRespawnSeconds"];
+                if (!string.IsNullOrEmpty(grs) && int.TryParse(grs, out var ghostSec))
+                {
+                    // 上限 3600 秒，避免管理员误填导致玩家被长时间困在幽灵态
+                    Config.GhostRespawnSeconds = Math.Clamp(ghostSec, 1, 3600);
+                }
 
                 // ═══ 进度锁 · 按时间锁（叠加开关）═══
                 var tle = args.Parameters["timeLockEnabled"];
@@ -266,7 +293,7 @@ namespace TShockData
                 SaveConfig();
                 // 解锁时间缓存重算（计划/开服时间变化后立即生效）
                 BossTimeLock.RebuildCache();
-                TShock.Log.ConsoleInfo($"[TSWeb] REST 更新Boss配置: mode={Config.BossLimitMode}, minPlayers={Config.BossLimitMinPlayers}, quitLimit={Config.QuitLimitEnabled}, lateComp={Config.LateCompEnabled}, timeLock={Config.TimeLockEnabled}");
+                TShock.Log.ConsoleInfo($"[TSWeb] REST 更新Boss配置: mode={Config.BossLimitMode}, minPlayers={Config.BossLimitMinPlayers}, ghostMode={Config.QuitLimitEnabled}({Config.GhostRespawnSeconds}s), lateComp={Config.LateCompEnabled}, timeLock={Config.TimeLockEnabled}");
                 return new { status = "200", message = "配置已保存" };
             }
             catch (Exception ex)

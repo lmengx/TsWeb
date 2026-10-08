@@ -25,6 +25,9 @@ namespace TShockData
             BossLimit.InitQuit(this);
             BossConfigManager.LoadConfig();
 
+            // BOSS 死亡幽灵模式（取代旧的"重进击杀"：死亡即变幽灵，倒计时跨重进不重置）
+            BossGhostMode.Initialize(this);
+
             // 进度锁 · 按时间锁模式（地图ID记录 + 解锁计划 + BOSS生成拦截）
             // 世界 ID 在 GamePostInitialize（世界加载完成后）记录，此处只注册钩子
             BossTimeLock.Initialize(this);
@@ -361,6 +364,7 @@ namespace TShockData
                 AutoBackup.Dispose();
 				RuntimeHooks.Dispose();
 				BossLimit.Dispose();
+				BossGhostMode.Dispose();
 				BossTimeLock.Dispose();
 				ItemDetection.StopAutoScan();
 				ParticleGuard.Dispose();
