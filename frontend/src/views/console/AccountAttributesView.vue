@@ -355,6 +355,10 @@ const purgeSelCount = computed(() => purgeRows.value.filter(c => purgeSelected.v
 const purgeAllSelected = computed(() => purgeRows.value.length > 0 && purgeSelCount.value === purgeRows.value.length)
 const purgeMaxItems = computed(() => purgeData.value?.limits?.maxExecuteItems || 500)
 
+// 分批进度：单次上限 500 是后端策略（接口本身按 (serverId, username) 逐条删，无技术瓶颈）。
+// 候选超过上限时，前端自动按上限拆批循环调用，用户无需手工分区。
+const purgeProgress = ref(null)   // { batchIndex, batchTotal, done, total } | null
+
 // 账号名可能含首尾空白（全角空格 U+3000 / 不换行空格 U+00A0 等）。这类字符在表格里
 // 完全看不见，会让人无法理解「名字明明在这儿却删不掉」，因此显性标注出来。
 const visName = (n) => String(n ?? '').replace(/^\s+|\s+$/g, m => '·'.repeat(m.length))
@@ -368,7 +372,9 @@ const openPurge = () => {
 }
 
 // 拉取候选并默认全选（保留 purgeResult，供执行后回显结果）
-const fetchPurge = async () => {
+//   selectAll=false：删除成功后的重扫不清空现有勾选、也不默认全选
+//   —— 刚完成一次批量删除，若又静默全选，等于把「再删一次」摆在手边，太容易误触
+const fetchPurge = async ({ selectAll = true } = {}) => {
   purgeScanning.value = true
   purgeError.value = ''
   try {
@@ -376,7 +382,8 @@ const fetchPurge = async () => {
     const json = await res.json()
     if (json.error) throw new Error(json.error)
     purgeData.value = json
-    purgeSelected.value = new Set((json.candidates || []).map(purgeKey))
+    // 重扫后旧勾选可能指向已删除的账号，因此一律重建
+    purgeSelected.value = selectAll ? new Set((json.candidates || []).map(purgeKey)) : new Set()
   } catch (err) {
     purgeError.value = err.message
     purgeData.value = null
@@ -406,29 +413,75 @@ const toggleAllPurge = () => {
   purgeConfirmed.value = false
 }
 
+// 单批请求（≤ 上限）
+const purgeBatch = async (items) => {
+  const res = await post('/api/account/purge/execute', { days: purgeDays.value, items })
+  const json = await res.json()
+  if (json.error) throw new Error(json.error)
+  return json
+}
+
+// 把多次分批结果合并成单份报告，保持与既有「执行结果」区块的渲染结构一致
+//   注意 skippedCount 的语义：后端把「删除后复核仍存在」的账号也从 deleted 挪进 skipped，
+//   因此 stillPresent 是 skipped 的子集，不能与 skipped 相加，只能作其中一项说明。
+const mergePurgeResults = (parts, requested) => {
+  const skipped = parts.flatMap(p => p.skipped || [])
+  const stillPresent = parts.flatMap(p => p.stillPresent || [])
+  return {
+    requested,
+    deleted: parts.flatMap(p => p.deleted || []),
+    skipped,
+    stillPresent,
+    verifyError: parts.map(p => p.verifyError).filter(Boolean).join('；'),
+    deletedCount: parts.reduce((s, p) => s + (p.deletedCount || 0), 0),
+    skippedCount: skipped.length,
+    stillPresentCount: stillPresent.length,
+    batchCount: parts.length
+  }
+}
+
 const executePurge = async () => {
   const items = purgeRows.value
     .filter(c => purgeSelected.value.has(purgeKey(c)))
     .map(c => ({ serverId: c.serverId, username: c.username }))
   if (items.length === 0) { purgeError.value = '请先勾选要删除的账号'; return }
-  if (items.length > purgeMaxItems.value) {
-    purgeError.value = `单次最多删除 ${purgeMaxItems.value} 个账号，请分批执行`
-    return
-  }
+
+  const max = purgeMaxItems.value
+  const batches = []
+  for (let i = 0; i < items.length; i += max) batches.push(items.slice(i, i + max))
+
   purgeExecuting.value = true
   purgeError.value = ''
+  purgeResult.value = null
+  // 进度按「已处理」计（deleted + skipped）。若只计 deleted，则一批全被保护跳过时
+  // 计数恒为 0，界面看起来像卡死——而跳过本就是常见且正常的结果。
+  const processedOf = (ps) => ps.reduce((s, p) => s + (p.deletedCount || 0) + (p.skippedCount || 0), 0)
+  const parts = []
   try {
-    const res = await post('/api/account/purge/execute', { days: purgeDays.value, items })
-    const json = await res.json()
-    if (json.error) throw new Error(json.error)
-    purgeResult.value = json
+    for (let i = 0; i < batches.length; i++) {
+      purgeProgress.value = {
+        batchIndex: i + 1,
+        batchTotal: batches.length,
+        done: processedOf(parts),
+        total: items.length
+      }
+      try {
+        parts.push(await purgeBatch(batches[i]))
+      } catch (err) {
+        // 中途失败：保留已完成批次的结果，如实报告中断点，绝不伪装成全部成功
+        purgeResult.value = mergePurgeResults(parts, items.length)
+        purgeError.value = `第 ${i + 1} / ${batches.length} 批失败：${err.message}；前 ${parts.length} 批结果已保留，可重新扫描后继续。`
+        return
+      }
+    }
+    purgeResult.value = mergePurgeResults(parts, items.length)
     purgeConfirmed.value = false
-    await fetchPurge()  // 重新扫描：名单随删除结果收敛
+    // 重扫但不自动全选：刚删完一批，不该把「再删一次」直接备好
+    await fetchPurge({ selectAll: false })
     await loadData()    // 主列表同步刷新
-  } catch (err) {
-    purgeError.value = err.message
   } finally {
     purgeExecuting.value = false
+    purgeProgress.value = null
   }
 }
 
@@ -825,7 +878,9 @@ const jumpToPlayer = (username) => {
             </span>
           </div>
 
-          <div v-if="purgeError" class="error-message">{{ purgeError }}</div>
+          <!-- 错误在列表可见时由底部操作栏就近展示（见 .purge-footer-error）；
+               此处只兜住「没有名单可展示」的扫描失败，避免同一条消息出现两次 -->
+          <div v-if="purgeError && !(purgeData && purgeRows.length > 0)" class="error-message">{{ purgeError }}</div>
           <div v-if="purgeScanning" class="modal-loading">正在扫描候选账号...</div>
 
           <template v-else-if="purgeData">
@@ -834,7 +889,7 @@ const jumpToPlayer = (username) => {
             </div>
             <template v-else>
               <div v-if="purgeRows.length > purgeMaxItems" class="purge-warn">
-                候选 {{ purgeRows.length }} 个，超过单次上限 {{ purgeMaxItems }} 个，请分批勾选执行。
+                候选 {{ purgeRows.length }} 个，超过单次上限 {{ purgeMaxItems }} 个，将自动分 {{ Math.ceil(purgeRows.length / purgeMaxItems) }} 批执行。
               </div>
               <div class="purge-table-wrap">
                 <table class="purge-table">
@@ -879,18 +934,10 @@ const jumpToPlayer = (username) => {
                 </table>
               </div>
 
-              <div class="purge-actions">
-                <label class="purge-confirm">
-                  <input type="checkbox" v-model="purgeConfirmed" :disabled="purgeExecuting" />
-                  我确认删除以上勾选的 {{ purgeSelCount }} 个账号（不可撤销）
-                </label>
-                <button
-                  class="btn purge-danger"
-                  :disabled="!purgeConfirmed || purgeSelCount === 0 || purgeExecuting"
-                  @click="executePurge"
-                >
-                  {{ purgeExecuting ? '删除中...' : `确认删除 ${purgeSelCount} 个账号` }}
-                </button>
+              <!-- 分批进度：候选超过单次上限时才出现，让「还要多久」可见 -->
+              <div v-if="purgeProgress" class="purge-progress">
+                正在执行第 <b>{{ purgeProgress.batchIndex }}</b> / {{ purgeProgress.batchTotal }} 批
+                · 已处理 <b>{{ purgeProgress.done }}</b> / {{ purgeProgress.total }} 个（含删除与跳过）
               </div>
             </template>
           </template>
@@ -898,7 +945,8 @@ const jumpToPlayer = (username) => {
           <!-- 执行结果（删除成功与跳过逐条列出，跳过必须给出原因） -->
           <div v-if="purgeResult" class="purge-result">
             <div class="purge-result-head">
-              执行完成：请求 {{ purgeResult.requested }} 个，已删除 <b>{{ purgeResult.deletedCount }}</b> 个，跳过 {{ purgeResult.skippedCount }} 个
+              执行完成：请求 {{ purgeResult.requested }} 个，已删除 <b>{{ purgeResult.deletedCount }}</b> 个，跳过 {{ purgeResult.skippedCount }} 个<template v-if="purgeResult.stillPresentCount > 0">（其中 {{ purgeResult.stillPresentCount }} 个为删除未生效）</template>
+              <span v-if="purgeResult.batchCount > 1">（分 {{ purgeResult.batchCount }} 批执行）</span>
             </div>
             <!-- 删除后复核：报告了成功但账号其实还在，属于必须显性暴露的异常 -->
             <div v-if="purgeResult.stillPresent?.length" class="purge-verify-warn">
@@ -920,6 +968,29 @@ const jumpToPlayer = (username) => {
               </div>
             </div>
           </div>
+        </div>
+
+        <!-- 底部固定操作栏：置于 .modal-body 之外，无论名单/结果多长都不会被滚出视口。
+             可见性只看 purgeData（而非 !purgeScanning）：删除成功后的自动重扫会让
+             purgeScanning 短暂为 true，若据此隐藏，操作栏会在流程中途闪没。
+             重扫期间用 disabled 表达不可操作，而不是把它整个抽走。 -->
+        <div v-if="purgeData && purgeRows.length > 0" class="purge-footer">
+          <!-- 分批失败等错误紧贴它所阻断的按钮，避免用户只看到按钮却不知为何失败 -->
+          <div v-if="purgeError" class="purge-footer-error">{{ purgeError }}</div>
+          <span class="purge-footer-count">
+            已勾选 <b>{{ purgeSelCount }}</b> / {{ purgeRows.length }} 个<template v-if="purgeRows.length > purgeMaxItems"> · 将自动分 {{ Math.ceil(purgeRows.length / purgeMaxItems) }} 批</template>
+          </span>
+          <label class="purge-confirm">
+            <input type="checkbox" v-model="purgeConfirmed" :disabled="purgeExecuting || purgeScanning" />
+            我确认删除以上勾选的 {{ purgeSelCount }} 个账号（不可撤销）
+          </label>
+          <button
+            class="btn purge-danger"
+            :disabled="!purgeConfirmed || purgeSelCount === 0 || purgeExecuting || purgeScanning"
+            @click="executePurge"
+          >
+            {{ purgeExecuting ? (purgeProgress ? `删除中 ${purgeProgress.batchIndex}/${purgeProgress.batchTotal} 批...` : '删除中...') : (purgeScanning ? '扫描中...' : `确认删除 ${purgeSelCount} 个账号`) }}
+          </button>
         </div>
       </div>
     </div>
@@ -1661,8 +1732,10 @@ const jumpToPlayer = (username) => {
 }
 
 .purge-table-wrap {
-  /* 配合 .modal 的 max-height(100vh-48px)：40vh 给表头/规则/按钮留足空间，避免外层再出滚动条 */
-  max-height: 40vh;
+  /* 不再写死 max-height：40vh 是按「规则+工具条+表格+按钮」估的，一旦渲染出执行结果，
+     表格仍占 40vh 而结果区无上限增长，就会把操作栏顶出视口。
+     改为由 .modal-body 统一滚动，操作栏固定在模态框底部的 .purge-footer 内。 */
+  max-height: 50vh;
   overflow: auto;
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
@@ -1693,14 +1766,49 @@ const jumpToPlayer = (username) => {
 .purge-check { width: 36px; text-align: center; }
 .purge-check input { cursor: pointer; }
 
-.purge-actions {
+/* 底部固定操作栏（在 .modal-body 之外，永不随内容滚动消失）
+   本文件未定义 .modal-footer，样式在此完整给出，不依赖外部类 */
+.purge-footer {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  justify-content: flex-end;
+  gap: 14px;
   flex-wrap: wrap;
-  margin-top: 12px;
+  flex-shrink: 0;
+  padding: 14px 18px;
+  border-top: 1px solid var(--border-color);
+  background: var(--bg-secondary);
 }
+.purge-footer-count {
+  margin-right: auto;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+}
+.purge-footer-count b { color: #f87171; }
+
+/* 操作栏内的错误条：占满整行，把按钮挤到下一行，紧邻它所阻断的操作 */
+.purge-footer-error {
+  flex-basis: 100%;
+  padding: 8px 12px;
+  border-radius: var(--radius-md);
+  background: rgba(244, 63, 94, 0.12);
+  border: 1px solid rgba(244, 63, 94, 0.25);
+  color: var(--accent-error);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.purge-progress {
+  margin-top: 10px;
+  padding: 8px 12px;
+  border-radius: var(--radius-md);
+  background: rgba(185, 28, 28, 0.1);
+  border: 1px solid rgba(185, 28, 28, 0.35);
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+}
+.purge-progress b { color: #f87171; }
+
 .purge-confirm {
   display: inline-flex;
   align-items: center;
