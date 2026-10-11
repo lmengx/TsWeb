@@ -817,42 +817,52 @@ const jumpToPlayer = (username) => {
       </div>
     </div>
 
-    <!-- 规则说明模态框 -->
-    <div v-if="showRules" class="modal-mask" @click.self="showRules = false">
-      <div class="modal">
-        <div class="modal-header">
-          <h3>判定规则说明</h3>
-          <button class="modal-close" @click="showRules = false">×</button>
-        </div>
-        <div class="modal-body">
-          <div v-if="rulesLoading" class="modal-loading">加载中...</div>
-          <div v-else-if="ruleMeta">
-            <div class="meta-line">规则版本：{{ ruleMeta.version }} · 生成时间：{{ ruleMeta.generatedAt }}</div>
-            <div v-if="ruleMeta.rules" class="rule-list">
-              <div v-for="(desc, key) in ruleMeta.rules" :key="key" class="rule-item">
-                <span class="rule-key" :style="{ background: ATTR_MAP[key]?.color || '#475569' }">{{ ATTR_MAP[key]?.label || key }}</span>
-                <span class="rule-desc">{{ desc }}</span>
+    <!-- 规则说明模态框。
+         Teleport 到 body：本页挂在 .content-area.glass 之下，而 .glass 带 backdrop-filter，
+         会使它成为后代 position:fixed 的包含块（fixed 退化为相对该滚动容器定位），
+         导致模态框随内容区一起滚走。Teleport 脱离该包含块后 fixed 才恢复视口定位。
+         同项目既有做法见 GroupManager.vue / UserDetailView.vue。 -->
+    <Teleport to="body">
+      <div v-if="showRules" class="modal-mask" @click.self="showRules = false">
+        <div class="modal">
+          <div class="modal-header">
+            <h3>判定规则说明</h3>
+            <button class="modal-close" @click="showRules = false">×</button>
+          </div>
+          <div class="modal-body">
+            <div v-if="rulesLoading" class="modal-loading">加载中...</div>
+            <div v-else-if="ruleMeta">
+              <div class="meta-line">规则版本：{{ ruleMeta.version }} · 生成时间：{{ ruleMeta.generatedAt }}</div>
+              <div v-if="ruleMeta.rules" class="rule-list">
+                <div v-for="(desc, key) in ruleMeta.rules" :key="key" class="rule-item">
+                  <span class="rule-key" :style="{ background: ATTR_MAP[key]?.color || '#475569' }">{{ ATTR_MAP[key]?.label || key }}</span>
+                  <span class="rule-desc">{{ desc }}</span>
+                </div>
               </div>
             </div>
+            <div v-else class="modal-loading">无法获取规则（插件未连接）</div>
           </div>
-          <div v-else class="modal-loading">无法获取规则（插件未连接）</div>
         </div>
       </div>
-    </div>
+    </Teleport>
 
-    <!-- 清理小号模态框（手动触发扫描 → 展示名单 → 勾选确认 → 删除） -->
-    <div v-if="showPurge" class="modal-mask" @click.self="showPurge = false">
-      <div class="modal purge-modal">
-        <div class="modal-header">
+    <!-- 清理小号模态框（手动触发扫描 → 展示名单 → 勾选确认 → 删除）
+         同样 Teleport 到 body，理由见上方「规则说明模态框」注释 -->
+    <Teleport to="body">
+      <div v-if="showPurge" class="modal-mask" @click.self="showPurge = false">
+        <div class="modal purge-modal">
+          <div class="modal-header">
           <h3>清理小号</h3>
           <button class="modal-close" @click="showPurge = false">×</button>
-        </div>
-        <div class="modal-body">
+          </div>
+          <div class="modal-body">
           <div class="purge-rule">
             <div class="purge-rule-line"><b>候选条件：</b>{{ purgeData?.rule?.description || `判定为小号 且 最后登录距今 >= ${purgeDays} 天` }}</div>
             <div class="purge-rule-line"><b>已排除：</b>{{ purgeData?.rule?.protectedGroups || '管理组账号' }}；{{ purgeData?.rule?.qqBound || '已绑定 QQ 的账号' }}</div>
             <div class="purge-rule-line"><b>删除范围：</b>{{ purgeData?.rule?.scope || '仅该账号所在的那一台服；只删 TShock 账号行，保留角色存档与封禁记录' }}</div>
             <div class="purge-rule-line"><b>执行前复检：</b>{{ purgeData?.rule?.recheck || '执行前会按同样的条件复检一次，不再满足条件的账号不会删除' }}</div>
+            <!-- 名单在两次扫描间变化是正常现象，必须事先讲清，否则会被当成删除失败 -->
+            <div v-if="purgeData?.rule?.note" class="purge-rule-line purge-rule-note"><b>为什么名单会变：</b>{{ purgeData.rule.note }}</div>
           </div>
 
           <div class="purge-toolbar">
@@ -968,13 +978,13 @@ const jumpToPlayer = (username) => {
               </div>
             </div>
           </div>
-        </div>
+          </div>
 
-        <!-- 底部固定操作栏：置于 .modal-body 之外，无论名单/结果多长都不会被滚出视口。
+          <!-- 底部固定操作栏：置于 .modal-body 之外，无论名单/结果多长都不会被滚出视口。
              可见性只看 purgeData（而非 !purgeScanning）：删除成功后的自动重扫会让
              purgeScanning 短暂为 true，若据此隐藏，操作栏会在流程中途闪没。
              重扫期间用 disabled 表达不可操作，而不是把它整个抽走。 -->
-        <div v-if="purgeData && purgeRows.length > 0" class="purge-footer">
+          <div v-if="purgeData && purgeRows.length > 0" class="purge-footer">
           <!-- 分批失败等错误紧贴它所阻断的按钮，避免用户只看到按钮却不知为何失败 -->
           <div v-if="purgeError" class="purge-footer-error">{{ purgeError }}</div>
           <span class="purge-footer-count">
@@ -991,9 +1001,10 @@ const jumpToPlayer = (username) => {
           >
             {{ purgeExecuting ? (purgeProgress ? `删除中 ${purgeProgress.batchIndex}/${purgeProgress.batchTotal} 批...` : '删除中...') : (purgeScanning ? '扫描中...' : `确认删除 ${purgeSelCount} 个账号`) }}
           </button>
+          </div>
         </div>
-      </div>
-    </div>
+        </div>
+    </Teleport>
   </div>
 </template>
 
@@ -1605,7 +1616,10 @@ const jumpToPlayer = (username) => {
   justify-content: center;
   /* 遮罩留边，配合 .modal 的 max-height 保证模态框永远完整落在视口内 */
   padding: 24px;
-  z-index: 1000;
+  /* Teleport 到 body 后，本元素与 body 下其他定位元素直接比较层级，不再受
+     .content-area 局部栈保护。取 10001：高于移动端侧边栏弹层(.mobile-more-overlay 10000)
+     与顶部导航(.console-nav 1000)，并与项目其他页面模态框(10000 量级)保持一致。 */
+  z-index: 10001;
 }
 .modal {
   background: var(--bg-secondary);
@@ -1692,6 +1706,13 @@ const jumpToPlayer = (username) => {
   line-height: 1.5;
 }
 .purge-rule-line b { color: var(--text-primary); font-weight: 600; }
+/* 「为什么名单会变」：删除会解散关联组、使残留账号失去小号属性，属正常现象，需醒目标注 */
+.purge-rule-note {
+  color: var(--text-secondary);
+  border-top: 1px dashed var(--border-color);
+  padding-top: 4px;
+  margin-top: 2px;
+}
 
 .purge-toolbar {
   display: flex;

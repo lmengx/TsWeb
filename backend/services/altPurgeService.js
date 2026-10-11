@@ -134,7 +134,11 @@ export async function findAltPurgeCandidates({ days, serverId = '' } = {}) {
       protectedGroups: '组名含 admin / owner / superadmin 的管理组账号',
       qqBound: '已绑定 QQ 的账号',
       scope: '仅删除该账号所在的那一台服；只删 TShock 账号行，保留角色存档与封禁记录',
-      recheck: '执行前会按同样的条件复检一次，不再满足条件的账号不会删除'
+      recheck: '执行前会按同样的条件复检一次，不再满足条件的账号不会删除',
+      // 删除会改变剩余账号的属性：小号判定依赖「在关联组内」，组内成员被删光后会解散，
+      // 残留账号因此失去 alt 属性（仍在账号表中，只是变成游客）。名单在两次扫描间变化
+      // 是正常现象，不是删除失败，必须显式说明，否则用户会反复重试并撞上 404。
+      note: '小号判定依赖「在关联组内」。删除组内其他账号后，关联组可能解散，残留账号会失去小号属性（账号仍在，属性变为游客），因此重新扫描时名单会变化，这是正常现象'
     }
   }
 }
@@ -169,17 +173,48 @@ export async function executeAltPurge({ items = [], days } = {}) {
 
   const targets = []
   const skipped = []
+  // 复检时账号是否还存在于账号表：用于区分「已被删掉」和「还在、只是属性变了」。
+  // 该查询要拉全量账号（跨服），只在真正需要时执行一次，并缓存结果复用：
+  // 大多数情况下 deleted 会让 why 有值或全部命中候选，用不到它，不该无条件付出这个开销。
+  let presentNowPromise = null
+  const getPresentNow = () => {
+    if (!presentNowPromise) {
+      presentNowPromise = (async () => {
+        const set = new Set()
+        try {
+          const all = await getAllFiltered({})
+          for (const a of all.accounts || []) set.add(keyOf(a.serverId, a.username))
+        } catch {
+          // 查不到 → 无法判定存在性，措辞回落到保守那一种
+        }
+        return set
+      })()
+    }
+    return presentNowPromise
+  }
+
   for (const [key, item] of wanted) {
     const hit = freshByKey.get(key)
     if (!hit) {
       const why = fresh.reasons.get(key)
       const info = fresh.index.get(key)
+      // 关键区分：账号还在、只是不再满足 alt 条件 —— 关联组被删散后会大量出现这种情况。
+      // 若笼统说成「已不存在」，用户会以为自己删失败了，反复重试（而重试必然 404）。
+      let reason
+      if (why) {
+        reason = `复检未通过：${why}`
+      } else {
+        const presentNow = await getPresentNow()
+        reason = presentNow.has(key)
+          ? '复检未通过：账号仍存在，但已不再满足小号条件（关联组被删除后解散，属性已改变）'
+          : '复检未通过：账号已不存在（可能已被本轮或此前的清理删除）'
+      }
       skipped.push({
         ...item,
         serverName: info?.serverName || '',
         group: info?.group || '',
         lastAccess: info?.lastAccess || '',
-        reason: why ? `复检未通过：${why}` : '复检未通过：账号已不存在或不再是候选'
+        reason
       })
       continue
     }
