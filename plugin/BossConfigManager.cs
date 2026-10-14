@@ -65,7 +65,8 @@ namespace TShockData
         public string ServerStartTime { get; set; } = "";
 
         /// <summary>解锁计划（通用表）：档名 → 开服后第 N 天 HH:mm 解锁</summary>
-        [JsonProperty("TimeSchedule")]
+        // 读取时替换列表，避免 JSON.NET 向默认两项后追加配置中的计划。
+        [JsonProperty("TimeSchedule", ObjectCreationHandling = ObjectCreationHandling.Replace)]
         public List<TimeScheduleItem> TimeSchedule { get; set; } = new()
         {
             // 默认配置：开服后第二天中午 12:00 开肉山，第三天早上 06:00 开教徒
@@ -164,6 +165,7 @@ namespace TShockData
         {
             try
             {
+                NormalizeSchedule();
                 var directory = Path.GetDirectoryName(ConfigPath);
                 if (!Directory.Exists(directory))
                     Directory.CreateDirectory(directory);
@@ -175,6 +177,25 @@ namespace TShockData
             {
                 TShock.Log.ConsoleError($"[TSWeb] 保存Boss配置失败: {ex.Message}");
             }
+        }
+
+        /// <summary>清理历史重复计划；与时间锁缓存一致，同名档保留最后一项。</summary>
+        private static void NormalizeSchedule()
+        {
+            var schedule = Config.TimeSchedule;
+            var normalized = new List<TimeScheduleItem>();
+            var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (schedule != null)
+            {
+                for (var i = schedule.Count - 1; i >= 0; i--)
+                {
+                    var item = schedule[i];
+                    if (item == null || string.IsNullOrWhiteSpace(item.Name)) continue;
+                    if (names.Add(item.Name)) normalized.Add(item);
+                }
+            }
+            normalized.Reverse();
+            Config.TimeSchedule = normalized;
         }
 
         public static BossConfig GetConfig()
@@ -277,7 +298,7 @@ namespace TShockData
                         {
                             // 校验：档名非空、Day ≥ 1、Time 为 HH:mm
                             parsed.RemoveAll(s =>
-                                string.IsNullOrWhiteSpace(s.Name) ||
+                                s == null || string.IsNullOrWhiteSpace(s.Name) ||
                                 s.Day < 1 ||
                                 !TimeSpan.TryParse(s.Time, out _));
                             Config.TimeSchedule = parsed;
