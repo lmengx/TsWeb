@@ -107,6 +107,10 @@ export const AUDIT_EVENTS = {
     level: 'info', category: 'config', title: '修改 BOSS 配置',
     fields: ['serverId', 'actor'], ip: false, sensitive: []
   },
+  'config.boss.summon': {
+    level: 'info', category: 'config', title: '设置 Boss 召唤许可',
+    fields: ['action', 'policy', 'serverId', 'actor'], ip: false, sensitive: []
+  },
   'config.promotion.set': {
     level: 'info', category: 'config', title: '修改权限提升配置',
     fields: ['serverId', 'actor'], ip: false, sensitive: []

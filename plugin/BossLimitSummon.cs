@@ -1,7 +1,9 @@
 using System.Reflection;
 using MonoMod.RuntimeDetour;
 using Terraria;
+using Terraria.ID;
 using TShockAPI;
+using TerrariaApi.Server;
 
 namespace TShockData;
 
@@ -9,6 +11,20 @@ public static class BossLimitSummon
 {
     private static Hook? _hook;
     private static bool _initialized;
+    private static TerrariaPlugin? _plugin;
+    private static readonly Dictionary<string, int> EventBosses = new()
+    {
+        { "哀木", NPCID.MourningWood },
+        { "南瓜王", NPCID.Pumpking },
+        { "常绿尖叫怪", NPCID.Everscream },
+        { "圣诞坦克", NPCID.SantaNK1 },
+        { "冰雪女王", NPCID.IceQueen },
+        { "荷兰飞盗船", NPCID.PirateShip },
+        { "火星飞碟", NPCID.MartianSaucerCore },
+        { "贝蒂", NPCID.DD2Betsy },
+        { "黑暗魔法师", NPCID.DD2DarkMageT1 },
+        { "食人魔", NPCID.DD2OgreT2 }
+    };
 
     private delegate bool OrigHandleSpawnBoss(GetDataHandlerArgs args);
 
@@ -31,11 +47,69 @@ public static class BossLimitSummon
 
     public static void Dispose()
     {
+        if (_plugin != null)
+        {
+            ServerApi.Hooks.NpcSpawn.Deregister(_plugin, OnNpcSpawn);
+            _plugin = null;
+        }
         if (!_initialized) return;
         _hook?.Dispose();
         _hook = null;
         _initialized = false;
         TShock.Log.ConsoleInfo("[BossLimitSummon] Boss 召唤限制已卸载");
+    }
+
+    public static void RegisterSpawnHook(TerrariaPlugin plugin)
+    {
+        if (_plugin != null) return;
+        _plugin = plugin;
+        ServerApi.Hooks.NpcSpawn.Register(plugin, OnNpcSpawn);
+    }
+
+    public static bool? GetManualPolicy(int npcNetId)
+    {
+        var name = GetBossName(npcNetId);
+        var rules = BossConfigManager.Config.BossSummonOverrides;
+        return name != null && rules != null && rules.TryGetValue(name, out var allowed) ? allowed : null;
+    }
+
+    public static string[] GetBossNames() => BossTimeLock.GetBossNames().Concat(EventBosses.Keys).ToArray();
+
+    private static string? GetBossName(int npcNetId)
+    {
+        npcNetId = npcNetId switch
+        {
+            NPCID.SkeletronHand => NPCID.SkeletronHead,
+            NPCID.PrimeCannon or NPCID.PrimeSaw or NPCID.PrimeVice or NPCID.PrimeLaser => NPCID.SkeletronPrime,
+            NPCID.GolemHead or NPCID.GolemHeadFree or NPCID.GolemFistLeft or NPCID.GolemFistRight => NPCID.Golem,
+            NPCID.CultistBossClone => NPCID.CultistBoss,
+            NPCID.PumpkingBlade => NPCID.Pumpking,
+            NPCID.PirateShipCannon => NPCID.PirateShip,
+            NPCID.MartianSaucer or NPCID.MartianSaucerTurret or NPCID.MartianSaucerCannon => NPCID.MartianSaucerCore,
+            NPCID.DD2DarkMageT3 => NPCID.DD2DarkMageT1,
+            NPCID.DD2OgreT3 => NPCID.DD2OgreT2,
+            _ => npcNetId
+        };
+        var name = BossTimeLock.GetBossNameByNpcId(npcNetId);
+        if (name != null) return name;
+        foreach (var boss in EventBosses)
+            if (boss.Value == npcNetId) return boss.Key;
+        return null;
+    }
+
+    private static void OnNpcSpawn(NpcSpawnEventArgs args)
+    {
+        var npc = Main.npc[args.NpcId];
+        if (npc == null || !npc.active || GetManualPolicy(npc.netID) != false) return;
+
+        // 覆盖祭坛、巫毒娃娃、自然生成等不走玩家召唤包的路径。
+        npc.active = false;
+        npc.life = 0;
+        TSPlayer.All.SendData(PacketTypes.NpcUpdate, "", args.NpcId);
+        // 分段、手臂等附属 NPC 一并移除，但不为每段重复提示。
+        if (npc.boss || EventBosses.Values.Contains(npc.netID))
+            TShock.Utils.Broadcast($"[Boss 召唤限制] {GetBossName(npc.netID)} 已被管理员禁止召唤",
+                Microsoft.Xna.Framework.Color.OrangeRed);
     }
 
     private static bool OnHandleSpawnBoss(OrigHandleSpawnBoss orig, GetDataHandlerArgs args)
@@ -53,6 +127,15 @@ public static class BossLimitSummon
 
         string playerName = args.Player?.Name ?? "???";
         var config = BossConfigManager.Config;
+
+        var manualPolicy = GetManualPolicy(thingType);
+        if (manualPolicy == false)
+        {
+            args.Player.SendErrorMessage($"{GetBossName(thingType)} 已被管理员禁止召唤");
+            return true;
+        }
+        if (manualPolicy == true)
+            return orig(args);
 
         // 时间锁优先：未解锁档的 BOSS 召唤直接拦截（对玩家召唤包生效）
         if (BossTimeLock.TryBlockSpawn(args.Player, thingType))

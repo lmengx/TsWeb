@@ -193,10 +193,22 @@ public static class BossTimeLock
     /// <summary>NPCID → 档名；未在进度档内的 BOSS 返回 null（不拦截）</summary>
     public static string? GetBossNameByNpcId(int npcNetId)
     {
+        // 同一个 Boss 的另一只眼睛及分段共用一条手动设置。
+        npcNetId = npcNetId switch
+        {
+            NPCID.Spazmatism => NPCID.Retinazer,
+            NPCID.EaterofWorldsBody or NPCID.EaterofWorldsTail => NPCID.EaterofWorldsHead,
+            NPCID.TheDestroyerBody or NPCID.TheDestroyerTail => NPCID.TheDestroyer,
+            NPCID.WallofFleshEye => NPCID.WallofFlesh,
+            NPCID.MoonLordHead or NPCID.MoonLordHand => NPCID.MoonLordCore,
+            _ => npcNetId
+        };
         foreach (var kv in BossNameToNpcId)
             if (kv.Value == npcNetId) return kv.Key;
         return null;
     }
+
+    public static string[] GetBossNames() => BossNameToNpcId.Keys.ToArray();
 
     /// <summary>按 NPCID 判定该 BOSS 是否处于时间锁锁定状态（召唤/生成拦截用）</summary>
     public static bool IsNpcTimelocked(int npcNetId)
@@ -216,6 +228,7 @@ public static class BossTimeLock
         {
             var npc = Main.npc[args.NpcId];
             if (npc == null || !npc.active || !npc.boss) return;
+            if (BossLimitSummon.GetManualPolicy(npc.netID) == true) return;
             if (!IsNpcTimelocked(npc.netID)) return;
 
             var name = GetBossNameByNpcId(npc.netID);

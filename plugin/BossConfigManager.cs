@@ -31,6 +31,10 @@ namespace TShockData
         [JsonProperty("新BOSS召唤最低人数")]
         public int BossLimitMinPlayers { get; set; } = 7;
 
+        /// <summary>按 Boss 名保存手动召唤设置：true=允许，false=禁止，未配置=按原规则。</summary>
+        [JsonProperty("BossSummonOverrides", ObjectCreationHandling = ObjectCreationHandling.Replace)]
+        public Dictionary<string, bool> BossSummonOverrides { get; set; } = new();
+
         [JsonProperty("QuitLimitEnabled")]
         public bool QuitLimitEnabled { get; set; } = false;
 
@@ -129,6 +133,7 @@ namespace TShockData
             Ensure(obj, "Boss限制模式", "disabled");
             Ensure(obj, "BOSS限制", false);
             Ensure(obj, "新BOSS召唤最低人数", 7);
+            Ensure(obj, "BossSummonOverrides", new Dictionary<string, bool>());
             Ensure(obj, "QuitLimitEnabled", false);
             Ensure(obj, "LateCompEnabled", false);
             Ensure(obj, "GhostRespawnSeconds", 20);
@@ -161,7 +166,9 @@ namespace TShockData
             });
         }
 
-        public static void SaveConfig()
+        public static void SaveConfig() => TrySaveConfig();
+
+        private static bool TrySaveConfig()
         {
             try
             {
@@ -172,10 +179,12 @@ namespace TShockData
 
                 var json = JsonConvert.SerializeObject(Config, Formatting.Indented);
                 File.WriteAllText(ConfigPath, json);
+                return true;
             }
             catch (Exception ex)
             {
                 TShock.Log.ConsoleError($"[TSWeb] 保存Boss配置失败: {ex.Message}");
+                return false;
             }
         }
 
@@ -216,6 +225,12 @@ namespace TShockData
                 bossLimitMode = Config.BossLimitMode,
                 bossLimitEnabled = Config.BossLimitEnabled,
                 bossLimitMinPlayers = Config.BossLimitMinPlayers,
+                summonRules = BossLimitSummon.GetBossNames().Select(name => new
+                {
+                    name,
+                    policy = Config.BossSummonOverrides != null && Config.BossSummonOverrides.TryGetValue(name, out var allowed)
+                        ? (allowed ? "allow" : "deny") : "auto"
+                }).ToArray(),
                 quitLimitEnabled = Config.QuitLimitEnabled,
                 lateCompEnabled = Config.LateCompEnabled,
                 ghostRespawnSeconds = Config.GhostRespawnSeconds,
@@ -233,6 +248,11 @@ namespace TShockData
         {
             try
             {
+                // 单个与全部共用一次写入；全部操作只记录一条日志。
+                var summonTarget = args.Parameters["summonTarget"];
+                if (!string.IsNullOrEmpty(summonTarget))
+                    return SetSummonPolicy(summonTarget, args.Parameters["summonPolicy"], args.Parameters["actor"]);
+
                 var blm = args.Parameters["bossLimitMode"];
                 if (!string.IsNullOrEmpty(blm))
                 {
@@ -311,7 +331,8 @@ namespace TShockData
                     }
                 }
 
-                SaveConfig();
+                if (!TrySaveConfig())
+                    return new { status = "500", error = "Boss 配置保存失败" };
                 // 解锁时间缓存重算（计划/开服时间变化后立即生效）
                 BossTimeLock.RebuildCache();
                 TShock.Log.ConsoleInfo($"[TSWeb] REST 更新Boss配置: mode={Config.BossLimitMode}, minPlayers={Config.BossLimitMinPlayers}, ghostMode={Config.QuitLimitEnabled}({Config.GhostRespawnSeconds}s), lateComp={Config.LateCompEnabled}, timeLock={Config.TimeLockEnabled}");
@@ -321,6 +342,34 @@ namespace TShockData
             {
                 return new { status = "500", error = ex.Message };
             }
+        }
+
+        private static object SetSummonPolicy(string target, string policy, string actor)
+        {
+            var names = BossLimitSummon.GetBossNames();
+            if (target != "all" && !names.Contains(target))
+                return new { status = "400", error = "未知 Boss" };
+            if (policy != "allow" && policy != "deny" && policy != "auto")
+                return new { status = "400", error = "召唤设置必须为 allow、deny 或 auto" };
+
+            var previous = Config.BossSummonOverrides ?? new Dictionary<string, bool>();
+            var updated = new Dictionary<string, bool>(previous);
+            foreach (var name in target == "all" ? names : new[] { target })
+            {
+                if (policy == "auto") updated.Remove(name);
+                else updated[name] = policy == "allow";
+            }
+            Config.BossSummonOverrides = updated;
+            if (!TrySaveConfig())
+            {
+                Config.BossSummonOverrides = previous;
+                return new { status = "500", error = "Boss 召唤设置保存失败" };
+            }
+
+            var action = policy == "allow" ? "允许召唤" : policy == "deny" ? "禁止召唤" : "恢复按原规则召唤";
+            var displayTarget = target == "all" ? "全部 Boss" : target;
+            TShock.Log.ConsoleInfo($"[BossLimitSummon] {actor ?? "管理员"} 将{displayTarget}设置为{action}");
+            return new { status = "200", message = $"{displayTarget}已{action}", target, policy };
         }
     }
 }

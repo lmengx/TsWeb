@@ -31,6 +31,7 @@ public static class BossLimit
     /// </summary>
     public static void InitQuit(TerrariaPlugin plugin)
     {
+        BossLimitSummon.RegisterSpawnHook(plugin);
         BossLimitQuit.Initialize(plugin);
     }
 

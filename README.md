@@ -32,7 +32,7 @@ frontend/  Vue 3 + Vite —— 管理面板（console 视图 + 设置页）
 | **QQ 机器人** | `QQ.cs` / `AccountSync` | `botRoutes` / `qqAccountService` / `QQConfigView.vue` | QQ 绑定账号、查询玩家数据、绑定流程、多服时长聚合 |
 | **跨服传送** | `CrossTransfer`（Unused15 自定义包通道 + Auth 密钥 + 前置握手） | `crossTransferRoutes` / `CrossTransferView.vue` | 多服间玩家传送，前端可配置、连通性探测 |
 | **自动备份** | `AutoBackup` | `BackupSettingsView.vue` | 地图 + sqlite 压缩包备份，可选 webhook 推送后端 |
-| **Boss 管理** | `BossLimit` / `BossConfigManager` / `BossProgress` | `BossLimitSettingsView.vue` / `ProgressView.vue` | Boss 进度查询、Boss 限制（召唤限制）、配置管理 |
+| **Boss 管理** | `BossLimit` / `BossConfigManager` / `BossProgress` | `BossLimitSettingsView.vue` / `ProgressView.vue` | 召唤限制（单个/全部 Boss 手动允许、禁止或按原规则，含人数与时间锁）与防逃课（死亡幽灵、晚入补偿）分为两页签，默认召唤限制；操作记入日志，全部操作只记一条 |
 | **风控宵禁** | `RiskControl` / `Curfew` | `RiskControlSettingsView.vue` / `CurfewSettingsView.vue` | 实时风控（进服/发言/命令拦截、一键踢出）、宵禁（条目化排期 + 豁免组） |
 | **自动任务** | `TaskScheduler` | `tasksApi.js` / `TasksView.vue` | 条件触发（在线人数/Boss 击败/指定玩家）+ 顺序/并发执行 + 执行日志 |
 | 表情指令 | `EmoteCommandManager` | `EmoteCommandView.vue` | 玩家发表情时执行指定指令 |

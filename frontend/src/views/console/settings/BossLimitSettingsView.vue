@@ -1,11 +1,14 @@
 <script setup>
-import { ref, onMounted, watch, onUnmounted } from 'vue'
+import { ref, computed, onMounted, watch, onUnmounted, nextTick } from 'vue'
 import { get, post } from '../../../utils/api.js'
 import Loading from '../../../components/Loading.vue'
 
 const loading = ref(true)
 const error = ref('')
 const success = ref('')
+const activeTab = ref('summon')
+const summonRules = ref([])
+const summonSaving = ref(false)
 let saveTimer = null
 let ready = false
 
@@ -29,10 +32,64 @@ const statusLoading = ref(false)
 let statusTimer = null
 
 const bossModeOptions = [
-  { value: 'disabled', label: '不做任何限制' },
+  { value: 'disabled', label: '不限制人数与击杀进度' },
   { value: 'playerlimit', label: '按最低人数限制' },
   { value: 'killrequired', label: '不允许召唤未击败的 Boss' }
 ]
+
+const summonPolicyOptions = [
+  { value: 'auto', label: '按原规则' },
+  { value: 'allow', label: '允许召唤' },
+  { value: 'deny', label: '禁止召唤' }
+]
+
+const bossIcons = {
+  '史莱姆王': 'King_Slime.png', '克苏鲁之眼': 'Eye_of_Cthulhu.png',
+  '世界吞噬者': 'Eater_of_Worlds.webp', '克苏鲁之脑': 'Brain_of_Cthulhu.png',
+  '蜂后': 'QueenBee.png', '巨鹿': 'Deerclops.png', '骷髅王': 'Skeletron.png',
+  '血肉墙': 'Wall_of_Flesh.png', '史莱姆皇后': 'Queen_Slime.png',
+  '毁灭者': 'The_Destroyer.png', '机械骷髅王': 'Skeletron_Prime.png',
+  '双子魔眼': 'The_Twins.png', '世纪之花': 'Plantera.png', '石巨人': 'Golem.png',
+  '猪龙鱼公爵': 'Duke_Fishron.png', '光之女皇': 'Empress_of_Light.png',
+  '拜月教教徒': 'Lunatic_Cultist.png', '月亮领主': 'Moon_Lord.png',
+  '哀木': 'Mourning_Wood.png', '南瓜王': 'Pumpking.png',
+  '常绿尖叫怪': 'Everscream.png', '圣诞坦克': 'Santa_NK1.png',
+  '冰雪女王': 'Ice_Queen.png', '荷兰飞盗船': 'Flying_Dutchman.png',
+  '火星飞碟': 'Martian_Saucer.png'
+}
+const summonSearch = ref('')
+const policyLabel = policy => summonPolicyOptions.find(option => option.value === policy)?.label || '按原规则'
+const policyCounts = computed(() => Object.fromEntries(summonPolicyOptions.map(option => [
+  option.value, summonRules.value.filter(rule => rule.policy === option.value).length
+])))
+const summonGroups = computed(() => {
+  const query = summonSearch.value.trim()
+  const matches = summonRules.value.filter(rule => rule.name.includes(query))
+  return [
+    { name: '主线 Boss', description: '从史莱姆王到月亮领主', rules: matches.filter(rule => bossNameOptions.includes(rule.name)) },
+    { name: '事件与特殊 Boss', description: '入侵、节日与特殊挑战', rules: matches.filter(rule => !bossNameOptions.includes(rule.name)) }
+  ].filter(group => group.rules.length)
+})
+
+const setSummonPolicy = async (target, policy) => {
+  if (summonSaving.value) return
+  summonSaving.value = true
+  error.value = ''
+  success.value = ''
+  try {
+    const res = await post('/api/config/boss', { summonTarget: target, summonPolicy: policy })
+    const data = await res.json()
+    if (data.status !== '200') throw new Error(data.error || '保存失败')
+    summonRules.value = summonRules.value.map(rule => target === 'all' || rule.name === target
+      ? { ...rule, policy } : rule)
+    success.value = data.message || '已保存'
+    setTimeout(() => { success.value = '' }, 1500)
+  } catch (err) {
+    error.value = '保存失败: ' + err.message
+  } finally {
+    summonSaving.value = false
+  }
+}
 
 // 进度档名（与反作弊进度档一致，供解锁计划下拉选择）
 const bossNameOptions = [
@@ -105,11 +162,14 @@ const fetchBossLimitStatus = async () => {
 }
 
 const fetchConfig = async () => {
+  ready = false
   loading.value = true
   error.value = ''
   try {
     const res = await get('/api/config/boss')
     const data = await res.json()
+    if (data.status !== '200') throw new Error(data.error || '加载失败')
+    if (Array.isArray(data.summonRules)) summonRules.value = data.summonRules
     if (data.bossLimitMode !== undefined) bossLimitMode.value = data.bossLimitMode
     if (data.bossLimitMinPlayers !== undefined) bossLimitMinPlayers.value = data.bossLimitMinPlayers
     if (data.quitLimitEnabled !== undefined) quitLimitEnabled.value = data.quitLimitEnabled
@@ -125,10 +185,12 @@ const fetchConfig = async () => {
     if (data.worldId !== undefined) worldId.value = data.worldId
     if (data.blockLockedBossSpawn !== undefined) blockLockedBossSpawn.value = data.blockLockedBossSpawn
     if (Array.isArray(data.timeSchedule)) timeSchedule.value = data.timeSchedule
+    // 等配置赋值引发的 watch 执行完毕，避免加载页面也触发保存及审计。
+    await nextTick()
+    ready = true
   } catch (err) {
     error.value = '加载配置失败: ' + err.message
   }
-  ready = true
   loading.value = false
 
   // 加载 bosslimit 活跃追踪状态
@@ -203,6 +265,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  clearTimeout(saveTimer)
   if (statusTimer) clearInterval(statusTimer)
 })
 </script>
@@ -212,7 +275,71 @@ onUnmounted(() => {
     <Loading v-if="loading" text="加载中..." />
 
     <div v-else class="settings-content">
+      <div class="page-heading">
+        <div>
+          <h2>Boss 限制</h2>
+          <p>管理召唤许可、解锁进度与战斗规则</p>
+        </div>
+        <span class="autosave-note"><span></span>修改后自动保存</span>
+      </div>
+      <div class="settings-tabs" role="tablist" aria-label="Boss 限制设置">
+        <button id="boss-summon-tab" type="button" role="tab" :aria-selected="activeTab === 'summon'"
+          aria-controls="boss-summon-panel" :class="{ active: activeTab === 'summon' }"
+          @click="activeTab = 'summon'">召唤限制</button>
+        <button id="boss-prevention-tab" type="button" role="tab" :aria-selected="activeTab === 'prevention'"
+          aria-controls="boss-prevention-panel" :class="{ active: activeTab === 'prevention' }"
+          @click="activeTab = 'prevention'">防逃课</button>
+      </div>
       <div class="settings-grid">
+        <div v-show="activeTab === 'summon'" id="boss-summon-panel" class="settings-grid"
+          role="tabpanel" aria-labelledby="boss-summon-tab">
+        <div class="section-card summon-section">
+          <div class="summon-heading">
+            <div>
+              <h3>手动召唤许可 <span class="total-count">{{ summonRules.length }} 位 Boss</span></h3>
+              <p class="section-desc">为每一场挑战，设定合适的开启时机。</p>
+            </div>
+            <div v-if="summonRules.length" class="policy-overview" aria-label="召唤策略统计">
+              <span v-for="option in summonPolicyOptions" :key="option.value" :class="option.value">
+                <i></i>{{ option.label }} <b>{{ policyCounts[option.value] }}</b>
+              </span>
+            </div>
+          </div>
+          <div v-if="summonRules.length" class="summon-toolbar">
+            <label class="boss-search">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>
+              <input v-model="summonSearch" type="search" placeholder="搜索 Boss 名称" aria-label="搜索 Boss 名称" />
+            </label>
+            <div class="summon-actions" aria-label="全部 Boss 操作">
+              <button type="button" class="bulk-button allow" :disabled="summonSaving" @click="setSummonPolicy('all', 'allow')">允许全部</button>
+              <button type="button" class="bulk-button deny" :disabled="summonSaving" @click="setSummonPolicy('all', 'deny')">禁止全部</button>
+              <button type="button" class="bulk-button auto" :disabled="summonSaving" @click="setSummonPolicy('all', 'auto')">全部按原规则</button>
+            </div>
+          </div>
+          <div class="summon-guide">允许召唤会跳过人数、击杀和时间限制；禁止召唤也会阻止自然生成。「按原规则」沿用下方设置。</div>
+          <section v-for="group in summonGroups" :key="group.name" class="boss-group">
+            <div class="boss-group-heading"><h4>{{ group.name }} <span>{{ group.rules.length }}</span></h4><span>{{ group.description }}</span></div>
+            <div class="summon-list">
+              <article v-for="rule in group.rules" :key="rule.name" class="boss-card" :class="'policy-' + rule.policy" :aria-label="rule.name">
+                <div class="boss-card-heading">
+                  <div class="boss-portrait" aria-hidden="true">
+                    <img v-if="bossIcons[rule.name]" :src="'/assets/img/Boss/' + bossIcons[rule.name]" alt="" />
+                    <svg v-else viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m24 5 15 9v18l-15 9-15-9V14z"/><path d="m17 19 7-6 7 6-2 12H19zM19 23h2m6 0h2m-8 6h6"/></svg>
+                  </div>
+                  <div class="boss-card-info"><h5>{{ rule.name }}</h5><span class="policy-status"><i></i>{{ policyLabel(rule.policy) }}</span></div>
+                </div>
+                <div class="policy-control" role="group" :aria-label="rule.name + '召唤策略'">
+                  <button v-for="opt in summonPolicyOptions" :key="opt.value" type="button"
+                    :class="[opt.value, { selected: rule.policy === opt.value }]" :aria-pressed="rule.policy === opt.value"
+                    :aria-label="rule.name + '：' + opt.label" :disabled="summonSaving"
+                    @click="setSummonPolicy(rule.name, opt.value)">{{ opt.value === 'auto' ? '按原规则' : opt.value === 'allow' ? '允许' : '禁止' }}</button>
+                </div>
+              </article>
+            </div>
+          </section>
+          <p v-if="summonRules.length && !summonGroups.length" class="search-empty">没有找到对应的 Boss，试试其他名称。</p>
+          <p v-if="!summonRules.length" class="section-desc">当前服务器未提供手动召唤设置，请先更新 TSWeb 插件。</p>
+        </div>
         <!-- Boss 限制 -->
         <div class="section-card">
           <h3>Boss 召唤限制</h3>
@@ -325,6 +452,9 @@ onUnmounted(() => {
           </div>
         </div>
 
+        </div>
+        <div v-show="activeTab === 'prevention'" id="boss-prevention-panel" class="settings-grid"
+          role="tabpanel" aria-labelledby="boss-prevention-tab">
         <!-- BOSS 死亡幽灵模式 + 晚入补偿 -->
         <div class="section-card">
           <h3>BOSS 死亡幽灵模式 & 晚入补偿</h3>
@@ -398,6 +528,7 @@ onUnmounted(() => {
             当前无活跃 Boss 战
           </div>
         </div>
+        </div>
       </div>
 
       <!-- Toast 通知 -->
@@ -428,13 +559,136 @@ onUnmounted(() => {
 }
 
 .settings-content {
-  max-width: 700px;
+  max-width: 1180px;
 }
+
+.page-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 24px; }
+.page-heading h2 { margin: 0 0 6px; font-size: 1.5rem; color: var(--text-primary); letter-spacing: -.03em; }
+.page-heading p { margin: 0; color: var(--text-secondary); font-size: .85rem; }
+.autosave-note { display: flex; align-items: center; gap: 7px; color: var(--text-muted); font-size: .75rem; white-space: nowrap; }
+.autosave-note > span { width: 5px; height: 5px; border-radius: 50%; background: var(--accent-secondary); }
 
 .settings-grid {
   display: flex;
   flex-direction: column;
   gap: 20px;
+}
+
+.settings-tabs {
+  display: flex;
+  gap: 4px;
+  width: fit-content;
+  padding: 4px;
+  margin-bottom: 20px;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: var(--bg-secondary);
+}
+
+.settings-tabs button {
+  padding: 10px 26px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.settings-tabs button.active {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+  box-shadow: 0 2px 6px #00000012;
+}
+
+.summon-section { background: linear-gradient(135deg, color-mix(in srgb, var(--accent-primary) 5%, transparent), transparent 40%), var(--bg-card); }
+.summon-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; flex-wrap: wrap; }
+.total-count { display: inline-block; margin-left: 8px; padding: 3px 8px; border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-secondary); font-size: .7rem; font-weight: 400; vertical-align: middle; }
+.policy-overview { display: flex; flex-wrap: wrap; gap: 16px; font-size: .75rem; color: var(--text-secondary); padding-top: 5px; }
+.policy-overview > span { display: flex; align-items: center; gap: 6px; }
+.policy-overview b { color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.policy-overview i, .policy-status i { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+.policy-overview .auto i { color: var(--text-muted); }
+.policy-overview .allow i { color: var(--accent-secondary); }
+.policy-overview .deny i { color: var(--accent-error); }
+.summon-toolbar { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; padding: 16px 0; border-top: 1px solid var(--border-light); }
+.boss-search { display: flex; align-items: center; gap: 8px; padding: 0 12px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-secondary); width: 245px; max-width: 100%; }
+.boss-search svg { width: 17px; height: 17px; flex-shrink: 0; color: var(--text-muted); }
+.boss-search input { width: 100%; min-width: 0; padding: 10px 0; color: var(--text-primary); border: 0; outline: 0; background: transparent; font: inherit; font-size: .8rem; }
+.boss-search:focus-within { border-color: var(--accent-primary); }
+.summon-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.bulk-button { padding: 9px 13px; border: 1px solid var(--border-color); border-radius: 8px; font: inherit; font-size: .78rem; cursor: pointer; background: var(--bg-tertiary); color: var(--text-secondary); }
+.bulk-button.allow { color: var(--accent-secondary); border-color: color-mix(in srgb, var(--accent-secondary) 25%, transparent); background: color-mix(in srgb, var(--accent-secondary) 8%, transparent); }
+.bulk-button.deny { color: var(--accent-error); border-color: color-mix(in srgb, var(--accent-error) 25%, transparent); background: color-mix(in srgb, var(--accent-error) 8%, transparent); }
+.bulk-button:hover { filter: brightness(1.15); }
+.summon-guide { padding: 11px 14px; border-left: 2px solid color-mix(in srgb, var(--accent-primary) 60%, transparent); border-radius: 0 6px 6px 0; background: color-mix(in srgb, var(--accent-primary) 6%, transparent); color: var(--text-secondary); font-size: .75rem; line-height: 1.8; }
+.boss-group { margin-top: 24px; }
+.boss-group-heading { display: flex; align-items: baseline; gap: 14px; margin-bottom: 12px; }
+.boss-group-heading h4 { margin: 0; color: var(--text-primary); font-size: .85rem; font-weight: 600; }
+.boss-group-heading h4 span { margin-left: 5px; color: var(--text-muted); font-size: .7rem; font-weight: 400; }
+.boss-group-heading > span { color: var(--text-muted); font-size: .7rem; }
+.summon-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.boss-card { --policy-color: var(--text-secondary); min-width: 0; padding: 15px; border: 1px solid var(--border-color); border-radius: 12px; background: var(--bg-secondary); transition: border-color .18s, background .18s; }
+.boss-card.policy-allow { --policy-color: var(--accent-secondary); border-color: color-mix(in srgb, var(--accent-secondary) 27%, var(--border-light)); }
+.boss-card.policy-deny { --policy-color: var(--accent-error); border-color: color-mix(in srgb, var(--accent-error) 27%, var(--border-light)); }
+.boss-card:hover { background: var(--bg-tertiary); border-color: color-mix(in srgb, var(--policy-color) 45%, var(--border-color)); }
+.boss-card-heading { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.boss-portrait { display: grid; place-items: center; width: 60px; height: 60px; flex-shrink: 0; border-radius: 10px; border: 1px solid var(--border-light); background: radial-gradient(ellipse at center, color-mix(in srgb, var(--accent-primary) 13%, transparent), transparent 75%), var(--bg-primary); }
+.boss-portrait img { max-width: 48px; max-height: 48px; width: auto; height: auto; object-fit: contain; image-rendering: pixelated; filter: drop-shadow(0 3px 4px #0004); }
+.boss-portrait svg { width: 38px; height: 38px; color: var(--text-muted); }
+.boss-card-info { min-width: 0; }
+.boss-card-info h5 { margin: 0 0 7px; color: var(--text-primary); font-size: .9rem; font-weight: 600; }
+.policy-status { display: flex; align-items: center; gap: 6px; font-size: .7rem; color: var(--policy-color); }
+.policy-control { display: grid; grid-template-columns: 1.3fr 1fr 1fr; gap: 3px; padding: 3px; background: var(--bg-primary); border: 1px solid var(--border-light); border-radius: 7px; }
+.policy-control button { padding: 6px 2px; border: 1px solid transparent; border-radius: 5px; font: inherit; font-size: .72rem; color: var(--text-muted); background: transparent; cursor: pointer; }
+.policy-control button:hover { color: var(--text-primary); background: var(--bg-hover); }
+.policy-control .selected { color: var(--text-primary); background: var(--bg-tertiary); border-color: var(--border-color); }
+.policy-control .allow.selected { color: var(--accent-secondary); background: color-mix(in srgb, var(--accent-secondary) 12%, transparent); border-color: color-mix(in srgb, var(--accent-secondary) 20%, transparent); }
+.policy-control .deny.selected { color: var(--accent-error); background: color-mix(in srgb, var(--accent-error) 12%, transparent); border-color: color-mix(in srgb, var(--accent-error) 20%, transparent); }
+.search-empty { padding: 30px 0 12px; color: var(--text-muted); text-align: center; font-size: .85rem; }
+button:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 3px; }
+
+@media (max-width: 1000px) { .summon-list { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 600px) {
+  .settings-page { padding: 12px; }
+  .section-card { padding: 18px !important; }
+  .page-heading { align-items: flex-start; }
+  .autosave-note { margin-top: 7px; font-size: .65rem; }
+  .page-heading p { max-width: 210px; line-height: 1.6; font-size: .78rem; }
+  .summon-heading { gap: 0; }
+  .policy-overview { margin-bottom: 18px; gap: 12px; }
+  .boss-search { width: 100%; }
+  .summon-actions { width: 100%; }
+  .bulk-button { flex: 1; padding-inline: 7px; white-space: nowrap; }
+  .summon-list { grid-template-columns: 1fr; gap: 10px; }
+  .boss-card { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+  .boss-card-heading { flex: 1; margin-bottom: 0; }
+  .boss-portrait { width: 52px; height: 52px; }
+  .boss-portrait img { max-width: 43px; max-height: 43px; }
+  .policy-control { width: 100%; }
+  .boss-group-heading { gap: 8px; }
+  .toggle-row { flex-wrap: wrap; }
+  .toggle-hint { min-width: 100px; }
+  .inline-control { flex-wrap: wrap; }
+  .text-input { min-width: 0; }
+  .schedule-row { flex-wrap: wrap; }
+  .schedule-status { flex-basis: 50%; text-align: left; }
+  .tracking-stat { padding: 12px 6px; }
+  .boss-track-row { flex-wrap: wrap; gap: 8px; }
+}
+
+.btn-secondary {
+  padding: 8px 16px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+button:disabled, select:disabled {
+  opacity: 0.55;
+  cursor: wait;
 }
 
 .section-card {

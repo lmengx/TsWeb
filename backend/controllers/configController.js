@@ -198,7 +198,23 @@ export const getBossConfig = async (req, res) => {
 
 export const setBossConfig = async (req, res) => {
   try {
-    const result = await tshockService.setBossConfig(req.body)
+    const actor = req.user?.username || '管理员'
+    const result = await tshockService.setBossConfig({ ...req.body, actor })
+    if (String(result.status) === '200') {
+      const context = { actor, serverId: req.headers['x-server-id'] }
+      if (req.body.summonTarget) {
+        // 批量设置只有一次请求、一个事件；不展开为逐 Boss 日志。
+        audit.safeRecord('config.boss.summon', {
+          ...context,
+          target: result.target === 'all' ? '全部 Boss' : result.target,
+          policy: result.policy,
+          action: { allow: '允许召唤', deny: '禁止召唤', auto: '按原规则' }[result.policy]
+        })
+      } else {
+        const { actor: ignoredActor, ...settings } = req.body
+        audit.safeRecord('config.boss.set', { ...context, detail: settings })
+      }
+    }
     res.json(result)
   } catch (error) {
     res.status(500).json({ status: '500', error: error.message })
